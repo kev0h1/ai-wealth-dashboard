@@ -3,6 +3,7 @@ import Link from "next/link";
 import { AlertCircle } from "lucide-react";
 import type { SafeToSpend } from "@/lib/api";
 import type { LeftToSpendEvidence } from "@/lib/leftToSpendEvidence";
+import type { CoverMoveEvidence } from "@/lib/coverMoveEvidence";
 import { DisclosureSummary } from "@/components/Disclosure";
 import MoneyText from "@/components/MoneyText";
 import styles from "./SafeToSpendDisclosures.module.css";
@@ -49,6 +50,7 @@ export default function SafeToSpendDisclosures({
   showCardsLink,
   reservationDetails,
   freshnessLabel,
+  earmarkedMoves = [],
 }: {
   disclaimer: string;
   data: SafeToSpendOk;
@@ -59,6 +61,7 @@ export default function SafeToSpendDisclosures({
   showCardsLink: boolean;
   reservationDetails: ReactNode;
   freshnessLabel: string | null;
+  earmarkedMoves?: CoverMoveEvidence[];
 }) {
   const growth = data.card_growth_total ?? 0;
   const purchases = data.card_new_spend_total ?? 0;
@@ -91,6 +94,9 @@ export default function SafeToSpendDisclosures({
         {evidence.cardGap !== null && <p><MoneyText text={`${format(0)} remains available above while an unconfirmed card repayment leaves a ${format(evidence.cardGap, true)} gap.`} /></p>}
         {evidence.heroShowsCashGap && <p>The estimate above shows the cash shortfall. A separate card hold can increase that gap.</p>}
         {reservationDetails}
+        {earmarkedMoves.length > 0 && <div data-g412-earmarks>
+          {earmarkedMoves.map(move => <p key={`${move.sourceId}:${move.destinationId}`}><MoneyText text={`${format(move.amount, true)} moving from ${move.sourceName} to ${move.destinationName} to cover its payments. This does not change the total.`} /></p>)}
+        </div>}
         {(data.pooled_transfers_excluded ?? 0) > 0 && <p>Transfers between your own included accounts do not change the total, so they are left out of this calculation.</p>}
         <dl className={styles.facts}>
           <Fact label="Daily amount">{evidence.dailyAmount === null ? "Not available" : <MoneyText text={`${format(evidence.dailyAmount, true)} a day`} />}</Fact>

@@ -1,0 +1,154 @@
+{
+  "name": "Dated card statement: the closed bill is a payment due before payday and spending after the close is not held",
+  "today": "2026-10-12",
+  "pay_period_config": {
+    "type": "last_friday"
+  },
+  "confirmed_income_streams": [],
+  "accounts": [
+    {
+      "_id": "acc-bc",
+      "name": "Example Current",
+      "provider": "barclays",
+      "type": "BANK",
+      "subtype": "TRANSACTION",
+      "balance": 1500.0,
+      "currency": "GBP",
+      "status": "connected",
+      "include_in_safe_to_spend": true
+    },
+    {
+      "_id": "acc-amex",
+      "name": "Example Rewards Card",
+      "provider": "amex",
+      "type": "CREDIT",
+      "subtype": "CREDIT_CARD",
+      "balance": -920.0,
+      "currency": "GBP",
+      "status": "connected",
+      "include_in_safe_to_spend": true
+    }
+  ],
+  "manual_accounts": [],
+  "cashflow_cache": {
+    "recurring_spend": [
+      {
+        "key": "COUNCIL TAX",
+        "avg_amount": 150.0,
+        "avg_interval": 30,
+        "next_date": "2026-10-20",
+        "account_id": "acc-bc",
+        "account_name": "Barclays Current",
+        "account_bank": "barclays",
+        "account_balance": 1500.0,
+        "is_credit_card": false,
+        "category": "Bills"
+      }
+    ],
+    "recurring_income": [
+      {
+        "key": "acme|payroll::acc-bc",
+        "display_name": "Acme Payroll",
+        "avg_amount": 3000.0,
+        "avg_interval": 30,
+        "next_date": "2026-10-30",
+        "account_id": "acc-bc",
+        "account_name": "Barclays Current",
+        "account_bank": "barclays",
+        "account_balance": 1500.0,
+        "category": "Income",
+        "occurrences": 3,
+        "amounts_recent": [
+          3000.0,
+          3000.0,
+          3000.0
+        ]
+      }
+    ],
+    "bnpl_commitments": [],
+    "avg_daily_spend": 0
+  },
+  "transactions": [
+    {
+      "account_id": "acc-amex",
+      "date": "2026-09-02",
+      "amount": 200.0,
+      "transaction_type": "debit",
+      "description": "HARDWARE STORE",
+      "merchant_name": "HARDWARE STORE",
+      "category": "Shopping"
+    },
+    {
+      "account_id": "acc-amex",
+      "date": "2026-09-10",
+      "amount": 400.0,
+      "transaction_type": "debit",
+      "description": "FURNITURE SHOP",
+      "merchant_name": "FURNITURE SHOP",
+      "category": "Shopping"
+    },
+    {
+      "account_id": "acc-amex",
+      "date": "2026-09-20",
+      "amount": 120.0,
+      "transaction_type": "debit",
+      "description": "GARAGE",
+      "merchant_name": "GARAGE",
+      "category": "Transport"
+    },
+    {
+      "account_id": "acc-amex",
+      "date": "2026-10-05",
+      "amount": 150.0,
+      "transaction_type": "debit",
+      "description": "SUPERMARKET",
+      "merchant_name": "SUPERMARKET",
+      "category": "Groceries"
+    },
+    {
+      "account_id": "acc-amex",
+      "date": "2026-10-09",
+      "amount": 50.0,
+      "transaction_type": "debit",
+      "description": "RESTAURANT",
+      "merchant_name": "RESTAURANT",
+      "category": "Eating Out"
+    }
+  ],
+  "commitments": [],
+  "allocations": [],
+  "card_terms": [
+    {
+      "account_id": "acc-amex",
+      "status": "confirmed",
+      "apr_pct": 22.9,
+      "promos": [],
+      "bt_offers": [],
+      "statement_close_day": 3,
+      "payment_due_day": 28,
+      "payment_due_days_after_close": null,
+      "payment_method": "full",
+      "payment_account_id": "acc-bc",
+      "fixed_payment_amount": null,
+      "usage": "clear_monthly"
+    }
+  ],
+  "expected": {
+    "left_to_spend": 630.0,
+    "accounts": {
+      "acc-bc": {
+        "spend_from": 630.0,
+        "after_payments": 630.0,
+        "low_point": 630.0,
+        "verdict": "covered"
+      }
+    },
+    "cover_plan": {
+      "moves_total": 0,
+      "moves": []
+    },
+    "payday_plan": null,
+    "at_risk_count": 0,
+    "notes": "Today is Mon 12 Oct 2026, pay is the last Friday (30 Oct), so the window is 12 Oct to 29 Oct. The card statement closes on the 3rd and its payment is due on the 28th by full Direct Debit from Example Current. The last close is 3 Oct (the previous one 3 Sep), so the statement runs 4 Sep to 3 Oct. The card balance is -920 and 150 + 50 = 200 was spent after the close, so the closed bill is 920 - 200 = 720 (opening 200 plus 400 and 120 in the statement). It is due on 28 Oct, before payday on 30 Oct, so it is a payment in this window. Council tax is 150 on 20 Oct. Cash: 1,500 - 150 = 1,350 after council tax, then - 720 on 28 Oct = 630 at the end and at the lowest point. The 200 spent since the close belongs to the next bill and is not held, so Left to spend is 630, not 430. Barclays spend from is 630 (the pool agrees), nothing is short, so no cover move and at risk 0. Period day 18, so no payday plan (companion.py shows one only from period day 3 or less)."
+  }
+}

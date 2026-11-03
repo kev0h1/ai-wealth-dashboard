@@ -1510,6 +1510,25 @@ async def compute_debt_plan(uid: str) -> dict:
         log.warning("debt_plan: bill mapper failed, degrading to median-only: %s", _mapper_exc)
         predicted_by_card, bills_by_card, ambiguous_card_ids = {}, {}, set()
 
+    # G412: use the very same dated payment as Home/Upcoming, not a second
+    # statement calculation or a historical mean for that closed bill.
+    from app.services.card_statements import load_statement_bills
+    statement_bills = await load_statement_bills(uid, cards=cc_accounts, terms=terms_map, today=today)
+    for aid, bill in statement_bills.items():
+        if bill.get("status") not in ("estimated", "paid"):
+            continue
+        due = date.fromisoformat(bill["payment_due"])
+        month_index = max(1, (due.year - today.year) * 12 + due.month - today.month)
+        amount = bill["payment_remaining"]
+        if bill.get("payment_method") == "fixed":
+            predicted_by_card[aid] = {i: bill["payment_amount"] for i in range(1, HORIZON_MONTHS + 1)}
+        else:
+            predicted_by_card[aid] = {**predicted_by_card.get(aid, {}), month_index: amount}
+        bills_by_card[aid] = [{"name": "Statement payment", "amount": amount,
+                               "next_date": due.isoformat(), "confidence": 1.0,
+                               "estimated": True, "matched": 0, "occurrences": 0}]
+        ambiguous_card_ids.discard(aid)
+
     # ── Per-card computation ──────────────────────────────────────────────────
     cards_out: list[dict] = []
     balance_series_by_card: dict[str, list[float]] = {}

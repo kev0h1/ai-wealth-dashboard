@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
-import { X } from "lucide-react";
+import { ChevronDown, X } from "lucide-react";
 import { BANK_META, BankBadge, bankKey, bankLogoSrc } from "@/components/AccountMiniCard";
 import { RadioDot } from "@/components/PlanOneOffSheet";
 import { api, BtOffer, CardPromo, CardPromoKind, CardTermsCard, CardTermsLookup } from "@/lib/api";
@@ -20,7 +20,11 @@ interface CardTermsSheetProps {
   onClose: () => void;
   /** Called after every successful save so the parent can refresh pills */
   onSaved: () => void;
+  /** Connected cash accounts only. Cards and excluded accounts never appear. */
+  paymentAccounts?: { id: string; name: string; provider?: string }[];
 }
+
+type PaymentMethod = "full" | "minimum" | "fixed" | "manual";
 
 const PROMO_KINDS: { value: CardPromoKind; label: string }[] = [
   { value: "purchases", label: "Purchases" },
@@ -78,6 +82,19 @@ function Chip({
       {children}
     </button>
   );
+}
+
+function DayPicker({ label, value, onChange }: { label: string; value: number | null; onChange: (day: number | null) => void }) {
+  return <details className="rounded-xl border border-slate-200 dark:border-slate-700">
+    <summary className="flex min-h-12 cursor-pointer list-none items-center justify-between gap-3 px-3 text-sm font-semibold text-slate-800 marker:hidden dark:text-slate-100">
+      <span>{label}<span className="mt-0.5 block text-xs font-normal text-slate-500 dark:text-slate-400">{value == null ? "Not set" : `${value}${value === 1 || value === 21 || value === 31 ? "st" : value === 2 || value === 22 ? "nd" : value === 3 || value === 23 ? "rd" : "th"} each month`}</span></span>
+      <ChevronDown size={18} aria-hidden="true" />
+    </summary>
+    <div className="grid grid-cols-5 gap-1.5 border-t border-slate-200 p-3 dark:border-slate-700" role="group" aria-label={label}>
+      <button type="button" onClick={() => onChange(null)} aria-pressed={value === null} className={`min-h-11 rounded-lg border text-xs font-semibold ${value === null ? "border-indigo-500 bg-indigo-50 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300" : "border-slate-200 text-slate-600 dark:border-slate-600 dark:text-slate-300"}`}>Not set</button>
+      {Array.from({ length: 31 }, (_, index) => index + 1).map(day => <button key={day} type="button" onClick={() => onChange(day)} aria-pressed={value === day} className={`min-h-11 rounded-lg border text-sm font-semibold ${value === day ? "border-indigo-500 bg-indigo-50 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300" : "border-slate-200 text-slate-700 dark:border-slate-600 dark:text-slate-200"}`}>{day}</button>)}
+    </div>
+  </details>;
 }
 
 // One text-input skin for every field in the sheet: a typed value is ink,
@@ -184,7 +201,7 @@ function draftFor(card: CardTermsCard | null): CardDraft {
   return { phase: "loading", manualPrompt: "notfound", rate: "", promoOn: null, promoRows: [], btOffer: null, btOffers: [], usage: null };
 }
 
-export default function CardTermsSheet({ cards, ready, startAccountId, onClose, onSaved }: CardTermsSheetProps) {
+export default function CardTermsSheet({ cards, ready, startAccountId, onClose, onSaved, paymentAccounts = [] }: CardTermsSheetProps) {
   const { hideNetWorth } = usePreferences();
 
   // Single-card session (pill tap) or the full walk (deep link / ask card).
@@ -214,12 +231,21 @@ export default function CardTermsSheet({ cards, ready, startAccountId, onClose, 
   const [saving, setSaving] = useState<null | "save" | "later">(null);
   const [error, setError] = useState<string | null>(null);
   const [usage, setUsage] = useState<"clear_monthly" | "carry" | null>(initial.usage);
+  const [statementCloseDay, setStatementCloseDay] = useState<number | null>(current?.terms?.statement_close_day ?? null);
+  const [dueMode, setDueMode] = useState<"day" | "after">(current?.terms?.payment_due_days_after_close != null ? "after" : "day");
+  const [paymentDueDay, setPaymentDueDay] = useState<number | null>(current?.terms?.payment_due_day ?? null);
+  const [daysAfterClose, setDaysAfterClose] = useState<string>(current?.terms?.payment_due_days_after_close?.toString() ?? "");
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod | null>(current?.terms?.payment_method ?? null);
+  const [paymentAccountId, setPaymentAccountId] = useState<string>(current?.terms?.payment_account_id ?? "");
+  const [fixedPayment, setFixedPayment] = useState<string>(current?.terms?.fixed_payment_amount?.toString() ?? "");
 
   useEffect(() => {
     if (!currentId || !current) return;
     setError(null);
     setSaving(null);
-    setShowRateInput(false);
+    // An Account details session is an editable record, not a rate-lookup
+    // funnel. It opens the complete payment-first form immediately.
+    setShowRateInput(Boolean(startAccountId));
     setCandidate(null);
     setLookup(null);
     const d = draftFor(current);
@@ -231,6 +257,13 @@ export default function CardTermsSheet({ cards, ready, startAccountId, onClose, 
     setBtOffer(d.btOffer);
     setBtOffers(d.btOffers);
     setUsage(d.usage);
+    setStatementCloseDay(current.terms?.statement_close_day ?? null);
+    setDueMode(current.terms?.payment_due_days_after_close != null ? "after" : "day");
+    setPaymentDueDay(current.terms?.payment_due_day ?? null);
+    setDaysAfterClose(current.terms?.payment_due_days_after_close?.toString() ?? "");
+    setPaymentMethod(current.terms?.payment_method ?? null);
+    setPaymentAccountId(current.terms?.payment_account_id ?? "");
+    setFixedPayment(current.terms?.fixed_payment_amount?.toString() ?? "");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentId]);
 
@@ -245,6 +278,8 @@ export default function CardTermsSheet({ cards, ready, startAccountId, onClose, 
         setLookup(r);
         if (r.representative_apr != null) {
           setPhase("found");
+          setRate(String(r.representative_apr));
+          setShowRateInput(true);
         } else if (r.candidates && r.candidates.length > 0) {
           setPhase("candidates");
           setManualPrompt("candidates");
@@ -376,13 +411,32 @@ export default function CardTermsSheet({ cards, ready, startAccountId, onClose, 
 
     if (!validateBtOffers(btOffers, btOffer, setError)) return;
 
+    const afterClose = daysAfterClose.trim() === "" ? null : Number(daysAfterClose);
+    if (afterClose !== null && (!Number.isInteger(afterClose) || afterClose < 1 || afterClose > 366)) {
+      setError("Enter whole days after closing, from 1 to 366.");
+      return;
+    }
+    const fixed = fixedPayment.trim() === "" ? null : Number(fixedPayment);
+    if (paymentMethod === "fixed" && (fixed == null || !Number.isFinite(fixed) || fixed <= 0)) {
+      setError("Enter the fixed payment you have arranged.");
+      return;
+    }
+
     postAndAdvance(
       {
         status: "confirmed",
         apr_pct: aprPct,
         promos: builtPromos,
         bt_offers: buildBtOffers(btOffers, btOffer),
-        usage,
+        // The server maps this single payment answer to the legacy usage
+        // field. A manual payment deliberately makes no cash assumption.
+        usage: paymentMethod === "full" ? "clear_monthly" : paymentMethod === "minimum" || paymentMethod === "fixed" ? "carry" : null,
+        statement_close_day: statementCloseDay,
+        payment_due_day: dueMode === "day" ? paymentDueDay : null,
+        payment_due_days_after_close: dueMode === "after" ? afterClose : null,
+        payment_method: paymentMethod,
+        payment_account_id: paymentAccountId || null,
+        fixed_payment_amount: paymentMethod === "fixed" ? fixed : null,
         ...(productKey ? { product_key: productKey } : {}),
       },
       "save"
@@ -713,34 +767,50 @@ export default function CardTermsSheet({ cards, ready, startAccountId, onClose, 
     </div>
   );
 
-  const usageSection = (
-    <div>
+  const bill = current?.statement_bill;
+  const formatMoney = (amount: number | null | undefined) => hideNetWorth ? "£••••" : amount == null ? "Not recorded" : `£${Math.abs(amount).toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const formatDate = (date: string) => {
+    const parsed = new Date(`${date}T00:00:00`);
+    return Number.isNaN(parsed.getTime()) ? date : parsed.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+  };
+  const paymentMethodOptions: { value: PaymentMethod; label: string; detail: string }[] = [
+    { value: "full", label: "Full Direct Debit", detail: "Pay the statement bill in full." },
+    { value: "minimum", label: "Minimum payment", detail: "Use the minimum shown on your statement." },
+    { value: "fixed", label: "Fixed payment", detail: "Use the amount you have arranged." },
+    { value: "manual", label: "I pay manually", detail: "No payment is assumed from this choice." },
+  ];
+
+  const paymentSection = (
+    <section className="space-y-5 border-t border-slate-200 pt-5 dark:border-slate-700" aria-labelledby="payment-details-heading">
       <div>
-        <FieldLabel>How do you use this card?</FieldLabel>
-        <Helper>Optional, it helps me read this card&apos;s balance right.</Helper>
-        <div role="radiogroup" aria-label="How do you use this card?" className="grid grid-cols-2 gap-2">
-          <Chip
-            selected={usage === "clear_monthly"}
-            onClick={() => setUsage(prev => prev === "clear_monthly" ? null : "clear_monthly")}
-          >
-            I clear it monthly
-          </Chip>
-          <Chip
-            selected={usage === "carry"}
-            onClick={() => setUsage(prev => prev === "carry" ? null : "carry")}
-          >
-            I carry a balance
-          </Chip>
-        </div>
+        <h2 id="payment-details-heading" className="text-base font-bold text-slate-900 dark:text-slate-100">Payment details</h2>
+        <p className="mt-1 text-[13px] leading-5 text-slate-600 dark:text-slate-300">Copy these from your card statement. Dates are optional and do not change your bank instructions.</p>
       </div>
-    </div>
+      {bill && <section className="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-800/60" aria-label="Estimated card bill">
+        <div className="flex items-start justify-between gap-3"><div><p className="text-sm font-bold text-slate-900 dark:text-slate-100">{bill.estimated ? "Estimated statement bill" : "Statement bill"}</p><p className="mt-1 text-xs text-slate-600 dark:text-slate-300">{formatDate(bill.statement_start)} to {formatDate(bill.statement_close)}</p></div><strong className="money shrink-0 text-lg text-slate-900 dark:text-slate-100">{formatMoney(bill.estimated_bill)}</strong></div>
+        <div className="mt-3 flex items-center justify-between gap-3 border-t border-slate-200 pt-3 text-[13px] dark:border-slate-700"><span className="text-slate-600 dark:text-slate-300">Payment due {formatDate(bill.payment_due)}</span><strong className="money text-slate-900 dark:text-slate-100">{formatMoney(bill.payment_remaining)}</strong></div>
+        {bill.spending_since_close > 0 && <p className="mt-3 border-t border-slate-200 pt-3 text-[13px] leading-5 text-slate-600 dark:border-slate-700 dark:text-slate-300">{formatMoney(bill.spending_since_close)} spent since the statement closed belongs to the next bill.</p>}
+        {bill.reason && <p className="mt-2 text-xs leading-5 text-slate-600 dark:text-slate-300">{bill.reason}</p>}
+      </section>}
+      <DayPicker label="Statement closing day" value={statementCloseDay} onChange={setStatementCloseDay} />
+      <fieldset className="space-y-2"><legend className="text-sm font-semibold text-slate-800 dark:text-slate-100">When is the payment due?</legend><div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label="When is the payment due?">
+        <Chip selected={dueMode === "day"} onClick={() => setDueMode("day")}>A day of the month</Chip>
+        <Chip selected={dueMode === "after"} onClick={() => setDueMode("after")}>Days after closing</Chip>
+      </div>
+      {dueMode === "day" ? <DayPicker label="Payment due day" value={paymentDueDay} onChange={setPaymentDueDay} /> : <label className="block"><FieldLabel>Days after closing</FieldLabel><input type="text" inputMode="numeric" value={daysAfterClose} onChange={event => setDaysAfterClose(event.target.value)} placeholder="For example, 15" className={`${INPUT_CLS} px-3`} /></label>}</fieldset>
+      <fieldset className="space-y-2"><legend className="text-sm font-semibold text-slate-800 dark:text-slate-100">How do you pay?</legend><div className="space-y-2" role="radiogroup" aria-label="How do you pay?">
+        {paymentMethodOptions.map(option => <button key={option.value} type="button" role="radio" aria-checked={paymentMethod === option.value} onClick={() => setPaymentMethod(option.value)} className={`flex min-h-12 w-full items-start gap-3 rounded-xl border p-3 text-left active:scale-[.99] ${paymentMethod === option.value ? "border-indigo-500 bg-indigo-50 dark:bg-indigo-900/30" : "border-slate-200 dark:border-slate-600"}`}><RadioDot selected={paymentMethod === option.value} /><span><span className="block text-sm font-semibold text-slate-900 dark:text-slate-100">{option.label}</span><span className="mt-0.5 block text-xs text-slate-600 dark:text-slate-300">{option.detail}</span></span></button>)}
+      </div></fieldset>
+      {paymentMethod === "fixed" && <label className="block"><FieldLabel>Fixed payment (£)</FieldLabel><input type="text" inputMode="decimal" value={fixedPayment} onChange={event => setFixedPayment(event.target.value)} placeholder="0.00" className={`${INPUT_CLS} px-3`} /></label>}
+      <fieldset className="space-y-2"><legend className="text-sm font-semibold text-slate-800 dark:text-slate-100">Which account pays it?</legend><div className="space-y-2" role="radiogroup" aria-label="Which account pays it?">{paymentAccounts.map(account => <button key={account.id} type="button" role="radio" aria-checked={paymentAccountId === account.id} onClick={() => setPaymentAccountId(account.id)} className={`flex min-h-12 w-full items-center gap-3 rounded-xl border px-3 text-left text-sm font-semibold ${paymentAccountId === account.id ? "border-indigo-500 bg-indigo-50 text-indigo-800 dark:bg-indigo-900/30 dark:text-indigo-100" : "border-slate-200 text-slate-800 dark:border-slate-600 dark:text-slate-100"}`}><RadioDot selected={paymentAccountId === account.id} /><span>{account.name}<span className="ml-1 font-normal text-slate-500 dark:text-slate-400">{account.provider ? `· ${account.provider}` : ""}</span></span></button>)}<button type="button" role="radio" aria-checked={paymentAccountId === ""} onClick={() => setPaymentAccountId("")} className={`flex min-h-12 w-full items-center gap-3 rounded-xl border px-3 text-left text-sm font-semibold ${paymentAccountId === "" ? "border-indigo-500 bg-indigo-50 text-indigo-800 dark:bg-indigo-900/30 dark:text-indigo-100" : "border-slate-200 text-slate-800 dark:border-slate-600 dark:text-slate-100"}`}><RadioDot selected={paymentAccountId === ""} /><span>No account recorded</span></button></div>{paymentAccounts.length === 0 && <p className="text-[13px] leading-5 text-slate-600 dark:text-slate-300">No connected current account is available to choose.</p>}</fieldset>
+    </section>
   );
 
   return (
     <SheetFrame
-      variant="compact"
-      title={!finished && current ? current.name : "Card rates"}
-      description={!finished && current ? <><MoneyText text={`${balanceStr} on it`} />{total > 1 && <span> · {index + 1} of {total}</span>}</> : "So plans can work with what each card really costs."}
+      variant={startAccountId ? "focused" : "compact"}
+      title={startAccountId ? "Edit card details" : !finished && current ? current.name : "Card rates"}
+      description={!finished && current ? <>{startAccountId ? `${current.name}, payment, rates and deals` : <MoneyText text={`${balanceStr} on it`} />}{total > 1 && <span> · {index + 1} of {total}</span>}</> : "So plans can work with what each card really costs."}
       leading={!finished && current && chip ? <BankBadge logoSrc={chip.logoSrc} initials={chip.initials} initialsSize={chip.initialsSize} altText={chip.label} brandBg={chip.bg} /> : undefined}
       onClose={onClose}
       dismissDisabled={saving !== null}
@@ -749,6 +819,9 @@ export default function CardTermsSheet({ cards, ready, startAccountId, onClose, 
           return <button type="button" onClick={close} className="w-full rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white active:scale-95">Done</button>;
         }
         if (!finished && ready && current && phase !== "loading") {
+          if (startAccountId && (phase === "manual" || (phase === "found" && showRateInput) || (phase === "candidates" && candidate != null))) {
+            return <div className="flex gap-3"><button type="button" onClick={close} disabled={saving !== null} className="min-h-12 flex-1 rounded-xl border border-slate-200 px-4 text-sm font-semibold text-slate-700 active:scale-95 disabled:opacity-50 dark:border-slate-600 dark:text-slate-200">Cancel</button><button type="button" onClick={handleSave} disabled={saving !== null} className="min-h-12 flex-1 rounded-xl bg-indigo-600 px-4 text-sm font-semibold text-white active:scale-95 disabled:opacity-60">{saving === "save" ? "Saving…" : "Save details"}</button></div>;
+          }
           return <div className="flex items-center gap-2">
             <button type="button" onClick={handleLater} disabled={saving !== null} className="rounded-xl px-4 py-2 text-sm font-semibold text-slate-500 active:scale-95 disabled:opacity-50 dark:text-slate-400">{saving === "later" ? "Noting…" : "Later"}</button>
             <div className="flex-1" />
@@ -814,7 +887,7 @@ export default function CardTermsSheet({ cards, ready, startAccountId, onClose, 
                   {showRateInput && rateInput}
                   {showRateInput && promosSection}
                   {showRateInput && btSection}
-                  {usageSection}
+                  {paymentSection}
                 </div>
               </>
             ) : phase === "candidates" ? (
@@ -851,7 +924,7 @@ export default function CardTermsSheet({ cards, ready, startAccountId, onClose, 
                     {rateInput}
                     {promosSection}
                     {btSection}
-                    {usageSection}
+                    {paymentSection}
                   </div>
                 )}
               </>
@@ -864,7 +937,7 @@ export default function CardTermsSheet({ cards, ready, startAccountId, onClose, 
                 {rateInput}
                 {promosSection}
                 {btSection}
-                {usageSection}
+                {paymentSection}
               </>
             )}
 

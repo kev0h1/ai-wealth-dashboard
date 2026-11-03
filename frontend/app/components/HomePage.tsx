@@ -5,6 +5,7 @@ import dynamic from "next/dynamic";
 import { ChevronRight } from "lucide-react";
 import { api, ApiError, Account, type Connection, AccountEligibility, Transaction, InvestmentAccount, SafeToSpend, CompanionItem, type SyncStatus } from "@/lib/api";
 import { bestSpendAccount, type TodayRequestStatus } from "@/lib/spendFromAccount";
+import { coverMoveEvidence } from "@/lib/coverMoveEvidence";
 import SafeToSpendCard from "@/components/SafeToSpendCard";
 import FirstSyncCard from "@/components/FirstSyncCard";
 import { heroSyncingInfo, pollDelayMs, shouldPollTick } from "@/lib/syncStatusView";
@@ -1163,6 +1164,7 @@ export default function HomePage() {
                   coverMoveVisible={coverMoveVisible}
                   coverMoveReserves={coverMoveReserves}
                   coverMoveDestinations={coverMoveDestinations}
+                  earmarkedMoves={coverMoveEvidence(accounts, accountEligibility, coverMoveVisible, coverMoveReserves)}
                   syncing={heroSync ?? undefined}
                   onSyncRetry={() => { void (refreshFailed ? handleSync() : handleSyncRetry()); }}
                 />

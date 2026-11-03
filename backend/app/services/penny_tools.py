@@ -1907,7 +1907,10 @@ PROPOSE_TOOL_SCHEMAS = [
                 "REPLACES the whole list (an empty array clears every "
                 "promo). Each balance-transfer offer may carry ends (ISO "
                 "date), fee_pct (0-15), and note; at most 6, passing "
-                "bt_offers REPLACES the whole list."
+                "bt_offers REPLACES the whole list. Statement closing and "
+                "payment dates are optional. A payment can be full, minimum, "
+                "fixed or manual. A manual payment does not create a promised "
+                "cash payment. Use null to clear an optional payment field."
             ),
             "parameters": {
                 "type": "object",
@@ -1943,6 +1946,12 @@ PROPOSE_TOOL_SCHEMAS = [
                     "min_payment_note": {"type": "string", "description": "Free text, up to 300 characters."},
                     "product_key": {"type": "string", "description": "The identified product key, e.g. from a card-terms lookup."},
                     "usage": {"type": "string", "enum": ["clear_monthly", "carry"]},
+                    "statement_close_day": {"type": ["integer", "null"], "description": "Optional statement closing day, 1 to 31."},
+                    "payment_due_day": {"type": ["integer", "null"], "description": "Optional payment due day of month, 1 to 31. Cannot be used with payment_due_days_after_close."},
+                    "payment_due_days_after_close": {"type": ["integer", "null"], "description": "Optional number of days after statement close, 1 to 366. Cannot be used with payment_due_day."},
+                    "payment_method": {"type": ["string", "null"], "enum": ["full", "minimum", "fixed", "manual", None], "description": "How the card is paid. Fixed payments also need fixed_payment_amount."},
+                    "payment_account_id": {"type": ["string", "null"], "description": "Optional id of the counted cash account that pays the card."},
+                    "fixed_payment_amount": {"type": ["number", "null"], "description": "Fixed payment amount greater than zero, required when payment_method is fixed."},
                 },
                 "required": ["card_ref"],
             },
@@ -3231,10 +3240,23 @@ async def _exec_get_accounts(uid: str) -> dict:
     except Exception:
         logger.exception("penny_tools: get_accounts sync-freshness lookup failed for %s", uid)
         last_synced = None
+    # Card payment settings are user-recorded facts, not inferred from a
+    # balance. Penny needs the same compact record the account sheet reads in
+    # order to answer or propose a correction without fabricating a bill.
+    # A terms lookup failure leaves the established account response intact.
+    try:
+        from app.routers.card_terms import _serialize_terms as _card_serialize_terms
+        terms_by_account = {
+            str(doc.get("account_id")): _card_serialize_terms(doc)
+            async for doc in card_terms_col.find({"user_id": uid})
+        }
+    except Exception:
+        logger.exception("penny_tools: get_accounts card-terms lookup failed for %s", uid)
+        terms_by_account = {}
     rows = []
     for a in accs:
         kind = _account_kind(a)
-        rows.append({
+        row = {
             # Audit fix, 2026-08-27 (MEDIUM): exposed so the model can
             # address an account precisely with get_account_activity's
             # `account_id_or_name` when two accounts share a name (that
@@ -3250,7 +3272,11 @@ async def _exec_get_accounts(uid: str) -> dict:
             "status": a.status,
             "dormant": _account_is_dormant(a, kind),
             "pinned": a.id in pinned_ids, "counts_towards_safe_to_spend": a.include_in_safe_to_spend,  # G231 (one line, keeps the leak allowlist stable)
-        })
+        }
+        terms = terms_by_account.get(str(a.id))
+        if kind == "Credit" and terms:
+            row["card_terms"] = terms
+        rows.append(row)
     result = {"accounts": rows}; await _attach_suggested_moves(uid, rows)  # G410, one line keeps the leak allowlist stable
     if last_synced:
         result["last_synced"] = last_synced.isoformat()
@@ -7709,14 +7735,38 @@ def _describe_card_terms_changes(changed: dict) -> str:
         parts.append(f"usage to {label}")
     if "product_key" in changed:
         parts.append(f"product to '{changed['product_key']}'")
+    if "statement_close_day" in changed:
+        day = changed["statement_close_day"]
+        parts.append(f"statement closing day to {day}" if day is not None else "statement closing day cleared")
+    if "payment_due_day" in changed:
+        day = changed["payment_due_day"]
+        parts.append(f"payment due day to {day}" if day is not None else "payment due day cleared")
+    if "payment_due_days_after_close" in changed:
+        days = changed["payment_due_days_after_close"]
+        parts.append(f"payment due to {days} days after statement close" if days is not None else "days-after-close payment rule cleared")
+    if "payment_method" in changed:
+        method = changed["payment_method"]
+        labels = {"full": "full Direct Debit", "minimum": "minimum payment", "fixed": "fixed payment", "manual": "manual payment"}
+        parts.append(f"payment method to {labels[method]}" if method else "payment method cleared")
+    if "payment_account_id" in changed:
+        parts.append("paying account changed" if changed["payment_account_id"] else "paying account cleared")
+    if "fixed_payment_amount" in changed:
+        amount = changed["fixed_payment_amount"]
+        parts.append(f"fixed payment to £{amount:,.2f}" if amount is not None else "fixed payment amount cleared")
     if "status" in changed:
         parts.append("marked as skipped ('ask later')" if changed["status"] == "skipped" else "marked as confirmed")
     return ", ".join(parts) if parts else "no changes"
 
 
+_PAYMENT_UNSET = object()
+
+
 async def _exec_propose_set_card_terms(
     uid: str, card_ref=None, status=None, apr_pct=None, promos=None, bt_offers=None,
-    min_payment_note=None, product_key=None, usage=None,
+    min_payment_note=None, product_key=None, usage=None, *,
+    statement_close_day=_PAYMENT_UNSET, payment_due_day=_PAYMENT_UNSET,
+    payment_due_days_after_close=_PAYMENT_UNSET, payment_method=_PAYMENT_UNSET,
+    payment_account_id=_PAYMENT_UNSET, fixed_payment_amount=_PAYMENT_UNSET,
 ) -> dict:
     if not card_ref or not str(card_ref).strip():
         return _tool_error("card_ref required")
@@ -7730,17 +7780,26 @@ async def _exec_propose_set_card_terms(
     supplied = {
         "status": status, "apr_pct": apr_pct, "promos": promos, "bt_offers": bt_offers,
         "min_payment_note": min_payment_note, "product_key": product_key, "usage": usage,
+        "statement_close_day": statement_close_day,
+        "payment_due_day": payment_due_day,
+        "payment_due_days_after_close": payment_due_days_after_close,
+        "payment_method": payment_method,
+        "payment_account_id": payment_account_id,
+        "fixed_payment_amount": fixed_payment_amount,
     }
-    if all(v is None for v in supplied.values()):
+    if all(v is None or v is _PAYMENT_UNSET for v in supplied.values()):
         return _tool_error(
             "at least one of status, apr_pct, promos, bt_offers, min_payment_note, "
-            "product_key, usage is required"
+            "product_key, usage or payment setting is required"
         )
 
     if status is not None and status not in ("confirmed", "skipped"):
         return _tool_error("status must be 'confirmed' or 'skipped'")
     if status == "skipped" and any(
-        v is not None for v in (apr_pct, promos, bt_offers, min_payment_note, usage)
+        v is not None and v is not _PAYMENT_UNSET
+        for v in (apr_pct, promos, bt_offers, min_payment_note, usage, statement_close_day,
+                  payment_due_day, payment_due_days_after_close, payment_method,
+                  payment_account_id, fixed_payment_amount)
     ):
         return _tool_error(
             "status='skipped' only accepts card_ref, status, and optionally product_key, "
@@ -7751,9 +7810,18 @@ async def _exec_propose_set_card_terms(
     from app.routers.card_terms import CardPromo as _RouteCardPromo
     from app.routers.card_terms import CardTermsBody as _RouteCardTermsBody
     from app.routers.card_terms import _clip_note as _route_clip_note
+    from app.routers.card_terms import _validate_payment_settings as _route_validate_payment_settings
     from app.routers.card_terms import _normalise_bt_offers as _route_normalise_bt_offers
     from app.routers.card_terms import _normalise_promos as _route_normalise_promos
+    from app.routers.card_terms import normalise_payment_settings as _route_normalise_payment_settings
     from app.routers.card_terms import _serialize_terms as _card_serialize_terms
+
+    try:
+        existing_doc = await card_terms_col.find_one({"_id": f"{uid}:{account.id}"})
+    except Exception:
+        logger.exception("penny_tools: propose_set_card_terms existing-terms lookup failed for %s", uid)
+        existing_doc = None
+    existing = _card_serialize_terms(existing_doc) or {}
 
     changed: dict = {}
     if status is not None:
@@ -7808,12 +7876,40 @@ async def _exec_propose_set_card_terms(
     if product_key is not None:
         changed["product_key"] = str(product_key).strip() or None
 
-    try:
-        existing_doc = await card_terms_col.find_one({"_id": f"{uid}:{account.id}"})
-    except Exception:
-        logger.exception("penny_tools: propose_set_card_terms existing-terms lookup failed for %s", uid)
-        existing_doc = None
-    existing = _card_serialize_terms(existing_doc) or {}
+    # The route owns the canonical account-membership and cross-field rules.
+    # Keep omitted and explicit-null distinct in proposal params so execute
+    # can perform its fresh read-modify-write without losing an intentional
+    # clear made by the user.
+    payment_values = {
+        "statement_close_day": statement_close_day,
+        "payment_due_day": payment_due_day,
+        "payment_due_days_after_close": payment_due_days_after_close,
+        "payment_method": payment_method,
+        "payment_account_id": payment_account_id,
+        "fixed_payment_amount": fixed_payment_amount,
+    }
+    for key, value in payment_values.items():
+        if value is not _PAYMENT_UNSET:
+            changed[key] = value
+
+    # Use the same body, merge and server validator as the account sheet. This
+    # validates a proposal without writing it. The executor repeats the
+    # complete route path after its fresh read, so changes made meanwhile are
+    # preserved and revalidated before anything is saved.
+    if any(value is not _PAYMENT_UNSET for value in payment_values.values()):
+        try:
+            payment_body = _RouteCardTermsBody(status="confirmed", **{
+                key: value for key, value in payment_values.items()
+                if value is not _PAYMENT_UNSET
+            })
+            await _route_validate_payment_settings(
+                uid, _route_normalise_payment_settings(existing, payment_body)
+            )
+        except HTTPException as exc:
+            return _tool_error(str(exc.detail))
+        except Exception:
+            logger.exception("penny_tools: propose_set_card_terms payment settings rejected for %s", uid)
+            return _tool_error("Those card payment settings are not valid. Check the days, method, amount and paying account.")
 
     description = _describe_card_terms_changes(changed)
     summary = f"Set {account.name} ({account.provider}) to {description}."
@@ -8300,6 +8396,12 @@ async def execute_tool(uid: str, name: str, args: dict) -> dict:
                 uid, args.get("card_ref"), args.get("status"), args.get("apr_pct"),
                 args.get("promos"), args.get("bt_offers"), args.get("min_payment_note"),
                 args.get("product_key"), args.get("usage"),
+                statement_close_day=args["statement_close_day"] if "statement_close_day" in args else _PAYMENT_UNSET,
+                payment_due_day=args["payment_due_day"] if "payment_due_day" in args else _PAYMENT_UNSET,
+                payment_due_days_after_close=args["payment_due_days_after_close"] if "payment_due_days_after_close" in args else _PAYMENT_UNSET,
+                payment_method=args["payment_method"] if "payment_method" in args else _PAYMENT_UNSET,
+                payment_account_id=args["payment_account_id"] if "payment_account_id" in args else _PAYMENT_UNSET,
+                fixed_payment_amount=args["fixed_payment_amount"] if "fixed_payment_amount" in args else _PAYMENT_UNSET,
             )
         if name == "propose_record_trend_intent":
             return await _exec_propose_record_trend_intent(uid, args.get("category"), args.get("answer"))

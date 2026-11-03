@@ -84,7 +84,8 @@ assert.match(src, /import \{ SheetFrame \} from "@\/components\/SheetFrame"/, "G
 assert.match(src, /import \{ DateField \} from "@\/components\/DatePicker"/, "G136 month field");
 assert.doesNotMatch(src, /type="(date|month)"/, "no native date inputs");
 assert.doesNotMatch(src, /—/, "no em dash in source");
-assert.match(src, /variant="compact"/, "sheet hugs its content, no dead area above the footer");
+// G412: the single-card editor runs full height (G411 focused); the multi-card walk still hugs its content.
+assert.match(src, /variant=\{startAccountId \? "focused" : "compact"\}/, "walk hugs its content, single-card editor is the focused frame");
 assert.match(src, /className="space-y-6">\s*\{!ready/, "one section rhythm between question groups");
 assert.doesNotMatch(src, /min-h-\[(?!44px|48px)\d+/, "no tall spacer or min-height");
 console.log("g225-card-terms: ok");

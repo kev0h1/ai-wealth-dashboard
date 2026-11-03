@@ -1,6 +1,6 @@
 # G412: card details design round
 
-This is a proposal, not a production change. Two coded alternatives live at `/design/card-details`: A, Payment first, and B, One tidy record. Both consolidate payment settings, rates, recorded deals and connection management in one full-height Account details sheet. They inherit the current Figtree/JetBrains Mono scale, neutral surfaces, shared SheetFrame, bank identities and solid indigo actions. The production hero, card holds and engine are unchanged pending Kevin's selection.
+Status: Kevin chose A, Payment first, and it shipped in production Account details (`components/CardDetailsSections.tsx`, edited through `components/CardTermsSheet.tsx`). The `/design/card-details` preview was deleted at fold-in (H113). The record below is the design round as proposed: A, Payment first, and B, One tidy record. Both consolidate payment settings, rates, recorded deals and connection management in one full-height Account details sheet. They inherit the current Figtree/JetBrains Mono scale, neutral surfaces, shared SheetFrame, bank identities and solid indigo actions. The production hero, card holds and engine are unchanged pending Kevin's selection.
 
 ## Latest product decision
 

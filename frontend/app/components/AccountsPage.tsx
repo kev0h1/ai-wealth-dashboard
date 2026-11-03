@@ -3,7 +3,7 @@
 import { displayAccountName } from "@/lib/accountName";
 import { useEffect, useEffectEvent, useState, useCallback, useMemo, useRef } from "react";
 import { useSearchParams, useRouter, usePathname } from "next/navigation";
-import { ArrowLeft, Plus, Landmark, RefreshCw, Upload, Trash2, AlertTriangle, TrendingUp, Eye, EyeOff, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Pencil, PiggyBank, Wallet, CreditCard, X, CircleDashed, Check, FileText, Star, Percent, Info } from "lucide-react";
+import { ArrowLeft, Plus, Landmark, RefreshCw, Upload, Trash2, AlertTriangle, TrendingUp, Eye, EyeOff, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Pencil, PiggyBank, Wallet, CreditCard, X, CircleDashed, Check, FileText, Star, Info } from "lucide-react";
 import { formatPriceDay } from "@/lib/priceDay";
 import { api, ApiError, Account, Connection, Transaction, InvestmentAccount, InvestmentHolding, InvestmentNote, ManualAccount, ManualAccountType, ManualAccountRule, RuleMatchType, RuleMatchField, RuleSign, AccountCategorySummary, CardTermsCard } from "@/lib/api";
 import { accountBrand, BankBadge, TermsPill } from "@/components/AccountMiniCard";
@@ -23,6 +23,7 @@ import { MINUS } from "@/lib/currency";
 import { buildEstate, type EstateLens, type EstateRow } from "@/lib/accountsEstate";
 import { accountKind, accountKindLabel, isBusinessAccount, type AccountKind } from "@/lib/accountKind";
 import CardTermsSheet from "@/components/CardTermsSheet";
+import CardDetailsSections from "@/components/CardDetailsSections";
 import { RadioDot } from "@/components/PlanOneOffSheet";
 import { DateField } from "@/components/DatePicker";
 import TransactionRow from "@/components/TransactionRow";
@@ -437,9 +438,20 @@ export default function AccountsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pathname, searchParams]);
 
-  function openCardTermsAt(accountId: string | null) {
+  // The editor (CardTermsSheet) is reached from Account details' Edit buttons,
+  // the ask card and cliff-card deep links. A row tap opens the card's own
+  // Account details instead, so there is one entry for reading a card's record.
+  const cardTermsFromDetails = useRef(false);
+  function openCardTermsAt(accountId: string | null, fromDetails = false) {
+    cardTermsFromDetails.current = fromDetails;
     setCardTermsStartId(accountId);
     setCardTermsOpen(true);
+  }
+  function openCardDetails(accountId: string) {
+    const account = accounts.find(a => a.id === accountId);
+    if (!account) return;
+    void handleSelectAccount(account);
+    setAccountDetailsFor(account.id);
   }
 
   const cardTermsByAccount = useMemo(() => {
@@ -447,6 +459,12 @@ export default function AccountsPage() {
     for (const c of cardTermsCards) m[c.account_id] = c;
     return m;
   }, [cardTermsCards]);
+
+  // A card can only be paid from a connected, counted GBP cash account.
+  // Business classification of the card itself never decides this.
+  const cardPaymentAccounts = useMemo(() => accounts
+    .filter(account => !account.manual && account.status !== "expired" && account.currency === "GBP" && account.include_in_safe_to_spend !== false && accountKind(account) === "Current")
+    .map(account => ({ id: account.id, name: displayAccountName(account.name), provider: account.provider })), [accounts]);
 
   // Close the "+ Add" menu on outside tap (same pattern as SpendTrends' widget menu)
   useEffect(() => {
@@ -1721,8 +1739,8 @@ export default function AccountsPage() {
     const pill = termsPillFor(termsCard);
     return {
       termsPill: pill,
-      onTermsClick: pill ? () => openCardTermsAt(row.id) : undefined,
-      onAddRates: !pill && termsCard ? () => openCardTermsAt(row.id) : undefined,
+      onTermsClick: pill ? () => openCardDetails(row.id) : undefined,
+      onAddRates: !pill && termsCard ? () => openCardDetails(row.id) : undefined,
     };
   }
 
@@ -1818,8 +1836,14 @@ export default function AccountsPage() {
           cards={cardTermsCards}
           ready={cardTermsReady}
           startAccountId={cardTermsStartId}
-          onClose={() => { setCardTermsOpen(false); setCardTermsStartId(null); }}
+          onClose={() => {
+            const back = cardTermsFromDetails.current ? cardTermsStartId : null;
+            cardTermsFromDetails.current = false;
+            setCardTermsOpen(false); setCardTermsStartId(null);
+            if (back) setAccountDetailsFor(back);
+          }}
           onSaved={loadCardTerms}
+          paymentAccounts={cardPaymentAccounts}
         />
       )}
       {confirmDialog?.open && modalsMounted && createPortal(
@@ -2606,7 +2630,13 @@ export default function AccountsPage() {
         </div>
         {accountDetailsFor === selectedAccount.id && (
           <SheetFrame title="Account details" description={accountDetailKindText(accountKindLabel(accountKind(selectedAccount)), selectedAccount.provider, undefined, isBusinessAccount(selectedAccount))} variant="focused" onClose={() => setAccountDetailsFor(null)}>
-            {({ closeThen }) => <div className="space-y-5">
+            {({ closeThen }) => <div className="divide-y divide-slate-200 dark:divide-slate-700 [&>*]:py-4 [&>*:first-child]:pt-0 [&>*:last-child]:pb-0">
+              {isCredit && termsCard && <CardDetailsSections
+                card={termsCard}
+                paymentAccounts={cardPaymentAccounts}
+                onEditPayment={() => closeThen(() => openCardTermsAt(selectedAccount.id, true))}
+                onEditRates={() => closeThen(() => openCardTermsAt(selectedAccount.id, true))}
+              />}
               {!isManual && !isStatement && !isCredit && !isDebt && detailBalanceReady && (
                 <AccountCountRow
                   account={selectedAccount}
@@ -2619,44 +2649,18 @@ export default function AccountsPage() {
                   calm
                 />
               )}
-              {!isManual && !isStatement && <div className="border-t border-slate-200 pt-3 dark:border-slate-700 [&_[data-a179-refresh-button]]:pr-0">
+              {!isManual && !isStatement && (consentExpiry || isExpired || canRefreshAccount(selectedAccount) || connectionNotes(consentConnection).length > 0) && <div data-g412-section="connection" className="[&_[data-a179-refresh-button]]:pr-0">
+                <h3 className="mb-1 text-base font-bold text-slate-900 dark:text-slate-100">Connection</h3>
                 {consentExpiry && <p className="mb-2 text-[13px] text-slate-600 dark:text-slate-300">{consentExpiry}</p>}
                 {!isExpired && connectionNotes(consentConnection).map(note => <p key={note} className="mb-2 text-[13px] text-slate-600 dark:text-slate-300">{note}</p>)}
                 {isExpired && <button type="button" onClick={() => closeThen(() => void handleReconnect(selectedAccount.provider_id, selectedAccount))} className="min-h-11 text-sm font-semibold text-amber-800 dark:text-amber-200">Reconnect bank</button>}
                 {canRefreshAccount(selectedAccount) && <AccountRefreshRow key={selectedAccount.id} account={selectedAccount} onRefresh={refreshOneAccount} compact />}
               </div>}
-              <div className="border-t border-slate-200 pt-3 dark:border-slate-700">
+              <div>
                 {isManual && <button type="button" onClick={() => closeThen(() => { if (manualAcc) openEditManual(manualAcc); })} className={detailStyles.action}>Edit account<Pencil size={15} aria-hidden="true" /></button>}
                 {isStatement && <button type="button" onClick={() => closeThen(() => setShowStatementUpload(true))} className={detailStyles.action}>Add statement<Upload size={15} aria-hidden="true" /></button>}
                 {!isManual && !isExpired && <button type="button" onClick={() => togglePin(selectedAccount.id)} className={detailStyles.action}>{isPinned ? "Unpin from Home" : "Pin to Home"}<Star size={15} aria-hidden="true" className={isPinned ? "fill-current" : ""} /></button>}
                 {pinMsg && <p role="status" className="py-2 text-[13px] text-slate-600 dark:text-slate-300">{pinMsg}</p>}
-          {isCredit && (termsPill ? (
-            <button
-              type="button"
-              onClick={() => closeThen(() => openCardTermsAt(selectedAccount.id))}
-              aria-label={`${termsPill.label}, edit this card's rates`}
-              className="relative mt-2 inline-flex items-center min-h-[28px] before:absolute before:-inset-y-2 before:-inset-x-1 before:content-[''] active:opacity-70 transition-opacity"
-            >
-              <span
-                className={`text-[11px] font-semibold px-2.5 py-1 rounded-full num ${
-                  termsPill.amber
-                    ? "bg-amber-50 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400"
-                    : "bg-slate-100 dark:bg-white/10 text-slate-500 dark:text-slate-400"
-                }`}
-              >
-                {termsPill.label}
-              </span>
-            </button>
-          ) : termsCard ? (
-            <button
-              type="button"
-              onClick={() => closeThen(() => openCardTermsAt(selectedAccount.id))}
-              className="relative mt-2 inline-flex items-center gap-1 min-h-[28px] text-[11px] font-semibold text-indigo-600 dark:text-indigo-400 before:absolute before:-inset-y-2 before:-inset-x-1 before:content-[''] active:opacity-70 transition-opacity"
-            >
-              <Percent size={11} aria-hidden="true" />
-              Add rates
-            </button>
-          ) : null)}
 
                 <button type="button" disabled={deletingAccount} onClick={() => closeThen(() => {
                   if (!isManual) { void handleDeleteAccount(); return; }

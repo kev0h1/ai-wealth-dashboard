@@ -1,0 +1,160 @@
+{
+  "account_eligibility": {
+    "acc-bc": {
+      "account_headroom_raw": 630.0,
+      "after_payments": 630.0,
+      "after_payments_and_plans": 630.0,
+      "estimated": false,
+      "headroom": 620.0,
+      "low_point": 630.0,
+      "low_point_and_plans": 630.0,
+      "plans_reserved": 0.0,
+      "short": false,
+      "spend_from_capped": false,
+      "spend_from_headroom": 630.0,
+      "uncertain": false
+    }
+  },
+  "account_plans": [],
+  "accounts": [
+    {
+      "balance": -920.0,
+      "currency": "GBP",
+      "id": "acc-amex",
+      "include_in_safe_to_spend": true,
+      "name": "Example Rewards Card",
+      "provider": "amex",
+      "status": "connected",
+      "subtype": "CREDIT_CARD",
+      "type": "CREDIT"
+    },
+    {
+      "balance": 1500.0,
+      "currency": "GBP",
+      "id": "acc-bc",
+      "include_in_safe_to_spend": true,
+      "name": "Example Current",
+      "provider": "barclays",
+      "status": "connected",
+      "subtype": "TRANSACTION",
+      "type": "BANK"
+    }
+  ],
+  "at_risk_count": 0,
+  "cashflow": {
+    "internal_inflows": [],
+    "next_payday": "2026-10-30",
+    "observed_pending_bills": [],
+    "period": {
+      "day_number": 18,
+      "end": "2026-10-29",
+      "label": "25 Sep to 29 Oct",
+      "length_days": 35,
+      "payday": "2026-10-30",
+      "payday_observed": null,
+      "start": "2026-09-25",
+      "type": "last_friday"
+    },
+    "spendable_balance": 1500.0,
+    "upcoming_bills": [
+      {
+        "account_balance": 1500.0,
+        "account_bank": "Barclays",
+        "account_id": "acc-bc",
+        "account_name": "Barclays Current",
+        "amount": 150.0,
+        "amount_basis": null,
+        "card_dest_account_bank": null,
+        "card_dest_account_id": null,
+        "card_dest_account_name": null,
+        "category": "Bills",
+        "days_away": 8,
+        "days_past_due": 0,
+        "dest_account_bank": null,
+        "dest_account_id": null,
+        "dest_account_name": null,
+        "dest_account_spendable": null,
+        "edited": false,
+        "expected_date": "2026-10-20",
+        "is_card_repayment": false,
+        "is_credit_card": false,
+        "kind": "commitment",
+        "name": "COUNCIL TAX",
+        "observed_pending": false,
+        "original_date": null,
+        "pending": false,
+        "rule_label": null
+      },
+      {
+        "account_balance": 1500.0,
+        "account_bank": "barclays",
+        "account_id": "acc-bc",
+        "account_name": "Example Current",
+        "amount": 720.0,
+        "amount_basis": "statement_estimate",
+        "card_dest_account_bank": "amex",
+        "card_dest_account_id": "acc-amex",
+        "card_dest_account_name": "Example Rewards Card",
+        "category": "Debt",
+        "days_away": 16,
+        "days_past_due": 0,
+        "dest_account_id": null,
+        "dest_account_spendable": null,
+        "display_name": "Example Rewards Card payment",
+        "edited": false,
+        "expected_date": "2026-10-28",
+        "is_card_repayment": true,
+        "is_credit_card": false,
+        "kind": "movement",
+        "name": "card-statement:acc-amex:2026-10-03",
+        "original_date": null,
+        "pending": false,
+        "rule_label": null,
+        "statement_close": "2026-10-03",
+        "statement_start": "2026-09-04"
+      }
+    ],
+    "upcoming_income": [
+      {
+        "account_balance": 1500.0,
+        "account_bank": "Barclays",
+        "account_id": "acc-bc",
+        "account_name": "Barclays Current",
+        "amount": 3000.0,
+        "amounts_recent": [
+          3000.0,
+          3000.0,
+          3000.0
+        ],
+        "avg_interval": 30,
+        "category": "Income",
+        "confirmed_alias": null,
+        "credit_basis": "reliable",
+        "days_away": 18,
+        "display_name": "Acme Payroll",
+        "edited": false,
+        "expected_date": "2026-10-30",
+        "name": "acme|payroll::acc-bc",
+        "occurrences": 3,
+        "rule_label": null,
+        "steady_salary": true
+      }
+    ]
+  },
+  "days_to_payday": 18,
+  "items": [],
+  "name": "Dated card statement: the closed bill is a payment due before payday and spending after the close is not held",
+  "period": {
+    "end": "2026-10-29",
+    "start": "2026-09-25"
+  },
+  "safe_to_spend": {
+    "allocations_reserved": 0.0,
+    "calculation_status": "complete",
+    "card_growth_reserved": 0,
+    "commitments_reserved": 0,
+    "safe_to_spend": 630.0,
+    "safe_to_spend_cash": 630.0
+  },
+  "today": "2026-10-12"
+}
