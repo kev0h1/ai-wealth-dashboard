@@ -35,9 +35,9 @@ const ROUTES: PreviewRoute[] = [
   {
     slug: "left-to-spend-disclosures",
     name: "Behind Left to spend · G408",
-    description: "G408 · frontend-design · A keeps the three estimate disclosures within the hero. B groups them in one separate detail card. Shared chevrons, one reconciled ledger, labelled daily amount and expected pay, purchases distinguished from card holds, and an active Cards action in both themes. Synthetic figures and local actions; production awaits a choice.",
-    variants: [{ label: "A · Within the estimate", value: "a" }, { label: "B · One detail card", value: "b" }],
-    states: [{ label: "Unconfirmed repayment", value: "unconfirmed" }, { label: "Confirmed repayment", value: "confirmed" }, { label: "Balance includes a transfer", value: "transfer" }, { label: "Card amount exceeds cash", value: "card-gap" }, { label: "Earlier cash low point", value: "earlier-gap" }, { label: "Buffer and plans", value: "reserves" }, { label: "No new card spending", value: "no-activity" }, { label: "Updating bank data", value: "syncing" }, { label: "Forecast unavailable", value: "unavailable" }],
+    description: "G408 · frontend-design · A keeps the three estimate disclosures within the hero. B groups them in one separate detail card. C refines the existing layout with aligned figures, an inline amber dot, a shorter footer and no collapsed prose. A/B simplify the working and Cards action; C keeps the current calculation and conditional card action. Shared chevrons, synthetic figures and local actions; production awaits a choice.",
+    variants: [{ label: "A · Within the estimate", value: "a" }, { label: "B · One detail card", value: "b" }, { label: "C · Existing layout, refined", value: "c" }],
+    states: [{ label: "Layout reference", value: "reference" }, { label: "Unconfirmed repayment", value: "unconfirmed" }, { label: "Confirmed repayment", value: "confirmed" }, { label: "Balance includes a transfer", value: "transfer" }, { label: "Card amount exceeds cash", value: "card-gap" }, { label: "Earlier cash low point", value: "earlier-gap" }, { label: "Buffer and plans", value: "reserves" }, { label: "No new card spending", value: "no-activity" }, { label: "Updating bank data", value: "syncing" }, { label: "Forecast unavailable", value: "unavailable" }],
     group: "current",
   },
 
