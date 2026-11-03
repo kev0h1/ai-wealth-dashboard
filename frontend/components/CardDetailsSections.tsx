@@ -74,13 +74,16 @@ export default function CardDetailsSections({ card, paymentAccounts = [], onEdit
   const chargeCard = card.card_class === "charge_card"; // the stored A181 class, never the name
   const activeDeals = (confirmed?.promos ?? []).filter(p => p.until >= new Date().toISOString().slice(0, 10));
   const offers = confirmed?.bt_offers ?? [];
-  const edit = (label: string, run: () => void) => <button type="button" onClick={run} aria-label={label} data-g412-edit={label} className="min-h-11 min-w-11 rounded-lg px-2 text-[13px] font-semibold text-indigo-700 active:opacity-70 dark:text-indigo-300">Edit</button>;
+  const settled = bill?.status === "paid" || (bill?.payment_amount != null && bill.payment_remaining === 0);
+  const partlyPaid = !settled && bill?.payment_amount != null && bill.payment_remaining != null && bill.payment_remaining > 0 && bill.paid_since_close > 0;
+  const edit = (label: string, run: () => void) => <button type="button" onClick={run} aria-label={label} data-g412-edit={label} className="-mr-2 min-h-11 min-w-11 rounded-lg px-2 text-[13px] font-semibold text-indigo-700 active:opacity-70 dark:text-indigo-300">Edit</button>;
 
   return <BalancesHiddenContext.Provider value={hidden}>
     <section data-g412-section="payment" aria-label="How this card is paid">
       {hasDates && bill && (bill.payment_remaining != null || bill.estimated_bill != null) && <div data-g412-estimate="available" className="mb-2">
-        <Heading title={bill.payment_amount != null ? `Payment due ${longDate(bill.payment_due)}` : "Estimated statement bill"} />
-        <p className="text-[20px] font-bold leading-7 text-slate-900 dark:text-slate-100"><MoneyText text={gbp(bill.payment_amount ?? bill.estimated_bill ?? 0)} /></p>
+        <Heading title={settled ? "Paid" : bill.payment_amount != null ? `Payment due ${longDate(bill.payment_due)}` : "Estimated statement bill"} />
+        <p className="text-[20px] font-bold leading-7 text-slate-900 dark:text-slate-100"><MoneyText text={gbp(settled ? bill.payment_amount ?? 0 : bill.payment_remaining ?? bill.estimated_bill ?? 0)} /></p>
+        {partlyPaid && <p className="text-[13px] leading-5 text-slate-600 dark:text-slate-300"><MoneyText text={`${gbp(bill.paid_since_close)} of ${gbp(bill.payment_amount ?? 0)} already paid.`} /></p>}
         <p className="mt-1 text-[13px] leading-5 text-slate-600 dark:text-slate-300">
           {bill.estimated ? "Estimated. " : ""}Statement period {longDate(bill.statement_start)} to {longDate(bill.statement_close)}.
           {bill.spending_since_close > 0 && <> <MoneyText text={`${gbp(bill.spending_since_close)} spent since it closed belongs to the next bill.`} /></>}

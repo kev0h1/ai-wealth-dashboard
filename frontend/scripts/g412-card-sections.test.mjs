@@ -43,6 +43,13 @@ assert.doesNotMatch(quiet, /data-g412-estimate/);
 assert.doesNotMatch(quiet, /Add statement|add its statement|statement dates/i);
 assert.match(quiet, /Statement closes[\s\S]*Not set/);
 
+// A settled bill reads Paid, never "due" with the amount still owing; a part-paid bill shows what is left.
+const paid = render({ ...dated, statement_bill: { ...bill, status: "paid", payment_remaining: 0, paid_since_close: 412.5 } }, false);
+assert.match(paid, />Paid</); assert.doesNotMatch(paid, /Payment due 28 October/);
+const part = render({ ...dated, statement_bill: { ...bill, payment_remaining: 112.5, paid_since_close: 300 } }, false);
+assert.match(part, /Payment due 28 October 2026/); assert.match(part, /£112\.50/); assert.match(part.replace(/<[^>]+>/g, ""), /£300\.00 of £412\.50 already paid\./);
+assert.match(shown, /-mr-2/, "Edit aligns with the value column");
+
 // A charge card is the stored bank class, never the name (Charge in a credit card's name proves nothing).
 const named = { ...dated, name: "Example Charge Rewards", card_class: "credit_card" };
 assert.match(render(named, false), /Standard purchase rate/, "a card named charge but classed credit keeps its rates");
