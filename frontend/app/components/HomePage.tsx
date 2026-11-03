@@ -100,6 +100,7 @@ function HomeSkeleton({ firstName, displayName }: { firstName?: string; displayN
     <div
       className="lg:grid lg:grid-cols-[minmax(0,5fr)_minmax(0,6fr)] lg:gap-6 lg:p-6 lg:max-w-7xl lg:mx-auto"
       aria-hidden="true"
+      inert
     >
       {/* Left column */}
       <div>

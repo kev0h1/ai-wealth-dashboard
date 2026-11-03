@@ -18,6 +18,8 @@ assert.doesNotMatch(skeleton, /text-\[28px\] font-bold/, "skeleton no longer car
 assert.doesNotMatch(brief.slice(brief.indexOf("export default function HomeBrief")), /className="rise-in"/, "brief root has no rise-in that would re-fade the header");
 assert.match(brief, /useState\(`Hi, \$\{name\}`\)/, "live first paint greeting is the same neutral Hi, name");
 
+assert.match(skeleton.slice(0, 600), /aria-hidden="true"\s+inert/, "skeleton root is inert so its header links are not focusable");
+
 // Markup identity and content.
 const html = renderToStaticMarkup(h(HomeGreetingHeader, { greeting: "Hi, Kevin", avatarInitials: "KM" }));
 assert.match(html, /<h1[^>]*text-\[20px\][^>]*sm:text-\[28px\][^>]*>Hi, Kevin<\/h1>/);
