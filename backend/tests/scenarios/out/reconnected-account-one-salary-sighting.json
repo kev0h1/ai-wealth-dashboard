@@ -4,12 +4,23 @@
       "account_headroom_raw": -900.0,
       "after_payments": -900.0,
       "after_payments_and_plans": -900.0,
+      "covered_by_move": {
+        "amount": 910.0,
+        "from": [
+          {
+            "account_id": "acc-st",
+            "amount": 910.0,
+            "name": "Starling Personal"
+          }
+        ]
+      },
       "estimated": false,
       "headroom": -910.0,
       "low_point": -900.0,
       "low_point_and_plans": -900.0,
       "plans_reserved": 0.0,
       "short": true,
+      "short_after_cover": 0.0,
       "spend_from_capped": false,
       "spend_from_headroom": 0.0,
       "uncertain": false
@@ -18,6 +29,14 @@
       "account_headroom_raw": 1090.0,
       "after_payments": 2000.0,
       "after_payments_and_plans": 2000.0,
+      "earmarked_total": 910.0,
+      "earmarks_out": [
+        {
+          "amount": 910.0,
+          "to_account_id": "acc-bc",
+          "to_name": "Barclays Current"
+        }
+      ],
       "estimated": false,
       "headroom": 1990.0,
       "low_point": 2000.0,

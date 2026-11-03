@@ -4,6 +4,14 @@
       "account_headroom_raw": 1700.0,
       "after_payments": 2000.0,
       "after_payments_and_plans": 2000.0,
+      "earmarked_total": 300.0,
+      "earmarks_out": [
+        {
+          "amount": 300.0,
+          "to_account_id": "acc-nw",
+          "to_name": "NatWest The Number One"
+        }
+      ],
       "estimated": false,
       "headroom": 1990.0,
       "low_point": 2000.0,
@@ -18,12 +26,23 @@
       "account_headroom_raw": -288.65,
       "after_payments": -288.65,
       "after_payments_and_plans": -288.65,
+      "covered_by_move": {
+        "amount": 300.0,
+        "from": [
+          {
+            "account_id": "acc-bc",
+            "amount": 300.0,
+            "name": "Barclays Current"
+          }
+        ]
+      },
       "estimated": false,
       "headroom": -298.65,
       "low_point": -288.65,
       "low_point_and_plans": -288.65,
       "plans_reserved": 0.0,
       "short": true,
+      "short_after_cover": 0.0,
       "spend_from_capped": false,
       "spend_from_headroom": 0.0,
       "uncertain": false
