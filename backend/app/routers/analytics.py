@@ -4753,11 +4753,6 @@ async def _build_cashflow_response(cached: dict, uid: str | None = None, prefs: 
                     for b in raw_bills
                     if str(b.get("card_dest_account_id") or "") in statement_card_ids and not b.get("planned")
                 )
-                statement_bills_unverified = any(
-                    b.get("payment_method") in ("full", "fixed")
-                    and b.get("status") not in ("estimated", "paid")
-                    for b in statement_bills.values()
-                )
         except Exception:
             logger.exception("dated card payments could not be checked for %s", mask_email(uid))
             statement_bills_unverified = True

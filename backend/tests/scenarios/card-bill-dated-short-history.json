@@ -1,0 +1,145 @@
+{
+  "name": "Dated card with history short of the statement start: learned behaviour as undated, never degraded",
+  "today": "2026-10-12",
+  "pay_period_config": {
+    "type": "last_friday"
+  },
+  "confirmed_income_streams": [],
+  "accounts": [
+    {
+      "_id": "acc-bc",
+      "name": "Example Current",
+      "provider": "barclays",
+      "type": "BANK",
+      "subtype": "TRANSACTION",
+      "balance": 1500.0,
+      "currency": "GBP",
+      "status": "connected",
+      "include_in_safe_to_spend": true
+    },
+    {
+      "_id": "acc-amex",
+      "name": "Example Rewards Card",
+      "provider": "amex",
+      "type": "CREDIT",
+      "subtype": "CREDIT_CARD",
+      "balance": -920.0,
+      "currency": "GBP",
+      "status": "connected",
+      "include_in_safe_to_spend": true
+    }
+  ],
+  "manual_accounts": [],
+  "cashflow_cache": {
+    "recurring_spend": [
+      {
+        "key": "COUNCIL TAX",
+        "avg_amount": 150.0,
+        "avg_interval": 30,
+        "next_date": "2026-10-20",
+        "account_id": "acc-bc",
+        "account_name": "Barclays Current",
+        "account_bank": "barclays",
+        "account_balance": 1500.0,
+        "is_credit_card": false,
+        "category": "Bills"
+      }
+    ],
+    "recurring_income": [
+      {
+        "key": "acme|payroll::acc-bc",
+        "display_name": "Acme Payroll",
+        "avg_amount": 3000.0,
+        "avg_interval": 30,
+        "next_date": "2026-10-30",
+        "account_id": "acc-bc",
+        "account_name": "Barclays Current",
+        "account_bank": "barclays",
+        "account_balance": 1500.0,
+        "category": "Income",
+        "occurrences": 3,
+        "amounts_recent": [
+          3000.0,
+          3000.0,
+          3000.0
+        ]
+      }
+    ],
+    "bnpl_commitments": [],
+    "avg_daily_spend": 0
+  },
+  "transactions": [
+    {
+      "account_id": "acc-amex",
+      "date": "2026-09-10",
+      "amount": 400.0,
+      "transaction_type": "debit",
+      "description": "FURNITURE SHOP",
+      "merchant_name": "FURNITURE SHOP",
+      "category": "Shopping"
+    },
+    {
+      "account_id": "acc-amex",
+      "date": "2026-09-20",
+      "amount": 120.0,
+      "transaction_type": "debit",
+      "description": "GARAGE",
+      "merchant_name": "GARAGE",
+      "category": "Transport"
+    },
+    {
+      "account_id": "acc-amex",
+      "date": "2026-10-05",
+      "amount": 150.0,
+      "transaction_type": "debit",
+      "description": "SUPERMARKET",
+      "merchant_name": "SUPERMARKET",
+      "category": "Groceries"
+    },
+    {
+      "account_id": "acc-amex",
+      "date": "2026-10-09",
+      "amount": 50.0,
+      "transaction_type": "debit",
+      "description": "RESTAURANT",
+      "merchant_name": "RESTAURANT",
+      "category": "Eating Out"
+    }
+  ],
+  "commitments": [],
+  "allocations": [],
+  "card_terms": [
+    {
+      "account_id": "acc-amex",
+      "status": "confirmed",
+      "apr_pct": 22.9,
+      "promos": [],
+      "bt_offers": [],
+      "statement_close_day": 3,
+      "payment_due_day": 28,
+      "payment_due_days_after_close": null,
+      "payment_method": "full",
+      "payment_account_id": "acc-bc",
+      "fixed_payment_amount": null,
+      "usage": "clear_monthly"
+    }
+  ],
+  "expected": {
+    "left_to_spend": 1150.0,
+    "accounts": {
+      "acc-bc": {
+        "spend_from": 1150.0,
+        "after_payments": 1350.0,
+        "low_point": 1350.0,
+        "verdict": "covered"
+      }
+    },
+    "cover_plan": {
+      "moves_total": 0,
+      "moves": []
+    },
+    "payday_plan": null,
+    "at_risk_count": 0,
+    "notes": "Same card and dates as card-bill-dated-statement (statement 4 Sep to 3 Oct, due 28 Oct), but the earliest card transaction is 10 Sep, after the statement start, so there is not enough settled history to estimate the bill and the dated rule yields no payment. The card falls back to learned behaviour exactly as if it had no dates: no repayment is learned, so net card growth this period is reserved. Window 12 Oct to 29 Oct, period started 25 Sep. Card purchases since 25 Sep: 150 + 50 = 200, so the hold is 200 (the 400 and 120 of September pre-date the period). Cash: 1,500 - 150 council tax = 1,350 low point. Left to spend = 1,350 - 200 = 1,150. Barclays after payments and low point are 1,350, and the pool caps spend from at 1,150. Calculation status stays complete: unusable dates are not a failure."
+  }
+}
