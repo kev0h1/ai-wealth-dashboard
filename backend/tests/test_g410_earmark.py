@@ -50,6 +50,7 @@ def test_earmark_applied_to_source_and_destination(monkeypatch):
     assert dest["covered_by_move"] == {
         "amount": 290.0,
         "from": [{"account_id": "src", "name": "Harbour Current", "amount": 290.0}],
+        "shortfall": 276.0,  # the S3.1 figure the move was sized from
     }
 
 
@@ -137,3 +138,11 @@ def test_cleared_on_dismiss_and_the_row_reverts_to_plain_short(monkeypatch):
             assert key not in entry
     assert elig["dest"]["after_payments"] == -276.0  # plain short
     assert elig["src"]["spend_from_headroom"] == elig["src"]["after_payments_and_plans"]
+
+
+def test_uncertain_source_discloses_no_deduction(monkeypatch):
+    """An unreadable plan makes every position uncertain: Available is unchanged (no reserve),
+    so the source shows no set-aside line either."""
+    _, elig = _compute(monkeypatch, plans_fail=True)
+    assert elig["src"]["uncertain"] is True
+    assert "earmarks_out" not in elig["src"] and "earmarked_total" not in elig["src"]

@@ -19,7 +19,7 @@ export function statusFor(account: UpcomingAccountSummary, plans: Plan[]): Accou
     const suggestion = account.coverSuggestion;
     if (suggestion && account.status === "short") {
       if (suggestion.shortAfterCover > 0) return { amount: suggestion.shortAfterCover, label: "Short after the suggested move", signal: "risk", estimated: false };
-      return { amount: gap, label: "Short, covered by suggested move", signal: "move", estimated: false };
+      return { amount: gap, label: "Short, a move would cover it", signal: "move", estimated: false };
     }
     return { amount: gap, label: "Short for payments", signal: "risk", estimated: false };
   }

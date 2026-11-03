@@ -5,19 +5,6 @@
    {
     "after_payments": 2521.67,
     "after_payments_and_plans": null,
-    "earmarked_total": 175.0,
-    "earmarks_out": [
-     {
-      "amount": 135.0,
-      "to_account_id": "lowsrc",
-      "to_name": "lowsrc"
-     },
-     {
-      "amount": 40.0,
-      "to_account_id": "orphan",
-      "to_name": "orphan"
-     }
-    ],
     "estimated": false,
     "headroom": 2511.67,
     "low_point": 2521.67,
@@ -71,7 +58,8 @@
        "amount": 135.0,
        "name": "barclays"
       }
-     ]
+     ],
+     "shortfall": 125.0
     },
     "estimated": false,
     "headroom": -135.0,

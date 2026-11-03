@@ -4498,7 +4498,9 @@ async def compute_today_items(
                 _amt = round(float(_l["amount"]), 2)
                 _from_rows.append({"account_id": _src_id, "name": _src_name, "amount": _amt})
                 _src_entry = account_eligibility_out.get(_src_id)
-                if _src_entry is None:
+                # Same guard as the `spend_from_headroom` reserve above: an uncertain
+                # source shows no deduction against an unchanged Available.
+                if _src_entry is None or _src_entry.get("uncertain"):
                     continue
                 _src_entry.setdefault("earmarks_out", []).append(
                     {"to_account_id": _dest, "to_name": _dest_name, "amount": _amt}
@@ -4508,7 +4510,7 @@ async def compute_today_items(
                 )
             _dest_entry = account_eligibility_out.get(_dest)
             if _dest_entry is not None:
-                _dest_entry["covered_by_move"] = {"amount": _covered_amt, "from": _from_rows}
+                _dest_entry["covered_by_move"] = {"amount": _covered_amt, "from": _from_rows, "shortfall": _dest_short}
                 _dest_entry["short_after_cover"] = round(max(0.0, _dest_short - _covered_amt), 2)
 
     unfunded_move_items: list[dict] = []

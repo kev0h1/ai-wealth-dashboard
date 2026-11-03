@@ -472,8 +472,7 @@ def earmark_facts(*, eligibility: dict, accounts: list[dict], name_tokens: list[
         cov = entry.get("covered_by_move")
         if isinstance(cov, dict) and cov.get("amount"):
             froms = _join([str(f.get("name") or "another account") for f in cov.get("from") or []])
-            figures = [v for v in (entry.get("after_payments"), entry.get("low_point")) if isinstance(v, (int, float))]
-            short = max(0.0, -min(figures)) if figures else 0.0
+            short = float(cov.get("shortfall") or 0.0)  # the engine's own figure, never recomputed
             after = float(entry.get("short_after_cover") or 0.0)
             if after > 0:
                 sentence = f"{name} would still be short {_fmt(after)} after the suggested move from {froms}."

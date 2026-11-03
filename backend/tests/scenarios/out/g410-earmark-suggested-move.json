@@ -1,13 +1,13 @@
 {
   "account_eligibility": {
     "acc-hc": {
-      "account_headroom_raw": 1790.0,
+      "account_headroom_raw": 1800.0,
       "after_payments": 2000.0,
       "after_payments_and_plans": 2000.0,
-      "earmarked_total": 210.0,
+      "earmarked_total": 200.0,
       "earmarks_out": [
         {
-          "amount": 210.0,
+          "amount": 200.0,
           "to_account_id": "acc-mc",
           "to_name": "Meadow Current"
         }
@@ -19,27 +19,28 @@
       "plans_reserved": 0.0,
       "short": false,
       "spend_from_capped": false,
-      "spend_from_headroom": 1790.0,
+      "spend_from_headroom": 1800.0,
       "uncertain": false
     },
     "acc-mc": {
-      "account_headroom_raw": -200.0,
-      "after_payments": -200.0,
-      "after_payments_and_plans": -200.0,
+      "account_headroom_raw": -190.0,
+      "after_payments": -190.0,
+      "after_payments_and_plans": -190.0,
       "covered_by_move": {
-        "amount": 210.0,
+        "amount": 200.0,
         "from": [
           {
             "account_id": "acc-hc",
-            "amount": 210.0,
+            "amount": 200.0,
             "name": "Harbour Current"
           }
-        ]
+        ],
+        "shortfall": 190.0
       },
       "estimated": false,
-      "headroom": -210.0,
-      "low_point": -200.0,
-      "low_point_and_plans": -200.0,
+      "headroom": -200.0,
+      "low_point": -190.0,
+      "low_point_and_plans": -190.0,
       "plans_reserved": 0.0,
       "short": true,
       "short_after_cover": 0.0,
@@ -179,7 +180,7 @@
         "account_bank": "NatWest",
         "account_id": "acc-mc",
         "account_name": "Meadow Current",
-        "amount": 275.0,
+        "amount": 265.0,
         "amount_basis": null,
         "card_dest_account_bank": null,
         "card_dest_account_id": null,
@@ -236,13 +237,13 @@
   "days_to_payday": 25,
   "items": [
     {
-      "amount": 210,
+      "amount": 200,
       "covered": true,
       "id": "plan:2026-11-27:29e8b70a06",
       "moves": [
         {
-          "amount": 210,
-          "headline": "Move \u00a3210 from Harbour Current",
+          "amount": 200,
+          "headline": "Move \u00a3200 from Harbour Current",
           "move_map": {
             "from": {
               "account_id": "acc-hc",
@@ -257,7 +258,7 @@
               "account_id": "acc-mc",
               "balance": 600.0,
               "display_label": "NatWest Meadow Current",
-              "incoming": "\u00a3275 Home Insurance expected Fri 20 Nov",
+              "incoming": "\u00a3265 Home Insurance expected Fri 20 Nov",
               "name": "Meadow Current",
               "provider": "natwest"
             }
@@ -277,8 +278,8 @@
     "calculation_status": "complete",
     "card_growth_reserved": 0.0,
     "commitments_reserved": 0,
-    "safe_to_spend": 1800.0,
-    "safe_to_spend_cash": 1800.0
+    "safe_to_spend": 1810.0,
+    "safe_to_spend_cash": 1810.0
   },
   "today": "2026-11-02"
 }

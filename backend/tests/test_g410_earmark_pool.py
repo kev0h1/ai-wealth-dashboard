@@ -18,7 +18,7 @@ def test_pooled_left_to_spend_is_identical_with_and_without_the_earmark(monkeypa
 
     spec = json.loads((SCEN / "g410-earmark-suggested-move.json").read_text())
     with_move = ts._json_roundtrip(ts._run_scenario(spec, "g410-pool-a", monkeypatch))
-    assert with_move["account_eligibility"]["acc-hc"]["earmarked_total"] == 210.0
+    assert with_move["account_eligibility"]["acc-hc"]["earmarked_total"] == 200.0
 
     async def _closed(**_kw):
         return companion._RegularMoveCardGate({}, {}, 0)
@@ -26,4 +26,4 @@ def test_pooled_left_to_spend_is_identical_with_and_without_the_earmark(monkeypa
     monkeypatch.setattr(companion, "_gate_regular_move_cards", _closed)
     without = ts._json_roundtrip(ts._run_scenario(spec, "g410-pool-b", monkeypatch))
     assert "earmarked_total" not in without["account_eligibility"]["acc-hc"]
-    assert with_move["safe_to_spend"]["safe_to_spend"] == without["safe_to_spend"]["safe_to_spend"] == 1800.0
+    assert with_move["safe_to_spend"]["safe_to_spend"] == without["safe_to_spend"]["safe_to_spend"] == 1810.0

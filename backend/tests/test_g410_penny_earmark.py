@@ -10,8 +10,8 @@ ACCOUNTS = [
 ELIG = {
     "h": {"spend_from_headroom": 1790.0, "earmarked_total": 210.0,
           "earmarks_out": [{"to_account_id": "m", "to_name": "Meadow Current", "amount": 210.0}]},
-    "m": {"after_payments": -200.0, "low_point": -200.0, "short_after_cover": 0.0,
-          "covered_by_move": {"amount": 210.0, "from": [{"account_id": "h", "name": "Harbour Current", "amount": 210.0}]}},
+    "m": {"after_payments": -999.0, "low_point": -999.0, "short_after_cover": 0.0,
+          "covered_by_move": {"amount": 210.0, "shortfall": 200.0, "from": [{"account_id": "h", "name": "Harbour Current", "amount": 210.0}]}},
 }
 
 

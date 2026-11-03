@@ -1,17 +1,17 @@
 {
   "account_eligibility": {
     "acc-hc": {
-      "account_headroom_raw": 1790.0,
-      "after_payments": 1790.0,
-      "after_payments_and_plans": 1790.0,
+      "account_headroom_raw": 1800.0,
+      "after_payments": 1800.0,
+      "after_payments_and_plans": 1800.0,
       "estimated": false,
-      "headroom": 1780.0,
-      "low_point": 1790.0,
-      "low_point_and_plans": 1790.0,
+      "headroom": 1790.0,
+      "low_point": 1800.0,
+      "low_point_and_plans": 1800.0,
       "plans_reserved": 0.0,
       "short": false,
       "spend_from_capped": false,
-      "spend_from_headroom": 1790.0,
+      "spend_from_headroom": 1800.0,
       "uncertain": false
     },
     "acc-mc": {
@@ -32,7 +32,7 @@
   "account_plans": [],
   "accounts": [
     {
-      "balance": 1790.0,
+      "balance": 1800.0,
       "currency": "GBP",
       "id": "acc-hc",
       "include_in_safe_to_spend": true,
@@ -43,7 +43,7 @@
       "type": "BANK"
     },
     {
-      "balance": 810.0,
+      "balance": 800.0,
       "currency": "GBP",
       "id": "acc-mc",
       "include_in_safe_to_spend": true,
@@ -72,7 +72,7 @@
     "spendable_balance": 2600.0,
     "upcoming_bills": [
       {
-        "account_balance": 810.0,
+        "account_balance": 800.0,
         "account_bank": "NatWest",
         "account_id": "acc-mc",
         "account_name": "Meadow Current",
@@ -100,7 +100,7 @@
         "rule_label": null
       },
       {
-        "account_balance": 810.0,
+        "account_balance": 800.0,
         "account_bank": "NatWest",
         "account_id": "acc-mc",
         "account_name": "Meadow Current",
@@ -128,7 +128,7 @@
         "rule_label": null
       },
       {
-        "account_balance": 810.0,
+        "account_balance": 800.0,
         "account_bank": "NatWest",
         "account_id": "acc-mc",
         "account_name": "Meadow Current",
@@ -156,11 +156,11 @@
         "rule_label": null
       },
       {
-        "account_balance": 810.0,
+        "account_balance": 800.0,
         "account_bank": "NatWest",
         "account_id": "acc-mc",
         "account_name": "Meadow Current",
-        "amount": 275.0,
+        "amount": 265.0,
         "amount_basis": null,
         "card_dest_account_bank": null,
         "card_dest_account_id": null,
@@ -184,7 +184,7 @@
         "rule_label": null
       },
       {
-        "account_balance": 810.0,
+        "account_balance": 800.0,
         "account_bank": "NatWest",
         "account_id": "acc-mc",
         "account_name": "Meadow Current",
@@ -226,8 +226,8 @@
     "calculation_status": "complete",
     "card_growth_reserved": 0.0,
     "commitments_reserved": 0,
-    "safe_to_spend": 1800.0,
-    "safe_to_spend_cash": 1800.0
+    "safe_to_spend": 1810.0,
+    "safe_to_spend_cash": 1810.0
   },
   "today": "2026-11-02"
 }
