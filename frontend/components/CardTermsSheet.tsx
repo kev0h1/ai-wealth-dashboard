@@ -809,8 +809,8 @@ export default function CardTermsSheet({ cards, ready, startAccountId, onClose, 
   return (
     <SheetFrame
       variant={startAccountId ? "focused" : "compact"}
-      title={startAccountId ? "Account details" : !finished && current ? current.name : "Card rates"}
-      description={!finished && current ? <>{startAccountId ? "Card payment, rates and deals" : <MoneyText text={`${balanceStr} on it`} />}{total > 1 && <span> · {index + 1} of {total}</span>}</> : "So plans can work with what each card really costs."}
+      title={startAccountId ? "Edit card details" : !finished && current ? current.name : "Card rates"}
+      description={!finished && current ? <>{startAccountId ? `${current.name}, payment, rates and deals` : <MoneyText text={`${balanceStr} on it`} />}{total > 1 && <span> · {index + 1} of {total}</span>}</> : "So plans can work with what each card really costs."}
       leading={!finished && current && chip ? <BankBadge logoSrc={chip.logoSrc} initials={chip.initials} initialsSize={chip.initialsSize} altText={chip.label} brandBg={chip.bg} /> : undefined}
       onClose={onClose}
       dismissDisabled={saving !== null}
