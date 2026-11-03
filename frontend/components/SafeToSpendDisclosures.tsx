@@ -95,8 +95,7 @@ export default function SafeToSpendDisclosures({
         {evidence.heroShowsCashGap && <p>The estimate above shows the cash shortfall. A separate card hold can increase that gap.</p>}
         {reservationDetails}
         {earmarkedMoves.length > 0 && <div data-g412-earmarks>
-          {earmarkedMoves.map(move => <p key={`${move.sourceId}:${move.destinationId}`}><MoneyText text={`${format(move.amount, true)} earmarked from ${move.sourceName} to ${move.destinationName} to cover payments.`} /></p>)}
-          <p>Already included in the estimate. This explains the move and does not subtract it again.</p>
+          {earmarkedMoves.map(move => <p key={`${move.sourceId}:${move.destinationId}`}><MoneyText text={`${format(move.amount, true)} moving from ${move.sourceName} to ${move.destinationName} to cover its payments. This does not change the total.`} /></p>)}
         </div>}
         {(data.pooled_transfers_excluded ?? 0) > 0 && <p>Transfers between your own included accounts do not change the total, so they are left out of this calculation.</p>}
         <dl className={styles.facts}>

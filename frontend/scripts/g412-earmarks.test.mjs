@@ -18,8 +18,8 @@ for(const hidden of [false,true]){
  const start=html.indexOf('data-g412-earmarks');
  assert.ok(start>html.indexOf('data-g324-calculation'));
  assert.ok(start<html.indexOf('data-g324-card-activity'));
- assert.match(html,/Already included in the estimate/);
- assert.match(html,/does not subtract it again/);
+ assert.match(html,/moving from Barclays everyday to NatWest bills to cover its payments\. This does not change the total\./);
+ assert.doesNotMatch(html,/earmarked|[Ee]mdash|—/);
  assert.match(html,/Barclays everyday/);
  if(hidden)assert.doesNotMatch(html,/£\d/,'no money in masked DOM or ARIA');
  else assert.match(html,/£275\.00/);
