@@ -2839,6 +2839,8 @@ export type CardTermsCard = {
   terms: CardTerms | null;
   ask_eligible: boolean;
   statement_bill?: CardStatementBill | null;
+  /** A181 bank-reported class ("credit_card", "charge_card"), null when unknown. */
+  card_class?: string | null;
 };
 
 export type CardTermsList = {

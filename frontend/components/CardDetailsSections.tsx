@@ -71,7 +71,7 @@ export default function CardDetailsSections({ card, paymentAccounts = [], onEdit
   const payer = terms?.payment_account_id ? paymentAccounts.find(a => a.id === terms.payment_account_id)?.name ?? "Account no longer available" : "Not set";
   const confirmed = terms?.status === "confirmed" ? terms : null;
   const hasDates = terms?.statement_close_day != null && (terms.payment_due_day != null || terms.payment_due_days_after_close != null);
-  const chargeCard = card.name.toLowerCase().includes("charge");
+  const chargeCard = card.card_class === "charge_card"; // the stored A181 class, never the name
   const activeDeals = (confirmed?.promos ?? []).filter(p => p.until >= new Date().toISOString().slice(0, 10));
   const offers = confirmed?.bt_offers ?? [];
   const edit = (label: string, run: () => void) => <button type="button" onClick={run} aria-label={label} data-g412-edit={label} className="min-h-11 min-w-11 rounded-lg px-2 text-[13px] font-semibold text-indigo-700 active:opacity-70 dark:text-indigo-300">Edit</button>;

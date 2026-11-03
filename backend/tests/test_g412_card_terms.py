@@ -262,3 +262,11 @@ def test_list_attaches_a_statement_bill_but_keeps_terms_readable_if_it_fails(sto
     response = asyncio.run(card_terms.list_card_terms(USER))
     assert response["cards"][0]["terms"]["statement_close_day"] == 15
     assert response["cards"][0]["statement_bill"] is None
+
+
+@pytest.mark.parametrize(("stored", "expected"), [("charge_card", "charge_card"), ("Credit_Card", "credit_card"), (None, None)])
+def test_list_exposes_the_stored_card_class_and_never_guesses_from_the_name(stores, stored, expected):
+    accounts, _terms, _refreshed = stores
+    accounts.docs[0].update(name="Business Charge Card", finexer_class=stored)
+    response = asyncio.run(card_terms.list_card_terms(USER))
+    assert response["cards"][0]["card_class"] == expected

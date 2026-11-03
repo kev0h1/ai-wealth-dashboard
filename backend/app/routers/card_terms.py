@@ -152,6 +152,8 @@ async def list_card_terms(user: dict = Depends(current_user)):
             "balance": float(a.get("balance") or 0.0),
             "currency": a.get("currency") or "GBP",
             "source": a.get("source") or "truelayer",
+            # A181: the bank-reported card class kept on the account at sync; never guessed from the name.
+            "card_class": str(a.get("finexer_class") or "").strip().lower() or None,
             "terms": _serialize_terms(doc),
             "statement_bill": statement_bills.get(aid) if aid in configured_ids else None,
             "ask_eligible": is_ask_eligible(doc, now),

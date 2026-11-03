@@ -43,6 +43,12 @@ assert.doesNotMatch(quiet, /data-g412-estimate/);
 assert.doesNotMatch(quiet, /Add statement|add its statement|statement dates/i);
 assert.match(quiet, /Statement closes[\s\S]*Not set/);
 
+// A charge card is the stored bank class, never the name (Charge in a credit card's name proves nothing).
+const named = { ...dated, name: "Example Charge Rewards", card_class: "credit_card" };
+assert.match(render(named, false), /Standard purchase rate/, "a card named charge but classed credit keeps its rates");
+assert.doesNotMatch(render({ ...dated, name: "Example Gold", card_class: "charge_card" }, false), /Standard purchase rate|aria-label="Edit rates and deals"/, "a charge-class card has no rates row or Edit");
+assert.match(render({ ...dated, card_class: null }, false), /Standard purchase rate/, "unknown class is treated as an ordinary card");
+
 // Wiring: one entry for the record, no loose pill in the sheet, no stray rules.
 const accounts = read("app/components/AccountsPage.tsx");
 assert.match(accounts, /onDetails=\{\(\) => setAccountDetailsFor\(selectedAccount\.id\)\}/, "cards open the one Account details sheet");
