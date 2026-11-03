@@ -104,6 +104,7 @@ function localBank(account: SpendFromAccount["account"]) {
 // and places its exclusions in the adjacent scope disclosure.
 export const COUNTS_LINE = "Based on your connected current accounts and the bills Sorted knows about. It doesn't include other accounts, payments still pending, or bills Sorted hasn't spotted yet.";
 const COUNTS_INTRO = COUNTS_LINE.slice(0, COUNTS_LINE.indexOf(". ") + 1);
+const ESTIMATE_DISCLAIMER = "An estimate from your bank data. It can be wrong, so check your bank for your latest balance. Not financial advice.";
 
 /**
  * G148 (2026-09-23): the quiet placeholder for a rail that is absent rather
@@ -520,6 +521,7 @@ export default function SafeToSpendCard({ data, loading, error, onRetry, spendFr
       )}
     </section>
     <SafeToSpendDisclosures
+      disclaimer={ESTIMATE_DISCLAIMER}
       data={data}
       evidence={evidence}
       format={formatEvidence}

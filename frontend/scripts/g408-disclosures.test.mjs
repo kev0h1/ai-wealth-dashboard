@@ -28,7 +28,7 @@ for(const data of [...Object.values(FORECASTS),reference,earlier,compoundGap]){
  assert.equal(cents(e.rows.at(-1).value),cents(data.safe_to_spend));
 }
 const earlierEvidence=evidence(earlier);
-assert.deepEqual(earlierEvidence.rows,[{label:'Left to spend at the cash low point',value:-400,total:true}]);
+assert.deepEqual(earlierEvidence.rows,[{label:'Left to spend at the cash low point',value:-400,total:true,detail:'Across counted current accounts.'}]);
 assert.equal(earlierEvidence.incomeBeforePayday,1300);
 assert.match(earlierEvidence.ledgerNote,/lowest cash forecast/);
 assert.ok(!earlierEvidence.rows.some(r=>r.label==='Income before payday'),'do not put whole-period income into an invented prefix walk');

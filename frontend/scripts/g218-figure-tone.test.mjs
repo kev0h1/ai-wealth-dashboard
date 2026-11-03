@@ -62,10 +62,13 @@ assert.ok(hasLine(render({ data: fx["on-track"], syncing: syncInfo })), "stale f
 assert.ok(!hasLine(render({ data: null, error: true })), "error state has no disclaimer");
 assert.ok(!hasLine(render({ data: null, loading: true })), "loading state has no disclaimer");
 assert.ok(!hasLine(render({ data: fx.degraded })), "degraded state withholds the figure and the disclaimer");
-const dis = src.match(/<p data-sts-disclaimer>([^<]+)<\/p>/);
-assert.ok(dis, "exact disclaimer element remains in source");
+const dis = src.match(/const ESTIMATE_DISCLAIMER = "([^"]+)";/);
+assert.ok(dis, "exact authoritative disclaimer remains in the parent");
 assert.equal(dis[1], DISCLAIMER);
 assert.doesNotMatch(dis[1], /—|!/);
+assert.match(src, /disclaimer=\{ESTIMATE_DISCLAIMER\}/, "the authoritative copy is passed to the rendered evidence");
+const detailSource = readFileSync(new URL("../components/SafeToSpendDisclosures.tsx", import.meta.url), "utf8");
+assert.match(detailSource, /<p data-sts-disclaimer>\{disclaimer\}<\/p>/);
 const complete = render({ data: fx["on-track"] });
 const hero = complete.slice(complete.indexOf("data-g324-hero"), complete.indexOf("data-g324-evidence"));
 assert.doesNotMatch(hero, /data-sts-disclaimer/, "B2 places accuracy in its separate scope disclosure");
@@ -74,6 +77,10 @@ const caveat = complete.slice(caveatStart, complete.indexOf("</details>", caveat
 assert.match(caveat, /What this estimate counts/);
 assert.ok(caveat.includes(DISCLAIMER), "the full accuracy warning is accessible in one tap");
 assert.equal(complete.split(DISCLAIMER).length - 1, 1, "do not duplicate or omit the warning");
-assert.match(caveat, /class="[^"]*text-\[12px\][^"]*text-slate-600[^"]*dark:text-slate-300/, "approved quiet 12px canvas-prose role has adequate contrast");
+assert.match(caveat, /class="body"/, "the disclaimer is inside the actual styled disclosure body");
+const detailCss = readFileSync(new URL("../components/SafeToSpendDisclosures.module.css", import.meta.url), "utf8");
+assert.match(detailCss, /\.body \{[^}]*color: var\(--voice\)[^}]*font-size: 12px/);
+assert.match(detailCss, /--voice: #475569/, "light prose retains adequate contrast");
+assert.match(detailCss, /--voice: #cbd5e1/, "dark prose retains adequate contrast");
 
 console.log("g218-figure-tone: all assertions passed");

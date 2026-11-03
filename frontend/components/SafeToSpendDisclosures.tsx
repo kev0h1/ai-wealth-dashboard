@@ -10,7 +10,6 @@ import styles from "./SafeToSpendDisclosures.module.css";
 type SafeToSpendOk = Extract<SafeToSpend, { status: "ok" }>;
 
 const COUNTS_EXCLUSIONS = "It doesn't include other accounts, payments still pending, or bills Sorted hasn't spotted yet.";
-const DISCLAIMER = "An estimate from your bank data. It can be wrong, so check your bank for your latest balance. Not financial advice.";
 
 function dateLabel(iso: string | null | undefined): string | null {
   if (!iso) return null;
@@ -19,14 +18,15 @@ function dateLabel(iso: string | null | undefined): string | null {
   return date.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
 }
 
-function LedgerRow({ label, value, total, format }: {
+function LedgerRow({ label, value, total, detail, format }: {
   label: string;
   value: number;
   total?: boolean;
+  detail?: string;
   format: (value: number, exact?: boolean) => string;
 }) {
   return <div className={`${styles.ledgerRow} ${total ? styles.total : ""}`}>
-    <dt>{label}</dt>
+    <dt>{label}{detail && <span className={styles.rowDetail}>{detail}</span>}</dt>
     <dd><MoneyText text={format(value, true)} /></dd>
   </div>;
 }
@@ -40,6 +40,7 @@ function Fact({ label, children }: { label: string; children: ReactNode }) {
  * quiet card. This component owns no forecast arithmetic or account rail.
  */
 export default function SafeToSpendDisclosures({
+  disclaimer,
   data,
   evidence,
   format,
@@ -49,6 +50,7 @@ export default function SafeToSpendDisclosures({
   reservationDetails,
   freshnessLabel,
 }: {
+  disclaimer: string;
   data: SafeToSpendOk;
   evidence: LeftToSpendEvidence;
   format: (value: number, exact?: boolean) => string;
@@ -72,7 +74,7 @@ export default function SafeToSpendDisclosures({
       <DisclosureSummary className={styles.summary}><span>What this estimate counts</span></DisclosureSummary>
       <div className={styles.body}>
         <p>{COUNTS_EXCLUSIONS}</p>
-        <p data-sts-disclaimer>{DISCLAIMER}</p>
+        <p data-sts-disclaimer>{disclaimer}</p>
       </div>
     </details>
 

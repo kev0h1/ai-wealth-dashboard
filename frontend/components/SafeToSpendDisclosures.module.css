@@ -35,6 +35,7 @@
 .ledgerRow { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; padding: 10px 0; border-top: 1px solid var(--hairline); font-size: 13px; line-height: 20px; }
 .ledgerRow:first-child { border-top: 0; }
 .ledgerRow dt { min-width: 0; font-weight: 500; }
+.rowDetail { display: block; margin-top: 2px; color: var(--voice); font-size: 11px; font-weight: 400; line-height: 16px; }
 .ledgerRow dd { color: var(--ink); font-weight: 600; white-space: nowrap; }
 .total { margin-top: 4px; padding-top: 12px; border-top-color: #94a3b8; }
 .total dt, .total dd { color: var(--ink); font-weight: 700; }

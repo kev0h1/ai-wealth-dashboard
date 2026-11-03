@@ -1,7 +1,7 @@
 import type { SafeToSpend } from "./api";
 
 type Forecast = Extract<SafeToSpend, { status: "ok" }>;
-export type EvidenceRow = { label: string; value: number; total?: boolean };
+export type EvidenceRow = { label: string; value: number; total?: boolean; detail?: string };
 export type LeftToSpendEvidence = {
   summaryLabel: string;
   summaryAmount: number;
@@ -74,6 +74,7 @@ export function buildLeftToSpendEvidence(data: Forecast, summaryAmount: number):
   }
 
   const pace = data.pace;
+  rows[0].detail = "Across counted current accounts.";
   return {
     summaryLabel: summaryAmount === 0 ? "How we worked this out" : "How we got",
     summaryAmount, rows, ledgerNote, cardGap, heroShowsCashGap,
