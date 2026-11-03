@@ -179,3 +179,5 @@ backend/.venv/bin/python scripts/check_scenarios_order.py
 It runs `test_g362_landed_income.py`, `test_payday_plan_fixes.py`, `test_scenarios.py` and `test_scenarios_order.py`
 in that order against a disposable `wealth_test_*` database. Run it after touching any test that patches
 `app.db.collections` or any collection handle.
+
+G412: `card-bill-dated-statement`: a card with a statement closing day, a due day and a full Direct Debit. The closed statement (4 Sep to 3 Oct) is a 720 payment due on 28 Oct, before payday on 30 Oct, and the 200 spent after the close is not held, so Left to spend is 630 rather than the 430 the undated hold would give.

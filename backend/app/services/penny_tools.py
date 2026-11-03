@@ -7907,8 +7907,9 @@ async def _exec_propose_set_card_terms(
             )
         except HTTPException as exc:
             return _tool_error(str(exc.detail))
-        except Exception as exc:
-            return _tool_error(str(exc))
+        except Exception:
+            logger.exception("penny_tools: propose_set_card_terms payment settings rejected for %s", uid)
+            return _tool_error("Those card payment settings are not valid. Check the days, method, amount and paying account.")
 
     description = _describe_card_terms_changes(changed)
     summary = f"Set {account.name} ({account.provider}) to {description}."

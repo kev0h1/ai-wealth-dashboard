@@ -113,26 +113,27 @@ ALLOWLIST: set[tuple[str, int]] = {
     # every line below again. Re-derived empirically post-merge by an AST
     # scan of the merged file (the same scan this test runs), not by
     # arithmetic on either side's shift comment.
-    ("app/services/penny_tools.py", 5142),
-    ("app/services/penny_tools.py", 5307),  # ValueError from compute_intent_preview, see above
+    ("app/services/penny_tools.py", 5168),
+    ("app/services/penny_tools.py", 5333),  # ValueError from compute_intent_preview, see above
     # G341 adds five lines for the legacy explainer alias; each entry still
     # points to the identical authored return expression, verified against
     # the pre-change source. No handler or exception policy changed.
     # G296 and A170 shift these same authored HTTPException forwards;
     # no handlers or exceptions changed. Entries map to identical source lines.
-    ("app/services/penny_tools.py", 5849),
-    ("app/services/penny_tools.py", 5869),
-    ("app/services/penny_tools.py", 5905),
-    ("app/services/penny_tools.py", 5928),
-    ("app/services/penny_tools.py", 6070),
-    ("app/services/penny_tools.py", 6075),
-    ("app/services/penny_tools.py", 6080),
-    ("app/services/penny_tools.py", 6178),
-    ("app/services/penny_tools.py", 6183),
-    ("app/services/penny_tools.py", 6188),
-    ("app/services/penny_tools.py", 7129),
-    ("app/services/penny_tools.py", 7784),
-    ("app/services/penny_tools.py", 7798),
+    ("app/services/penny_tools.py", 5875),
+    ("app/services/penny_tools.py", 5895),
+    ("app/services/penny_tools.py", 5931),
+    ("app/services/penny_tools.py", 5954),
+    ("app/services/penny_tools.py", 6096),
+    ("app/services/penny_tools.py", 6101),
+    ("app/services/penny_tools.py", 6106),
+    ("app/services/penny_tools.py", 6204),
+    ("app/services/penny_tools.py", 6209),
+    ("app/services/penny_tools.py", 6214),
+    ("app/services/penny_tools.py", 7155),
+    ("app/services/penny_tools.py", 7852),
+    ("app/services/penny_tools.py", 7866),
+    ("app/services/penny_tools.py", 7909),  # G412: authored HTTPException detail from the card-terms route validator
     # app.services.billing._handle_checkout_completed: `str(exc)` here is an
     # authored ValueError message from grant_pack (see above), returned as
     # the body of a Stripe *webhook* response — read by Stripe's own retry
