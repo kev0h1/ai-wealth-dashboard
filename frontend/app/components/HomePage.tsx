@@ -25,6 +25,7 @@ import GroceryBasketCard from "@/components/GroceryBasketCard";
 import { useHomePinnedCards } from "@/lib/useHomePinnedCards";
 import { getHomeCache, setHomeCache } from "@/lib/homeCache";
 import HomeBrief, { HomeBriefClearedRow } from "@/components/HomeBrief";
+import HomeGreetingHeader from "@/components/HomeGreetingHeader";
 import HomeTransfersCheck from "@/components/HomeTransfersCheck";
 import ReconnectStrip from "@/components/ReconnectStrip";
 import ReconfirmPrompt from "@/components/ReconfirmPrompt";
@@ -38,7 +39,7 @@ import { getAccountsCached } from "@/lib/accountsCache";
 import { useHomePinnedAccounts } from "@/lib/homePinnedAccounts";
 import { isLegacyBankSource } from "@/lib/legacyBankProvider";
 import { useOpenBankingAccess } from "@/lib/openBankingAccess";
-import { resolveDisplayName, resolveFullName } from "@/lib/displayName";
+import { initialsOf, resolveDisplayName, resolveFullName } from "@/lib/displayName";
 // A67: a STATIC import, deliberately, after measuring the alternative.
 // Lazy-loading this the way PinnedWidgetCard below is lazy-loaded was tried
 // and reverted: it does not remove anything from Home's first load, because
@@ -94,18 +95,17 @@ const PinnedWidgetCard = dynamic(
 // sections, relocated rather than reinvented; the three strip
 // placeholders use the min-height values each of those files already
 // documents for their own loading skeleton (166 / 64 / 128px).
-function HomeSkeleton({ firstName }: { firstName?: string }) {
+function HomeSkeleton({ firstName, displayName }: { firstName?: string; displayName?: string }) {
   return (
     <div
       className="lg:grid lg:grid-cols-[minmax(0,5fr)_minmax(0,6fr)] lg:gap-6 lg:p-6 lg:max-w-7xl lg:mx-auto"
       aria-hidden="true"
+      inert
     >
       {/* Left column */}
       <div>
         <div className="px-4 pt-5 lg:px-0 lg:pt-0">
-          <h1 className="text-[28px] font-bold tracking-tight text-slate-900 dark:text-slate-100 leading-tight">
-            {firstName ? `Hi, ${firstName}` : "Welcome back"}
-          </h1>
+          <HomeGreetingHeader greeting={`Hi, ${firstName || "there"}`} avatarInitials={initialsOf(displayName) ?? null} />
         </div>
 
         <div className="px-4 lg:px-0 mt-5">
@@ -1056,7 +1056,7 @@ export default function HomePage() {
           self-fetching strips can report their onReady in) but hidden via
           a plain display toggle, never unmounted, so nothing here ever
           double-fetches and the reveal is instant with no transition. */}
-      {!pageReady && <><p className="sr-only" role="status">Loading your overview</p><HomeSkeleton firstName={firstName} /></>}
+      {!pageReady && <><p className="sr-only" role="status">Loading your overview</p><HomeSkeleton firstName={firstName} displayName={displayName} /></>}
 
       {/* Desktop 2-col grid wrapper */}
       <div

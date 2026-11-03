@@ -2605,7 +2605,7 @@ export default function AccountsPage() {
           />
         </div>
         {accountDetailsFor === selectedAccount.id && (
-          <SheetFrame title="Account details" description={accountDetailKindText(accountKindLabel(accountKind(selectedAccount)), selectedAccount.provider, undefined, isBusinessAccount(selectedAccount))} variant="compact" onClose={() => setAccountDetailsFor(null)}>
+          <SheetFrame title="Account details" description={accountDetailKindText(accountKindLabel(accountKind(selectedAccount)), selectedAccount.provider, undefined, isBusinessAccount(selectedAccount))} variant="focused" onClose={() => setAccountDetailsFor(null)}>
             {({ closeThen }) => <div className="space-y-5">
               {!isManual && !isStatement && !isCredit && !isDebt && detailBalanceReady && (
                 <AccountCountRow

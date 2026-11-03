@@ -1,5 +1,40 @@
-// Service worker — handles Web Push notifications for the Wealth Dashboard.
+// Service worker: handles Web Push notifications for the Wealth Dashboard.
 // Runs in the browser's background, separate from the app's JS bundle.
+//
+// G411: this worker is push-only and must never serve an app shell. It has no
+// fetch handler on purpose, so every navigation and asset request goes to the
+// network (and the browser's normal HTTP caching), never to a Cache Storage
+// copy of an older build. It precaches nothing. The version below only names
+// the one cache this worker is allowed to own (none today); on activate every
+// other cache is deleted, so a shell cached by any earlier worker generation
+// is cleared the first time this worker takes over.
+const SW_VERSION = "g411-push-only-v1";
+const OWNED_CACHES = [];
+
+self.addEventListener("install", function () {
+  self.skipWaiting();
+});
+
+self.addEventListener("activate", function (event) {
+  event.waitUntil(
+    caches
+      .keys()
+      .then(function (keys) {
+        return Promise.all(
+          keys
+            .filter(function (key) {
+              return OWNED_CACHES.indexOf(key) === -1;
+            })
+            .map(function (key) {
+              return caches.delete(key);
+            })
+        );
+      })
+      .then(function () {
+        return self.clients.claim();
+      })
+  );
+});
 
 self.addEventListener("push", function (event) {
   if (!event.data) return;

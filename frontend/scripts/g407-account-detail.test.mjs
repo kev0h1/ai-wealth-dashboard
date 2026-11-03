@@ -94,4 +94,25 @@ assert.match(sheet, /Remove account/);
 for (const action of ["handleReconnect", "openEditManual", "setShowStatementUpload", "openCardTermsAt", "handleDeleteAccount", "deleteManualAccount"]) assert.match(sheet, new RegExp(`closeThen\\(\\(\\) =>[\\s\\S]*?${action}`), `${action} closes Account details first`);
 assert.match(page, /hideNetWorth && detailBalanceReady \? \(balance < 0 \? "Negative balance hidden" : "Balance hidden"\) : detailBalanceText/, "masked balance has a matching masked spoken value");
 
+// G411: Account details opens full height in the same frame as "Tell me what this was" (focused variant),
+// keeping every row, and the bank data line falls back to the last sync time.
+assert.match(sheet, /<SheetFrame title="Account details"[^>]*variant="focused"/, "details sheet uses the full-height focused frame");
+assert.doesNotMatch(sheet, /variant="compact"/, "details sheet is no longer the short compact sheet");
+assert.doesNotMatch(readFileSync(new URL("../components/TeachingSheet.tsx", import.meta.url), "utf8").slice(0, 200000), /<SheetFrame[^>]*variant="compact"/, "the transaction sheet frame stays focused");
+assert.match(sheet, /Include in estimated left to spend|<AccountCountRow/, "inclusion row kept");
+assert.match(sheet, /consentExpiry/, "Connected until row kept");
+{
+  const { bankDataTimeLine } = await import("../lib/accountSheetNotes.ts");
+  const now = Date.parse("2026-11-03T12:00:00Z");
+  assert.equal(bankDataTimeLine({ bank_synced_to: null, transactions_synced_at: "2026-11-03T10:00:00Z" }, now), "Bank data updated 2 hours ago", "last sync is shown when Finexer reported no synced_to");
+  assert.equal(bankDataTimeLine({ bank_synced_to: "2026-11-03T11:00:00Z", transactions_synced_at: "2026-11-03T10:00:00Z" }, now), "Bank data from 1 hour ago");
+  assert.equal(bankDataTimeLine({ bank_synced_to: null, transactions_synced_at: null }, now), undefined);
+  const { createElement: h } = await import("react");
+  const { renderToStaticMarkup } = await import("react-dom/server");
+  const { default: Row } = await import("../components/AccountRefreshRow.tsx");
+  const html = renderToStaticMarkup(h(Row, { account: { id: "a", bank_synced_to: null, transactions_synced_at: "2026-11-03T10:00:00Z" }, onRefresh: async () => ({}), now, compact: true }));
+  assert.match(html, /Bank data updated 2 hours ago/);
+  assert.doesNotMatch(html, /not reported yet/, "never says not reported when a last-sync time exists");
+}
+
 console.log("g407 account detail C: ok");
