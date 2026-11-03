@@ -1,0 +1,50 @@
+.page { min-height: 100dvh; padding: 20px 16px 40px; background: #f0f2f7; color: #0f172a; }
+:global(.dark) .page { background: #0f172a; color: #f1f5f9; }
+.controls, .surface, .notice { width: 100%; max-width: 600px; margin-inline: auto; }
+.controls { margin-bottom: 20px; }
+.title { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.title h1 { font-size: 20px; font-weight: 700; }
+.title > a { display: inline-flex; align-items: center; justify-content: center; gap: 2px; min-height: 44px; font-size: 13px; font-weight: 600; }
+.controls > p { margin-top: 4px; font-size: 13px; line-height: 20px; color: #475569; }
+:global(.dark) .controls > p { color: #cbd5e1; }
+.options { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+.options a, .examples a { display: inline-flex; min-height: 44px; align-items: center; justify-content: center; gap: 8px; padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 12px; font-size: 13px; font-weight: 600; touch-action: manipulation; }
+:global(.dark) .options a, :global(.dark) .examples a { border-color: #475569; }
+.options a[aria-current], .examples a[aria-current] { color: white; background: #4f46e5; border-color: #4f46e5; }
+.options a.fullScreen { padding-inline: 4px; border: 0; }
+.examples { margin-top: 8px; }
+.examples summary { display: flex; gap: 8px; align-items: center; min-height: 44px; width: fit-content; cursor: pointer; list-style: none; font-size: 13px; font-weight: 500; }
+.examples summary::-webkit-details-marker { display: none; }
+.examples[open] summary svg { transform: rotate(180deg); }
+.examples > div { display: flex; flex-wrap: wrap; gap: 8px; padding-top: 8px; }
+.controls a:hover { text-decoration: underline; text-underline-offset: 3px; }
+.controls a:focus-visible, .controls summary:focus-visible { outline: 2px solid #4f46e5; outline-offset: 2px; }
+.surface { display: grid; gap: 12px; }
+.heroCard { overflow: hidden; border: 1px solid #e2e8f0; border-radius: 16px; background: white; box-shadow: 0 1px 2px rgb(0 0 0 / .05); }
+:global(.dark) .heroCard { background: #1e293b; border-color: #334155; box-shadow: none; }
+.hero { padding: 16px; }
+.heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.heading h2 { font-size: 11px; line-height: 16px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: #64748b; }
+:global(.dark) .heading h2 { color: #94a3b8; }
+.amount { margin-top: 20px; font-size: 30px; line-height: 40px; font-weight: 700; letter-spacing: -.025em; }
+.amount.muted { color: #64748b; }
+:global(.dark) .amount.muted { color: #94a3b8; }
+.unavailable { margin-top: 20px; font-size: 20px; font-weight: 600; }
+.support { margin-top: 12px; font-size: 13px; line-height: 20px; color: #475569; }
+.counts { margin-top: 8px; font-size: 12px; line-height: 18px; color: #334155; }
+:global(.dark) .support { color: #cbd5e1; }
+:global(.dark) .counts { color: #e2e8f0; }
+.sources { margin-top: 12px; }
+.sources h3 { margin-bottom: 8px; font-size: 11px; line-height: 16px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: #64748b; }
+:global(.dark) .sources h3 { color: #94a3b8; }
+.source { display: grid; grid-template-columns: 24px minmax(0,1fr) auto; align-items: center; gap: 8px; margin-top: 8px; }
+.sourceName { overflow-wrap: anywhere; font-size: 12px; }
+.limit { font-size: 12px; text-align: right; white-space: nowrap; }
+.sources > p { margin-top: 8px; font-size: 12px; line-height: 18px; color: #475569; }
+:global(.dark) .sources > p { color: #cbd5e1; }
+.sync { margin-top: 4px; font-size: 12px; color: #475569; }
+:global(.dark) .sync { color: #cbd5e1; }
+.recovery { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; min-height: 44px; margin-top: 12px; padding: 8px 16px; border-radius: 12px; background: #4f46e5; color: white; font-size: 14px; font-weight: 600; touch-action: manipulation; }
+.recovery:hover { background: #4338ca; }
+.recovery:focus-visible { outline: 2px solid #4f46e5; outline-offset: 3px; }
+.notice { margin-top: 12px; font-size: 13px; line-height: 20px; }
