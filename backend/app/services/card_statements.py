@@ -179,14 +179,25 @@ def estimate_statement(
         ))
         return result
     # A direct debit the pair reconciler missed still shows as a credit on the
-    # card. A card-side credit after the close that covers what is left is the
-    # payment in practice; smaller unmatched credits (refunds) never reduce it.
+    # card. Only ONE unmatched post-close credit, dated within 14 days of the
+    # due date and at least what is left (within 2 pounds of the arranged
+    # amount for a fixed payment), is treated as the payment. Credits are
+    # never summed, so refunds stay conservative. Minimum and manual methods
+    # never reach here: they stay on repayment evidence.
     paired = {id(c) for c, _ in pairs}
-    unmatched = sum(abs(float(r["amount"])) for r in after
-                    if r["transaction_type"] == "credit" and id(r) not in paired)
-    if amount > 0 and paid < amount and unmatched >= amount - paid:
-        paid = amount
-        result["paid_since_close"] = _money(paid)
+    left = amount - paid
+    if amount > 0 and left > 0:
+        for r in after:
+            if r["transaction_type"] != "credit" or id(r) in paired:
+                continue
+            value, when = abs(float(r["amount"])), _day(r["date"])
+            if when is None or abs((when - due).days) > 14 or value < left:
+                continue
+            if method == "fixed" and abs(value - amount) > 2:
+                continue
+            paid = amount
+            result["paid_since_close"] = _money(paid)
+            break
     remaining = _money(max(0.0, amount - paid))
     result.update(payment_amount=amount, payment_remaining=remaining,
                   status="paid" if remaining == 0 else "estimated")

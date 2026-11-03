@@ -143,17 +143,54 @@ def test_unverified_or_wrong_payment_evidence_does_not_clear_a_statement(proof):
     assert bill["status"] == "estimated"
 
 
-def test_unmatched_card_credit_that_covers_the_bill_counts_as_the_payment():
-    # A direct debit the pair reconciler missed: the card-side credit alone.
-    # Balance 0 after a 500 credit means the closed bill was 500.
-    card = _card(0)
-    rows = _history(_row("card", date(2026, 3, 17), 500, "credit"))
-    bill = _estimate(card=card, rows=rows, pairs=[])
+LATE = date(2026, 4, 8)  # statement closed 15 Mar, due 9 Apr
+
+
+def _late(rows, terms=None, card=None):
+    card = card or _card(0)
+    return estimate_statement(card, terms or _terms(), _history(*rows), {"card": card, "cash": _payer()}, LATE)
+
+
+def test_single_unmatched_credit_covering_the_bill_near_the_due_date_counts_as_paid():
+    # A direct debit the pair reconciler missed. Balance 0 after a 500 credit
+    # means the closed bill was 500.
+    bill = _late([_row("card", date(2026, 4, 6), 500, "credit")])
 
     assert bill["estimated_bill"] == 500.0
     assert bill["paid_since_close"] == 500.0
     assert bill["payment_remaining"] == 0.0
     assert bill["status"] == "paid"
+
+
+def test_unmatched_credit_far_from_the_due_date_does_not_clear_the_bill():
+    bill = _late([_row("card", date(2026, 3, 17), 500, "credit")])  # 23 days before the due date
+
+    assert bill["paid_since_close"] == 0.0
+    assert bill["payment_remaining"] == 500.0
+    assert bill["status"] == "estimated"
+
+
+def test_two_unmatched_credits_summing_to_the_bill_do_not_clear_it():
+    bill = _late([_row("card", date(2026, 4, 5), 250, "credit"), _row("card", date(2026, 4, 6), 250, "credit")])
+
+    assert bill["paid_since_close"] == 0.0
+    assert bill["payment_remaining"] == 500.0
+
+
+def test_unmatched_refund_does_not_clear_a_smaller_fixed_payment_but_the_arranged_amount_does():
+    terms = _terms(payment_method="fixed", fixed_payment_amount=50)
+    refund = _late([_row("card", date(2026, 4, 6), 60, "credit")], terms)
+    exact = _late([_row("card", date(2026, 4, 6), 51, "credit")], terms)
+
+    assert refund["payment_remaining"] == 50.0 and refund["status"] == "estimated"
+    assert exact["payment_remaining"] == 0.0 and exact["status"] == "paid"
+
+
+def test_minimum_never_clears_from_an_unmatched_credit():
+    bill = _late([_row("card", date(2026, 4, 6), 500, "credit")], _terms(payment_method="minimum"))
+
+    assert bill["status"] == "payment_unverified"
+    assert bill["payment_remaining"] is None
 
 
 def test_small_unmatched_credit_is_a_refund_and_never_reduces_the_bill():
