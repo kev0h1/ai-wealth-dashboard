@@ -275,3 +275,16 @@ def test_future_unclosed_statement_does_not_duplicate_the_last_closed_full_bill(
     assert bill["next_payment_due"] == "2026-05-10"
     assert len(applied) == 1
     assert applied[0]["expected_date"] == "2026-04-09"
+
+
+def test_excluded_or_unavailable_payer_yields_no_payment_and_leaves_learned_behaviour():
+    card = _card(0)
+    rows = _history(_row("card", date(2026, 3, 17), 10, "debit"))
+    excluded = {**_payer(), "include_in_safe_to_spend": False}
+    bill = _estimate(card=card, rows=rows, accounts={"card": card, "cash": excluded})
+
+    assert bill["status"] == "source_unavailable"
+    assert bill["payment_amount"] is None and bill["payment_remaining"] is None
+    assert apply_statement_bills([{"card_dest_account_id": "card", "amount": 50.0, "expected_date": "2026-03-28"}],
+                                 {"card": bill}, {"card": card, "cash": excluded}, TODAY, date(2026, 4, 10))[0] == [
+        {"card_dest_account_id": "card", "amount": 50.0, "expected_date": "2026-03-28"}]

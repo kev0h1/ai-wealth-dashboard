@@ -44,10 +44,10 @@
       "currency": "GBP",
       "id": "acc-pay",
       "include_in_safe_to_spend": false,
-      "name": "Example Excluded Account",
+      "name": "Example Savings Pot",
       "provider": "barclays",
       "status": "connected",
-      "subtype": "TRANSACTION",
+      "subtype": "SAVINGS",
       "type": "BANK"
     }
   ],
@@ -126,7 +126,7 @@
   },
   "days_to_payday": 18,
   "items": [],
-  "name": "Dated card whose paying account is excluded: learned behaviour as undated, never degraded",
+  "name": "Dated card whose paying account is not a usable payer: learned behaviour as undated, never degraded",
   "period": {
     "end": "2026-10-29",
     "start": "2026-09-25"
