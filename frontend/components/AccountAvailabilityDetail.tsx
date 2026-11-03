@@ -1,19 +1,20 @@
 "use client";
 
-import { ChevronDown } from "lucide-react";
+import { ChevronDown, CircleAlert } from "lucide-react";
 import type { AccountEligibility } from "@/lib/api";
 import { formatAvailabilityAmount, type AccountAvailabilityReading } from "@/lib/accountAvailability";
 import MoneyText from "@/components/MoneyText";
 
 /** G406: the available estimate opens its existing server-position evidence. */
-export default function AccountAvailabilityDetail({ reading, position, hidden }: {
+export default function AccountAvailabilityDetail({ reading, position, hidden, layout = "default" }: {
   reading?: AccountAvailabilityReading;
   position?: AccountEligibility;
   hidden: boolean;
+  layout?: "default" | "calm";
 }) {
   if (!reading) return null;
   const amount = (value: number, exact = false) => hidden ? `${value < 0 ? "−" : ""}£••••` : exact ? `${value < 0 ? "−" : ""}£${Math.abs(value).toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : formatAvailabilityAmount(value);
-  if (reading.kind !== "ready") return <p data-account-availability-working className="mt-3 text-[13px] text-slate-600 dark:text-slate-300">{reading.kind === "checking" ? "Checking what is available…" : "The available estimate could not be checked. Refresh to try again."}</p>;
+  if (reading.kind !== "ready") return <p data-account-availability-working className={`${layout === "calm" ? "flex min-h-11 items-center" : "mt-3"} text-[13px] text-slate-600 dark:text-slate-300`}>{layout === "calm" ? (reading.kind === "checking" ? "Checking availability…" : "Availability unavailable") : (reading.kind === "checking" ? "Checking what is available…" : "The available estimate could not be checked. Refresh to try again.")}</p>;
   // These are stored projections, not a new forecast or a subtraction from
   // today's balance. Prefer the recorded low point; fall back to the closing
   // projection only when the server has not supplied the low point.
@@ -28,6 +29,22 @@ export default function AccountAvailabilityDetail({ reading, position, hidden }:
     ["Lowest after payments", position?.low_point],
     ["Lowest after plans", position?.low_point_and_plans],
   ];
+  if (layout === "calm") return <div data-account-availability-working className="text-[13px] leading-5 text-slate-600 dark:text-slate-300">
+    <details className="group">
+      <summary className="grid min-h-11 cursor-pointer list-none grid-cols-[minmax(0,1fr)_16px] touch-manipulation items-start gap-3 rounded-lg py-2 text-slate-800 [@media(hover:hover)]:hover:text-slate-950 active:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-slate-100 dark:[@media(hover:hover)]:hover:text-white [&::-webkit-details-marker]:hidden">
+        <span className="min-w-0">
+          <span className="flex items-baseline justify-between gap-3"><span>Available to spend</span><MoneyText text={amount(reading.value)} className="shrink-0 font-semibold" /></span>
+          {reading.warning && <span className="mt-1 flex items-center gap-2 text-slate-800 dark:text-slate-100"><span>{short !== undefined ? <><MoneyText text={amount(Math.abs(short))} /> short {reading.warning === "payments" ? "for payments" : "after plans"}</> : <>Short {reading.warning === "payments" ? "for payments" : "after plans"}</>}</span><CircleAlert size={14} aria-hidden="true" className={`shrink-0 ${reading.warning === "payments" ? "text-rose-700 dark:text-rose-300" : "text-amber-800 dark:text-amber-200"}`} /></span>}
+        </span>
+        <ChevronDown size={16} aria-hidden="true" className="mt-0.5 shrink-0 transition-transform duration-150 motion-reduce:transition-none group-open:rotate-180" />
+      </summary>
+      <div className="pb-2 pt-3">
+        {reading.warning && <p className="mb-3">{reading.warning === "payments" ? "Scheduled payments" : "Plans"} take the forecast below zero. Your bank balance is separate.</p>}
+        <dl className="space-y-2">{evidence.map(([label, value]) => typeof value === "number" && Number.isFinite(value) ? <div key={label} className="flex justify-between gap-4"><dt>{label}</dt><dd className="shrink-0"><MoneyText text={amount(value, true)} /></dd></div> : null)}<div className="flex justify-between gap-4 border-t border-slate-200 pt-2 font-semibold dark:border-slate-700"><dt>Available to spend</dt><dd className="shrink-0"><MoneyText text={amount(reading.value, true)} /></dd></div></dl>
+        <p className="mt-3 text-xs">Available is an estimate for this pay period. It protects earlier low points and any move held back, and cannot exceed your shared Left to spend. These are separate account limits, not amounts to add together.{position?.estimated ? " Some plan sources are estimated." : ""}</p>
+      </div>
+    </details>
+  </div>;
   return <div data-account-availability-working className="mt-3 text-[13px] leading-relaxed text-slate-600 dark:text-slate-300">
     <details className="group">
       <summary className="flex min-h-11 cursor-pointer list-none touch-manipulation items-center justify-between gap-3 rounded-lg py-2 font-medium text-slate-800 [@media(hover:hover)]:hover:text-slate-950 active:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-slate-100 dark:[@media(hover:hover)]:hover:text-white [-webkit-tap-highlight-color:transparent] [&::-webkit-details-marker]:hidden"><span className="min-w-0"><span>Available to spend <MoneyText text={amount(reading.value)} /></span>{short !== undefined && <span> · Projected shortfall <MoneyText text={amount(Math.abs(short))} /> {reading.warning === "payments" ? "after payments" : "after plans"}</span>}</span><ChevronDown size={16} aria-hidden="true" className="shrink-0 transition-transform duration-150 motion-reduce:transition-none group-open:rotate-180" /></summary>

@@ -11,9 +11,11 @@ import AccountLedgerRow from "@/components/AccountLedgerRow";
 import AccountsHeader from "@/components/AccountsHeader";
 import AccountsDirectory from "@/components/AccountsDirectory";
 import AccountAvailabilityDetail from "@/components/AccountAvailabilityDetail";
+import AccountDetailLayout from "@/components/AccountDetailLayout";
+import detailStyles from "@/components/AccountDetailLayout.module.css";
 import AccountsAddMenu from "@/components/AccountsAddMenu";
 import { useAccountsOverviewRefresh } from "@/lib/useAccountsOverviewRefresh";
-import { AccountDetailIdentity, AccountDetailKindLine, AccountTransactionsToolbar } from "@/components/AccountDetailParts";
+import { accountDetailKindText, AccountTransactionsToolbar } from "@/components/AccountDetailParts";
 import ReconnectStrip, { type ReconnectProvider } from "@/components/ReconnectStrip";
 import PausedBanksStrip from "@/components/PausedBanksStrip";
 import { pausedAccountCount } from "@/lib/billingCopy";
@@ -253,6 +255,7 @@ export default function AccountsPage() {
   const [loading, setLoading] = useState(true);
   const [accountLoadFailed, setAccountLoadFailed] = useState(false);
   const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null);
+  const [accountDetailsFor, setAccountDetailsFor] = useState<string | null>(null);
   const [segment, setSegment] = useState<"Transactions" | "Categories">("Transactions");
   const [page, setPage] = useState(1);
   const [selectedTx, setSelectedTx] = useState<Transaction | null>(null);
@@ -945,6 +948,7 @@ export default function AccountsPage() {
   useAccountDetailHistory(setSelectedAccountId, clearSelectedTransaction);
 
   async function handleSelectAccount(acc: Account) {
+    setAccountDetailsFor(null);
     listScrollY.current = window.scrollY;
     window.history.pushState(stampAccountDetailState(window.history.state, acc.id), "");
     setSelectedAccountId(acc.id);
@@ -1081,6 +1085,7 @@ export default function AccountsPage() {
   }, [selectedAccountId, segment, catSummaries, accounts]);
 
   function handleBack() {
+    setAccountDetailsFor(null);
     if (hasAccountDetailEntry(window.history.state)) {
       // Consume the history entry pushed on open — popstate closes the view,
       // keeping the in-app arrow and the system back gesture in sync.
@@ -2281,7 +2286,7 @@ export default function AccountsPage() {
     // the row markup for each direction.
     function renderCategoryRows(rows: AccountCategorySummary[], txnType: "debit" | "credit") {
       return (
-        <div className="glass-card rounded-2xl overflow-hidden">
+        <div className="overflow-hidden">
           {[...rows].sort((a, b) => b.total - a.total).map((cat, idx) => {
             const colour = getCategoryColour(cat.name, colours);
             const Icon = getCategoryIcon(cat.name, iconOverrides);
@@ -2309,7 +2314,7 @@ export default function AccountsPage() {
                 </div>
                 <div className="flex items-center gap-1 shrink-0">
                   <span className="text-[15px] font-bold money text-slate-900 dark:text-slate-100">
-                    £{cat.total.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    {hideNetWorth ? "£••••" : `£${cat.total.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
                   </span>
                   <ChevronRight size={14} className="text-slate-300 dark:text-slate-600 flex-shrink-0" aria-hidden="true" />
                 </div>
@@ -2321,98 +2326,20 @@ export default function AccountsPage() {
     }
 
     return (
-      <div className="min-h-dvh pb-[calc(9rem+env(safe-area-inset-bottom,0px))] lg:pb-8 lg:max-w-6xl lg:mx-auto" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
-        {/* Header — mini statement: back + compact icon actions, reconnect
-            banner only when genuinely expired, then balance-forward block.
-            Canvas Before Cards (G87, Variant A "Quiet position", Kevin
-            approved 2026-09-16): the header lives directly on the canvas,
-            G406 groups availability, the count setting and bank freshness
-            with the facts, without stacked card borders or closing rules. */}
-        <div data-account-facts className="px-4 pt-4">
-          <div className="flex items-center justify-between mb-4 gap-2">
-            <button
-              onClick={handleBack}
-              className="flex items-center gap-1.5 text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition-colors min-h-[44px] shrink-0"
-            >
-              <ArrowLeft size={18} />
-              <span className="text-sm font-medium">Accounts</span>
-            </button>
-            <div className="flex items-center gap-1 shrink-0">
-              {isManual && (
-                <button
-                  onClick={() => manualAcc && openEditManual(manualAcc)}
-                  aria-label="Edit account"
-                  className="w-11 h-11 flex items-center justify-center rounded-xl bg-slate-100 dark:bg-white/[0.08] hover:bg-slate-200 dark:hover:bg-white/[0.14] text-slate-600 dark:text-slate-300 transition-colors"
-                >
-                  <Pencil size={16} />
-                </button>
-              )}
-              {isStatement && (
-                <button
-                  onClick={() => setShowStatementUpload(true)}
-                  aria-label="Add statement"
-                  className="w-11 h-11 flex items-center justify-center rounded-xl bg-slate-100 dark:bg-white/[0.08] hover:bg-slate-200 dark:hover:bg-white/[0.14] text-slate-600 dark:text-slate-300 transition-colors"
-                >
-                  <Upload size={16} />
-                </button>
-              )}
-              {!isManual && !isExpired && (
-                <button
-                  onClick={() => togglePin(selectedAccount.id)}
-                  aria-label={isPinned ? "Unpin from Home" : "Pin to Home"}
-                  className={`w-11 h-11 flex items-center justify-center rounded-xl transition-colors ${
-                    isPinned
-                      ? "bg-amber-50 dark:bg-amber-900/20 text-amber-500 dark:text-amber-400"
-                      : "bg-slate-100 dark:bg-white/[0.08] hover:bg-slate-200 dark:hover:bg-white/[0.14] text-slate-500 dark:text-slate-300"
-                  }`}
-                >
-                  <Star size={16} className={isPinned ? "fill-current" : ""} />
-                </button>
-              )}
-              <button
-                onClick={async () => {
-                  if (isManual) {
-                    if (!await showConfirm("Remove this offline account?")) return;
-                    await api.deleteManualAccount(selectedAccount.id);
-                    invalidateAllAccountData();
-                    setManualAccounts(prev => prev.filter(a => a.id !== selectedAccount.id));
-                    loadAccounts();
-                    handleBack();
-                  } else {
-                    handleDeleteAccount();
-                  }
-                }}
-                disabled={deletingAccount}
-                aria-label="Remove account"
-                className="w-11 h-11 flex items-center justify-center rounded-xl bg-rose-50 dark:bg-rose-500/10 hover:bg-rose-100 dark:hover:bg-rose-500/20 text-rose-600 dark:text-rose-400 transition-colors disabled:opacity-50"
-              >
-                {deletingAccount ? <Spinner size={16} /> : <Trash2 size={16} />}
-              </button>
-            </div>
-          </div>
-
-          {/* Reconnect — only when genuinely expired, never a standing chip */}
-          {!isManual && !isStatement && isExpired && (
-            <button
-              onClick={() => handleReconnect(selectedAccount?.provider_id, selectedAccount)}
-              className="mb-4 w-full flex items-center justify-center gap-1.5 min-h-[44px] bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 hover:bg-amber-100 dark:hover:bg-amber-900/30 text-amber-700 dark:text-amber-300 font-semibold text-sm px-4 py-2.5 rounded-xl transition-colors"
-            >
-              <RefreshCw size={15} />
-              Reconnect
-            </button>
-          )}
-
-          {/* Statement block */}
-          <AccountDetailIdentity
-            name={displayAccountName(selectedAccount.name)}
-            logoSrc={brand.logoSrc}
-            initials={brand.initials}
-            label={brand.label}
-            background={brand.background}
-          />
-
+      <div className="min-h-dvh pb-[calc(9rem+env(safe-area-inset-bottom,0px))] lg:pb-8 lg:max-w-5xl lg:mx-auto" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
+        <div className="px-4 pt-4">
+          <button type="button" onClick={handleBack} className="mb-4 flex min-h-11 items-center gap-1.5 rounded-lg text-sm font-medium text-slate-600 hover:text-slate-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-slate-300 dark:hover:text-white">
+            <ArrowLeft size={18} aria-hidden="true" />Accounts
+          </button>
+          <AccountDetailLayout
+            account={selectedAccount}
+            accountName={displayAccountName(selectedAccount.name)}
+            providerLabel={brand.label}
+            status={!isManual && !isStatement && isExpired ? <p role="status" className="mt-2 text-[12px] text-amber-800 dark:text-amber-200">Bank connection expired</p> : undefined}
+            onDetails={() => setAccountDetailsFor(selectedAccount.id)}
+            balance={<>
           <p
-            className={`${detailBalanceReady ? "text-[30px] leading-none font-bold money" : "text-sm font-medium"} ${detailBalanceReady && balance < 0 && !isDebt && (!isCredit || termsPill?.accruing) ? "text-rose-600 dark:text-rose-400" : "text-slate-900 dark:text-slate-100"}`}
+            className={`${detailBalanceReady ? "text-[30px] leading-10 font-bold money" : "text-sm font-medium"} ${detailBalanceReady && balance < 0 && !isDebt && (!isCredit || termsPill?.accruing) ? "text-rose-600 dark:text-rose-400" : "text-slate-900 dark:text-slate-100"}`}
           >
             <span aria-hidden="true">{detailBalanceText}</span><span className="sr-only">{hideNetWorth && detailBalanceReady ? (balance < 0 ? "Negative balance hidden" : "Balance hidden") : detailBalanceText}</span>
           </p>
@@ -2424,73 +2351,22 @@ export default function AccountsPage() {
           {detailBalanceReady && isDebt && balance < 0 && <p className="mt-1 text-[11px] text-slate-400 dark:text-slate-500">owed</p>}
           {detailBalanceReady && !isCredit && !isDebt && balance < 0 && <p className="mt-1 text-[11px] text-slate-400 dark:text-slate-500">overdrawn</p>}
 
-          {isCredit && (termsPill ? (
-            <button
-              type="button"
-              onClick={() => openCardTermsAt(selectedAccount.id)}
-              aria-label={`${termsPill.label}, edit this card's rates`}
-              className="relative mt-2 inline-flex items-center min-h-[28px] before:absolute before:-inset-y-2 before:-inset-x-1 before:content-[''] active:opacity-70 transition-opacity"
-            >
-              <span
-                className={`text-[11px] font-semibold px-2.5 py-1 rounded-full num ${
-                  termsPill.amber
-                    ? "bg-amber-50 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400"
-                    : "bg-slate-100 dark:bg-white/10 text-slate-500 dark:text-slate-400"
-                }`}
-              >
-                {termsPill.label}
-              </span>
-            </button>
-          ) : termsCard ? (
-            <button
-              type="button"
-              onClick={() => openCardTermsAt(selectedAccount.id)}
-              className="relative mt-2 inline-flex items-center gap-1 min-h-[28px] text-[11px] font-semibold text-indigo-600 dark:text-indigo-400 before:absolute before:-inset-y-2 before:-inset-x-1 before:content-[''] active:opacity-70 transition-opacity"
-            >
-              <Percent size={11} aria-hidden="true" />
-              Add rates
-            </button>
-          ) : null)}
-
-          <AccountDetailKindLine kindLabel={accountKindLabel(accountKind(selectedAccount))} provider={selectedAccount.provider} consentExpiry={consentExpiry} business={isBusinessAccount(selectedAccount)} connectionNotes={isExpired ? [] : connectionNotes(consentConnection)} />
           {detailBalanceReady && overdraftAvailable(selectedAccount) !== null && (
             <p data-a181-overdraft className="mt-1 text-[12.5px] text-slate-500 dark:text-slate-400">
               <MoneyText text={availableWithOverdraftText(hideNetWorth ? "£••••" : formatAvailabilityAmount(overdraftAvailable(selectedAccount) as number))} />
             </p>
           )}
-          <AccountAvailabilityDetail key={selectedAccount.id} reading={available} position={position} hidden={hideNetWorth} />
 
-          {/* Keep the G231 eligibility and server refusal behaviour. */}
-          {!isManual && !isStatement && !isCredit && !isDebt && detailBalanceReady && !(available?.kind === "ready" && available.warning) && (
-            <div className="mt-3">
-              <AccountCountRow
-                account={selectedAccount}
-                counted={selectedAccount.include_in_safe_to_spend !== false}
-                busy={countBusy}
-                reason={countReason}
-                onChange={(next) => void setAccountCounted(selectedAccount.id, next)}
-                compact
-              />
-            </div>
-          )}
-
-          {canRefreshAccount(selectedAccount) && (
-            <div className="mt-3">
-              <AccountRefreshRow key={selectedAccount.id} account={selectedAccount} onRefresh={refreshOneAccount} compact />
-            </div>
-          )}
-        </div>
-
-        {pinMsg && (
-          <div className="mx-4 mt-4 px-3 py-2 rounded-xl bg-amber-50 dark:bg-amber-900/30 border border-amber-200 dark:border-amber-700 text-xs font-medium text-slate-700 dark:text-slate-300">
-            {pinMsg}
-          </div>
-        )}
-
+            </>}
+            forecast={selectedAccount.include_in_safe_to_spend === false && !isManual && !isStatement && !isCredit && !isDebt ? (
+              <button type="button" onClick={() => setAccountDetailsFor(selectedAccount.id)} className="flex min-h-11 w-full items-center gap-2 rounded-lg text-left text-[13px] text-slate-600 hover:text-slate-950 focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-slate-300 dark:hover:text-white">Excluded from estimated left to spend<ChevronRight size={16} aria-hidden="true" /></button>
+            ) : available ? <AccountAvailabilityDetail key={selectedAccount.id} reading={available} position={position} hidden={hideNetWorth} layout="calm" /> : undefined}
+            activity={<section data-g407-activity aria-label="Account activity" className={detailStyles.activity}>
         {/* Segmented control */}
-        <div className="px-4 pt-4">
+        <div className={detailStyles.activityHeader}>
           {isManual ? (
             <SegmentedControl
+              className={detailStyles.activityTabs}
               ariaLabel="Account view"
               options={["Transactions", "Rules"]}
               value={detailSegment}
@@ -2498,6 +2374,7 @@ export default function AccountsPage() {
             />
           ) : (
             <SegmentedControl
+              className={detailStyles.activityTabs}
               ariaLabel="Account view"
               options={["Transactions", "Categories"]}
               value={segment}
@@ -2506,23 +2383,23 @@ export default function AccountsPage() {
           )}
         </div>
 
-        <div className="px-4 pt-4 space-y-2">
+        <div>
           {/* Search bar — only shown when viewing transactions. Offline
               accounts carry Add transaction beside it (G233). */}
           {showTransactions && (
-            <AccountTransactionsToolbar
+            <div className={detailStyles.search}><AccountTransactionsToolbar
               searchQuery={searchQuery}
               onSearchChange={v => { clearPendingForNewQuery(); setSearchQuery(v); setPage(1); }}
               onClearSearch={() => { clearPendingForNewQuery(); setSearchQuery(""); setPage(1); }}
               onAdd={isManual ? openAddManualTx : undefined}
-            />
+            /></div>
           )}
 
           {/* Category filter chip — set from a Categories-tab row tap. Shows
               direction ("· in") when scoped to the credit ("Money in") side
               so the list is self-explanatory without opening the row. */}
           {showTransactions && !isManual && detailCatFilter && (
-            <div className="flex items-center gap-2 mb-1">
+            <div className="flex items-center gap-2 px-4 py-2">
               <button
                 type="button"
                 onClick={() => { clearPendingForNewQuery(); setDetailCatFilter(null); setPage(1); }}
@@ -2545,7 +2422,7 @@ export default function AccountsPage() {
             </div>
           ) : showTransactions ? (
             <>
-              <div className="space-y-6">
+              <div className={detailStyles.rows}>
                 {!isManual && <PendingPaymentsGroup
                   items={serverPendingTxns}
                   total={serverPendingTotal}
@@ -2559,7 +2436,7 @@ export default function AccountsPage() {
                     <button type="button" onClick={() => setRefreshTick(t => t + 1)} className="mt-3 inline-flex min-h-11 items-center rounded-xl px-4 text-sm font-semibold text-indigo-700 hover:bg-indigo-50 active:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-indigo-300 dark:hover:bg-slate-700">Try again</button>
                   </section>
                 ) : <div
-                className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm overflow-hidden"
+                className="overflow-hidden"
                 onTouchStart={e => {
                   swipeTouchStart.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
                 }}
@@ -2635,7 +2512,7 @@ export default function AccountsPage() {
           ) : isManual ? (
             /* Rules view (offline accounts) */
             <>
-              <div className="flex items-center justify-between pb-1">
+              <div className="flex items-center justify-between px-4 py-3">
                 <p className="text-xs text-slate-400 dark:text-slate-500 pr-3">
                   Auto-post matching transactions to this account.
                 </p>
@@ -2691,7 +2568,7 @@ export default function AccountsPage() {
                (credit) aren't invisible next to spend (debit) — same row
                anatomy, same 90-day window, captioned honestly for each. */
             <>
-              <p className="text-[11px] text-slate-500 dark:text-slate-400 mb-2 px-0.5">
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 mb-2 px-4 pt-3">
                 Spending · last 90 days
               </p>
               {catSummaries === null ? (
@@ -2713,7 +2590,7 @@ export default function AccountsPage() {
                   own income treatment, not a whole section. */}
               {catSummariesCredit !== null && catSummariesCredit.length > 0 && (
                 <>
-                  <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-5 mb-2 px-0.5">
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-5 mb-2 px-4 pt-3">
                     Money in · last 90 days
                   </p>
                   {renderCategoryRows(catSummariesCredit, "credit")}
@@ -2722,6 +2599,82 @@ export default function AccountsPage() {
             </>
           )}
         </div>
+
+
+            </section>}
+          />
+        </div>
+        {accountDetailsFor === selectedAccount.id && (
+          <SheetFrame title="Account details" description={accountDetailKindText(accountKindLabel(accountKind(selectedAccount)), selectedAccount.provider, undefined, isBusinessAccount(selectedAccount))} variant="compact" onClose={() => setAccountDetailsFor(null)}>
+            {({ closeThen }) => <div className="space-y-5">
+              {!isManual && !isStatement && !isCredit && !isDebt && detailBalanceReady && (
+                <AccountCountRow
+                  account={selectedAccount}
+                  counted={selectedAccount.include_in_safe_to_spend !== false}
+                  busy={countBusy}
+                  reason={countReason}
+                  onChange={(next) => void setAccountCounted(selectedAccount.id, next)}
+                  lockedReason={available?.kind === "ready" && available.warning ? `Included while this account is short ${available.warning === "payments" ? "for payments" : "after plans"}.` : undefined}
+                  compact
+                  calm
+                />
+              )}
+              {!isManual && !isStatement && <div className="border-t border-slate-200 pt-3 dark:border-slate-700 [&_[data-a179-refresh-button]]:pr-0">
+                {consentExpiry && <p className="mb-2 text-[13px] text-slate-600 dark:text-slate-300">{consentExpiry}</p>}
+                {!isExpired && connectionNotes(consentConnection).map(note => <p key={note} className="mb-2 text-[13px] text-slate-600 dark:text-slate-300">{note}</p>)}
+                {isExpired && <button type="button" onClick={() => closeThen(() => void handleReconnect(selectedAccount.provider_id, selectedAccount))} className="min-h-11 text-sm font-semibold text-amber-800 dark:text-amber-200">Reconnect bank</button>}
+                {canRefreshAccount(selectedAccount) && <AccountRefreshRow key={selectedAccount.id} account={selectedAccount} onRefresh={refreshOneAccount} compact />}
+              </div>}
+              <div className="border-t border-slate-200 pt-3 dark:border-slate-700">
+                {isManual && <button type="button" onClick={() => closeThen(() => { if (manualAcc) openEditManual(manualAcc); })} className={detailStyles.action}>Edit account<Pencil size={15} aria-hidden="true" /></button>}
+                {isStatement && <button type="button" onClick={() => closeThen(() => setShowStatementUpload(true))} className={detailStyles.action}>Add statement<Upload size={15} aria-hidden="true" /></button>}
+                {!isManual && !isExpired && <button type="button" onClick={() => togglePin(selectedAccount.id)} className={detailStyles.action}>{isPinned ? "Unpin from Home" : "Pin to Home"}<Star size={15} aria-hidden="true" className={isPinned ? "fill-current" : ""} /></button>}
+                {pinMsg && <p role="status" className="py-2 text-[13px] text-slate-600 dark:text-slate-300">{pinMsg}</p>}
+          {isCredit && (termsPill ? (
+            <button
+              type="button"
+              onClick={() => closeThen(() => openCardTermsAt(selectedAccount.id))}
+              aria-label={`${termsPill.label}, edit this card's rates`}
+              className="relative mt-2 inline-flex items-center min-h-[28px] before:absolute before:-inset-y-2 before:-inset-x-1 before:content-[''] active:opacity-70 transition-opacity"
+            >
+              <span
+                className={`text-[11px] font-semibold px-2.5 py-1 rounded-full num ${
+                  termsPill.amber
+                    ? "bg-amber-50 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400"
+                    : "bg-slate-100 dark:bg-white/10 text-slate-500 dark:text-slate-400"
+                }`}
+              >
+                {termsPill.label}
+              </span>
+            </button>
+          ) : termsCard ? (
+            <button
+              type="button"
+              onClick={() => closeThen(() => openCardTermsAt(selectedAccount.id))}
+              className="relative mt-2 inline-flex items-center gap-1 min-h-[28px] text-[11px] font-semibold text-indigo-600 dark:text-indigo-400 before:absolute before:-inset-y-2 before:-inset-x-1 before:content-[''] active:opacity-70 transition-opacity"
+            >
+              <Percent size={11} aria-hidden="true" />
+              Add rates
+            </button>
+          ) : null)}
+
+                <button type="button" disabled={deletingAccount} onClick={() => closeThen(() => {
+                  if (!isManual) { void handleDeleteAccount(); return; }
+                  void (async () => {
+                    if (!await showConfirm("Remove this offline account?")) return;
+                    try {
+                      await api.deleteManualAccount(selectedAccount.id);
+                      invalidateAllAccountData();
+                      setManualAccounts(prev => prev.filter(a => a.id !== selectedAccount.id));
+                      void loadAccounts();
+                      handleBack();
+                    } catch { void noticeSheet({ title: "Couldn’t remove that account", body: "Please try again." }); }
+                  })();
+                })} className={`${detailStyles.action} text-rose-700 dark:text-rose-300`}>Remove account{deletingAccount ? <Spinner size={15} /> : <Trash2 size={15} aria-hidden="true" />}</button>
+              </div>
+            </div>}
+          </SheetFrame>
+        )}
 
         {/* Transaction sheet — the Engine's teaching surface, same one the
             transactions hub uses, so recategorising here or there is

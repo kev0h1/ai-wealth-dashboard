@@ -35,7 +35,7 @@ assert.match(list, /px-4 pt-3 space-y-3/, "Accounts status and directory contain
 assert.match(page, /<AccountsDirectory[\s\S]*?estate=\{estate\}[\s\S]*?manualRows=\{manualEstateRows\}/, "G391 passes the original estate and offline projections to the restored list");
 assert.match(page, /name: displayAccountName\(m\.name\)/, "manual directory names use the same display contract");
 
-assert.match(page, /name=\{displayAccountName\(selectedAccount\.name\)\}/, "Accounts detail header uses the shared name");
+assert.match(page, /accountName=\{displayAccountName\(selectedAccount\.name\)\}/, "Accounts detail header uses the shared name");
 assert.match(page, /rule\.source_account_name \? displayAccountName/, "rule source name uses the shared name");
 assert.match(read("components/HomeBrief.tsx"), /displayAccountName\(m\.source_name\)/, "move rows use the shared name");
 assert.match(read("components/TeachingSheet.tsx"), /displayAccountName\(account\.name\)/, "teaching sheet uses the shared name");
