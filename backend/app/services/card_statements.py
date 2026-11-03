@@ -178,6 +178,15 @@ def estimate_statement(
             if method == "minimum" else "Manual payments are counted only when there is repayment evidence."
         ))
         return result
+    # A direct debit the pair reconciler missed still shows as a credit on the
+    # card. A card-side credit after the close that covers what is left is the
+    # payment in practice; smaller unmatched credits (refunds) never reduce it.
+    paired = {id(c) for c, _ in pairs}
+    unmatched = sum(abs(float(r["amount"])) for r in after
+                    if r["transaction_type"] == "credit" and id(r) not in paired)
+    if amount > 0 and paid < amount and unmatched >= amount - paid:
+        paid = amount
+        result["paid_since_close"] = _money(paid)
     remaining = _money(max(0.0, amount - paid))
     result.update(payment_amount=amount, payment_remaining=remaining,
                   status="paid" if remaining == 0 else "estimated")

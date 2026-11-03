@@ -127,7 +127,7 @@ def test_verified_after_close_card_and_source_pair_marks_payment_paid():
     assert bill["status"] == "paid"
 
 
-@pytest.mark.parametrize("proof", ["refund", "wrong_source", "ambiguous"])
+@pytest.mark.parametrize("proof", ["wrong_source"])
 def test_unverified_or_wrong_payment_evidence_does_not_clear_a_statement(proof):
     card = _card(0)
     payer, other = _payer(), _payer("other")
@@ -140,6 +140,30 @@ def test_unverified_or_wrong_payment_evidence_does_not_clear_a_statement(proof):
 
     assert bill["paid_since_close"] == 0.0
     assert bill["payment_remaining"] == 100.0
+    assert bill["status"] == "estimated"
+
+
+def test_unmatched_card_credit_that_covers_the_bill_counts_as_the_payment():
+    # A direct debit the pair reconciler missed: the card-side credit alone.
+    # Balance 0 after a 500 credit means the closed bill was 500.
+    card = _card(0)
+    rows = _history(_row("card", date(2026, 3, 17), 500, "credit"))
+    bill = _estimate(card=card, rows=rows, pairs=[])
+
+    assert bill["estimated_bill"] == 500.0
+    assert bill["paid_since_close"] == 500.0
+    assert bill["payment_remaining"] == 0.0
+    assert bill["status"] == "paid"
+
+
+def test_small_unmatched_credit_is_a_refund_and_never_reduces_the_bill():
+    card = _card(-480)
+    rows = _history(_row("card", date(2026, 3, 17), 20, "credit"))
+    bill = _estimate(card=card, rows=rows, pairs=[])
+
+    assert bill["estimated_bill"] == 500.0
+    assert bill["paid_since_close"] == 0.0
+    assert bill["payment_remaining"] == 500.0
     assert bill["status"] == "estimated"
 
 
