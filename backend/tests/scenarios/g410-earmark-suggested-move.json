@@ -1,0 +1,139 @@
+{
+  "name": "Earmark: one suggested move is set aside in the source and covers the destination's shortfall (G410)",
+  "today": "2026-11-02",
+  "pay_period_config": {
+    "type": "last_friday"
+  },
+  "confirmed_income_streams": [],
+  "accounts": [
+    {
+      "_id": "acc-hc",
+      "name": "Harbour Current",
+      "provider": "barclays",
+      "type": "BANK",
+      "subtype": "TRANSACTION",
+      "balance": 2000.0,
+      "currency": "GBP",
+      "status": "connected",
+      "include_in_safe_to_spend": true
+    },
+    {
+      "_id": "acc-mc",
+      "name": "Meadow Current",
+      "provider": "natwest",
+      "type": "BANK",
+      "subtype": "TRANSACTION",
+      "balance": 600.0,
+      "currency": "GBP",
+      "status": "connected",
+      "include_in_safe_to_spend": true
+    }
+  ],
+  "manual_accounts": [],
+  "cashflow_cache": {
+    "recurring_spend": [
+      {
+        "key": "RENT SHARE",
+        "avg_amount": 450.0,
+        "avg_interval": 30,
+        "next_date": "2026-11-04",
+        "account_id": "acc-mc",
+        "account_name": "Meadow Current",
+        "account_bank": "natwest",
+        "account_balance": 600.0,
+        "is_credit_card": false,
+        "category": "Bills"
+      },
+      {
+        "key": "BROADBAND",
+        "avg_amount": 40.0,
+        "avg_interval": 30,
+        "next_date": "2026-11-08",
+        "account_id": "acc-mc",
+        "account_name": "Meadow Current",
+        "account_bank": "natwest",
+        "account_balance": 600.0,
+        "is_credit_card": false,
+        "category": "Bills"
+      },
+      {
+        "key": "GYM",
+        "avg_amount": 35.0,
+        "avg_interval": 30,
+        "next_date": "2026-11-10",
+        "account_id": "acc-mc",
+        "account_name": "Meadow Current",
+        "account_bank": "natwest",
+        "account_balance": 600.0,
+        "is_credit_card": false,
+        "category": "Bills"
+      },
+      {
+        "key": "HOME INSURANCE",
+        "avg_amount": 275.0,
+        "avg_interval": 30,
+        "next_date": "2026-11-20",
+        "account_id": "acc-mc",
+        "account_name": "Meadow Current",
+        "account_bank": "natwest",
+        "account_balance": 600.0,
+        "is_credit_card": false,
+        "category": "Bills"
+      }
+    ],
+    "recurring_income": [],
+    "bnpl_commitments": [],
+    "avg_daily_spend": 0
+  },
+  "transactions": [],
+  "commitments": [],
+  "allocations": [],
+  "card_terms": [],
+  "expected": {
+    "left_to_spend": 1800.0,
+    "accounts": {
+      "acc-hc": {
+        "spend_from": 1790.0,
+        "after_payments": 2000.0,
+        "low_point": 2000.0,
+        "verdict": "covered",
+        "earmarked_total": 210.0,
+        "earmarks_out": [
+          {
+            "to": "acc-mc",
+            "amount": 210.0
+          }
+        ]
+      },
+      "acc-mc": {
+        "spend_from": 0.0,
+        "after_payments": -200.0,
+        "low_point": -200.0,
+        "verdict": "short",
+        "covered_by_move": {
+          "amount": 210.0,
+          "from": [
+            {
+              "account_id": "acc-hc",
+              "amount": 210.0
+            }
+          ]
+        },
+        "short_after_cover": 0.0
+      }
+    },
+    "cover_plan": {
+      "moves_total": 210.0,
+      "moves": [
+        {
+          "from": "acc-hc",
+          "to": "acc-mc",
+          "amount": 210.0
+        }
+      ]
+    },
+    "payday_plan": null,
+    "at_risk_count": 1,
+    "notes": "Synthetic, invented names and figures (G410). Today is Mon 2 Nov 2026; pay is the last Friday so payday is Fri 27 Nov and the window runs to Thu 26 Nov (25 days). Harbour Current holds 2,000.00 with no bills. Meadow Current holds 600.00 and has four payments in the window: rent share 450.00 (4 Nov), broadband 40.00 (8 Nov), gym 35.00 (10 Nov), home insurance 275.00 (20 Nov); 450 + 40 = 490, + 35 = 525, + 275 = 800.00. No income is predicted. Meadow walk: 600.00 - 800.00 = -200.00, so after payments -200.00 and low point -200.00 (the balance only falls), verdict short, which the earmark never changes. Harbour: after payments 2,000.00, low point 2,000.00, covered. Cover plan (S3.1): shortfall 200.00 rounds up to the next 5 (200) plus 10 = 210, taken from Harbour (headroom 2,000 - 10 = 1,990, so one leg of 210): one move of 210.00. Earmark (G410): Harbour has 210.00 set aside for the move to Meadow Current (earmarked_total 210.00), and Meadow is covered_by_move 210.00 from Harbour; short_after_cover = max(0, 200.00 shortfall - 210.00 covered) = 0. Spend from: Harbour 2,000.00 - 210.00 reserved = 1,790.00, under the pool; Meadow is negative so shown as 0. Left to spend is pooled and own-account moves never change it (G336): opening 600 + 2,000 = 2,600.00; pooled walk debit-first: -450 = 2,150.00, -40 = 2,110.00, -35 = 2,075.00, -275 = 1,800.00 (the lowest point), no buffer, no plans, no set-asides: 1,800.00, the same with or without the earmark. At risk count 1: the badge walks Meadow alone and it is short."
+  }
+}

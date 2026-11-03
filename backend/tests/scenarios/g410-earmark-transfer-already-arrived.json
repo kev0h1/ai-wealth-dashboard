@@ -1,0 +1,137 @@
+{
+  "name": "Earmark, transfer already arrived: the suggested move has landed, so no move and no earmark (G410)",
+  "today": "2026-11-02",
+  "pay_period_config": {
+    "type": "last_friday"
+  },
+  "confirmed_income_streams": [],
+  "accounts": [
+    {
+      "_id": "acc-hc",
+      "name": "Harbour Current",
+      "provider": "barclays",
+      "type": "BANK",
+      "subtype": "TRANSACTION",
+      "balance": 1790.0,
+      "currency": "GBP",
+      "status": "connected",
+      "include_in_safe_to_spend": true
+    },
+    {
+      "_id": "acc-mc",
+      "name": "Meadow Current",
+      "provider": "natwest",
+      "type": "BANK",
+      "subtype": "TRANSACTION",
+      "balance": 810.0,
+      "currency": "GBP",
+      "status": "connected",
+      "include_in_safe_to_spend": true
+    }
+  ],
+  "manual_accounts": [],
+  "cashflow_cache": {
+    "recurring_spend": [
+      {
+        "key": "RENT SHARE",
+        "avg_amount": 450.0,
+        "avg_interval": 30,
+        "next_date": "2026-11-04",
+        "account_id": "acc-mc",
+        "account_name": "Meadow Current",
+        "account_bank": "natwest",
+        "account_balance": 810.0,
+        "is_credit_card": false,
+        "category": "Bills"
+      },
+      {
+        "key": "BROADBAND",
+        "avg_amount": 40.0,
+        "avg_interval": 30,
+        "next_date": "2026-11-08",
+        "account_id": "acc-mc",
+        "account_name": "Meadow Current",
+        "account_bank": "natwest",
+        "account_balance": 810.0,
+        "is_credit_card": false,
+        "category": "Bills"
+      },
+      {
+        "key": "GYM",
+        "avg_amount": 35.0,
+        "avg_interval": 30,
+        "next_date": "2026-11-10",
+        "account_id": "acc-mc",
+        "account_name": "Meadow Current",
+        "account_bank": "natwest",
+        "account_balance": 810.0,
+        "is_credit_card": false,
+        "category": "Bills"
+      },
+      {
+        "key": "HOME INSURANCE",
+        "avg_amount": 275.0,
+        "avg_interval": 30,
+        "next_date": "2026-11-20",
+        "account_id": "acc-mc",
+        "account_name": "Meadow Current",
+        "account_bank": "natwest",
+        "account_balance": 810.0,
+        "is_credit_card": false,
+        "category": "Bills"
+      }
+    ],
+    "recurring_income": [],
+    "bnpl_commitments": [],
+    "avg_daily_spend": 0
+  },
+  "transactions": [
+    {
+      "account_id": "acc-hc",
+      "date": "2026-11-02",
+      "amount": 210.0,
+      "transaction_type": "debit",
+      "description": "TRANSFER TO MEADOW CURRENT",
+      "merchant_name": "TRANSFER TO MEADOW CURRENT",
+      "category": "Transfer"
+    },
+    {
+      "account_id": "acc-mc",
+      "date": "2026-11-02",
+      "amount": 210.0,
+      "transaction_type": "credit",
+      "description": "TRANSFER FROM HARBOUR CURRENT",
+      "merchant_name": "TRANSFER FROM HARBOUR CURRENT",
+      "category": "Transfer"
+    }
+  ],
+  "commitments": [],
+  "allocations": [],
+  "card_terms": [],
+  "expected": {
+    "left_to_spend": 1800.0,
+    "accounts": {
+      "acc-hc": {
+        "spend_from": 1790.0,
+        "after_payments": 1790.0,
+        "low_point": 1790.0,
+        "verdict": "covered",
+        "no_earmark": true
+      },
+      "acc-mc": {
+        "spend_from": 10.0,
+        "after_payments": 10.0,
+        "low_point": 10.0,
+        "verdict": "covered",
+        "no_earmark": true
+      }
+    },
+    "cover_plan": {
+      "moves_total": 0,
+      "moves": []
+    },
+    "payday_plan": null,
+    "at_risk_count": 0,
+    "notes": "Synthetic, invented names and figures (G410), same two accounts and four Meadow payments as g410-earmark-suggested-move, but the suggested 210.00 has already arrived: a debit of 210.00 posted today on Harbour Current and the matching own-account credit of 210.00 posted today on Meadow Current, both already in the balances. Today is Mon 2 Nov 2026, window to Thu 26 Nov. Harbour: 2,000.00 - 210.00 = 1,790.00, no bills, after payments 1,790.00, low point 1,790.00. Meadow: 600.00 + 210.00 = 810.00 less the four payments (450 + 40 + 35 + 275 = 800.00) = 10.00, after payments 10.00, low point 10.00 (the balance only falls), verdict covered. Nothing is short, so no cover move is sized, and with no move there is no earmark on either account: the earmark follows the live move and the move follows the shortfall. Spend from: Harbour 1,790.00 (no reserve), Meadow 10.00, both under the pool. Left to spend: moving money between two pooled accounts leaves the total unchanged: opening 1,790 + 810 = 2,600.00, the same walk as the move scenario: -450 = 2,150.00, -40 = 2,110.00, -35 = 2,075.00, -275 = 1,800.00, so 1,800.00, identical to the scenario with the move suggested. At risk count 0."
+  }
+}
