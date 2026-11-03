@@ -16,6 +16,9 @@ assert.match(sheet, /No account recorded/, "the optional payment source can be c
 assert.doesNotMatch(sheet, /<select\b/, "payment details use app-styled choices, not a native select");
 assert.doesNotMatch(sheet, /type="(?:date|month)"/, "statement dates use the app day picker");
 assert.match(accounts, /account\.status !== "expired"/, "only connected payment accounts can be selected");
+assert.match(accounts, /accountKind\(account\) === "Current"\)/, "savings cannot pay a card: the route rejects them");
+assert.doesNotMatch(accounts, /\["Current", "Savings"\]/, "no savings payer offered");
+assert.match(sheet, /No connected current account is available to choose\./, "empty copy names current accounts only");
 assert.match(accounts, /account\.include_in_safe_to_spend !== false/, "excluded accounts cannot be selected");
 assert.match(api, /export type CardStatementBill/, "the API documents the server bill response");
 assert.match(api, /statement_bill\?: CardStatementBill \| null/, "older cached responses remain valid");
