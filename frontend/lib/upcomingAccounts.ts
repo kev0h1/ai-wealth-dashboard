@@ -29,6 +29,12 @@ export type UpcomingAccountPosition = {
   /** The Spend from figure Home shows: min(after payments and plans, low point and plans), live-move reserve and pool cap applied. Null when uncertain or not shown. */
   spendFrom: number | null;
   uncertain: boolean;
+  /** G410: what a live suggested move would cover here, and what would still be short after it. Absent when no move is live. */
+  coveredByMove?: { amount: number; from: { accountId: string; name: string; amount: number }[] } | null;
+  shortAfterCover?: number | null;
+  /** G410: set aside in this account for a suggested move out of it (already excluded from `spendFrom`). */
+  earmarkedTotal?: number | null;
+  earmarksOut?: { toAccountId: string; toName: string; amount: number }[] | null;
 };
 
 export type UpcomingAccountSummary = {
@@ -46,7 +52,7 @@ export type UpcomingAccountSummary = {
   /** G266: the payment that sets the peak shortfall, named so the sheet can say what is at risk. Null unless status is "short". */
   shortFor?: { label: string; date: string; cardRepayment: boolean } | null;
   /** G266: a recommendation (never a button) from the cover-plan engine, when an account has room. */
-  coverSuggestion?: { amount: number; fromName: string; fromCount: number } | null;
+  coverSuggestion?: { amount: number; fromName: string; fromCount: number; shortAfterCover: number } | null;
   hasUnassignedIncome: boolean;
   events: UpcomingAccountEvent[];
   /** G238: server position for this account, when the API supplied it. */
@@ -132,6 +138,12 @@ export function positionsFromToday(
       // loaded) never gets a Spend from line on the sheet.
       spendFrom: isCurrent(id) && !entry.uncertain && typeof entry.spend_from_headroom === "number" ? entry.spend_from_headroom : null,
       uncertain: entry.uncertain,
+      coveredByMove: entry.covered_by_move
+        ? { amount: entry.covered_by_move.amount, from: entry.covered_by_move.from.map((f) => ({ accountId: f.account_id, name: f.name, amount: f.amount })) }
+        : null,
+      shortAfterCover: typeof entry.short_after_cover === "number" ? entry.short_after_cover : null,
+      earmarkedTotal: typeof entry.earmarked_total === "number" ? entry.earmarked_total : null,
+      earmarksOut: entry.earmarks_out ? entry.earmarks_out.map((e) => ({ toAccountId: e.to_account_id, toName: e.to_name, amount: e.amount })) : null,
     };
   }
   return out;

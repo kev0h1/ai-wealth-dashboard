@@ -14,6 +14,13 @@ export type AccountStatus = {
 export function statusFor(account: UpcomingAccountSummary, plans: Plan[]): AccountStatus {
   const gap = accountPaymentGap(account);
   if (gap !== null) {
+    // G410: a live suggested move covers (some of) the gap. Covered is watch (amber), never red;
+    // whatever it would not cover stays a genuine short. A dismissed move leaves no earmark, so the row is plain short again.
+    const suggestion = account.coverSuggestion;
+    if (suggestion && account.status === "short") {
+      if (suggestion.shortAfterCover > 0) return { amount: suggestion.shortAfterCover, label: "Short after the suggested move", signal: "risk", estimated: false };
+      return { amount: gap, label: "Short, covered by suggested move", signal: "move", estimated: false };
+    }
     return { amount: gap, label: "Short for payments", signal: "risk", estimated: false };
   }
   if (account.status === "unfunded" && account.shortfall !== null) {

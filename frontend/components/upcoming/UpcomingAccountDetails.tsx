@@ -5,7 +5,7 @@ import { ArrowDownLeft, ArrowLeftRight, Check, ChevronDown, ChevronRight, Receip
 import { accountPaymentGap, type UpcomingAccountEvent, type UpcomingAccountSummary } from "@/lib/upcomingAccounts";
 import { accountPlan, fulfilmentRow, hasPlanSource, remaining, type Plan } from "@/lib/upcomingPlans";
 import { cardRepaymentShortCopy } from "@/lib/upcomingAccountStatus";
-import { coverSuggestionSentence } from "@/lib/coverSuggestion";
+import { coverSuggestionSentence, coveredByMoveSentence } from "@/lib/coverSuggestion";
 import { DetailLedgerLine, detailFocus, detailInk, detailMuted, PlanIcon, dateLabel, money, useMaskedMoney } from "./detailPrimitives";
 import { useBalancesHidden, maskMoneyText } from "@/lib/balancesHidden";
 
@@ -46,6 +46,11 @@ function Verdict({ account, plans, plansStatus }: Required<Pick<UpcomingAccountD
   const uncountedPence = Math.round(account.events.filter((event) => event.credited === false).reduce((sum, event) => sum + event.amount, 0) * 100);
   const uncountedLine = uncountedPence > 0 ? <p data-uncredited-note className={"text-xs leading-5 " + detailMuted}>Expected {m(uncountedPence)} is not counted until it is confirmed.</p> : null;
   if (account.status === "short" && account.shortFor?.cardRepayment) return <div className="space-y-2"><p data-card-repayment-short className="flex items-start gap-2 text-sm font-semibold"><span className="mt-2 size-1.5 shrink-0 rounded-full bg-rose-500" aria-hidden="true" />{maskMoneyText(cardRepaymentShortCopy(account), hidden)}</p>{account.coverSuggestion && <p className={"text-xs leading-5 " + detailMuted}>{coverSuggestionSentence(account.coverSuggestion)}</p>}<p className={"text-xs leading-5 " + detailMuted}>A missed repayment can bring fees and interest. Goals and allocations are separate from this bill gap.</p>{uncountedLine}</div>;
+  if (gap !== null && account.coverSuggestion && account.status === "short") {
+    // G410: covered by the suggested move reads as watch (amber); only what it would not cover stays a risk (red).
+    const after = account.coverSuggestion.shortAfterCover;
+    return <div className="space-y-2"><p data-covered-by-move className="flex items-start gap-2 text-sm font-semibold"><span className={"mt-2 size-1.5 shrink-0 rounded-full " + (after > 0 ? "bg-rose-500" : "bg-amber-500")} aria-hidden="true" />{coveredByMoveSentence(m(Math.round(gap * 100)), account.coverSuggestion, m(Math.round(after * 100)))}</p><p className={"text-xs leading-5 " + detailMuted}>{account.firstShortDate ? "First shortfall " + dateLabel(account.firstShortDate) + ". " : ""}A suggestion only, nothing has been moved. Goals and allocations are separate from this bill gap.</p>{uncountedLine}</div>;
+  }
   if (gap !== null) return <div className="space-y-2"><p className="flex items-center gap-2 text-sm font-semibold"><span className="size-1.5 shrink-0 rounded-full bg-rose-500" aria-hidden="true" />{m(Math.round(gap * 100))} needed for payments</p><p className={"text-xs leading-5 " + detailMuted}>{account.firstShortDate ? "First shortfall " + dateLabel(account.firstShortDate) + ". " : ""}Goals and allocations are separate from this bill gap.</p>{uncountedLine}</div>;
   if (account.status === "unknown") return <div className="space-y-2"><h3 className="text-base font-semibold">Balance needs checking</h3><p className={"text-sm leading-6 " + detailMuted}>We can show your plans, but not whether this account can fund them until its balance and incoming money can be verified.</p></div>;
   if (plansStatus !== "ready") return <p className={"text-sm leading-6 " + detailMuted}>{plansStatus === "loading" ? "Loading goals and allocations. This figure covers payments only." : "Goals and allocations could not be checked. This figure covers payments only."}</p>;

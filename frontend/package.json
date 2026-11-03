@@ -92,6 +92,7 @@
     "check:g386-hero-no-flip": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g386-hero-no-flip.test.mjs",
     "check:g327-upcoming-period": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g327-upcoming-period.test.mjs",
     "check:g360-one-account-walk": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g360-one-account-walk.test.mjs",
+    "check:g410-earmark": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g410-earmark.test.mjs",
     "check:g372-natwest-three-answers": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g372-natwest-three-answers.test.mjs",
     "check:build-mobile-guard": "bash scripts/build-mobile-guard.test.sh",
     "check:build-mobile-mirror": "bash scripts/build-mobile-mirror.test.sh",

@@ -300,7 +300,7 @@ export default function AccountLedgerRow({
           <p data-g339-availability className="inline-flex items-center justify-end gap-1 whitespace-nowrap text-right text-[10px] leading-4 text-slate-500 dark:text-slate-400">
             {availabilityReading.kind === "ready" ? (
               <>
-                {availabilityReading.warning === "payments" ? <AlertTriangle size={10} aria-hidden="true" className="shrink-0 text-rose-700 dark:text-rose-300" /> : availabilityReading.warning === "plans" ? <Info size={10} aria-hidden="true" className="shrink-0 text-amber-800 dark:text-amber-200" /> : null}
+                {availabilityReading.warning === "payments" && availabilityReading.coveredByMove && availabilityReading.coveredByMove.shortAfterCover <= 0 ? <Info size={10} aria-hidden="true" className="shrink-0 text-amber-800 dark:text-amber-200" /> : availabilityReading.warning === "payments" ? <AlertTriangle size={10} aria-hidden="true" className="shrink-0 text-rose-700 dark:text-rose-300" /> : availabilityReading.warning === "plans" ? <Info size={10} aria-hidden="true" className="shrink-0 text-amber-800 dark:text-amber-200" /> : null}
                 Available: {hideAmount ? <MaskedAmount /> : <span className="money">{moneyStr(availabilityReading.value)}</span>}
               </>
             ) : availabilityReading.kind === "checking" ? (

@@ -28,18 +28,24 @@ export default function AccountAvailabilityDetail({ reading, position, hidden, l
     ["After payments and plans", position?.after_payments_and_plans],
     ["Lowest after payments", position?.low_point],
     ["Lowest after plans", position?.low_point_and_plans],
+    // G410: set aside here for a suggested move out of this account (already inside Available to spend). Negative, as a deduction.
+    ...(position?.earmarks_out ?? []).map((e): [string, number] => [`Set aside for the move to ${e.to_name}`, -e.amount]),
   ];
+  const covered = reading.coveredByMove;
+  const coveredNote = covered ? (covered.shortAfterCover > 0
+    ? `A suggested move from ${covered.fromLabel} would cover part of this. Nothing has been moved.`
+    : `A suggested move from ${covered.fromLabel} would cover this. Nothing has been moved.`) : null;
   if (layout === "calm") return <div data-account-availability-working className="text-[13px] leading-5 text-slate-600 dark:text-slate-300">
     <details className="group">
       <summary className="grid min-h-11 cursor-pointer list-none grid-cols-[minmax(0,1fr)_16px] touch-manipulation items-start gap-3 rounded-lg py-2 text-slate-800 [@media(hover:hover)]:hover:text-slate-950 active:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-slate-100 dark:[@media(hover:hover)]:hover:text-white [&::-webkit-details-marker]:hidden">
         <span className="min-w-0">
           <span className="flex items-baseline justify-between gap-3"><span>Available to spend</span><MoneyText text={amount(reading.value)} className="shrink-0 font-semibold" /></span>
-          {reading.warning && <span className="mt-1 flex items-center gap-2 text-slate-800 dark:text-slate-100"><span>{short !== undefined ? <><MoneyText text={amount(Math.abs(short))} /> short {reading.warning === "payments" ? "for payments" : "after plans"}</> : <>Short {reading.warning === "payments" ? "for payments" : "after plans"}</>}</span><CircleAlert size={14} aria-hidden="true" className={`shrink-0 ${reading.warning === "payments" ? "text-rose-700 dark:text-rose-300" : "text-amber-800 dark:text-amber-200"}`} /></span>}
+          {reading.warning && <span className="mt-1 flex items-center gap-2 text-slate-800 dark:text-slate-100"><span>{short !== undefined ? <><MoneyText text={amount(Math.abs(short))} /> short {reading.warning === "payments" ? "for payments" : "after plans"}</> : <>Short {reading.warning === "payments" ? "for payments" : "after plans"}</>}</span><CircleAlert size={14} aria-hidden="true" className={`shrink-0 ${reading.warning === "payments" && !(covered && covered.shortAfterCover <= 0) ? "text-rose-700 dark:text-rose-300" : "text-amber-800 dark:text-amber-200"}`} /></span>}
         </span>
         <ChevronDown size={16} aria-hidden="true" className="mt-0.5 shrink-0 transition-transform duration-150 motion-reduce:transition-none group-open:rotate-180" />
       </summary>
       <div className="pb-2 pt-3">
-        {reading.warning && <p className="mb-3">{reading.warning === "payments" ? "Scheduled payments" : "Plans"} take the forecast below zero. Your bank balance is separate.</p>}
+        {reading.warning && <p className="mb-3">{reading.warning === "payments" ? "Scheduled payments" : "Plans"} take the forecast below zero. Your bank balance is separate.{coveredNote ? ` ${coveredNote}` : ""}</p>}
         <dl className="space-y-2">{evidence.map(([label, value]) => typeof value === "number" && Number.isFinite(value) ? <div key={label} className="flex justify-between gap-4"><dt>{label}</dt><dd className="shrink-0"><MoneyText text={amount(value, true)} /></dd></div> : null)}<div className="flex justify-between gap-4 border-t border-slate-200 pt-2 font-semibold dark:border-slate-700"><dt>Available to spend</dt><dd className="shrink-0"><MoneyText text={amount(reading.value, true)} /></dd></div></dl>
         <p className="mt-3 text-xs">Available is an estimate for this pay period. It protects earlier low points and any move held back, and cannot exceed your shared Left to spend. These are separate account limits, not amounts to add together.{position?.estimated ? " Some plan sources are estimated." : ""}</p>
       </div>
@@ -51,6 +57,6 @@ export default function AccountAvailabilityDetail({ reading, position, hidden, l
       <dl className="space-y-2 pb-3 pt-2">{evidence.map(([label, value]) => typeof value === "number" && Number.isFinite(value) ? <div key={label} className="flex justify-between gap-4"><dt>{label}</dt><dd className="shrink-0"><MoneyText text={amount(value, true)} /></dd></div> : null)}<div className="flex justify-between gap-4 border-t border-slate-200 pt-2 font-semibold dark:border-slate-700"><dt>Available to spend</dt><dd className="shrink-0"><MoneyText text={amount(reading.value, true)} /></dd></div></dl>
       <p className="pb-3 text-xs">Available is an estimate for this pay period. It protects earlier low points and any move held back, and cannot exceed your shared Left to spend. These are separate account limits, not amounts to add together.{position?.estimated ? " Some plan sources are estimated." : ""}</p>
     </details>
-    {short !== undefined && <p className="mt-2">{reading.warning === "payments" ? "Payments due" : "Payments and plans"} may take this account below zero.{reading.value === 0 && <> Available stays at <MoneyText text={amount(0)} />.</>}</p>}
+    {short !== undefined && <p className="mt-2">{reading.warning === "payments" ? "Payments due" : "Payments and plans"} may take this account below zero.{coveredNote ? ` ${coveredNote}` : ""}{reading.value === 0 && <> Available stays at <MoneyText text={amount(0)} />.</>}</p>}
   </div>;
 }
