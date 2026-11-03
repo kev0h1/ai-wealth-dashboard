@@ -3251,7 +3251,7 @@ async def _exec_get_accounts(uid: str) -> dict:
             "dormant": _account_is_dormant(a, kind),
             "pinned": a.id in pinned_ids, "counts_towards_safe_to_spend": a.include_in_safe_to_spend,  # G231 (one line, keeps the leak allowlist stable)
         })
-    result = {"accounts": rows}
+    result = {"accounts": rows}; await _attach_suggested_moves(uid, rows)  # G410, one line keeps the leak allowlist stable
     if last_synced:
         result["last_synced"] = last_synced.isoformat()
     return result
@@ -8367,6 +8367,11 @@ from app.services.penny_consolidation import SAFE_TO_SPEND_NOTE  # noqa: E402
 for _t in TOOL_SCHEMAS:
     if _t["function"]["name"] == "get_safe_to_spend":
         _t["function"]["description"] += SAFE_TO_SPEND_NOTE
+
+
+async def _attach_suggested_moves(uid: str, rows: list[dict]) -> None:
+    from app.services.penny_consolidation import attach_suggested_move_facts
+    await attach_suggested_move_facts(uid, rows)
 
 
 async def _per_account_extras(uid: str) -> dict:
