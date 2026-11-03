@@ -52,6 +52,19 @@ from app.services.penny_execution import consent_generation_query
 # instead of silently swallowed behind a good-enough fallback reply.
 logger = logging.getLogger(__name__)
 
+# These live on card_terms documents, but Penny proposals deliberately carry
+# only fields the user asked to change. Executors always re-read the current
+# document and pass a complete body through the card-terms route so its
+# replace-one persistence never drops this separate payment record.
+_CARD_PAYMENT_FIELDS = (
+    "statement_close_day",
+    "payment_due_day",
+    "payment_due_days_after_close",
+    "payment_method",
+    "payment_account_id",
+    "fixed_payment_amount",
+)
+
 router = APIRouter(tags=["can-i"])
 
 # House-style guardrail: extracted to app.services.copy_style so every
@@ -1257,6 +1270,7 @@ async def _execute_set_card_terms(uid: str, params: dict) -> dict:
         min_payment_note=params.get("min_payment_note", existing.get("min_payment_note")),
         usage=params.get("usage", existing.get("usage")),
         product_key=params.get("product_key", existing.get("product_key")),
+        **{field: params[field] for field in _CARD_PAYMENT_FIELDS if field in params},
     )
     return await _route_save_card_terms(account_id, body, user={"email": uid})
 

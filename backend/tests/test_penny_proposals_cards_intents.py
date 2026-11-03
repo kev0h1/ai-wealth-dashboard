@@ -147,6 +147,51 @@ def test_propose_card_terms_usage_and_product_key(monkeypatch):
     assert result["params"] == {"account_id": "c1", "usage": "carry", "product_key": "amex-green"}
 
 
+def test_propose_card_payment_settings_is_propose_only_and_describes_the_change(monkeypatch):
+    fake_proposals = _patch_proposals_col(monkeypatch)
+    existing = {
+        "_id": f"{UID}:c1", "user_id": UID, "account_id": "c1",
+        "status": "confirmed", "apr_pct": 21.9, "payment_method": "manual",
+        "statement_close_day": 4, "payment_due_day": 18,
+    }
+    fake_terms = _FakeCol([existing.copy()])
+    monkeypatch.setattr(penny_tools_module, "card_terms_col", fake_terms)
+    _patch_card_accounts(monkeypatch, [_card_acc("c1", "Green Amex", provider="American Express")])
+
+    result = asyncio.run(execute_tool(UID, "propose_set_card_terms", {
+        "card_ref": "amex", "statement_close_day": 5,
+        "payment_due_day": None, "payment_due_days_after_close": 24,
+        "payment_method": "fixed", "fixed_payment_amount": 125,
+    }))
+
+    assert result["proposal"] is True
+    assert result["params"] == {
+        "account_id": "c1", "statement_close_day": 5,
+        "payment_due_day": None, "payment_due_days_after_close": 24,
+        "payment_method": "fixed", "fixed_payment_amount": 125,
+    }
+    assert "statement closing day to 5" in result["summary"]
+    assert "fixed payment to £125.00" in result["summary"]
+    # Proposing never changes the card record. Approval is still required.
+    assert fake_terms.docs == [existing]
+    assert len(fake_proposals.docs) == 1
+
+
+def test_propose_card_payment_settings_rejects_conflicting_due_rules(monkeypatch):
+    fake_proposals = _patch_proposals_col(monkeypatch)
+    monkeypatch.setattr(penny_tools_module, "card_terms_col", _FakeCol())
+    _patch_card_accounts(monkeypatch, [_card_acc("c1", "Green Amex", provider="American Express")])
+
+    result = asyncio.run(execute_tool(UID, "propose_set_card_terms", {
+        "card_ref": "amex", "payment_due_day": 12,
+        "payment_due_days_after_close": 21,
+    }))
+
+    assert "error" in result
+    assert "either payment_due_day or payment_due_days_after_close" in result["error"]
+    assert fake_proposals.docs == []
+
+
 def test_propose_card_terms_clearing_promos_with_empty_list(monkeypatch):
     _patch_proposals_col(monkeypatch)
     monkeypatch.setattr(penny_tools_module, "card_terms_col", _FakeCol())
@@ -692,6 +737,9 @@ def test_execute_set_card_terms_merges_apr_and_promo_preserving_other_fields(mon
         "_id": f"{UID}:c1", "user_id": UID, "account_id": "c1", "apr_pct": 21.9, "promos": [],
         "min_payment_note": "min payment 3%", "bt_offers": [], "status": "confirmed",
         "confirmed_at": datetime.now(), "product_key": "amex-green", "usage": "carry",
+        "statement_close_day": 4, "payment_due_day": 18,
+        "payment_due_days_after_close": None, "payment_method": "manual",
+        "payment_account_id": None, "fixed_payment_amount": None,
     }])
     monkeypatch.setattr(card_terms_module, "card_terms_col", fake_terms_col)
 
@@ -703,8 +751,71 @@ def test_execute_set_card_terms_merges_apr_and_promo_preserving_other_fields(mon
     assert saved["promos"] == [{"kind": "purchases", "apr_pct": 0.0, "until": "2027-03-14"}]
     # Untouched fields carried forward from the existing doc.
     assert saved["min_payment_note"] == "min payment 3%"
-    assert saved["usage"] == "carry"
+    # A recorded manual payment deliberately has no inferred cadence.
+    assert saved["usage"] is None
     assert saved["product_key"] == "amex-green"
+    # An APR/promo proposal must not clear separately-recorded payment facts.
+    assert saved["statement_close_day"] == 4
+    assert saved["payment_due_day"] == 18
+    assert saved["payment_method"] == "manual"
+
+
+def test_execute_card_terms_preserves_legacy_usage_when_payment_method_is_unanswered(monkeypatch):
+    fake_proposals = _FakeCol([_live_doc("set_card_terms", {"account_id": "c1", "apr_pct": 24.9})])
+    monkeypatch.setattr(can_i_module, "penny_proposals_col", fake_proposals)
+    _patch_consented_prefs(monkeypatch)
+
+    import app.routers.card_terms as card_terms_module
+
+    monkeypatch.setattr(card_terms_module, "accounts_col", _FakeCol([
+        {"_id": "c1", "user_id": UID, "type": "credit_card", "subtype": "CREDIT_CARD", "name": "Green Amex"},
+    ]))
+    fake_terms_col = _FakeCol([{
+        "_id": f"{UID}:c1", "user_id": UID, "account_id": "c1", "apr_pct": 21.9,
+        "promos": [], "min_payment_note": None, "bt_offers": [], "status": "confirmed",
+        "confirmed_at": datetime.now(), "product_key": None, "usage": "carry",
+        "statement_close_day": None, "payment_due_day": None,
+        "payment_due_days_after_close": None, "payment_method": None,
+        "payment_account_id": None, "fixed_payment_amount": None,
+    }])
+    monkeypatch.setattr(card_terms_module, "card_terms_col", fake_terms_col)
+
+    result = asyncio.run(can_i_module.execute_proposal("p-test", user={"email": UID}))
+
+    assert result["executed"] is True
+    assert fake_terms_col.docs[0]["usage"] == "carry"
+    assert fake_terms_col.docs[0]["payment_method"] is None
+
+
+def test_execute_card_apr_does_not_resubmit_a_deleted_saved_payer(monkeypatch):
+    fake_proposals = _FakeCol([_live_doc("set_card_apr", {"account_id": "c1", "apr_pct": 24.9})])
+    monkeypatch.setattr(can_i_module, "penny_proposals_col", fake_proposals)
+    _patch_consented_prefs(monkeypatch)
+
+    import app.routers.card_terms as card_terms_module
+
+    # The historic payer was removed after the terms were recorded. An APR
+    # correction must still save, rather than revalidating an untouched id.
+    monkeypatch.setattr(card_terms_module, "accounts_col", _FakeCol([
+        {"_id": "c1", "user_id": UID, "type": "credit_card", "subtype": "CREDIT_CARD", "name": "Green Amex"},
+    ]))
+    fake_terms_col = _FakeCol([{
+        "_id": f"{UID}:c1", "user_id": UID, "account_id": "c1", "apr_pct": 21.9,
+        "promos": [], "min_payment_note": None, "bt_offers": [], "status": "confirmed",
+        "confirmed_at": datetime.now(), "product_key": None, "usage": "carry",
+        "statement_close_day": 4, "payment_due_day": 18,
+        "payment_due_days_after_close": None, "payment_method": "fixed",
+        "payment_account_id": "deleted-cash", "fixed_payment_amount": 100,
+    }])
+    monkeypatch.setattr(card_terms_module, "card_terms_col", fake_terms_col)
+
+    result = asyncio.run(can_i_module.execute_proposal("p-test", user={"email": UID}))
+
+    assert result["executed"] is True
+    saved = fake_terms_col.docs[0]
+    assert saved["apr_pct"] == 24.9
+    assert saved["payment_account_id"] == "deleted-cash"
+    assert saved["fixed_payment_amount"] == 100
 
 
 def test_execute_set_card_terms_skipped_replays_route_directly(monkeypatch):
@@ -721,6 +832,9 @@ def test_execute_set_card_terms_skipped_replays_route_directly(monkeypatch):
         "_id": f"{UID}:c1", "user_id": UID, "account_id": "c1", "apr_pct": 21.9, "promos": [],
         "min_payment_note": "note", "bt_offers": [], "status": "confirmed",
         "confirmed_at": datetime.now(), "product_key": None, "usage": "clear_monthly",
+        "statement_close_day": 4, "payment_due_day": 18,
+        "payment_due_days_after_close": None, "payment_method": "full",
+        "payment_account_id": None, "fixed_payment_amount": None,
     }])
     monkeypatch.setattr(card_terms_module, "card_terms_col", fake_terms_col)
 
@@ -732,6 +846,45 @@ def test_execute_set_card_terms_skipped_replays_route_directly(monkeypatch):
     assert saved["promos"] == []
     # save_card_terms's own skipped branch preserves usage from the existing doc.
     assert saved["usage"] == "clear_monthly"
+    assert saved["statement_close_day"] == 4
+    assert saved["payment_due_day"] == 18
+    assert saved["payment_method"] == "full"
+
+
+def test_execute_card_payment_proposal_keeps_newer_unrelated_payment_facts(monkeypatch):
+    """Execution reads afresh, so a later UI save is not overwritten."""
+    fake_proposals = _FakeCol([_live_doc("set_card_terms", {
+        "account_id": "c1", "payment_method": "fixed", "fixed_payment_amount": 125,
+    })])
+    monkeypatch.setattr(can_i_module, "penny_proposals_col", fake_proposals)
+    _patch_consented_prefs(monkeypatch)
+
+    import app.routers.card_terms as card_terms_module
+
+    monkeypatch.setattr(card_terms_module, "accounts_col", _FakeCol([
+        {"_id": "c1", "user_id": UID, "type": "credit_card", "subtype": "CREDIT_CARD", "name": "Green Amex"},
+    ]))
+    fake_terms_col = _FakeCol([{
+        "_id": f"{UID}:c1", "user_id": UID, "account_id": "c1", "apr_pct": 21.9,
+        "promos": [], "min_payment_note": None, "bt_offers": [], "status": "confirmed",
+        "confirmed_at": datetime.now(), "product_key": None, "usage": None,
+        # These represent an unrelated settings edit made after proposal.
+        "statement_close_day": 4, "payment_due_day": 18,
+        "payment_due_days_after_close": None, "payment_method": "manual",
+        "payment_account_id": None, "fixed_payment_amount": None,
+    }])
+    monkeypatch.setattr(card_terms_module, "card_terms_col", fake_terms_col)
+
+    result = asyncio.run(can_i_module.execute_proposal("p-test", user={"email": UID}))
+
+    assert result["executed"] is True
+    saved = fake_terms_col.docs[0]
+    assert saved["statement_close_day"] == 4
+    assert saved["payment_due_day"] == 18
+    assert saved["payment_method"] == "fixed"
+    assert saved["fixed_payment_amount"] == 125
+    # A fixed schedule derives the legacy compatibility field only at save.
+    assert saved["usage"] == "carry"
 
 
 def test_execute_record_trend_intent_dispatches_real_route(monkeypatch):

@@ -4724,6 +4724,44 @@ async def _build_cashflow_response(cached: dict, uid: str | None = None, prefs: 
             },
         })
 
+    # G412: optional dated card instructions enter at this single choke
+    # point. Home, Upcoming, cover/payday plans and Penny all consume these
+    # same occurrences. Undated cards keep their learned fallback unchanged.
+    statement_bills = {}
+    statement_card_ids = set()
+    statement_bills_unverified = False
+    if uid:
+        try:
+            from app.services.card_statements import apply_statement_bills, load_statement_bills
+            statement_bills = await load_statement_bills(uid, today=today_d)
+            if statement_bills:
+                _statement_accounts = {str(a["_id"]): a for a in await accounts_col.find({"user_id": uid}).to_list(None)}
+                _before_statement_bills = raw_bills
+                raw_bills, statement_card_ids = apply_statement_bills(
+                    raw_bills, statement_bills, _statement_accounts, today_d, window_end.date(),
+                    observed_pending=raw_observed_pending_bills,
+                )
+                # Preserve the weekly projection's existing non-card scope.
+                # Adjust only the learned occurrences the dated rule replaces.
+                _bill_occ_dates.extend(
+                    (_date.fromisoformat(b["expected_date"]), -b["amount"])
+                    for b in _before_statement_bills
+                    if str(b.get("card_dest_account_id") or "") in statement_card_ids and not b.get("planned")
+                )
+                _bill_occ_dates.extend(
+                    (_date.fromisoformat(b["expected_date"]), b["amount"])
+                    for b in raw_bills
+                    if str(b.get("card_dest_account_id") or "") in statement_card_ids and not b.get("planned")
+                )
+                statement_bills_unverified = any(
+                    b.get("payment_method") in ("full", "fixed")
+                    and b.get("status") not in ("estimated", "paid")
+                    for b in statement_bills.values()
+                )
+        except Exception:
+            logger.exception("dated card payments could not be checked for %s", mask_email(uid))
+            statement_bills_unverified = True
+
     upcoming_bills = sorted(raw_bills, key=lambda x: (x["days_away"], -x["amount"]))
     internal_inflows = sorted(raw_internal_inflows, key=lambda x: x["days_away"])
     observed_pending_bills = sorted(raw_observed_pending_bills, key=lambda x: (x["days_away"], -x["amount"]))
@@ -4796,6 +4834,9 @@ async def _build_cashflow_response(cached: dict, uid: str | None = None, prefs: 
         })
 
     _cf_resp = {
+        "card_statement_bills": statement_bills,
+        "statement_card_ids": sorted(statement_card_ids),
+        "statement_bills_unverified": statement_bills_unverified,
         "weekly_projection": weeks,
         "upcoming_bills":    upcoming_bills,
         "upcoming_income":   upcoming_income,
@@ -5259,7 +5300,7 @@ async def compute_safe_to_spend(uid: str) -> dict:
     # already spoken for. Failure-tolerant: any error → zero reserve.
     commitments_reserved = 0
     commitments_count = 0
-    unavailable_components: list[str] = []
+    unavailable_components: list[str] = ["card_statement_bills"] if resp.get("statement_bills_unverified") else []
     try:
         from app.routers.commitments import total_reserved_slices
         commitments_reserved, commitments_count = await total_reserved_slices(uid)
@@ -5338,6 +5379,11 @@ async def compute_safe_to_spend(uid: str) -> dict:
             for pattern in (cached.get("recurring_spend") or [])
             if pattern.get("card_dest_account_id")
         }
+        # The closed bill (or its known fixed cash instruction) is already
+        # in the shared dated walk, even when its due date is AFTER payday.
+        # New spending since that close belongs to the next bill, not a
+        # second unconfirmed-growth hold in this period.
+        learned_card_ids.update(str(aid) for aid in resp.get("statement_card_ids", []))
         unlearned_growth = round(sum(
             float(row["unpaid_growth"])
             for row in card_rows

@@ -801,6 +801,38 @@ def test_get_accounts_exposes_id_for_disambiguation(monkeypatch):
     assert result["accounts"][0]["id"] == "acc1"
 
 
+def test_get_accounts_includes_recorded_card_payment_settings(monkeypatch):
+    import app.routers.accounts as accounts_router_module
+
+    async def fake_get_accounts(user):
+        return [_account(id="card1", name="Halifax Card", type="bank", subtype="credit_card", balance=-500.0)]
+
+    monkeypatch.setattr(accounts_router_module, "get_accounts", fake_get_accounts)
+    monkeypatch.setattr(penny_tools_module, "preferences_col", _FakeCollection([{}]))
+    monkeypatch.setattr(penny_tools_module, "card_terms_col", _FakeCollection([{
+        "_id": "kevin:card1", "user_id": "kevin", "account_id": "card1",
+        "status": "confirmed", "statement_close_day": 4,
+        "payment_due_days_after_close": 25, "payment_method": "fixed",
+        "payment_account_id": "cash1", "fixed_payment_amount": 125,
+    }]))
+
+    async def fake_last_sync(uid):
+        return None
+
+    monkeypatch.setattr(penny_tools_module, "last_bank_sync", fake_last_sync)
+
+    result = asyncio.run(execute_tool("kevin", "get_accounts", {}))
+
+    assert result["accounts"][0]["card_terms"] == {
+        "apr_pct": None, "promos": [], "min_payment_note": None,
+        "bt_offers": [], "status": "confirmed", "confirmed_at": None,
+        "product_key": None, "usage": None, "statement_close_day": 4,
+        "payment_due_day": None, "payment_due_days_after_close": 25,
+        "payment_method": "fixed", "payment_account_id": "cash1",
+        "fixed_payment_amount": 125,
+    }
+
+
 # ── 4. get_mirror ─────────────────────────────────────────────────────────
 
 def test_get_mirror_returns_traits_and_active_aims(monkeypatch):

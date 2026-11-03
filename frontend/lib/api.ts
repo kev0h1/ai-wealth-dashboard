@@ -2798,6 +2798,35 @@ export type CardTerms = {
   confirmed_at: string | null;
   product_key: string | null;
   usage: "clear_monthly" | "carry" | null;
+  /** Optional statement schedule. Open banking does not provide this. */
+  statement_close_day?: number | null;
+  /** Exactly one due rule may be present. */
+  payment_due_day?: number | null;
+  payment_due_days_after_close?: number | null;
+  payment_method?: "full" | "minimum" | "fixed" | "manual" | null;
+  payment_account_id?: string | null;
+  fixed_payment_amount?: number | null;
+};
+
+/** Evidence supplied by the server's one statement-bill calculation. The
+ * client renders it and never derives a payment from card transactions. */
+export type CardStatementBill = {
+  statement_start: string;
+  statement_close: string;
+  payment_due: string;
+  estimated_bill: number | null;
+  payment_amount: number | null;
+  payment_remaining: number | null;
+  paid_since_close: number;
+  spending_since_close: number;
+  next_payment_due: string;
+  payment_method: "full" | "minimum" | "fixed" | "manual" | null;
+  payment_account_id: string | null;
+  status: "estimated" | "incomplete_history" | "payment_unverified" | "paid" | "source_unavailable";
+  reason: string | null;
+  estimated: boolean;
+  next_payday: string | null;
+  due_before_payday?: boolean | null;
 };
 
 export type CardTermsCard = {
@@ -2809,6 +2838,7 @@ export type CardTermsCard = {
   source: string;
   terms: CardTerms | null;
   ask_eligible: boolean;
+  statement_bill?: CardStatementBill | null;
 };
 
 export type CardTermsList = {
@@ -2840,6 +2870,12 @@ export type CardTermsSaveBody = {
   bt_offers?: BtOffer[];
   product_key?: string | null;
   usage?: "clear_monthly" | "carry" | null;
+  statement_close_day?: number | null;
+  payment_due_day?: number | null;
+  payment_due_days_after_close?: number | null;
+  payment_method?: "full" | "minimum" | "fixed" | "manual" | null;
+  payment_account_id?: string | null;
+  fixed_payment_amount?: number | null;
 };
 
 export interface CycleStoryPeriod {

@@ -448,6 +448,12 @@ export default function AccountsPage() {
     return m;
   }, [cardTermsCards]);
 
+  // A card can only be paid from a connected, counted GBP cash account.
+  // Business classification of the card itself never decides this.
+  const cardPaymentAccounts = useMemo(() => accounts
+    .filter(account => !account.manual && account.status !== "expired" && account.currency === "GBP" && account.include_in_safe_to_spend !== false && ["Current", "Savings"].includes(accountKind(account)))
+    .map(account => ({ id: account.id, name: displayAccountName(account.name), provider: account.provider })), [accounts]);
+
   // Close the "+ Add" menu on outside tap (same pattern as SpendTrends' widget menu)
   useEffect(() => {
     if (!addMenuOpen) return;
@@ -1820,6 +1826,7 @@ export default function AccountsPage() {
           startAccountId={cardTermsStartId}
           onClose={() => { setCardTermsOpen(false); setCardTermsStartId(null); }}
           onSaved={loadCardTerms}
+          paymentAccounts={cardPaymentAccounts}
         />
       )}
       {confirmDialog?.open && modalsMounted && createPortal(
@@ -2336,7 +2343,7 @@ export default function AccountsPage() {
             accountName={displayAccountName(selectedAccount.name)}
             providerLabel={brand.label}
             status={!isManual && !isStatement && isExpired ? <p role="status" className="mt-2 text-[12px] text-amber-800 dark:text-amber-200">Bank connection expired</p> : undefined}
-            onDetails={() => setAccountDetailsFor(selectedAccount.id)}
+            onDetails={() => isCredit ? openCardTermsAt(selectedAccount.id) : setAccountDetailsFor(selectedAccount.id)}
             balance={<>
           <p
             className={`${detailBalanceReady ? "text-[30px] leading-10 font-bold money" : "text-sm font-medium"} ${detailBalanceReady && balance < 0 && !isDebt && (!isCredit || termsPill?.accruing) ? "text-rose-600 dark:text-rose-400" : "text-slate-900 dark:text-slate-100"}`}

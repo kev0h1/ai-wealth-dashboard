@@ -20,6 +20,7 @@ import {
 import { BANK_META, bankKey, bankLogoSrc } from "@/components/AccountMiniCard";
 import MoneyText from "@/components/MoneyText";
 import SafeToSpendDisclosures from "@/components/SafeToSpendDisclosures";
+import type { CoverMoveEvidence } from "@/lib/coverMoveEvidence";
 import { buildLeftToSpendEvidence } from "@/lib/leftToSpendEvidence";
 import PooledLedgerExplainer from "@/components/PooledLedgerExplainer";
 import SpendFromAccountList from "@/components/SpendFromAccountList";
@@ -57,6 +58,7 @@ interface SafeToSpendCardProps {
   /** Legacy presentation metadata. Reserves are already included in headroom. */
   coverMoveReserves?: Record<string, number>;
   coverMoveDestinations?: Record<string, string[]>;
+  earmarkedMoves?: CoverMoveEvidence[];
   /**
    * Design-history seam. Production renders G320 approved B account rows
    * when absent. Other open design rounds may inject their own treatment.
@@ -235,7 +237,7 @@ function listPhrase(items: string[]): string {
   return `${items.slice(0, -1).join(", ")} and ${items.at(-1)}`;
 }
 
-export default function SafeToSpendCard({ data, loading, error, onRetry, spendFrom, coverMoveVisible = false, coverMoveReserves, coverMoveDestinations, spendFromPreview, syncing, onSyncRetry, previewBalancesVisible = false }: SafeToSpendCardProps) {
+export default function SafeToSpendCard({ data, loading, error, onRetry, spendFrom, coverMoveVisible = false, coverMoveReserves, coverMoveDestinations, earmarkedMoves = [], spendFromPreview, syncing, onSyncRetry, previewBalancesVisible = false }: SafeToSpendCardProps) {
   const { hideNetWorth, preferencesReady } = usePreferences();
   const router = useRouter();
   const hidden = spendFromPreview?.hideBalances === true || (!previewBalancesVisible && (hideNetWorth || !preferencesReady));
@@ -529,6 +531,7 @@ export default function SafeToSpendCard({ data, loading, error, onRetry, spendFr
       syncing={!!sync}
       showCardsLink={showCardsLink}
       freshnessLabel={freshnessLabel}
+      earmarkedMoves={coverMoveVisible && !sync ? earmarkedMoves : []}
       reservationDetails={<PooledLedgerExplainer
         pooled={spendFromPlan.entries.length > 1}
         envelope={{ amount: data.allocations_reserved ?? 0, count: data.allocations_count }}
