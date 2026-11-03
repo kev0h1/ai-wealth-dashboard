@@ -14,7 +14,7 @@ from app.services.card_statements import (
 TODAY = date(2026, 3, 20)
 
 
-def _card(balance=-2357.26, account_id="card"):
+def _card(balance=-1840.50, account_id="card"):
     return {"_id": account_id, "name": "NatWest card", "provider": "NatWest",
             "type": "credit_card", "subtype": "CREDIT_CARD", "balance": balance}
 
@@ -51,13 +51,13 @@ def _estimate(card=None, terms=None, rows=None, accounts=None, **kwargs):
 
 
 def test_closed_statement_reverses_post_close_spend_from_live_card_balance():
-    bill = _estimate(rows=_history(_row("card", date(2026, 3, 17), -76.93, "debit")))
+    bill = _estimate(rows=_history(_row("card", date(2026, 3, 17), -64.25, "debit")))
 
     assert bill["statement_close"] == "2026-03-15"
-    assert bill["estimated_bill"] == 2280.33
-    assert bill["payment_amount"] == 2280.33
-    assert bill["payment_remaining"] == 2280.33
-    assert bill["spending_since_close"] == 76.93
+    assert bill["estimated_bill"] == 1776.25
+    assert bill["payment_amount"] == 1776.25
+    assert bill["payment_remaining"] == 1776.25
+    assert bill["spending_since_close"] == 64.25
 
 
 def test_position_retains_opening_debt_and_statement_fees_but_reverses_later_refund():
