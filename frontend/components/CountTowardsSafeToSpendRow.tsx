@@ -6,6 +6,7 @@
 // only: the page owns the request, so /design previews can render it with
 // fixture props.
 
+import { useId } from "react";
 import Toggle from "@/components/Toggle";
 
 export const COUNT_TOWARDS_LABEL = "Count towards Left to spend";
@@ -19,9 +20,25 @@ export interface CountTowardsSafeToSpendRowProps {
   reason?: string | null;
   /** G406: part of the account facts, without a separate card surface. */
   compact?: boolean;
+  calm?: boolean;
+  lockedReason?: string;
 }
 
-export default function CountTowardsSafeToSpendRow({ counted, onChange, busy, reason, compact = false }: CountTowardsSafeToSpendRowProps) {
+export default function CountTowardsSafeToSpendRow({ counted, onChange, busy, reason, compact = false, calm = false, lockedReason }: CountTowardsSafeToSpendRowProps) {
+  const helperId = useId();
+  if (calm) {
+    const label = "Include in estimated left to spend";
+    const helper = lockedReason ?? (counted ? "Turn off for an account you do not spend from." : "Excluded from this estimate.");
+    return <div data-g231-count-row data-g407-inclusion>
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0 flex-1 py-1"><p className="text-[13px] font-medium">{label}</p><p id={helperId} className="mt-1 text-[12px] leading-5 text-slate-600 dark:text-slate-300">{helper}</p></div>
+        <button type="button" role="switch" aria-label={label} aria-describedby={`${helperId}${reason ? ` ${helperId}-reason` : ""}`} aria-checked={counted} disabled={busy || !!lockedReason} onClick={() => onChange(!counted)} className="grid h-11 min-w-12 shrink-0 touch-manipulation place-items-center rounded-lg enabled:hover:bg-slate-100 dark:enabled:hover:bg-slate-800 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500">
+          <span aria-hidden="true" className={`relative h-6 w-12 rounded-full transition-colors ${counted ? "bg-indigo-600" : "bg-slate-300 dark:bg-slate-600"} ${busy || lockedReason ? "opacity-60" : ""}`}><span className={`absolute left-0.5 top-0.5 size-5 rounded-full bg-white shadow-sm transition-transform motion-reduce:transition-none ${counted ? "translate-x-6" : ""}`} /></span>
+        </button>
+      </div>
+      {reason && <p id={`${helperId}-reason`} data-g231-count-reason role="alert" className="mt-2 text-[13px] text-slate-700 dark:text-slate-200">{reason}</p>}
+    </div>;
+  }
   return (
     <div data-g231-count-row className={compact ? "py-1" : "glass-card rounded-2xl px-4 py-2"}>
       <div className="flex min-h-11 items-center justify-between gap-3">

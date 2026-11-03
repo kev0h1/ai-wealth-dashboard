@@ -47,7 +47,7 @@ assert.ok(!none.includes("Add transaction"), "no add button for a bank account")
 
 // 4
 const page = read("../app/components/AccountsPage.tsx");
-assert.ok(page.includes("<AccountTransactionsToolbar") && page.includes("<AccountDetailKindLine"), "AccountsPage uses the shared parts");
+assert.ok(page.includes("<AccountTransactionsToolbar") && page.includes("<AccountDetailLayout"), "AccountsPage uses the shared toolbar and account layout");
 assert.ok(!page.includes("justify-end pb-1"), "old floating button row gone");
 assert.ok(/onAdd=\{isManual \? openAddManualTx : undefined\}/.test(page), "the add control is wired only through the toolbar");
 assert.ok(!page.includes("onClick={openAddManualTx}"), "no inline add control left in AccountsPage");
