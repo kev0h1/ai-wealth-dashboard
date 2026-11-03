@@ -21,7 +21,7 @@ for(const deficit of [-0.01,-0.42,-0.99,-573]) {
  const html=text(renderScenario({patch}));
  const value=Math.abs(deficit)<1?`£${Math.abs(deficit).toFixed(2)}`:'£573';
  assert.ok(html.includes(`−${value}`),`signed ${deficit} visible`);
- assert.ok(html.includes(`How we got ${value} short`));
+ assert.ok(html.includes(`How we got −${value}`));
  assert.doesNotMatch(html,/How we got £0 short/);
  assert.equal(buildSafeToSpendView(patch,{hidden:false}).figures[0].value,`−${value}`);
  assert.doesNotMatch(renderScenario({patch,hidden:true}),/£\d/);

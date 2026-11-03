@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import { AlertCircle, ArrowRight, ChevronDown, CreditCard } from "lucide-react";
+import { ArrowRight } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { SafeToSpend } from "@/lib/api";
@@ -19,7 +19,8 @@ import {
 } from "@/lib/spendFromAccount";
 import { BANK_META, bankKey, bankLogoSrc } from "@/components/AccountMiniCard";
 import MoneyText from "@/components/MoneyText";
-import { DisclosureSummary } from "@/components/Disclosure";
+import SafeToSpendDisclosures from "@/components/SafeToSpendDisclosures";
+import { buildLeftToSpendEvidence } from "@/lib/leftToSpendEvidence";
 import PooledLedgerExplainer from "@/components/PooledLedgerExplainer";
 import SpendFromAccountList from "@/components/SpendFromAccountList";
 import { SyncGlyph, SyncLine, asOfLabel, syncChipClass, syncChipLabel, syncPhase, type SyncingInfo } from "@/components/SyncNote";
@@ -103,7 +104,7 @@ function localBank(account: SpendFromAccount["account"]) {
 // and places its exclusions in the adjacent scope disclosure.
 export const COUNTS_LINE = "Based on your connected current accounts and the bills Sorted knows about. It doesn't include other accounts, payments still pending, or bills Sorted hasn't spotted yet.";
 const COUNTS_INTRO = COUNTS_LINE.slice(0, COUNTS_LINE.indexOf(". ") + 1);
-const COUNTS_EXCLUSIONS = COUNTS_LINE.slice(COUNTS_INTRO.length + 1);
+const ESTIMATE_DISCLAIMER = "An estimate from your bank data. It can be wrong, so check your bank for your latest balance. Not financial advice.";
 
 /**
  * G148 (2026-09-23): the quiet placeholder for a rail that is absent rather
@@ -232,122 +233,6 @@ function listPhrase(items: string[]): string {
   if (items.length === 1) return items[0];
   if (items.length === 2) return `${items[0]} and ${items[1]}`;
   return `${items.slice(0, -1).join(", ")} and ${items.at(-1)}`;
-}
-
-function dateLabel(isoString: string | null | undefined): string | null {
-  if (!isoString) return null;
-  const day = new Date(`${isoString.slice(0, 10)}T12:00:00`);
-  if (Number.isNaN(day.getTime())) return null;
-  return day.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
-}
-
-function CalculationRow({
-  operator,
-  label,
-  value,
-  spokenValue,
-  detail,
-  total = false,
-}: {
-  operator: "" | "+" | "−" | "→" | "=";
-  label: string;
-  value: string;
-  spokenValue?: string;
-  detail?: string;
-  total?: boolean;
-}) {
-  // G154: every separator in this ledger is drawn on a row's TOP edge, so any
-  // two adjacent rows share exactly one rule and the total's heavier rule IS
-  // the rule at its own boundary rather than a second line under the first.
-  // Do not move these back to `border-b` + `last:border-b-0`: the total row is
-  // a sibling of the operand rows, so the last operand is never `:last-child`
-  // and that escape never fires (it drew two rules 4px apart). `divide-y`
-  // reproduces that same pairing whenever the total also carries its own rule,
-  // because Tailwind v4 compiles it to
-  // `:where(.divide-y > :not(:last-child))`, i.e. a bottom rule on the row
-  // before the total. (It is fine for a ledger whose total wears weight alone,
-  // as in SpendVerdictView.) BOTH branches carry `first:border-t-0`: the
-  // operand branch because a ledger opens on an operand, and the total branch
-  // because a payload missing every operand would otherwise draw the heavy
-  // rule against nothing.
-  return (
-    <div className={`grid grid-cols-[18px_minmax(0,1fr)_auto] items-start gap-x-2 py-2.5 ${total ? "mt-1 border-t border-slate-300 pt-3.5 first:mt-0 first:border-t-0 dark:border-slate-600" : "border-t border-slate-100 first:border-t-0 dark:border-white/[0.07]"}`}>
-      <span className={`money pt-px text-xs font-semibold ${total ? "text-indigo-600 dark:text-indigo-300" : "text-slate-600 dark:text-slate-300"}`} aria-hidden="true">{operator}</span>
-      <div className="min-w-0">
-        <dt className={`${total ? "font-bold text-slate-900 dark:text-slate-100" : "font-medium text-slate-700 dark:text-slate-200"} text-[13px] leading-snug`}>{label}</dt>
-        {detail && <p className="mt-0.5 text-[11px] leading-snug text-slate-600 dark:text-slate-300 text-pretty">{detail}</p>}
-      </div>
-      <dd aria-label={spokenValue} className={`money shrink-0 text-sm font-semibold ${FORECAST_INK}`}>{value}</dd>
-    </div>
-  );
-}
-
-function CardBalanceFact({
-  growth,
-  newSpend,
-  reserve,
-  finalPosition,
-  wording,
-  dueDate,
-  amount,
-  showCardsLink,
-  muted = false,
-}: {
-  growth: number;
-  newSpend: number;
-  reserve: number;
-  finalPosition: number;
-  wording: "carried" | "cleared_monthly" | null | undefined;
-  dueDate: string | null;
-  amount: (value: number) => string;
-  showCardsLink: boolean;
-  /** G214: while a sync runs, no amber signifier. */
-  muted?: boolean;
-}) {
-  const hasUnconfirmedReserve = reserve > 0;
-  const amberOn = hasUnconfirmedReserve && !muted;
-  const due = dateLabel(dueDate);
-  // G24: while a card repayment is unconfirmed, the reserve maths (and the
-  // "held back" sentence below) is about real debt owed, so the headline
-  // stays the TRUE balance change — showing spend-only here could make the
-  // reserve look bigger than the figure it's held back from, which reads as
-  // broken and, worse, understates the risk. Once there's nothing
-  // unconfirmed, there's no safety story left to tell and the headline can
-  // show what Kevin actually asked Home to lead with: new spend only,
-  // because a balance transfer is deliberate debt-shuffling, not spending.
-  const headline = hasUnconfirmedReserve ? growth : newSpend;
-
-  return (
-    <section data-g324-card-activity className="mt-3" aria-label="Card balance activity">
-      <details>
-        <DisclosureSummary className="min-h-11 cursor-pointer rounded-lg text-[13px] font-medium text-slate-700 active:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-slate-200">
-          <span className="flex min-w-0 items-center gap-2"><CreditCard size={15} aria-hidden="true" className={amberOn ? "shrink-0 text-amber-700 dark:text-amber-300" : "shrink-0"} /><span>{hasUnconfirmedReserve ? "Card balances this pay period" : "Card spending this pay period"}</span></span>
-          <span className="money ml-auto shrink-0 text-[13px]"><MoneyText text={amount(headline)} /></span>
-        </DisclosureSummary>
-        <div className="space-y-2 pb-3 text-pretty text-[12px] leading-5 text-slate-600 dark:text-slate-300">
-          <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
-            {hasUnconfirmedReserve
-              ? <p className="flex items-center gap-1.5"><AlertCircle size={13} aria-hidden="true" className={muted ? "text-slate-400" : "text-amber-700 dark:text-amber-300"} />Repayment not confirmed</p>
-              : <p><MoneyText text={`You've spent ${amount(newSpend)} on credit cards this pay period.`} /></p>}
-            {showCardsLink && (
-              <Link href="/cards" className="inline-flex min-h-11 shrink-0 touch-manipulation items-center gap-2 rounded-xl bg-indigo-50 px-3 text-sm font-semibold text-indigo-700 transition-[transform,background-color] [@media(hover:hover)]:hover:bg-indigo-100 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 motion-reduce:transform-none motion-reduce:transition-none dark:bg-indigo-400/10 dark:text-indigo-300 dark:[@media(hover:hover)]:hover:bg-indigo-400/15 [-webkit-tap-highlight-color:transparent]">
-                See your cards<ArrowRight size={15} aria-hidden="true" />
-              </Link>
-            )}
-          </div>
-          {hasUnconfirmedReserve ? <>
-            <p><MoneyText text={`${amount(reserve)} is already held back because the repayment isn't confirmed.`} /></p>
-            {finalPosition < 0 && <p><MoneyText text={`That leaves a ${amount(Math.abs(finalPosition))} safety shortfall.`} /></p>}
-          </> : <>
-            <p>Purchases only. Balance transfers and repayments are not counted here.{wording === "cleared_monthly" && due ? ` Due around ${due}. Its repayment is forecast separately.` : wording === "cleared_monthly" ? " Its repayment is forecast separately." : ""}</p>
-          </>}
-        </div>
-      </details>
-      <p className="text-pretty text-[12px] leading-5 text-slate-600 dark:text-slate-300"><MoneyText text={hasUnconfirmedReserve
-        ? `You've spent ${amount(newSpend)} on credit cards this pay period. This is a separate figure from the ${amount(reserve)} already held back above.`
-        : "Known card repayments due before payday are included in your estimate. Card purchases aren't deducted again."} /></p>
-    </section>
-  );
 }
 
 export default function SafeToSpendCard({ data, loading, error, onRetry, spendFrom, coverMoveVisible = false, coverMoveReserves, coverMoveDestinations, spendFromPreview, syncing, onSyncRetry, previewBalancesVisible = false }: SafeToSpendCardProps) {
@@ -487,10 +372,6 @@ export default function SafeToSpendCard({ data, loading, error, onRetry, spendFr
     );
   }
 
-  const exactCashRunway = data.safe_to_spend_cash ?? data.safe_to_spend;
-  const exactLowestProjected = data.lowest_projected_balance ?? null;
-  const cardGrowth = data.card_growth_total ?? 0;
-  const cardNewSpend = data.card_new_spend_total ?? 0;
   const cardReserve = data.card_growth_reserved ?? 0;
   // `state`/`stateLabel`/`isCardsUnconfirmedShort`/`heroAmount`/`paydayLabel`
   // now come from `deriveSafeToSpendHeadline` (this file, above) — the SAME
@@ -502,9 +383,6 @@ export default function SafeToSpendCard({ data, loading, error, onRetry, spendFr
 
   const amount = (value: number) => hidden ? "£••••" : formatSafeToSpendAmount(value);
   const exactAmount = (value: number) => hidden ? "£••••" : fmt2(value);
-  const signedExactAmount = (value: number) => hidden
-    ? `${value < 0 ? "−" : "+"}£••••`
-    : `${value < 0 ? "−" : "+"}${fmt2(value)}`;
 
   const sync = syncing ? { info: syncing, phase: syncPhase(syncing) } : null;
   const syncAsOf = sync ? asOfLabel(sync.info.asOf ?? data.last_synced) : null;
@@ -571,32 +449,11 @@ export default function SafeToSpendCard({ data, loading, error, onRetry, spendFr
   const excludedCount = data.excluded_accounts_count ?? 0;
 
   const freshnessLabel = sync ? null : syncAgeLabel(data.last_synced);
-  const summaryLabel = heroAmount === 0
-    ? "How we worked this out"
-    : state === "short" && !isCardsUnconfirmedShort
-    ? `How we got ${amount(heroAmount)} short`
-    : `How we got ${amount(heroAmount)}`;
-  const cashTotalLabel = exactCashRunway < 0 ? "Cash position before payday" : "Cash available until payday";
-  const cashFlowDetailParts = [
-    data.bills_total > 0 ? `${exactAmount(data.bills_total)} of bills` : null,
-    data.income_before_payday > 0 ? `${exactAmount(data.income_before_payday)} of income` : null,
-  ].filter((item): item is string => Boolean(item));
-  const cashFlowDetail = cashFlowDetailParts.length > 0
-    ? `After applying ${listPhrase(cashFlowDetailParts)} in date order.`
-    : "After applying the dated cash forecast.";
-  // Bills and income are applied in date order, so the lowest point in the
-  // window is not always cash now minus the full bill total plus the full
-  // income total (it can land mid-window, before every event has fired).
-  // Only show the bills/income rows when that simple sum actually
-  // reconciles with the server's own lowest-balance walk; otherwise fall
-  // back to the prose sentence rather than display rows that do not add up.
-  // Even when the rows do reconcile, the sentence stays on as a footnote
-  // under the "Lowest cash before payday" row: it is what tells the reader
-  // this figure is a date-ordered running minimum, not just simple
-  // arithmetic on the totals above it — exactly the distinction that can
-  // make the two diverge for a different payload.
-  const canShowLedgerBreakdown = data.spendable_now != null && exactLowestProjected != null
-    && Math.abs((data.spendable_now - data.bills_total + data.income_before_payday) - exactLowestProjected) < 0.02;
+  const evidence = buildLeftToSpendEvidence(data, presentation.signed ? -heroAmount : Math.abs(heroAmount));
+  const formatEvidence = (value: number, exact = false) => {
+    const sign = value < 0 ? "−" : "";
+    return hidden ? `${sign}£••••` : `${sign}${exact ? fmt2(value) : formatSafeToSpendAmount(value)}`;
+  };
   const recovery = sync ? null : state === "short"
     ? isCardsUnconfirmedShort ? { label: "Review card bill", href: "/cards" } : { label: "See what’s due", href: "/upcoming" }
     : null;
@@ -663,89 +520,22 @@ export default function SafeToSpendCard({ data, loading, error, onRetry, spendFr
         </div>
       )}
     </section>
-    <div data-g324-evidence className="mt-3 [&_.text-slate-500]:text-slate-600 dark:[&_.text-slate-500]:text-slate-300">
-      <details data-sts-caveat className="border-b border-slate-200 dark:border-slate-700">
-        <DisclosureSummary className="min-h-11 cursor-pointer rounded-lg text-[13px] font-medium text-slate-700 active:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-slate-200">What this estimate counts</DisclosureSummary>
-        <div className="space-y-2 pb-4 text-pretty text-[12px] leading-5 text-slate-600 dark:text-slate-300">
-          <p>{COUNTS_EXCLUSIONS}</p>
-          <p data-sts-disclaimer>An estimate from your bank data. It can be wrong, so check your bank for your latest balance. Not financial advice.</p>
-        </div>
-      </details>
-      <div className="border-b border-slate-200 dark:border-slate-700">
-        <details data-g324-calculation className="group [&_a]:inline-flex [&_a]:min-h-11 [&_a]:items-center">
-          <summary className="flex min-h-12 cursor-pointer list-none items-center justify-between gap-3 rounded-xl bg-transparent text-sm font-semibold text-slate-600 active:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-slate-300 [-webkit-tap-highlight-color:transparent] [&::-webkit-details-marker]:hidden">
-            {summaryLabel}
-            <ChevronDown size={17} className="shrink-0 transition-transform group-open:rotate-180" aria-hidden="true" />
-          </summary>
-
-          <div className="pb-2 pt-3">
-            <div className="flex items-center justify-between gap-3">
-              <h3 className="text-[11px] font-bold uppercase tracking-[0.085em] text-slate-600 dark:text-slate-300">Cash calculation</h3>
-            </div>
-
-            <dl className="mt-1.5">
-              {data.spendable_now != null && <CalculationRow operator="+" label="Cash available now" value={exactAmount(data.spendable_now)} spokenValue={`plus ${exactAmount(data.spendable_now)}`} detail="Across counted current accounts." />}
-              {canShowLedgerBreakdown && data.bills_total > 0 && <CalculationRow operator="−" label="Bills before payday" value={exactAmount(data.bills_total)} spokenValue={`minus ${exactAmount(data.bills_total)}`} />}
-              {canShowLedgerBreakdown && data.income_before_payday > 0 && <CalculationRow operator="+" label="Income before payday" value={exactAmount(data.income_before_payday)} spokenValue={`plus ${exactAmount(data.income_before_payday)}`} />}
-              {exactLowestProjected != null && <CalculationRow operator={canShowLedgerBreakdown ? "=" : "→"} label="Lowest cash before payday" value={signedExactAmount(exactLowestProjected)} spokenValue={signedExactAmount(exactLowestProjected)} detail={cashFlowDetail} />}
-              {data.buffer > 0 && <CalculationRow operator="−" label="Safety buffer" value={exactAmount(data.buffer)} spokenValue={`minus ${exactAmount(data.buffer)}`} />}
-              {calculationItems.map((item) => <CalculationRow key={item.label} operator="−" label={item.label} value={exactAmount(item.value)} spokenValue={`minus ${exactAmount(item.value)}`} />)}
-              <CalculationRow operator="=" label={cashTotalLabel} value={signedExactAmount(exactCashRunway)} spokenValue={signedExactAmount(exactCashRunway)} total />
-            </dl>
-
-            <PooledLedgerExplainer
-              pooled={spendFromPlan.entries.length > 1}
-              envelope={{ amount: data.allocations_reserved ?? 0, count: data.allocations_count }}
-              plan={{ amount: data.commitments_reserved ?? 0, count: data.commitments_count }}
-              format={exactAmount}
-            />
-
-            {cardReserve > 0 && (
-              <section className="mt-5" aria-labelledby="card-safety-check">
-                <h3 id="card-safety-check" className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-[0.085em] text-slate-600 dark:text-slate-300"><span className={`h-1.5 w-1.5 rounded-full ${sync ? "bg-slate-400" : "bg-amber-500"}`} aria-hidden="true" />Card safety check</h3>
-                <dl className="mt-1.5">
-                  <CalculationRow operator="+" label="From cash calculation" value={signedExactAmount(exactCashRunway)} spokenValue={signedExactAmount(exactCashRunway)} />
-                  <CalculationRow operator="−" label="Unconfirmed card reserve" value={exactAmount(cardReserve)} spokenValue={`minus ${exactAmount(cardReserve)}`} detail="Held back because no repayment forecast has been learned." />
-                  <CalculationRow operator="=" label="Safety position" value={signedExactAmount(data.safe_to_spend)} spokenValue={signedExactAmount(data.safe_to_spend)} detail={data.safe_to_spend < 0 ? "The amount available above cannot fall below zero, so the shortfall stays visible here." : undefined} total />
-                </dl>
-              </section>
-            )}
-
-            {cardGrowth > 0 && cardReserve <= 0 && (
-              <p className="mt-4 text-[12px] leading-5 text-slate-600 dark:text-slate-300 text-pretty">
-                <MoneyText text={`The ${amount(cardNewSpend)} spent on cards is shown below for context. It is not part of this cash calculation.`} />
-              </p>
-            )}
-
-            {(data.pooled_transfers_excluded ?? 0) > 0 && (
-              <p className="mt-3 text-xs leading-relaxed text-slate-500 dark:text-slate-400 text-pretty">Transfers between your own included accounts do not change the total, so they are left out of this calculation.</p>
-            )}
-
-            <div className="mt-4 space-y-1 text-pretty text-[12px] leading-5 text-slate-600 dark:text-slate-300">
-              <p><MoneyText text={showPace ? `${exactAmount(pace!.sustainable!)}/day until ${paydayLabel}` : `Pay period ends ${paydayLabel}`} /></p>
-              {(data.payday_income ?? 0) > 0 && <p><MoneyText text={`Pay of about ${amount(data.payday_income!)} due ${paydayLabel}.`} /> This is expected pay, not cash received before payday.</p>}
-              {freshnessLabel && <p>{freshnessLabel}</p>}
-            </div>
-
-          </div>
-        </details>
-      </div>
-
-      {(cardGrowth > 0 || cardNewSpend > 0 || cardReserve > 0 || showCardsLink) && (
-        <CardBalanceFact
-          growth={cardGrowth}
-          newSpend={cardNewSpend}
-          reserve={cardReserve}
-          finalPosition={data.safe_to_spend}
-          wording={data.card_growth_wording}
-          dueDate={data.card_growth_due_date ?? null}
-          amount={amount}
-          showCardsLink={showCardsLink}
-          muted={!!sync}
-        />
-      )}
-
-    </div>
+    <SafeToSpendDisclosures
+      disclaimer={ESTIMATE_DISCLAIMER}
+      data={data}
+      evidence={evidence}
+      format={formatEvidence}
+      paydayLabel={paydayLabel}
+      syncing={!!sync}
+      showCardsLink={showCardsLink}
+      freshnessLabel={freshnessLabel}
+      reservationDetails={<PooledLedgerExplainer
+        pooled={spendFromPlan.entries.length > 1}
+        envelope={{ amount: data.allocations_reserved ?? 0, count: data.allocations_count }}
+        plan={{ amount: data.commitments_reserved ?? 0, count: data.commitments_count }}
+        format={exactAmount}
+      />}
+    />
     </div>
   );
 }

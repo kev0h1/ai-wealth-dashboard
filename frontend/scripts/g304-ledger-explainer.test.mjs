@@ -74,7 +74,10 @@ assert.ok(!/holds back/.test(noReserve), "no reservations: no release lines");
 // Wiring: both ledgers render the shared component inside their expanded ledger.
 const home = readFileSync(new URL("../components/SafeToSpendCard.tsx", import.meta.url), "utf8");
 assert.match(home, /<PooledLedgerExplainer[\s\S]*?pooled=\{spendFromPlan\.entries\.length > 1\}/);
-assert.ok(home.indexOf("<PooledLedgerExplainer") > home.indexOf("<details className=\"group\">"), "inside the details");
+const disclosureSource=readFileSync(new URL('../components/SafeToSpendDisclosures.tsx',import.meta.url),'utf8');
+const calculation=disclosureSource.slice(disclosureSource.indexOf('<details data-g324-calculation'),disclosureSource.indexOf('</details>',disclosureSource.indexOf('<details data-g324-calculation')));
+assert.match(calculation,/\{reservationDetails\}/,'shared explanation remains inside the calculation disclosure');
+assert.match(home, /reservationDetails=\{<PooledLedgerExplainer/);
 const up = readFileSync(new URL("../components/upcoming/UpcomingHeroCard.tsx", import.meta.url), "utf8");
 assert.ok(up.indexOf("<PooledLedgerExplainer") > up.indexOf("<details"), "inside the details");
 assert.ok(up.indexOf("<PooledLedgerExplainer") < up.indexOf("</details>"), "before details closes");
