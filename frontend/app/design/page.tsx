@@ -120,15 +120,18 @@ const ROUTES: PreviewRoute[] = [
   },
   {
     slug: "upcoming-by-account",
-    name: "Upcoming By account, attention first · G229",
+    name: "Upcoming By account and account sheet · G416",
     description:
-      "G229, skill: impeccable · Alignment, not a variant round: the By account card on Upcoming now leads with accounts that need attention (short for payments, then short for plans, then ones to watch) and folds the rest behind one quiet row such as 3 accounts are fine, using the same grid-template-rows fold as Planning's rungs · An honest all-clear line when nothing needs attention · Renders the production card with invented accounts · ?fixture=long|watch|clear|all&mode=light|dark",
+      "G416 · frontend-design then impeccable · A compact account list and result-first sheet; B canvas-led rows and dated activity first. Both show whole-pound Available with caution icons, a working fine-accounts fold, exact pence in the ledger and a proposed dated suggested move on its source and destination. Invented examples only. Production awaits a choice. ?variant=a|b&state=mixed|risk|clear|unknown|pennies&mode=light|dark&hidden=1",
+    variants: [{ label: "A · A clearer account list", value: "a" }, { label: "B · Follow the dates", value: "b" }],
     states: [
-      { label: "Long list, 2 need attention", value: "long" },
-      { label: "One to watch, 5 fine", value: "watch" },
-      { label: "All clear", value: "clear" },
-      { label: "Every account short", value: "all" },
+      { label: "Suggested move and plans", value: "mixed" },
+      { label: "Payment shortfall", value: "risk" },
+      { label: "All accounts fine", value: "clear" },
+      { label: "Balance unavailable", value: "unknown" },
+      { label: "6p available", value: "pennies" },
     ],
+    group: "current",
   },
   {
     slug: "plan-deferral",
