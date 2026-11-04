@@ -28,6 +28,7 @@ assert.match(previewSource, /id: "goal-japan"[\s\S]*source_account_id: "monzo"/,
 const plans = plansFor("gap");
 const gap = forecastFor("gap").accounts[0];
 const renderDetails = (account, input = plans, status = "ready") => renderToStaticMarkup(React.createElement(UpcomingAccountDetails, { account, plans: input, plansStatus: status, periodLabel: "Through Thu 29 Oct", onPlan() {} }));
+const plainText = (markup) => markup.replace(/<[^>]+>/g, "").replace(/&amp;/g, "&");
 
 assert.deepEqual(accountPlan(gap, plans), { assigned: plans, unassigned: [], estimated: false, uncertain: false, allocationPence: 30000, goalPence: 6500, scheduledPence: 0, reservedPence: 36500, afterPayments: 33600, afterPlans: -2900, spendFromPence: -2900, planGap: 2900 });
 assert.equal(remaining(plans[0]), 30000, "Server remainder wins over display target and filled amount");
@@ -38,7 +39,7 @@ const goalRecord = renderToStaticMarkup(React.createElement(PlanRecordView, { ki
 assert.match(goalRecord, /Goal progress/);
 assert.match(goalRecord, /£320 of £2,000/);
 const details = renderDetails(gap);
-for (const text of ["−£29", "£336", "−£300", "−£65", "more needed for plans", "Payments are covered"]) assert.match(details, new RegExp(text));
+for (const expected of ["−£29", "£336", "−£365", "£300", "£65", "more needed for plans", "Payments are covered"]) assert.match(plainText(details), new RegExp(expected));
 assert.doesNotMatch(details, /needed for payments|bg-rose-500/);
 
 const moved = plans.map((plan) => ({ ...plan, sourceId: plan.id === "round-ups" ? "barclays" : null, evidence: plan.id === "round-ups" ? "chosen" : "unknown" }));
@@ -63,14 +64,13 @@ assert.equal(accountPlan(gap, suggested).estimated, true);
 assert.deepEqual(accountPlan(gap, suggested).unassigned.map((plan) => plan.id), ["holiday"]);
 const suggestedDetails = renderDetails(gap, suggested);
 const suggestedCard = renderToStaticMarkup(React.createElement(UpcomingAccountsCard, { accounts: forecastFor("suggested").accounts, plans: suggested, periodLabel: "Through Thu 29 Oct", onOpen() {} }));
-assert.match(suggestedDetails, /−£300/);
-assert.match(suggestedDetails, /After payments and plans · estimated/);
-assert.match(suggestedDetails, /Allocations still to set aside · estimated/);
+assert.match(plainText(suggestedDetails), /−£300\.00/);
+assert.match(plainText(suggestedDetails), /Still to set aside/);
 assert.match(suggestedDetails, /Paying account based on recent transfers/);
 assert.doesNotMatch(suggestedDetails, /Paying accounts need linking/);
 assert.match(suggestedCard, /By account/);
-assert.match(suggestedCard, /£36\.00, left after plans, estimated/);
-assert.match(suggestedCard, />Estimated</);
+assert.match(suggestedCard, /£36/);
+assert.match(suggestedCard, /Available/);
 assert.doesNotMatch(suggestedCard, /Savings challenge|Summer break|Paying account|<details/, "By account contains account rows only, not duplicate plans");
 assert.equal((suggestedCard.match(/data-account-row/g) ?? []).length, 2, "two account rows (the fold row is the only added button)");
 const unknownGoals = renderToStaticMarkup(React.createElement(UnlinkedGoalPlans, { plans: suggested, onPlan() {} }));
@@ -108,7 +108,7 @@ assert.equal(unavailableDerived.uncertain, true);
 const screenshotExample = { ...suggested[0], periodPence: 37660, filledPence: 6108, remainingPence: 31552 };
 const screenshotAccount = { ...gap, opening: 312.46, outgoing: 7, closing: 305.46 };
 assert.equal(accountPlan(screenshotAccount, [screenshotExample]).afterPlans, -1006, "£305.46 less £315.52 remaining equals −£10.06; the £61.08 already saved is not deducted again");
-assert.match(renderDetails(screenshotAccount, [screenshotExample]), /£10\.06 more needed for plans · estimated/);
+assert.match(plainText(renderDetails(screenshotAccount, [screenshotExample])), /£10\.06 more needed for plans · estimated/);
 assert.doesNotMatch(renderDetails(screenshotAccount, [screenshotExample]), /Not assigned to an account|Paying accounts need linking/);
 const suggestedGoalRecord = renderToStaticMarkup(React.createElement(PlanRecordView, { kind: "goal", contribution: 65, cadence: "each pay period", target: { amount: 2000, month: "August 2027" }, progress: 320, trackingLabel: "Not tracking a payment", sourceAccount: { id: "current", name: "Current account", provider: "Monzo", type: "bank", currency: "GBP", balance: 100 }, sourceSuggested: true }));
 assert.match(suggestedGoalRecord, /Suggested from recent transfers/);

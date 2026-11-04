@@ -62,14 +62,18 @@ for (const { id } of SCENARIOS) {
   assert.doesNotMatch(card(true), RAW, `${id}: By account card masked`);
   for (const account of accounts) {
     const detail = (hidden) => wrap(hidden, h(UpcomingAccountDetails, { account, periodLabel: PERIOD, plans, plansStatus: "ready" }));
-    // Payments & income lines are payment amounts, not balances: they stay visible.
-    const hiddenHtml = detail(true).split(/<section aria-labelledby="[^"]*-events">/)[0];
-    assert.doesNotMatch(hiddenHtml, RAW, `${id}/${account.id}: account sheet figures masked`);
+    // G416 approved A: this account-sheet view masks every figure, including
+    // ordinary event amounts and their accessible labels. Payment detail and
+    // timeline flows retain their established visible-transaction rule.
+    const hiddenHtml = detail(true);
+    assert.doesNotMatch(hiddenHtml, RAW, `${id}/${account.id}: whole account sheet masked`);
     renders++;
   }
   if (id === "gap") {
     assert.match(card(false), /£\d/, "gap: By account amounts visible when balances shown");
-    assert.match(wrap(false, h(UpcomingAccountDetails, { account: accounts[0], periodLabel: PERIOD, plans, plansStatus: "ready" })), /data-account-plan-figure[^>]*>[^<]*£\d/, "gap: sheet figure visible");
+    const shownSheet = wrap(false, h(UpcomingAccountDetails, { account: accounts[0], periodLabel: PERIOD, plans, plansStatus: "ready" }));
+    const planFigure = shownSheet.slice(shownSheet.indexOf("data-account-plan-figure"), shownSheet.indexOf("data-verdict"));
+    assert.match(planFigure.replace(/<[^>]+>/g, ""), /£\d/, "gap: sheet figure visible");
   }
   renders++;
 }

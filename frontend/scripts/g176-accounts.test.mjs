@@ -174,13 +174,13 @@ for (const scenario of SCENARIOS) {
   assert.equal(result.reduce((sum, account) => sum + account.shortfall, 0), forecast.shortfall / 100);
   const card = renderToStaticMarkup(React.createElement(UpcomingAccountsCard, { accounts: result, periodLabel: "Payments through Wed 30 Sept", onOpen() {} }));
   assert.match(card, /By account/); assert.match(card, /Open Barclays/); assert.match(card, /Tap an account for its working/);
-  if (scenario.id === "moves") { assert.match(card, /Short for transfers/); assert.match(card, /data-status-signal="move"/); assert.doesNotMatch(card, /data-status-signal="risk"|text-rose|bg-rose/); }
+  if (scenario.id === "moves") { assert.match(card, /short for transfers/i); assert.match(card, /data-status-signal="move"/); assert.doesNotMatch(card, /data-status-signal="risk"|text-rose|bg-rose/); }
   if (scenario.id === "covered") assert.doesNotMatch(card, /data-status-signal="(?:risk|move|plan)"|lucide-triangle-alert|lucide-info/);
 }
 const empty = renderToStaticMarkup(React.createElement(UpcomingAccountsCard, { accounts: [], periodLabel: "This period", onOpen() {} }));
 assert.match(empty, /No account payments/); assert.doesNotMatch(empty, /<button/);
 const unknown = renderToStaticMarkup(React.createElement(UpcomingAccountsCard, { accounts: summary([bill({ account_balance: null })]), periodLabel: "This period", onOpen() {} }));
-assert.match(unknown, /Coverage unavailable/); assert.doesNotMatch(unknown, /£0/);
+assert.match(unknown, /Unavailable/); assert.match(unknown, /coverage unavailable/i); assert.doesNotMatch(unknown, /£0/);
 
 const opaque = { name: "goldman|sachs::opaque-account", display_name: "Goldman Sachs" };
 assert.equal(upcomingDisplayName(opaque), "Goldman Sachs");

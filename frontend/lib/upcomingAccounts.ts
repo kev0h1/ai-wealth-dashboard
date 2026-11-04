@@ -59,6 +59,18 @@ export type UpcomingAccountSummary = {
   events: UpcomingAccountEvent[];
   /** G238: server position for this account, when the API supplied it. */
   position?: UpcomingAccountPosition;
+  /** G416: display-only live recommendations, kept outside the payment walk. */
+  suggestedMoves?: UpcomingSuggestedMove[];
+};
+
+export type UpcomingSuggestedMove = {
+  id: string;
+  counterpartId: string;
+  counterpartName: string;
+  /** Signed pounds: a suggested credit is positive, a suggested debit negative. */
+  amount: number;
+  /** A payment deadline, not a scheduled transfer date. Null when not supplied. */
+  byDate: string | null;
 };
 
 /** Shared coverage boundary: the day before payday, always. G360 removed the

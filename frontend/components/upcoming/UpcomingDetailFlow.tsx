@@ -12,6 +12,7 @@ import { UpcomingEditForm, type UpcomingEditItem, type UpcomingEditServices } fr
 import { PlannedEditForm, type PlannedEditItem, type PlannedEditServices } from "@/components/PlannedEditForm";
 import { AllocationPlanEditor, type AllocationEditServices } from "@/components/AllocationPlanEditor";
 import UpcomingAccountDetails from "./UpcomingAccountDetails";
+import accountStyles from "./UpcomingAccounts.module.css";
 import UpcomingRowDetails from "./UpcomingRowDetails";
 import type { UpcomingRowModel } from "./UpcomingRow";
 import { CategoryIcon, PlanIcon, detailFocus } from "./detailPrimitives";
@@ -95,9 +96,9 @@ export default function UpcomingDetailFlow(props: UpcomingDetailFlowProps) {
       const editable = new Map<string, string>();
       for (const event of account.events) { const match = event.source ? payments.find((item) => item.source === event.source) : undefined; if (match) editable.set(event.id, match.id); }
       return {
-        title: account.bank, subtitle: `${displayAccountName(account.name)} · ${props.periodLabel}`,
-        leading: <BankBadge logoSrc={bankLogoSrc(meta)} initials={meta?.initials ?? account.bank.slice(0, 2)} altText="" size={36} />,
-        body: <UpcomingAccountDetails account={account} periodLabel={props.periodLabel} plans={plans} plansStatus={props.plansStatus} onPlan={(id) => navigation.goTo({ kind: "plan", id })} editableEventIds={new Set(editable.keys())} onEvent={(eventId) => { const id = editable.get(eventId); if (id) navigation.goTo({ kind: "payment", id }); }} />, footer: done,
+        title: account.bank, subtitle: displayAccountName(account.name),
+        leading: <BankBadge logoSrc={bankLogoSrc(meta)} initials={meta?.initials ?? account.bank.slice(0, 2)} initialsSize={meta?.initialsSize} brandBg={meta?.bg} altText="" size={32} />,
+        body: <UpcomingAccountDetails account={account} periodLabel={props.periodLabel} plans={plans} plansStatus={props.plansStatus} onPlan={(id) => navigation.goTo({ kind: "plan", id })} editableEventIds={new Set(editable.keys())} onEvent={(eventId) => { const id = editable.get(eventId); if (id) navigation.goTo({ kind: "payment", id }); }} />, footer: <button type="button" className={accountStyles.done} onClick={navigation.close}>Done</button>,
       };
     }
     if (view.kind === "payment" || view.kind === "edit-payment") {

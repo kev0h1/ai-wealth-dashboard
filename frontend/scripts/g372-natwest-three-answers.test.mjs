@@ -50,7 +50,14 @@ assert.equal(withMove.closing, short.closing);
 assert.equal(withMove.status, "short");
 assert.equal(withMove.income, short.income);
 assert.equal(withMove.transfersIn, 0);
-assert.equal(withMove.coverSuggestion?.amount, 300);
+assert.equal(withMove.coverSuggestion, undefined, "a modern position with no earmark cannot revive a stale move card");
+const legacyShort = { ...short, position: undefined };
+const [legacyWithMove] = withCoverSuggestions([legacyShort], [{ type: "move", moves: [{ amount: 300, move_map: { from: { account_id: "bc", name: "Barclays" }, to: { account_id: "nw" } } }] }]);
+assert.equal(legacyWithMove.coverSuggestion?.amount, 300, "an otherwise valid legacy payload retains its move recommendation");
+assert.equal(legacyWithMove.closing, legacyShort.closing);
+assert.equal(legacyWithMove.status, legacyShort.status);
+assert.equal(legacyWithMove.income, legacyShort.income);
+assert.equal(legacyWithMove.transfersIn, legacyShort.transfersIn);
 const walkSource = readFileSync(new URL("../lib/upcomingAccountWalk.ts", import.meta.url), "utf8");
 assert.ok(!/coverSuggestion|withCoverSuggestions|moves/.test(walkSource.replace(/\/\/.*|\/\*[\s\S]*?\*\//g, "")), "the walk never reads a cover move");
 
@@ -61,8 +68,8 @@ assert.equal((page.match(/accountWalk\?*\.accounts/g) ?? []).length, 1, "only th
 assert.equal((page.match(/<UpcomingAccountsCard accounts=\{accountSummaries\}/g) ?? []).length, 2);
 assert.match(page, /<UpcomingDetailFlow[\s\S]{0,400}?summaries=\{accountSummaries\}/);
 const details = readFileSync(new URL("../components/upcoming/UpcomingAccountDetails.tsx", import.meta.url), "utf8");
-assert.match(details, /const gap = accountPaymentGap\(account\);[\s\S]*?\n  if \(gap !== null\) return/, "the sheet verdict derives short from the payment gap");
-assert.ok(details.indexOf("accountPaymentGap(account)") < details.indexOf('"Payments are covered"'), "short is decided before any covered wording");
+assert.match(details, /const gap = accountPaymentGap\(account\);[\s\S]*?if \(gap !== null\)/, "the sheet verdict derives short from the payment gap");
+// The real rendered short verdict below proves precedence over healthy copy.
 // An uncredited prediction stays visible as a non-crediting event.
 const none = summarise([]);
 const ghost = summarise([income()]);
@@ -78,11 +85,12 @@ assert.equal(summarise([income({ credit_basis: "steady" })]).events.some((event)
 const sheet = (hidden, account) => renderToStaticMarkup(h(BalancesHiddenContext.Provider, { value: hidden }, h(UpcomingAccountDetails, { account, periodLabel: "Payments through Thu 26 Nov", plans: [], plansStatus: "ready" })));
 const shortGhost = reconcileWithServerPosition(ghost, pos());
 const html = sheet(false, shortGhost);
+assert.match(html.replace(/<[^>]+>/g, ""), /Payments need more money/, "the account sheet retains the genuine short verdict");
 assert.match(html, /Not counted until it is confirmed\./);
-assert.match(html, /Expected £603\.92 is not counted until it is confirmed\./);
+assert.match(html.replace(/<[^>]+>/g, "").replace(/&amp;/g, "&"), /Expected £603\.92 is not counted until it is confirmed\./);
 assert.doesNotMatch(html, /Payments are covered/);
 const masked = sheet(true, shortGhost);
 assert.doesNotMatch(masked.replace(/<[^>]+>/g, ""), /603\.92/, "Hide balances masks the uncounted amount");
-assert.match(masked, /Expected £•+ is not counted/);
+assert.match(masked.replace(/<[^>]+>/g, ""), /Expected £•+ is not counted/);
 assert.doesNotMatch(sheet(false, reconcileWithServerPosition(summarise([]), pos())), /is not counted until/, "no note without an uncredited income");
 console.log("g372-natwest-three-answers ok");

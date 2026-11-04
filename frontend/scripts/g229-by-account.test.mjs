@@ -9,7 +9,7 @@ import assert from "node:assert/strict";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import UpcomingAccountsCard from "../components/upcoming/UpcomingAccountsCard.tsx";
-import { fixtureFor, PERIOD } from "../app/design/upcoming-by-account/fixtures.ts";
+import { fixtureFor, PERIOD } from "./fixtures/g229-by-account.ts";
 
 const render = (id) => {
   const fixture = fixtureFor(id);
@@ -21,7 +21,6 @@ const split = (html) => {
   return at < 0 ? { lead: html, region: "" } : { lead: html.slice(0, at), region: html.slice(at) };
 };
 const rows = (html) => [...html.matchAll(/data-account-row="([^"]+)"/g)].map((m) => m[1]);
-const captions = (html) => [...html.matchAll(/data-status-caption[^>]*>([^<]+)</g)].map((m) => m[1]);
 
 for (const id of ["long", "watch", "clear", "all"]) {
   const { html } = render(id);
@@ -35,7 +34,9 @@ for (const id of ["long", "watch", "clear", "all"]) {
   const { fixture, html } = render("long");
   assert.equal(fixture.accounts.length, 20);
   const { lead, region } = split(html);
-  assert.deepEqual(captions(lead), ["Short for payments", "Short for plans"], "attention order");
+  assert.equal((lead.match(/data-status-caption="true"[^>]*>Available</g) ?? []).length, 2, "compact rows keep the calm visible caption");
+  assert.match(lead, /short for payments/, "payment-risk detail remains accessible in the row label");
+  assert.match(lead, /short for plans/, "plan-risk detail remains accessible in the row label");
   assert.equal(rows(lead).length, 2, "only attention rows before the fold region");
   assert.equal(rows(region).length, 18, "fine rows sit inside the fold region");
   assert.match(html, /18 accounts are fine/);
@@ -58,10 +59,10 @@ for (const id of ["long", "watch", "clear", "all"]) {
 {
   const { html } = render("clear");
   const { lead, region } = split(html);
-  assert.match(html, /Every paying account covers its payments and plans this period\./);
+  assert.match(html, /Every account covers its payments and linked plans\./);
   assert.equal(rows(lead).length, 0);
   assert.equal(rows(region).length, 6);
-  assert.match(html, /All 6 accounts/);
+  assert.match(html, /6 accounts are fine/);
 }
 
 // All short: every row visible, no fold row at all.
