@@ -2144,11 +2144,9 @@ def _touches_pooled_cash(item: dict) -> bool:
     excluding a card's own charges here also stops
     `net_position.card_growth_by_card`'s double-count guard from crediting
     a future CHARGE against that card's own unpaid growth (it can now only
-    match a genuine forecast repayment via `card_dest_account_id`) — the
-    fail-closed `card_growth_reserved` fallback (Safe-to-Spend step 6c)
-    picks up the full unpaid growth for any card with spending but no
-    predicted repayment, so cash still falls, just once, and via the
-    reserve rather than a phantom charge subtraction.
+    match a genuine forecast repayment via `card_dest_account_id`). Since
+    G413 there is no card reserve: a card with no predicted repayment is
+    simply not predicted, and nothing is held back for it.
 
     Deliberately separate from `is_assessable_bill`: that predicate asks
     "is there reliable balance data to run a PER-ACCOUNT shortfall walk",
@@ -5151,12 +5149,9 @@ async def compute_safe_to_spend(uid: str) -> dict:
     6. safe_to_spend = min_running_balance − buffer − commitments_reserved
        − allocations_reserved.
     6c. safe_to_spend_cash = safe_to_spend at this point. Card growth is a
-        separate fact and is not normally subtracted from this pay period's
-        cash. Reserve only growth on a card with no learned repayment series,
-        so an unconfirmed pay-in-full bill still fails closed.
-    7. Compute state: comfortable / tight / short on the cash-led figure,
-       after any fallback reserve. short_reason distinguishes a cash gap from
-       an unconfirmed card bill.
+        separate information fact and is never subtracted from this pay
+        period's cash (G413 retired the fallback card reserve).
+    7. Compute state: comfortable / tight / short on the cash-led figure.
     8. estimated = True when history is thin (n_months < 2).
 
     NOTE — `net_position` (period_net's period-to-date income/outflow/
@@ -5328,17 +5323,17 @@ async def compute_safe_to_spend(uid: str) -> dict:
         unavailable_components.append("allocations_reserve")
         allocations_reserved, allocations_count = 0.0, 0
 
-    # ── 6c. Card growth fact and fallback reserve ──────────────────────────────
-    # Card purchases do not leave cash in the period they are charged. Keep
-    # observed card growth visible as a separate fact, but do not subtract it
-    # from the cash runway when a repayment series has been learned. Growth on
-    # a card with no learned repayment series is still reserved as a fail-closed
-    # fallback. The helper groups one existing transaction read in memory, so
+    # ── 6c. Card growth fact (information only) ────────────────────────────────
+    # G413 (Kevin, 2026-11-04): a card repayment is an ordinary payment. It is
+    # predicted from history like any other recurring payment when there is
+    # enough, and otherwise nothing is predicted and nothing is held back. The
+    # old fail-closed card growth reserve is retired. Observed card growth and
+    # new card spending stay visible as facts only and never touch the cash
+    # figure. The helper groups one existing transaction read in memory, so
     # this does not introduce a query per card.
     safe_to_spend_cash = safe_to_spend
     card_growth_total = 0.0
     card_new_spend_total = 0.0
-    card_growth_reserved = 0.0
     card_growth_wording = None
     card_growth_due_date = None
     growth_card_ids: set[str] = set()
@@ -5354,14 +5349,10 @@ async def compute_safe_to_spend(uid: str) -> dict:
         card_growth_total = round(max(0.0, sum(
             float(row.get("net_change", row["growth"])) for row in card_rows
         )), 2)
-        # G24: purchases only, balance transfers/movement excluded — what the
+        # G24: purchases only, balance transfers/movement excluded, what the
         # Home hero's "went on cards" line shows. Kept separate from
-        # card_growth_total/card_growth_reserved above, which must stay the
-        # TRUE balance-growth figure the fail-closed reserve depends on (a
-        # balance deliberately moved onto a card is still real debt owed,
-        # whether or not it was new spending). Defaults to 0.0 for any row
-        # dict that predates this field (e.g. a test double), same pattern
-        # as `row.get("net_change", row["growth"])` above.
+        # card_growth_total, which stays the TRUE balance-growth figure.
+        # Defaults to 0.0 for any row dict that predates this field.
         card_new_spend_total = round(sum(
             float(row.get("new_spend", 0.0)) for row in card_rows
         ), 2)
@@ -5369,48 +5360,11 @@ async def compute_safe_to_spend(uid: str) -> dict:
             str(row["account_id"]) for row in card_rows
             if float(row["growth"]) > 0
         }
-        learned_card_ids = {
-            str(pattern.get("card_dest_account_id"))
-            for pattern in (cached.get("recurring_spend") or [])
-            if pattern.get("card_dest_account_id")
-        }
-        # The closed bill (or its known fixed cash instruction) is already
-        # in the shared dated walk, even when its due date is AFTER payday.
-        # New spending since that close belongs to the next bill, not a
-        # second unconfirmed-growth hold in this period.
-        learned_card_ids.update(str(aid) for aid in resp.get("statement_card_ids", []))
-        unlearned_growth = round(sum(
-            float(row["unpaid_growth"])
-            for row in card_rows
-            if str(row["account_id"]) not in learned_card_ids
-        ), 2)
-        # G109 follow-up: a forecasted charge that has not yet POSTED is
-        # invisible to `growth` above (transaction-history based), so an
-        # unlearned card whose only exposure this period is that charge
-        # would otherwise be reserved £0 — the exact dangerous failure mode
-        # the backlog item names. Summed separately, deliberately OUTSIDE
-        # the growth/card_growth_total cap just below: it describes money
-        # not yet reflected in that observed fact at all, so capping it
-        # against an unrelated figure would silently discard it again.
-        unlearned_future_charges = round(sum(
-            float(row.get("future_unposted_charges", 0.0))
-            for row in card_rows
-            if str(row["account_id"]) not in learned_card_ids
-        ), 2)
-        # A paydown on another card offsets portfolio growth. The cautious
-        # reserve can never exceed the user's actual net card-balance growth,
-        # otherwise the separate card fact and the arithmetic would diverge.
-        card_growth_reserved = round(
-            min(card_growth_total, unlearned_growth) + unlearned_future_charges, 2
-        )
-        if card_growth_reserved:
-            safe_to_spend = round(safe_to_spend - card_growth_reserved, 2)
     except Exception:
-        logger.exception("card growth fact or reserve failed for %s", uid)
-        unavailable_components.append("card_growth_reserve")
+        # An information fact failing never degrades the cash figure (G413).
+        logger.exception("card growth fact failed for %s", uid)
         card_growth_total = 0.0
         card_new_spend_total = 0.0
-        card_growth_reserved = 0.0
 
     # Asked card terms affect wording only, never the safety arithmetic. A
     # missing or unavailable terms document falls back to the cautious carried
@@ -5466,11 +5420,11 @@ async def compute_safe_to_spend(uid: str) -> dict:
     else:
         state = "comfortable"
 
-    # short_reason distinguishes a genuine cash gap from the narrow fallback
-    # where an unconfirmed card bill consumed otherwise-positive cash.
+    # short_reason names a genuine cash gap ("bills"). G413 retired the card
+    # fallback reserve, so an unconfirmed card never makes the figure short.
     from app.services.net_position import short_reason_for
     short_reason = None if unavailable_components else short_reason_for(
-        state, safe_to_spend_cash, card_growth_reserved,
+        state, safe_to_spend_cash,
     )
 
     # G218: a shortfall caused only by set-asides (plans, envelopes) reads
@@ -5563,7 +5517,6 @@ async def compute_safe_to_spend(uid: str) -> dict:
         "card_debt":           card_debt,
         "card_growth_total":   card_growth_total,
         "card_new_spend_total": card_new_spend_total,
-        "card_growth_reserved": card_growth_reserved,
         "card_growth_wording": card_growth_wording,
         "card_growth_due_date": card_growth_due_date,
         "commitments_reserved": round(commitments_reserved, 2),

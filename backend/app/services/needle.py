@@ -55,7 +55,7 @@ async def _credit_card_account_ids(uid: str) -> set[str]:
 
     Owner-approved fix (2026-08): this used to query accounts_col only, so a
     Yapily-connected card was invisible to every caller of this helper (the
-    net-position card-growth reserve, the needle month-close movement fact,
+    net-position card-growth fact, the needle month-close movement fact,
     the cards-story/companion/cycle-story surfaces) — silently, with no
     exception. compute_safe_to_spend's own balance/card-debt maths
     (analytics.py:2188-2213) and spend_verdict's `_load_period_txns`

@@ -33,14 +33,14 @@ for(const state of STATES.map(s=>s.id))for(const hidden of [false,true]){
     const hero=html.slice(html.indexOf('data-g324-hero'),html.indexOf('data-g324-evidence'));
     assert.match(hero,/Based on your connected current accounts and the bills Sorted knows about\./);
     assert.doesNotMatch(hero,/payments still pending|How we got|Card balances this pay period|Card spending/,'evidence stays below the hero');
-    if(['payments-short','plans-only','card-reserve'].includes(state))assert.match(hero,/data-g219-action-row/,'shortfall recovery stays in the hero');
+    if(['payments-short','plans-only'].includes(state))assert.match(hero,/data-g219-action-row/,'shortfall recovery stays in the hero');
     else assert.doesNotMatch(hero,/data-g219-action-row/,'G397 leaves no empty action row after relocating navigation');
     const caveat=html.slice(html.indexOf('data-sts-caveat'),html.indexOf('</details>',html.indexOf('data-sts-caveat')));
     assert.match(caveat,/What this estimate counts/);assert.match(plain(caveat),/It doesn't include other accounts, payments still pending, or bills Sorted hasn't spotted yet\./);assert.match(caveat,/It can be wrong/);
     const working=html.slice(html.indexOf('data-g324-calculation'),html.indexOf('</details>',html.indexOf('data-g324-calculation')));
     if((FORECASTS[state]?.payday_income??0)>0)assert.match(plain(working),/Expected pay.*About £.*due/,'expected pay explicitly labelled inside working');
-    if(['payments-short','plans-only','card-reserve','no-account'].includes(state))assert.doesNotMatch(hero,/data-spend-from-account=/,'no positive account guidance with no cash to spend');
-    if(!hidden&&state==='card-reserve'){assert.match(plain(hero),/£325 held/);assert.match(plain(hero),/£73 safety shortfall/);assert.match(working,/After card hold/);assert.match(working,/−£73\.00/);}
+    if(['payments-short','plans-only','no-account'].includes(state))assert.doesNotMatch(hero,/data-spend-from-account=/,'no positive account guidance with no cash to spend');
+    if(!hidden&&state==='card-reserve'){assert.doesNotMatch(plain(hero),/held while a card bill/);assert.doesNotMatch(working,/After card hold/);}
   }
   cases++;
 }
@@ -76,20 +76,16 @@ for (const [options, expected] of [
   [{patch:{safe_to_spend:0,safe_to_spend_cash:0}}, /Known card repayments due before payday are included in your estimate/],
   [{state:'payments-short'}, /Card purchases aren't deducted again/],
   [{state:'card-monthly'}, /Due around .* Its repayment is forecast separately/],
-  [{state:'card-reserve'}, /Card spending this pay period £200.*£325.00 is already held back/],
+  [{state:'card-reserve'}, /Card spending this pay period £200/],
 ]) {
   const html=renderScenario(options), text=plain(html);
   assert.match(text,expected);
-  if(options.state==='card-reserve') {
-    assert.match(text,/£73 safety shortfall/);
-    assert.doesNotMatch(text,/Known card repayments due before payday/,'fallback reserve is already deducted');
-  } else {
-    assert.match(text,/Known card repayments due before payday are included in your estimate/);
-    assert.match(text,/Purchases only\. Balance transfers and repayments are not counted here/);
-  }
+  assert.match(text,/Known card repayments due before payday are included in your estimate/);
+  assert.match(text,/Purchases only\. Balance transfers and repayments are not counted here/);
+  assert.doesNotMatch(text,/already held back|held while a card bill|Repayment not confirmed/,'G413: no card hold copy');
   assert.doesNotMatch(renderScenario({...options,hidden:true}),/£\d/,'new explanatory amounts obey masking');
 }
-console.log('G340: dynamic cash, zero, shortfall, known repayment and reserve copy/masking passed');
+console.log('G340: dynamic cash, zero, shortfall, known repayment copy and masking passed');
 
 const homeCopy = (Component,data) => plain(renderToStaticMarkup(React.createElement(AppRouterContext.Provider,{value:router},React.createElement(Component,{items:[],safeToSpend:data,router}))));
 for(const days_until_payday of [1,5]) {

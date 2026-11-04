@@ -776,8 +776,7 @@ export type SafeToSpend =
   | {
       status: "ok";
       /** Single source of truth for what is free right now after the cash
-       * forecast and set-asides. Only the unconfirmed-card fallback can
-       * reduce it beyond safe_to_spend_cash. */
+       * forecast and set-asides. Equals safe_to_spend_cash since G413. */
       safe_to_spend: number;
       calculation_version?: number;
       next_payday: string;
@@ -808,20 +807,22 @@ export type SafeToSpend =
        * the user's rhythm is custom/irregular — render unqualified. */
       commitments_reserved_period_label?: string | null;
       /** Cash available after the dated forecast, buffer, plans and
-       * envelopes, before any unconfirmed-card fallback reserve. */
+       * envelopes. */
       safe_to_spend_cash?: number;
       /** Lowest projected balance after scheduled bills and pre-payday income,
        * before buffer, plans and allocations. */
       lowest_projected_balance?: number;
       /** Positive net card-balance growth observed this pay period (all
-       * debits minus all credits, includes balance transfers). Drives the
-       * fail-closed reserve — not what the Home hero's card line displays. */
+       * debits minus all credits, includes balance transfers). An information
+       * fact only (G413): never subtracted from cash. */
       card_growth_total?: number;
       /** Purchases only this pay period, balance transfers/movement
        * excluded (G24). What the Home hero's "went on cards" line shows;
        * agrees exactly with the Cards page "What drove it" total. */
       card_new_spend_total?: number;
-      /** Portion held back because no repayment series has been learned. */
+      /** RETIRED by G413: the server no longer sends this and nothing in the
+       * product reads it. Kept optional only so historical /design fixtures
+       * still type-check. */
       card_growth_reserved?: number;
       /** Copy treatment derived from the user's declared card terms. */
       card_growth_wording?: "carried" | "cleared_monthly" | null;
@@ -839,8 +840,8 @@ export type SafeToSpend =
       sync_state?: "idle" | "syncing" | "stalled" | "failed";
       unavailable_components?: string[];
       /** Non-null only when state === "short" — which kind of shortfall.
-       * `cards` is retained only for historical design fixtures. */
-      short_reason?: "bills" | "cards" | "cards_unconfirmed" | null;
+       */
+      short_reason?: "bills" | "cards" | "cards_unconfirmed" | null;  // "cards"/"cards_unconfirmed" retired by G413, fixtures only
       /** G218: the shortfall exists only because of set-asides (plans and
        * envelopes); cash after bills and buffer is not negative. Server rule
        * (net_position.plans_only_short_for); absent on older cached payloads,

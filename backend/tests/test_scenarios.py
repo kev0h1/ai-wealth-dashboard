@@ -277,7 +277,7 @@ async def _compute(spec: dict, uid: str) -> dict:
         "days_to_payday": (next_pay - today_d).days,
         "period": {"start": pstart.isoformat(), "end": pend.isoformat()},
         "safe_to_spend": {k: sts.get(k) for k in (
-            "safe_to_spend", "safe_to_spend_cash", "card_growth_reserved",
+            "safe_to_spend", "safe_to_spend_cash",
             "commitments_reserved", "allocations_reserved", "calculation_status",
         )},
         "at_risk_count": at_risk["count"],

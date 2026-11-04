@@ -212,20 +212,15 @@ def _engine_result(chip_id: str, answer: str, facts: dict | None = None) -> dict
 
 
 # ── home_payday_status — "How am I doing until payday?" ─────────────────────
-def _home_sts_state(sts: dict) -> tuple[str, bool]:
+def _home_sts_state(sts: dict) -> str:
     """Twin of frontend/components/SafeToSpendCard.tsx's own state/label
-    derivation (its `state`/`isCardsUnconfirmedShort`/`stateLabel` constants) — this
-    chip's status word must never disagree with the Home hero it sits
-    under, so it is computed here the SAME way, from the SAME cached
-    result, rather than re-deriving a fresh judgement from `sts["state"]`
-    alone. Exactly zero means no spare cash. Genuine penny
-    shortfalls stay short and are formatted with pence."""
+    derivation: this chip's status word must never disagree with the Home
+    hero it sits under, so it is computed from the SAME cached result.
+    Exactly zero means no spare cash. Genuine penny shortfalls stay short
+    and are formatted with pence."""
     raw_state = sts.get("state") or ""
-    short_reason = sts.get("short_reason")
     free_amount = float(sts.get("safe_to_spend") or 0.0)
-    is_cards_unconfirmed = raw_state == "short" and short_reason == "cards_unconfirmed"
-    state = "tight" if (raw_state == "short" and not is_cards_unconfirmed and free_amount >= 0) else raw_state
-    return state, is_cards_unconfirmed
+    return "tight" if (raw_state == "short" and free_amount >= 0) else raw_state
 
 
 def _home_cash_amount(value: float) -> str:
@@ -252,7 +247,7 @@ async def _chip_home_payday_status(uid: str, params: dict | None) -> dict:
         )
 
     free_amount = float(sts.get("safe_to_spend") or 0.0)
-    state, is_cards_unconfirmed = _home_sts_state(sts)
+    state = _home_sts_state(sts)
     days = sts.get("days_until_payday")
     payday_label = _fmt_date_short(sts.get("next_payday"))
     days_text = _plural(days, "day") if isinstance(days, int) else "some days"
@@ -268,14 +263,13 @@ async def _chip_home_payday_status(uid: str, params: dict | None) -> dict:
     # G322 (G321 option B): the figure is called "left to spend", always an
     # estimate, and the counts caveat rides with it.
     #
-    # Left to spend is cash-led. Card balance growth is a separate fact, and
-    # only an unconfirmed repayment can create the fallback short state.
+    # Left to spend is cash-led. Card balance growth is a separate fact only.
     until = f" until payday on {payday_label}" if payday_label else " until payday"
     to_go = f", with {days_text} to go" if days is not None else ""
     counts_caveat = (
         "It does not count unconnected accounts, pending payments or bills I have not spotted."
     )
-    if free_amount == 0 and not is_cards_unconfirmed:
+    if free_amount == 0:
         sentence1 = f"Nothing left to spend{until}. " + counts_caveat
     elif state == "comfortable":
         sentence1 = (
@@ -287,8 +281,6 @@ async def _chip_home_payday_status(uid: str, params: dict | None) -> dict:
             f"It looks tight: you have an estimated {_home_cash_amount(free_amount)} left to spend{until}{to_go}. "
             + counts_caveat
         )
-    elif is_cards_unconfirmed:
-        sentence1 = f"The bills Sorted knows about are covered so far, but a card repayment still needs confirming{when}."
     else:
         cash = sts.get("safe_to_spend_cash")
         gap = abs(free_amount if cash is None else float(cash))

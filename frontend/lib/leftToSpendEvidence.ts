@@ -7,8 +7,6 @@ export type LeftToSpendEvidence = {
   summaryAmount: number;
   rows: EvidenceRow[];
   ledgerNote: string | null;
-  cardGap: number | null;
-  heroShowsCashGap: boolean;
   dailyAmount: number | null;
   incomeBeforePayday: number | null;
 };
@@ -24,23 +22,18 @@ export function buildLeftToSpendEvidence(data: Forecast, summaryAmount: number):
   const buffer = data.buffer;
   const plans = data.commitments_reserved ?? 0;
   const setAsides = data.allocations_reserved ?? 0;
-  const hold = data.card_growth_reserved ?? 0;
   const cash = data.safe_to_spend_cash ?? data.safe_to_spend;
   const low = data.lowest_projected_balance;
   const income = data.income_before_payday;
-  const values = [buffer, plans, setAsides, hold, cash, data.safe_to_spend];
-  const nonNegativeReserves = [buffer, plans, setAsides, hold].every(n => finite(n) && n >= 0);
-  const reconciledHold = nonNegativeReserves && values.every(finite) && pennies(cash) - pennies(hold) === pennies(data.safe_to_spend);
+  const values = [buffer, plans, setAsides, cash, data.safe_to_spend];
+  const nonNegativeReserves = [buffer, plans, setAsides].every(n => finite(n) && n >= 0);
+  const reconciledHold = nonNegativeReserves && values.every(finite) && pennies(cash) === pennies(data.safe_to_spend);
   const reconciledLow = finite(low) && nonNegativeReserves && values.every(finite)
     && pennies(low) - pennies(buffer) - pennies(plans) - pennies(setAsides) === pennies(cash);
   const reconciledEnd = reconciledLow && finite(data.spendable_now) && finite(data.bills_total) && data.bills_total >= 0 && finite(income) && income >= 0
     && pennies(data.spendable_now) - pennies(data.bills_total) + pennies(income) === pennies(low!);
   const rows: EvidenceRow[] = [];
   let ledgerNote: string | null = null;
-  const cardGap = summaryAmount === 0 && data.safe_to_spend < 0 && data.short_reason === "cards_unconfirmed"
-    ? Math.abs(data.safe_to_spend) : null;
-  const heroShowsCashGap = reconciledHold && cash < 0 && summaryAmount < 0 && hold > 0
-    && pennies(summaryAmount) !== pennies(data.safe_to_spend);
 
   if (reconciledHold) {
     if (reconciledEnd) {
@@ -59,9 +52,7 @@ export function buildLeftToSpendEvidence(data: Forecast, summaryAmount: number):
       if (plans > 0) rows.push({ label: "Goal contributions", value: -plans });
       if (setAsides > 0) rows.push({ label: "Set-asides", value: -setAsides });
     }
-    if (heroShowsCashGap) rows.push({ label: "Cash before card hold", value: cash, total: true });
-    if (hold > 0) rows.push({ label: "Card amount held back", value: -hold });
-    rows.push({ label: cardGap !== null || heroShowsCashGap ? "After card hold" : "Left to spend", value: data.safe_to_spend, total: true });
+    rows.push({ label: "Left to spend", value: data.safe_to_spend, total: true });
     if (!reconciledEnd && rows.length === 2 && pennies(rows[0].value) === pennies(rows[1].value)) {
       rows.shift();
       if (reconciledLow) rows[0].label = "Left to spend at the cash low point";
@@ -77,7 +68,7 @@ export function buildLeftToSpendEvidence(data: Forecast, summaryAmount: number):
   rows[0].detail = "Across counted current accounts.";
   return {
     summaryLabel: summaryAmount === 0 ? "How we worked this out" : "How we got",
-    summaryAmount, rows, ledgerNote, cardGap, heroShowsCashGap,
+    summaryAmount, rows, ledgerNote,
     dailyAmount: pace && ["comfortable", "on_pace", "ahead", "early"].includes(pace.state) && finite(pace.sustainable) && pace.sustainable >= 0 ? pace.sustainable : null,
     incomeBeforePayday: !reconciledEnd && finite(income) && income > 0 ? income : null,
   };

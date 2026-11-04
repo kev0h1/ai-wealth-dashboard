@@ -2135,9 +2135,7 @@ export function BriefBody({ items: rawItems, safeToSpend, router, hideNetWorth: 
       // so the copy names what it actually is (card spend vs a genuine
       // bills gap, mirroring SafeToSpendCard's own short_reason branch)
       // instead of sending the user hunting for a card that doesn't exist.
-      fallbackText = safeToSpend.short_reason === "cards_unconfirmed"
-        ? "Nothing new needs you. A card repayment still needs confirming in the left to spend card below."
-        : isPlansOnlyShort(safeToSpend)
+      fallbackText = isPlansOnlyShort(safeToSpend)
         ? "Nothing new needs you. The bills Sorted knows about are covered so far, you're only short after the plans and set-asides you chose, shown in the left to spend card below."
         : "Nothing new needs you. You're short this pay period, the gap is shown in the left to spend card below.";
     } else {

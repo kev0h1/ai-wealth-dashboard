@@ -125,15 +125,14 @@ async def card_growth_by_card(
     invisible to BOTH the cash walk (correctly excluded, it's not cash
     leaving yet) AND this reserve (nothing has posted, so `growth` is still
     zero) — exactly the dangerous failure mode the G109 backlog item names:
-    "removing the charge without the reserve catching it would overstate
-    cash." Summed per card into `future_unposted_charges`, a row field
+    "removing the charge would overstate cash" (historic; G413 retired the
+    reserve). Summed per card into `future_unposted_charges`, a row field
     present only when non-zero (so a caller/test that never passes this
     argument sees byte-identical rows to before). Deliberately NOT netted
     against `scheduled` or capped by `growth`/`card_growth_total` the way
     `unpaid_growth` is: it describes money the user's own bank does not
     know about yet either, so there is no "observed" figure to reconcile it
-    against — the caller (`compute_safe_to_spend`, step 6c) adds it to the
-    unlearned-card reserve AFTER that cap, not inside it.
+    against. G413: no caller adds it to a reserve any more.
 
     The helper performs the same account and transaction reads as the old
     aggregate implementation, then groups in memory. ``None`` means the
@@ -270,23 +269,17 @@ async def period_net(uid: str) -> dict | None:
 def short_reason_for(
     state: str,
     safe_to_spend_cash: float,
-    card_growth_reserved: float,
 ) -> str | None:
-    """Pure derivation of `compute_safe_to_spend`'s `short_reason` field,
-    factored out here so it's unit-testable without the full
-    `compute_safe_to_spend` DB fan-out.
+    """Pure derivation of `compute_safe_to_spend`'s `short_reason` field.
 
     None unless `state == "short"`. "bills" means the cash-only figure was
-    already non-positive, which is a genuine risk of not covering the pay
-    period. "cards_unconfirmed" means cash was positive but the fail-closed
-    reserve for a card with no learned repayment series consumed it.
+    non-positive, a genuine risk of not covering the pay period. Since G413
+    there is no card reserve, so no other reason exists.
     """
     if state != "short":
         return None
     if safe_to_spend_cash <= 0:
         return "bills"
-    if card_growth_reserved > 0:
-        return "cards_unconfirmed"
     return None
 
 
@@ -300,14 +293,14 @@ def plans_only_short_for(
     allocations_reserved: float,
 ) -> bool:
     """G218: a shortfall that exists only because plans and envelopes were set
-    aside. State is short, the cause is not an unconfirmed card, cash is below
+    aside. State is short, cash is below
     zero after the set-asides, but the lowest projected balance less the buffer
     is still at or above zero, so removing the set-asides removes the
     shortfall. One source of truth: the Home hero, Penny's chip and the Home
     brief all read this; the frontend's `isPlansOnlyShort` is its twin for
     payloads cached before the field existed.
     """
-    if state != "short" or short_reason == "cards_unconfirmed" or safe_to_spend_cash >= 0:
+    if state != "short" or safe_to_spend_cash >= 0:
         return False
     if lowest_projected_balance is None:
         return False

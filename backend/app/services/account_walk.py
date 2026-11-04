@@ -62,11 +62,11 @@ move to the per-account credit rule is a separate decision for Kevin.
 | SD1 | Income credit | `income_credit` | `"all"` (C2): every income in the window, no attribution, no reliability test | `"credit_ok"` (C1): `income_credit_ok` per account (WD3) |
 | SD2 | Same-day order | `same_day` | `"debits_first"`: a spending-permission figure never assumes an income clears before a direct debit | `"credits_first"` (G163, WD8 `is_income`) |
 | SD3 | Own-account transfer legs | `transfer_legs` | `"drop"`: a movement whose destination is a pooled spendable account removes both legs (its amount is reported as `pooled_transfers_excluded`) | `"keep"`: the debit leg stays on its source and the credit lands through `funded_window_inflows` |
-| SD4 | Card charges | `card_charges` | `"exclude"`: a charge ON a credit card is out of the walk and handed to the card reserve (`card_charges_excluded_from_walk`); repayments stay debits (G109) | `"keep"` |
+| SD4 | Card charges | `card_charges` | `"exclude"`: a charge ON a credit card is out of the walk and out of the cash walk and never held back (G413, `card_charges_excluded_from_walk`); repayments stay debits (G109) | `"keep"` |
 | SD5 | Seed | `negative_seed` | `"exclude"`: spendable cash of every counted, GBP, non-card, non-savings account, a negative balance counted as 0 (`_live_pool_balances`); it is debt, tracked separately as `card_debt` | `"include"`: each account opens at its own balance, negative or not (WD2) |
 | SD6 | Window source and end | `window_end` | `"before_payday"`: `WindowInputs.window_*` (strictly before payday, B-table: G231 re-dropped from the account rows, B10); the payday-day slice only feeds `payday_income` | `"through_payday"` adds the payday-day slice (not used by any caller) |
 
-Seed, buffer, commitments, allocations, the card hold and the G210 syncing
+Seed, buffer, commitments, allocations and the G210 syncing
 clamp stay in `compute_safe_to_spend`; this module returns the low point only.
 
 The low point is a running minimum from the opening balance over the debits
@@ -427,7 +427,7 @@ POOLED_POLICY = PooledPolicy()
 @dataclass
 class PooledWalk:
     seed: float
-    window_bills: list[dict]  # what the walk (and the card reserve) read
+    window_bills: list[dict]  # what the walk reads
     window_income: list[dict]
     pooled_transfers_excluded: float
     card_charges_excluded_from_walk: list[dict]

@@ -2154,7 +2154,6 @@ async def _exec_get_safe_to_spend(uid: str) -> dict:
         "bills_total": _money(sts.get("bills_total")),
         "card_debt": _money(sts.get("card_debt")),
         "card_growth": _money(sts.get("card_growth_total")),
-        "card_growth_reserved": _money(sts.get("card_growth_reserved")),
         "card_growth_wording": sts.get("card_growth_wording"),
         "card_growth_due_date": sts.get("card_growth_due_date"),
         "estimated": sts.get("estimated"), **(await _per_account_extras(uid)),  # G336, same line keeps the leak allowlist stable
@@ -4735,7 +4734,7 @@ _MCP_CONNECTOR_REPLY = (
 # against: app/services/spend_verdict.py, app/services/categories.py,
 # app/services/debt_plan.py, app/services/checkpoints.py,
 # app/routers/analytics.py (compute_safe_to_spend, commitments reserve,
-# card-growth reserve), frontend/lib/accountKind.ts (isDormant), app/
+# card-growth fact), frontend/lib/accountKind.ts (isDormant), app/
 # services/pace.py (thin_history/usual pace), app/services/pay_period.py,
 # frontend/app/planning/PlanningPage.tsx (atRiskWalks/conservative-
 # optimistic red-amber doctrine), app/services/manual_account_rules.py
@@ -4893,9 +4892,8 @@ _NUMBERS_COPY: dict[str, str] = {
         "spendable balance is projected to hit between now and payday "
         "(after bills and expected income), then subtracts your buffer, "
         "your goal plans for the period, and set-asides. Card balance growth "
-        "is shown beside FREE rather than normally being subtracted from "
-        "cash; only a card whose repayment has not been identified is held "
-        "back as a cautious fallback. NOW minus BILLS doesn't equal FREE because "
+        "is shown beside FREE and is never subtracted from cash; a card "
+        "repayment only counts once it is a predicted bill like any other payment. NOW minus BILLS doesn't equal FREE because "
         "FREE also walks the whole period rather than just today, and "
         "subtracts the buffer and set-asides on top, so it will "
         "usually read lower than a simple subtraction."

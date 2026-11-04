@@ -142,8 +142,7 @@ HORIZON_CLAIM_CAP_MONTHS = 12
 # abs(delta)`, i.e. the FULL rate-delta on top of the usual move, with no
 # check against money that actually exists. `_compute_move_and_horizon`'s
 # `headroom` parameter (the caller's net Safe-to-Spend pot, floored at 0,
-# from `net_position.card_growth_unpaid`'s reserve via
-# `compute_safe_to_spend`) caps the extra at `min(abs(delta), headroom)`, so
+# via `compute_safe_to_spend`) caps the extra at `min(abs(delta), headroom)`, so
 # the promise can never exceed real spare cash. If the capped extra falls
 # below the same silence threshold used to decide whether to speak at all,
 # the move is dropped rather than surfaced as a trivial promise. The

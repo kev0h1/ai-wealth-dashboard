@@ -10,8 +10,8 @@
       "low_point_and_plans": 1350.0,
       "plans_reserved": 0.0,
       "short": false,
-      "spend_from_capped": true,
-      "spend_from_headroom": 1150.0,
+      "spend_from_capped": false,
+      "spend_from_headroom": 1350.0,
       "uncertain": false
     }
   },
@@ -123,9 +123,8 @@
   "safe_to_spend": {
     "allocations_reserved": 0.0,
     "calculation_status": "complete",
-    "card_growth_reserved": 200.0,
     "commitments_reserved": 0,
-    "safe_to_spend": 1150.0,
+    "safe_to_spend": 1350.0,
     "safe_to_spend_cash": 1350.0
   },
   "today": "2026-10-12"

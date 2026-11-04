@@ -31,7 +31,7 @@ for (const key of G287_ORDER) {
   assert.match(home, /An estimate from your bank data\. It can be wrong, so check your bank for your latest balance\. Not financial advice\./, `${key}: safety disclaimer survives`);
   const cash = data.lowest_projected_balance - data.buffer - (data.commitments_reserved ?? 0) - (data.allocations_reserved ?? 0);
   assert.equal(cash, data.safe_to_spend_cash, `${key}: Home cash reconciles with reserves`);
-  assert.equal(cash - (data.card_growth_reserved ?? 0), data.safe_to_spend, `${key}: card reserve stays separate`);
+  assert.equal(cash, data.safe_to_spend, `${key}: G413 no card reserve, cash is the figure`);
 }
 
 const homeStatus = key => {
@@ -40,14 +40,14 @@ const homeStatus = key => {
 };
 for (const [key, tone, label] of [
   ["habitual", "risk", "Short"], ["plans", "watch", "Plans gap"], ["buffer", "watch", "Below buffer"],
-  ["tight", "watch", "Tight"], ["even", "watch", "No headroom"], ["card-check", "watch", "Check card bill"], ["comfortable", "good", "Looks on track"],
+  ["tight", "watch", "Tight"], ["even", "watch", "No headroom"], ["card-check", "watch", "Tight"], ["comfortable", "good", "Looks on track"],
 ]) {
   const status = homeStatus(key);
   assert.equal(status.status.tone, tone, `${key}: semantic tone`);
   assert.equal(status.status.label, label, `${key}: plain-language status`);
 }
 assert.equal(homeStatus("habitual").signed, true, "cash payment risk keeps a visible minus");
-assert.equal(homeStatus("card-check").signed, false, "card reserve does not become negative available cash");
+assert.equal(homeStatus("card-check").signed, false, "card growth never becomes negative available cash");
 assert.equal(buildSafeToSpendView(ok("habitual"), { hidden: false }).figures[0].value, "−£573", "Penny sees Home's actual sign");
 assert.equal(buildSafeToSpendView(ok("buffer"), { hidden: false }).verdict, "Below buffer");
 
@@ -107,9 +107,8 @@ const staleHome = render(React.createElement(SafeToSpendCard, { ...g287CardProps
 assert.match(staleHome, /−£573/, "a last-known negative figure retains its sign");
 assert.doesNotMatch(staleHome, /data-forecast-tone/, "syncing replaces the verdict with the neutral sync indicator");
 const cardCheck = plain(render(React.createElement(SafeToSpendCard, { ...g287CardProps("card-check"), onRetry: noop, previewBalancesVisible: true })));
-assert.match(cardCheck, /Check card bill/);
-assert.match(cardCheck, /Review card bill/);
-assert.match(cardCheck, /After card hold/);
+assert.doesNotMatch(cardCheck, /Check card bill|Review card bill|After card hold|held while a card bill/, "G413: no card hold copy");
+assert.match(cardCheck, /Tight/);
 const cards = plain(render(React.createElement(SafeToSpendCard, { ...g287CardProps("cards"), onRetry: noop, previewBalancesVisible: true })));
 assert.match(cards, /See your cards/);
 assert.match(cards, /Card spending this pay period/);

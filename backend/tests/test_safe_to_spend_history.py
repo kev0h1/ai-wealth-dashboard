@@ -49,7 +49,6 @@ def test_build_snapshot_doc_pins_every_named_component():
         "commitments_reserved": 40,
         "allocations_reserved": 10.0,
         "card_growth_total": 200.0,
-        "card_growth_reserved": 0.0,
         "window_bills": [
             {"name": "Council Tax", "amount": 150.0, "days_away": 10, "extra_key": "ignored"},
             {"name": "TV Licence", "amount": 22.0, "days_away": 3},
@@ -76,7 +75,6 @@ def test_build_snapshot_doc_pins_every_named_component():
         "commitments_reserved": 40,
         "allocations_reserved": 10.0,
         "card_growth_total": 200.0,
-        "card_growth_reserved": 0.0,
         "bills": [
             {"name": "Council Tax", "amount": 150.0, "days_away": 10},
             {"name": "TV Licence", "amount": 22.0, "days_away": 3},

@@ -374,13 +374,12 @@ export default function SafeToSpendCard({ data, loading, error, onRetry, spendFr
     );
   }
 
-  const cardReserve = data.card_growth_reserved ?? 0;
-  // `state`/`stateLabel`/`isCardsUnconfirmedShort`/`heroAmount`/`paydayLabel`
+  // `state`/`stateLabel`/`heroAmount`/`paydayLabel`
   // now come from `deriveSafeToSpendHeadline` (this file, above) — the SAME
   // call the Penny screen-context effect above makes, not a second copy of
   // this maths (B39).
   const headline = deriveSafeToSpendHeadline(data);
-  const { state, isCardsUnconfirmedShort, heroAmount, paydayLabel, plansOnly } = headline;
+  const { state, heroAmount, paydayLabel, plansOnly } = headline;
   const presentation = homeForecastPresentation(data, headline);
 
   const amount = (value: number) => hidden ? "£••••" : formatSafeToSpendAmount(value);
@@ -397,7 +396,7 @@ export default function SafeToSpendCard({ data, loading, error, onRetry, spendFr
     ? `Last known cash figure until ${paydayLabel}`
     : presentation.caption ?? (plansOnly
     ? "short after plans and set-asides"
-    : state === "short" && !isCardsUnconfirmedShort
+    : state === "short"
     ? "short before payday"
     : `Cash left until ${paydayLabel}`);
 
@@ -410,14 +409,9 @@ export default function SafeToSpendCard({ data, loading, error, onRetry, spendFr
     ...calculationItems.map((item) => item.shortLabel),
     ...(data.buffer > 0 && !belowBuffer ? ["your buffer"] : []),
   ];
-  // Say the scope once, using Spend's supporting-prose role. Card reserves
-  // keep their separate cash explanation rather than implying a cash gap.
+  // Say the scope once, using Spend's supporting-prose role.
   const heroSupport = sync
     ? `${heroCaption}. After ${listPhrase(contextParts)}.`
-    : isCardsUnconfirmedShort
-    ? data.safe_to_spend < 0
-      ? `${amount(cardReserve)} held while a card bill is unconfirmed, leaving a ${amount(Math.abs(data.safe_to_spend))} safety shortfall.`
-      : `${amount(cardReserve)} held while a card bill is unconfirmed. Nothing left to spend before ${paydayLabel}.`
     : heroAmount === 0
     ? `Nothing left to spend before ${paydayLabel}, after ${listPhrase(contextParts)}.`
     : belowBuffer
@@ -426,8 +420,6 @@ export default function SafeToSpendCard({ data, loading, error, onRetry, spendFr
     ? `Short after ${listPhrase(contextParts)}.`
     : state === "short"
     ? `After ${listPhrase(contextParts)}, you are short before payday.`
-    : cardReserve > 0
-    ? `${amount(cardReserve)} held while a card bill is unconfirmed, after ${listPhrase(contextParts)}.`
     : showPace
     ? `About ${amount(Math.round(pace!.sustainable!))} a day until ${paydayLabel}, after ${listPhrase(contextParts)}.`
     : `${heroCaption}, after ${listPhrase(contextParts)}.`;
@@ -457,7 +449,7 @@ export default function SafeToSpendCard({ data, loading, error, onRetry, spendFr
     return hidden ? `${sign}£••••` : `${sign}${exact ? fmt2(value) : formatSafeToSpendAmount(value)}`;
   };
   const recovery = sync ? null : state === "short"
-    ? isCardsUnconfirmedShort ? { label: "Review card bill", href: "/cards" } : { label: "See what’s due", href: "/upcoming" }
+    ? { label: "See what’s due", href: "/upcoming" }
     : null;
   // G397 moves this existing action beside the card explanation. Its
   // eligibility stays unchanged, including when this period has no activity.
