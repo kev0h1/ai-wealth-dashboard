@@ -25,7 +25,7 @@ from app.core import timeutil
 from app.db.collections import accounts_col, card_terms_col
 from app.services.account_kinds import is_credit_card_account
 from app.services.counted_accounts import is_excluded
-from app.services.card_statements import normalise_match_rule as _normalise_match_rule
+from app.services.card_statements import mask_long_digits as _mask_long_digits, normalise_match_rule as _normalise_match_rule
 from app.services.card_rates import (
     derive_product_identity,
     is_ask_eligible,
@@ -216,7 +216,7 @@ async def recent_payer_payments(account_id: str, payer_id: str, user: dict = Dep
             continue
         seen[key] = {
             "series_key": key,
-            "label": _clean(r.get("description") or r.get("merchant_name") or key)[:80],
+            "label": _mask_long_digits(_clean(r.get("description") or r.get("merchant_name") or key))[:80],
             "last_amount": round(abs(float(r.get("amount") or 0.0)), 2),
             "last_date": (r["date"].date() if isinstance(r.get("date"), datetime) else r.get("date")).isoformat() if r.get("date") else None,
         }

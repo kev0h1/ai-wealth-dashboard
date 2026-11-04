@@ -240,3 +240,85 @@ def test_recent_payments_lists_one_row_per_series_for_the_users_own_payer(stores
     with pytest.raises(HTTPException) as exc:
         asyncio.run(card_terms.recent_payer_payments(CARD_ID, CARD_ID, USER))
     assert exc.value.status_code == 422
+
+
+# ── review fixes: ambiguity, stamped-key robustness, privacy ─────────────────
+from app.services.card_statements import mask_long_digits
+
+STAMP_ID = "64f1a2b3c4d5e6f708192a3b"
+STAMP = {"card_repayment": {"issuer": "american_express", "card_account_id": STAMP_ID}}
+
+
+def _estimate_with(rows, terms, series_cards=None):
+    accounts = {"card": _card(), "cash": _payer()}
+    return estimate_statement(_card(), terms, rows, accounts, TODAY, pairs=[], series_cards=series_cards)
+
+
+def _two_card_rows():
+    return _rows(
+        _row("cash", date(2026, 2, 9), 120.0, "debit", description=REF_A, merchant_name="American Express"),
+        _row("cash", date(2026, 2, 9), 75.0, "debit", description=REF_B, merchant_name="American Express"),
+    )
+
+
+def test_a_short_rule_matching_both_cards_claims_nothing_and_reports_unmatched():
+    terms = _terms(payment_match={"kind": "contains", "text": "3799"})
+    bill = _estimate_with(_two_card_rows(), terms)
+    assert bill["rule_series_keys"] == [] and bill["rule_status"] == "unmatched"
+    accounts = {"card": _card(), "cash": _payer()}
+    raw = [{"name": "American Express 20001", "account_id": "cash"}, {"name": "American Express 20002", "account_id": "cash"}]
+    applied, _ = apply_statement_bills(raw, {"card": bill}, accounts, TODAY, date(2026, 4, 30))
+    assert [b["name"] for b in applied if not b["name"].startswith("card-statement:")] == [
+        "American Express 20001", "American Express 20002"], "an ambiguous rule never hides a bill"
+
+
+def test_an_ambiguous_rule_narrows_to_the_series_no_other_card_owns():
+    terms = _terms(payment_match={"kind": "contains", "text": "3799"})
+    bill = _estimate_with(_two_card_rows(), terms, series_cards={"American Express 20002": "other-card"})
+    assert bill["rule_series_keys"] == ["American Express 20001"] and bill["rule_status"] == "matched"
+    both_ours = _estimate_with(_two_card_rows(), terms, series_cards={"American Express 20001": "card", "American Express 20002": "card"})
+    assert both_ours["rule_series_keys"] == [] and both_ours["rule_status"] == "unmatched"
+
+
+def test_a_payment_rule_saved_as_a_tail_key_still_matches_once_the_payment_is_stamped():
+    rule = {"kind": "payment", "series_key": "American Express 20001"}
+    stamped = _row("cash", date(2026, 3, 18), 301.0, "debit", description=REF_A, merchant_name="American Express",
+                   own_transfer_match=STAMP)
+    bill = _estimate_with(_rows(stamped), _terms(payment_match=rule))
+    assert bill["status"] == "paid" and bill["payment_remaining"] == 0.0
+    stamp_key = f"American Express {STAMP_ID}"
+    assert stamp_key in bill["rule_series_keys"] and "American Express 20001" in bill["rule_series_keys"]
+    accounts = {"card": _card(), "cash": _payer()}
+    applied, _ = apply_statement_bills([{"name": stamp_key, "account_id": "cash"}], {"card": bill}, accounts, TODAY, date(2026, 4, 30))
+    assert applied == [], "the learned series now named by the stamp is still the one the rule claims"
+
+
+def test_a_payment_rule_saved_as_a_stamp_key_matches_an_unstamped_row_with_the_card_number():
+    rule = {"kind": "payment", "series_key": f"American Express {STAMP_ID}"}
+    stamped = _row("cash", date(2026, 3, 18), 301.0, "debit", description=REF_A, merchant_name="American Express",
+                   own_transfer_match=STAMP)
+    assert _estimate_with(_rows(stamped), _terms(payment_match=rule))["status"] == "paid"
+
+
+def test_long_digit_runs_are_masked_in_any_stored_or_shown_label():
+    assert mask_long_digits("AMERICAN EXPRESS 3799-111111-20001") == "AMERICAN EXPRESS …20001"
+    assert mask_long_digits("REF 3799 1111 1111 2000 1 x") == "REF …20001 x"
+    assert mask_long_digits("order 20001 on 12/03") == "order 20001 on 12/03"
+    saved = normalise_match_rule({"kind": "payment", "series_key": "K", "label": "AMERICAN EXPRESS 3799-111111-20001"})
+    assert saved["label"] == "AMERICAN EXPRESS …20001" and "3799" not in saved["label"]
+
+
+def test_the_recent_payments_picker_masks_card_numbers(stores, monkeypatch):
+    now = datetime.now(timezone.utc)
+    txns = FakeCollection([{"user_id": UID, "account_id": SOURCE_ID, "transaction_type": "debit", "amount": 120.0,
+                            "date": now - timedelta(days=5), "description": REF_A, "merchant_name": "American Express"}])
+    monkeypatch.setattr(collections, "transactions_col", txns)
+    result = asyncio.run(card_terms.recent_payer_payments(CARD_ID, SOURCE_ID, USER))
+    assert result["payments"][0]["label"] == "AMERICAN EXPRESS …20001"
+    assert "3799" not in str(result)
+
+
+def test_penny_summary_never_echoes_a_pasted_card_number():
+    from app.services.penny_tools import _describe_card_terms_changes
+    text = _describe_card_terms_changes({"payment_match": {"kind": "contains", "text": "3799-111111-20001"}})
+    assert "…20001" in text and "3799" not in text

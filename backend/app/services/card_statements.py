@@ -8,6 +8,7 @@ Minimum/manual methods continue to need actual repayment evidence.
 from __future__ import annotations
 
 import calendar
+import re
 import math
 from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal, ROUND_HALF_UP
@@ -30,10 +31,20 @@ def _squash(text) -> str:
     return "".join(ch for ch in str(text or "").lower() if ch.isalnum())
 
 
+_LONG_DIGITS = re.compile(r"(?<!\d)\d(?:[- ]?\d){11,}(?!\d)")
+
+
+def mask_long_digits(text) -> str:
+    """Privacy: a run of 12 or more digits (a card number, hyphens and spaces
+    allowed) keeps only its last five, as "…20001". Applied to any stored or
+    shown rule label."""
+    return _LONG_DIGITS.sub(lambda m: "…" + re.sub(r"\D", "", m.group(0))[-5:], str(text or ""))
+
+
 def normalise_match_rule(rule) -> dict | None:
     """The stored shape of a match rule, or None when absent or unusable.
 
-    {"kind": "contains", "text": "41009"} matches any payment from the paying
+    {"kind": "contains", "text": "20001"} matches any payment from the paying
     account whose narrative contains that text. {"kind": "payment",
     "series_key": "...", "label": "..."} matches the recurring series of one
     payment the user picked from that account. Never raises."""
@@ -48,7 +59,7 @@ def normalise_match_rule(rule) -> dict | None:
         if not key:
             return None
         out = {"kind": "payment", "series_key": key}
-        label = " ".join(str(rule.get("label") or "").split())[:80]
+        label = mask_long_digits(" ".join(str(rule.get("label") or "").split()))[:80]
         if label:
             out["label"] = label
         return out
@@ -67,8 +78,8 @@ def row_matches_rule(row: dict, rule: dict | None) -> bool:
         return False
     if rule["kind"] == "contains":
         return _squash(rule["text"]) in _squash(_narrative(row))
-    from app.services.own_account_transfers import series_key
-    return series_key(row) == rule["series_key"]
+    from app.services.own_account_transfers import series_key_forms
+    return rule["series_key"] in series_key_forms(row)
 
 
 def _money(value) -> float:
@@ -144,6 +155,7 @@ def usable_payer(account: dict | None) -> bool:
 def estimate_statement(
     card: dict, terms: dict, rows: list[dict], accounts: dict[str, dict],
     today: date, *, next_payday: date | None = None, pairs: list[tuple] | None = None,
+    series_cards: dict[str, str] | None = None,
 ) -> dict | None:
     """Estimate a CLOSED statement; never sum current purchases as its bill.
 
@@ -185,14 +197,34 @@ def estimate_statement(
                         and (_day(r.get("date")) or date.max) <= today]
         matching = [r for r in payer_debits if row_matches_rule(r, rule)]
         keys = {rule["series_key"]} if rule["kind"] == "payment" else set()
-        from app.services.own_account_transfers import series_key as _series_key
-        keys.update(_series_key(r) for r in matching)
+        from app.services.own_account_transfers import series_key_forms, series_key as _series_key
+        ambiguous = False
+        if rule["kind"] == "contains":
+            # Distinct series the text names. More than one is ambiguous: claim
+            # only a series no other card owns, and if that is still not one
+            # series, claim nothing (a wrong claim would hide another card's bill).
+            by_series: dict[str, set[str]] = {}
+            for r in matching:
+                by_series.setdefault(_series_key(r), set()).update(series_key_forms(r))
+            if len(by_series) > 1:
+                owned = series_cards or {}
+                narrowed = {k: f for k, f in by_series.items() if (owned.get(k) or "") in ("", aid)}
+                by_series = narrowed if len(narrowed) == 1 else {}
+                ambiguous = not by_series
+                matching = [r for r in matching if _series_key(r) in by_series]
+            for forms in by_series.values():
+                keys.update(forms)
+        else:
+            for r in matching:
+                keys.update(series_key_forms(r))
         result["rule_series_keys"] = sorted(k for k in keys if k)
         # Two statements back: the quiet "nothing matched" line needs enough
         # payer history to say so honestly, otherwise the answer is unknown.
         lookback = _month_day(close, -2, terms["statement_close_day"])
         payer_start = min((_day(r["date"]) for r in payer_debits if _day(r.get("date"))), default=None)
-        if any((_day(r["date"]) or date.min) >= lookback for r in matching):
+        if ambiguous:
+            result["rule_status"] = "unmatched"
+        elif any((_day(r["date"]) or date.min) >= lookback for r in matching):
             result["rule_status"] = "matched"
         elif payer_start is not None and payer_start <= lookback:
             result["rule_status"] = "unmatched"
@@ -289,7 +321,7 @@ async def load_statement_bills(uid: str, *, cards=None, terms=None, today=None) 
     Everything is scoped to uid, including the source debit used as payment
     evidence. No account type or business label implies who pays a card.
     """
-    from app.db.collections import accounts_col, card_terms_col, preferences_col, transactions_col, pending_transactions_col
+    from app.db.collections import accounts_col, card_terms_col, cashflow_cache_col, preferences_col, transactions_col, pending_transactions_col
     from app.services import response_cache
     from app.services.income import get_confirmed_payday
     from app.services.pay_period import _next_payday
@@ -320,12 +352,24 @@ async def load_statement_bills(uid: str, *, cards=None, terms=None, today=None) 
     prefs = await preferences_col.find_one({"user_id": uid}) or {}
     confirmed = get_confirmed_payday(prefs, today)
     payday = confirmed[0] if confirmed else _next_payday(today, prefs.get("pay_period_config") or {"type": "calendar_month"})
+    # Which card each learned series is attributed to, only read when a card
+    # has a match rule (an ambiguous rule narrows by it). Failure means no
+    # narrowing information, never a failed bill.
+    series_cards: dict[str, str] = {}
+    if any(normalise_match_rule(t.get(MATCH_FIELD)) for t in configured.values()):
+        try:
+            doc = await cashflow_cache_col.find_one({"_id": uid}) or {}
+            series_cards = {p["key"]: str(p["card_dest_account_id"]) for p in (doc.get("recurring_spend") or [])
+                            if isinstance(p, dict) and p.get("key") and p.get("card_dest_account_id")}
+        except Exception:
+            series_cards = {}
     result = {}
     for card in cards:
         aid = str(card["_id"])
         if aid not in configured or aid not in accounts:
             continue
-        bill = estimate_statement(card, configured[aid], [*rows, *pending], accounts, today, next_payday=payday, pairs=pairs)
+        bill = estimate_statement(card, configured[aid], [*rows, *pending], accounts, today, next_payday=payday, pairs=pairs,
+                                  series_cards=series_cards)
         if bill:
             result[aid] = bill
     await response_cache.aput("card_statement_bills", uid, result, version=version)

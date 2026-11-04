@@ -7770,7 +7770,7 @@ def _describe_card_terms_changes(changed: dict) -> str:
         if not rule:
             parts.append("payment match rule cleared")
         elif rule.get("kind") == "contains":
-            parts.append(f"payment match rule to payments containing '{rule.get('text')}'")
+            from app.services.card_statements import mask_long_digits as _mask_digits; parts.append(f"payment match rule to payments containing '{_mask_digits(rule.get('text'))}'")  # G413: one line keeps the leak allowlist stable, never echo a card number
         else:
             parts.append("payment match rule to the chosen payment")
     if "status" in changed:
