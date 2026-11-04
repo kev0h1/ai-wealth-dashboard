@@ -2233,10 +2233,23 @@ async def _exec_get_upcoming_bills(uid: str) -> dict:
         return _tool_error("upcoming bills lookup failed")
     bills = resp.get("upcoming_bills") or []
     income = resp.get("upcoming_income") or []
+    # G420: cached positions and stored plans only (same readers as the other
+    # Penny tools, no live computation), so plans, set-asides, earmarks, moves
+    # and shortfalls count exactly as in the Upcoming UI.
+    positions_for_activity: dict = {}
+    plans_for_activity: list = []
+    try:
+        from app.services.penny_consolidation import _load_today
+        from app.db.collections import allocations_col
+        eligibility = (await _load_today(uid)).get("account_eligibility")
+        positions_for_activity = eligibility if isinstance(eligibility, dict) else {}
+        plans_for_activity = await allocations_col.find({"user_id": uid, "active": True}).to_list(None)
+    except Exception:
+        logger.warning("penny_tools: get_upcoming_bills activity inputs unavailable for %s", uid, exc_info=True)
     return {
         # G420: only accounts with something in the window (same rule as the
         # Upcoming By account list); an idle account is omitted, not listed.
-        "by_account": by_account_with_activity(bills, income),
+        "by_account": by_account_with_activity(bills, income, plans=plans_for_activity, positions=positions_for_activity),
         "upcoming_bills": [
             {
                 "name": b.get("display_name") or b.get("name"), "key": b.get("name"),

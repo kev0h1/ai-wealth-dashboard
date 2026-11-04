@@ -13,6 +13,8 @@ from __future__ import annotations
 
 from typing import Any, Iterable, Mapping
 
+from app.services.allocation_shortfall import has_plan_source
+
 
 def account_has_period_activity(
     account_id: str,
@@ -29,7 +31,7 @@ def account_has_period_activity(
         return True
     for plan in plans:
         source = plan.get("source_account_id") or plan.get("sourceId")
-        if source is not None and str(source) == aid and plan.get("active", True) is not False:
+        if source is not None and str(source) == aid and plan.get("active", True) is not False and has_plan_source(plan):
             return True
     if position:
         if (position.get("plans_reserved") or 0) > 0:
