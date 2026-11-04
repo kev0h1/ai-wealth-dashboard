@@ -263,7 +263,7 @@ Gated on Home to the payday window (`lib/paydayWindow.ts`: live plan exists, OR 
 The single densest surface on Home. Every sub-element below is its own question generator.
 
 ### A7.1 Whisper label + state icon
-**Shows:** "LEFT TO SPEND" + ShieldCheck (comfortable) / AlertCircle (tight, or an unconfirmed card repayment) / AlertTriangle (cash shortfall). Colour is confined to the small signifier except for a genuine cash shortfall, where the hero figure is red too.
+**Shows:** "LEFT TO SPEND" + ShieldCheck (comfortable) / AlertCircle (tight) / AlertTriangle (cash shortfall). Colour is confined to the small signifier except for a genuine cash shortfall, where the hero figure is red too.
 
 | Bucket | Questions |
 |---|---|
@@ -275,7 +275,7 @@ The single densest surface on Home. Every sub-element below is its own question 
 ### A7.2 Verdict headline
 **Shows** one cash figure plus its period boundary (+ " · estimated" when `estimated`):
 - comfortable or tight: **"£X available in cash until {payday}."**
-- unconfirmed card repayment: **"£0 available in cash until {payday}."** with a **"Check card bill"** signifier; the underlying cash and reserve stay visible in the explanation.
+- unconfirmed card repayment: no longer a state. Since G413 (Kevin, 2026-11-04) nothing is held back for a card, so there is no "Check card bill" signifier and no card reserve in the explanation.
 - cash shortfall: **"£X short before payday."**
 Note the client-side tolerance: a backend `short` within one penny of zero and without a short reason is re-read as *comfortable*.
 
@@ -293,21 +293,21 @@ Note the client-side tolerance: a backend `short` within one penny of zero and w
 | Bucket | Questions |
 |---|---|
 | WHERE | Which accounts make up NOW? Which bills make up BILLS — list them. Where's the missing money — NOW minus BILLS doesn't equal FREE! |
-| WHAT | Does cash now include savings? Does the forecast include things I've already paid? Is the final figure per-day or for the whole period? What is a "reserve"? |
+| WHAT | Does cash now include savings? Does the forecast include things I've already paid? Is the final figure per-day or for the whole period? What is a "set-aside"? |
 | WHY | Why is the lowest cash point not NOW minus BILLS? Why did cash now drop overnight? Why is the final cash position negative? |
 | HOW | How do I lower BILLS? How do I include/exclude an account from NOW? How do I see the maths? |
 | WHEN | Bills due by when? Is NOW as-of now or as-of last sync? |
 
 ### A7.4 Card-balance fact
-**Shows** when `card_growth_total > 0`: **"Card balances this pay period +£X"**, explicitly defined as purchases minus refunds and repayments. A user who has said they clear the cards monthly sees **"Due around {forecast bill date}"**. Otherwise it says the balance increased and is not deducted from the cash figure. If no repayment series has been learned, an amber **"Repayment not confirmed"** signifier appears and the fallback reserve gets its own reconciled calculation.
+**Shows** when `card_growth_total > 0`: **"Card balances this pay period +£X"**, explicitly defined as purchases minus refunds and repayments. A user who has said they clear the cards monthly sees **"Due around {forecast bill date}"**. Otherwise it says the balance increased and is not deducted from the cash figure. G413 removed the amber "Repayment not confirmed" signifier and the fallback reserve: a card repayment counts only once it is a predicted bill, and nothing is held for a card without one.
 
 | Bucket | Questions |
 |---|---|
 | WHERE | Where did the £X on cards get spent — which merchants, which card? |
-| WHAT | Is this £X my purchases, my total balance, or the net balance change? What is an unconfirmed reserve, and is the money moved anywhere? |
-| WHY | Why is card activity separate from cash? Why was only £X held back rather than the full card balance? Why did this panel appear now? |
+| WHAT | Is this £X my purchases, my total balance, or the net balance change? Is any of the card spending taken off my cash figure? |
+| WHY | Why is card activity separate from cash? Why is nothing held back for card spending? Why did this panel appear now? |
 | HOW | How do I tell the app that I clear this card monthly? How does it learn which bill repays which card? |
-| WHEN | When is the card bill expected? When does an unconfirmed reserve release? |
+| WHEN | When is the card bill expected? When does a card payment first show as an upcoming bill? |
 
 ### A7.5 Pace + payday line (`:317-331`)
 **Shows** — either **"£X.XX/day until {today|tomorrow|Friday|Sat 30 Aug}"** (when `pace.state ∈ {comfortable,on_pace,ahead,early}` and `pace.sustainable != null`) or **"Pay period ends {label}"**; then optionally **" · ~£{payday_income} expected"**.

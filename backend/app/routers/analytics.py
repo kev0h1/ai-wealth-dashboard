@@ -5244,7 +5244,7 @@ async def compute_safe_to_spend(uid: str) -> dict:
     # module's docstring). The seed is the pooled balance of every spendable
     # account, so a traced transfer between two accounts in that pool removes
     # neither leg (Planning's isPooledNoOp rule), and a charge ON a credit
-    # card is out of the walk but handed to step 6c's reserve (G109).
+    # card is out of the walk and never held back (G413 retired the step 6c reserve).
     from app.services.window_inputs import LoadedAccounts, build_window_inputs
 
     _excluded_ids = {a["id"] for a in _excluded_accounts}
@@ -5407,7 +5407,7 @@ async def compute_safe_to_spend(uid: str) -> dict:
     # ── 7. State: comfortable / tight / short ─────────────────────────────────
     # "tight" threshold: below £100 or below ~10% of monthly discretionary spend,
     # whichever is higher — calibrated to be meaningful but not alarmist.
-    # Derived on the cash-led figure after any fallback card reserve, so Home,
+    # Derived on the cash-led figure (no card reserve since G413), so Home,
     # pace, spend_impact and Can I all reason over the same period boundary.
     from datetime import datetime as _dt
     _cutoff = _dt.now() - _td(days=90)
