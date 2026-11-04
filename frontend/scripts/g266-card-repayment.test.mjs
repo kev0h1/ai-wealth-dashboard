@@ -10,6 +10,8 @@ import { cardRepaymentShortCopy } from "../lib/upcomingAccountStatus.ts";
 import { withCoverSuggestions, coverSuggestionSentence } from "../lib/coverSuggestion.ts";
 import UpcomingAccountDetails from "../components/upcoming/UpcomingAccountDetails.tsx";
 
+const plainText = (markup) => markup.replace(/<[^>]+>/g, "").replace(/&amp;/g, "&");
+
 const END = Date.parse("2026-11-05T00:00:00Z");
 const bill = (over) => ({
   name: "x", amount: 10, expected_date: "2026-10-15", days_away: 2, account_id: "cur", account_name: "THE NUMBER ONE",
@@ -36,6 +38,7 @@ const flow = (bills) => ({ upcoming_bills: bills, upcoming_income: [], internal_
   assert.equal(row.coverage.optionalMove, false);
   const html = renderToStaticMarkup(React.createElement(UpcomingAccountDetails, { account, periodLabel: "x", plans: [], plansStatus: "ready" }));
   assert.match(html, /data-card-repayment-short/);
+  assert.match(html, /lucide-triangle-alert/, "a named repayment gap keeps the semantic payment-risk icon");
   assert.doesNotMatch(html, /may stay put/);
   assert.match(html, /A missed repayment can bring fees and interest\. Goals and allocations are separate from this bill gap\./);
   assert.ok(!html.includes("—") && !html.includes("!"), "copy rules");
@@ -68,7 +71,7 @@ assert.equal(walkUpcomingAccounts(flow([repay({ amount: 10 })]), END).accounts[0
   const [withMove] = withCoverSuggestions([account], items);
   assert.equal(coverSuggestionSentence(withMove.coverSuggestion), "Moving £14 in from Easy Saver would cover it.");
   const html = renderToStaticMarkup(React.createElement(UpcomingAccountDetails, { account: withMove, periodLabel: "x", plans: [], plansStatus: "ready" }));
-  assert.match(html, /Moving £14 in from Easy Saver would cover it\./);
-  assert.ok(!/<button/.test(html.split("Moving £14")[0].slice(-200)), "a sentence, not a button");
+  assert.match(plainText(html), /Without the £14 suggestion from Easy Saver, payments would be £13\.72 short\./);
+  assert.ok(!/<button/.test(html.split("Without the")[0].slice(-200)), "a sentence, not a button");
 }
 console.log("g266-card-repayment: ok");

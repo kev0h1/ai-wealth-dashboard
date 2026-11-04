@@ -57,19 +57,18 @@ assert.equal(resultFor("moves", "hsbc").label, "Short for transfers");
 assert.equal(resultFor("unknown", "monzo").amount, null);
 assert.equal(resultFor("overlap", "monzo").label, "Calculation needs checking");
 
-// Freeze B's distinguishing presentation, including the accessible amount/caption.
+// G416 keeps the established arithmetic but replaces the retired B row layout
+// with A's compact, calm availability reading and icon-only cautions.
 const mixed = renderCard(fixture);
-assert.match(mixed, /aria-label="Open NatWest, Bills account: £42\.00, left after payments"/);
-assert.match(mixed, /aria-label="Open HSBC, Current account: £124\.20, short for payments"/);
-assert.match(mixed, /aria-label="Open Monzo, Everyday account: £18\.40, short for plans, estimated"/);
-assert.match(mixed, /grid-cols-\[2rem_minmax\(0,1fr\)_1rem_minmax\(0,8rem\)\]/, "Fixed badge, signal and amount columns match B");
+assert.match(mixed, /aria-label="Open NatWest, Bills account:/);
+assert.match(mixed, /aria-label="Open HSBC, Current account:/);
+assert.match(mixed, /aria-label="Open Monzo, Everyday account:/);
 assert.equal((mixed.match(/lucide-triangle-alert/g) ?? []).length, 1, "Only payment risk uses the warning triangle");
 assert.equal((mixed.match(/lucide-info/g) ?? []).length, 1, "Optional plans use an information symbol");
-assert.equal((mixed.match(/data-status-signal="none"/g) ?? []).length, 2, "Healthy rows keep an empty marker slot");
-assert.match(mixed, /data-status-amount="true"[^>]*font-mono tabular-nums[^>]*>£42\.00</);
-assert.match(mixed, /data-status-caption="true"[^>]*font-sans[^>]*>Left after payments</);
+assert.match(mixed, /data-status-amount="true"[^>]*><span[^>]*>£42</);
+assert.match(mixed, /data-status-caption="true"[^>]*>Available</);
 assert.match(renderCard(fixtureFor("unknown")), />Unavailable</);
-assert.match(renderCard(fixtureFor("overlap")), />Calculation needs checking</);
+assert.match(renderCard(fixtureFor("overlap")), /calculation needs checking/i);
 
 // The approved preview and live Upcoming page must use one implementation.
 const preview = readFileSync(new URL("../app/design/g176-account-status/PreviewClient.tsx", import.meta.url), "utf8");
@@ -80,4 +79,4 @@ assert.equal(existsSync(new URL("../app/design/g176-account-status/AccountStatus
 assert.equal(existsSync(new URL("../app/design/g176-account-status/status.ts", import.meta.url)), false);
 const page = readFileSync(new URL("../app/planning/PlanningPage.tsx", import.meta.url), "utf8");
 assert.match(page, /<UpcomingAccountsCard /);
-console.log("G176 approved B: production/preview parity, accessible formatting and unchanged-arithmetic checks passed");
+console.log("G176: production/preview parity, compact availability and unchanged-arithmetic checks passed");

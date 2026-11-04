@@ -44,7 +44,6 @@ const fine = (count: number, offset = 0): Spec[] => Array.from({ length: count }
 /** Invented examples only. Every figure goes through the production walk and plan overlay. */
 export function fixtureFor(id: FixtureId) {
   if (id === "long") {
-    // 18 fine accounts; the short-for-payments and short-for-plans accounts sit in the middle of the list.
     const specs = fine(18);
     specs.splice(7, 0, { bank: "Barclays", name: "Bills account", balance: 30, bill: 120 });
     specs.splice(13, 0, { bank: "Monzo", name: "Everyday account", balance: 400, bill: 40 });

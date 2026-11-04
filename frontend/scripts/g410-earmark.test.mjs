@@ -33,7 +33,7 @@ assert.equal(row.coverSuggestion.amount, 200);
 assert.deepEqual(statusFor(row, []), { amount: 190, label: "Short, a move would cover it", signal: "move", estimated: false });
 
 // Partial cover: what is still short stays a genuine short (risk).
-row = summarise({ ...covered, covered_by_move: { ...covered.covered_by_move, amount: 140 }, short_after_cover: 50 })[0];
+row = summarise({ ...covered, covered_by_move: { ...covered.covered_by_move, amount: 140, from: [{ account_id: "hc", name: "Harbour Current", amount: 140 }] }, short_after_cover: 50 })[0];
 assert.deepEqual(statusFor(row, []), { amount: 50, label: "Short after the suggested move", signal: "risk", estimated: false });
 
 // Dismissed (or no longer needed): the engine leaves the fields off, so the row is plain short again.
@@ -47,12 +47,14 @@ assert.equal(coveredByMoveSentence("£190", suggestion), "Short £190, covered b
 assert.equal(coveredByMoveSentence("£190", { ...suggestion, shortAfterCover: 50 }, "£50"), "Short £50 after the suggested move from Harbour Current.");
 assert.equal(coveredByMoveSentence("£190", { ...suggestion, fromCount: 2 }), "Short £190, covered by the suggested move from 2 of your other accounts.");
 
-// Sheet verdict: amber dot when covered, masked when balances are hidden.
+// Sheet verdict: the approved A caution icon is informational, never a red
+// payment-risk warning, and all account-sheet figures mask together.
 const sheet = (hidden, entry) => renderToStaticMarkup(h(BalancesHiddenContext.Provider, { value: hidden }, h(UpcomingAccountDetails, { account: summarise(entry)[0], periodLabel: "Payments through Wed 25 Nov", plans: [], plansStatus: "ready" })));
 let html = sheet(false, covered);
 assert.match(html, /data-covered-by-move/);
-assert.match(html, /Short £190[^<]*, covered by the suggested move from Harbour Current\./);
-assert.ok(html.includes("bg-amber-500") && !/data-covered-by-move[^>]*><span class="[^"]*bg-rose-500/.test(html));
+assert.match(html, /A suggested move would cover payments/);
+assert.match(html, /lucide-info/);
+assert.doesNotMatch(html, /lucide-triangle-alert/);
 assert.ok(!html.includes("—"));
 html = sheet(true, covered);
 assert.ok(!/£190|£200/.test(html.replace(/£••••/g, "")), "hidden balances mask every new figure");
@@ -108,5 +110,5 @@ row = summarise(combined)[0];
 assert.equal(row.coverSuggestion.shortfall, 300);
 assert.deepEqual(statusFor(row, []), { amount: 100, label: "Short after the suggested move for plans", signal: "plan", estimated: false });
 const byAccount = renderToStaticMarkup(h(BalancesHiddenContext.Provider, { value: false }, h(UpcomingAccountsCard, { accounts: [row], periodLabel: "Payments through Wed 25 Nov", plans: [], plansStatus: "ready", onOpen() {} })));
-assert.ok(byAccount.includes("Short after the suggested move for plans") && byAccount.includes("Available after move") && byAccount.includes("£10.00"));
+assert.ok(byAccount.includes("Available") && byAccount.includes("£10"), "the compact row keeps its conditional available value without the retired long caption");
 console.log("G410 earmark checks passed.");

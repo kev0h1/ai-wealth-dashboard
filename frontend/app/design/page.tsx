@@ -119,21 +119,6 @@ const ROUTES: PreviewRoute[] = [
     variants: [{ label: "G · Bank first", value: "g" }, { label: "H · One continuous page", value: "h" }, { label: "I · Notice at consent", value: "i" }],
   },
   {
-    slug: "upcoming-by-account",
-    name: "Upcoming By account and account sheet · G416",
-    description:
-      "G416 · frontend-design then impeccable · A compact account list and result-first sheet; B canvas-led rows and dated activity first. Both show whole-pound Available with caution icons, a working fine-accounts fold, exact pence in the ledger and a proposed dated suggested move on its source and destination. Invented examples only. Production awaits a choice. ?variant=a|b&state=mixed|risk|clear|unknown|pennies&mode=light|dark&hidden=1",
-    variants: [{ label: "A · A clearer account list", value: "a" }, { label: "B · Follow the dates", value: "b" }],
-    states: [
-      { label: "Suggested move and plans", value: "mixed" },
-      { label: "Payment shortfall", value: "risk" },
-      { label: "All accounts fine", value: "clear" },
-      { label: "Balance unavailable", value: "unknown" },
-      { label: "6p available", value: "pennies" },
-    ],
-    group: "current",
-  },
-  {
     slug: "plan-deferral",
     name: "Ease a goal plan for one period · G228 · shipped look",
     description:

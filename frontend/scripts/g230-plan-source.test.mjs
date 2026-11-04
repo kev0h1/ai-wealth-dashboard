@@ -10,6 +10,7 @@ import React from "react";
 import { AppRouterContext } from "next/dist/shared/lib/app-router-context.shared-runtime.js";
 import { renderToStaticMarkup } from "react-dom/server";
 import CommitmentSheet from "../components/CommitmentSheet.tsx";
+import UpcomingAccountDetails from "../components/upcoming/UpcomingAccountDetails.tsx";
 import { accountPlan, hasPlanSource, plansFromApi } from "../lib/upcomingPlans.ts";
 
 const noop = () => {};
@@ -65,8 +66,15 @@ assert.equal(premier.goalPence, 0, "other accounts are untouched");
 assert.equal(premier.afterPlans, 30000);
 assert.equal(monzo.unassigned.length, 1, "the unsourced plan is listed as unassigned");
 
-// Footnote.
-const details = readFileSync(new URL("../components/upcoming/UpcomingAccountDetails.tsx", import.meta.url), "utf8");
-assert.match(details, /Goal contributions count in the payday figure above\. This account view includes the plans paid from this account\./);
-assert.doesNotMatch(details, /shows only the plans linked/);
+// G416 A keeps the source relationship in the account sheet itself, alongside
+// separately reachable plans which do not have a known paying account.
+const accountSheet = renderToStaticMarkup(React.createElement(UpcomingAccountDetails, {
+  account: { id: "monzo", bank: "Monzo", name: "Monzo Current", opening: 300, income: 0, transfersIn: 0, outgoing: 0, closing: 300, shortfall: 0, status: "covered", firstShortDate: null, hasUnassignedIncome: false, events: [] },
+  plans, plansStatus: "ready", periodLabel: "This period",
+}));
+const accountText = accountSheet.replace(/<[^>]+>/g, "").replace(/&amp;/g, "&");
+assert.match(accountText, /Japan/);
+assert.match(accountText, /Paying account based on recent transfers/);
+assert.match(accountText, /Car/);
+assert.match(accountText, /Choose paying account/);
 console.log("g230-plan-source: ok");
