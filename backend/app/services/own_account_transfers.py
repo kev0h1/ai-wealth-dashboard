@@ -274,10 +274,38 @@ def repayment_display_name(key: str, card_name: str | None = None) -> str | None
     return None
 
 
+def pan_repayment_series_key(txn: dict) -> str | None:
+    """G413: series key for a card-repayment-shaped debit with no G403 stamp.
+
+    "Card-repayment-shaped" means an issuer's printed form (services/
+    card_issuers.py) plus a 12+ digit PAN fragment in the narrative, e.g.
+    ``AMERICAN EXPRESS 3751-436040-41009``. Without this, a provider that
+    sets ``merchant_name`` to the issuer alone folds every card of that
+    issuer into one series. The key is the issuer label plus the fragment's
+    last five digits, so each card keeps its own series even when the G403
+    link did not fire. It names no card account: attribution to a card stays
+    the job of the G403 stamp and the learned-destination path. The tail is
+    five digits, never a 12+ character id, so `repayment_display_name`
+    cannot mistake it for a per-card account key. None when the narrative
+    is not shaped like that."""
+    text = _text(txn)
+    if not text:
+        return None
+    fragments = _pan_fragments(text)
+    if not fragments:
+        return None
+    for issuer, spec in CARD_ISSUERS.items():
+        if _names_issuer(text, issuer):
+            return f"{spec['label']} {fragments[0][-5:]}"
+    return None
+
+
 def series_key(txn: dict) -> str:
     """`categorisation.series_key`, except a linked card repayment keys per
-    card (G403). Recurring detection and its readers import this one."""
-    return repayment_series_key(txn) or _base_series_key(txn)
+    card (G403), and an unlinked card-repayment-shaped debit keys per PAN
+    tail (G413). A G403 stamp always wins, so a linked series keeps its key.
+    Recurring detection and its readers import this one."""
+    return repayment_series_key(txn) or pan_repayment_series_key(txn) or _base_series_key(txn)
 
 
 def _text(row: dict) -> str:
