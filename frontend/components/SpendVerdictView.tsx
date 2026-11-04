@@ -87,8 +87,13 @@ export function committedLine(c: CommittedFinding): string {
   const first = c.payments[0];
   if (!first) return "Paid as expected";
   const more = c.payments.length > 1 ? `, and ${c.payments.length - 1} more` : "";
-  if (first.kind === "higher") return `${first.name} was ${fmtRaw(first.paid)}, usually ${fmtRaw(first.expected)}${more}`;
-  return `New payment: ${first.name}, ${fmtRaw(first.paid)}${more}`;
+  if (first.kind === "higher") {
+    const name = `${first.name.charAt(0).toUpperCase()}${first.name.slice(1)}`;
+    return `${name} was ${fmtRaw(first.paid)}, usually ${fmtRaw(first.expected)}${more}`;
+  }
+  // The name is a payment label, or the category fallback ("a payment in Bills").
+  const where = first.name.startsWith("a payment in ") ? first.name.slice("a payment in ".length) : null;
+  return where ? `New payment in ${where}: ${fmtRaw(first.paid)}${more}` : `New payment: ${first.name}, ${fmtRaw(first.paid)}${more}`;
 }
 
 function causeLine(cause: SpendVerdictCause[]): string | null {

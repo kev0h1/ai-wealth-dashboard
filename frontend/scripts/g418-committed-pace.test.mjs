@@ -13,6 +13,14 @@ assert.equal(
   committedLine({ status: "new", paid_count: 0, payments: [{ kind: "new", name: "Bright Broadband", paid: 240 }, { kind: "new", name: "Other", paid: 20 }] }),
   "New payment: Bright Broadband, £240, and 1 more",
 );
+assert.equal(
+  committedLine({ status: "higher", paid_count: 0, payments: [{ kind: "higher", name: "a payment in Bills", paid: 90, expected: 80 }] }),
+  "A payment in Bills was £90, usually £80",
+);
+assert.equal(
+  committedLine({ status: "new", paid_count: 0, payments: [{ kind: "new", name: "a payment in Bills", paid: 90 }] }),
+  "New payment in Bills: £90",
+);
 for (const c of [
   { status: "as_expected", paid_count: 1, payments: [] },
   { status: "higher", paid_count: 0, payments: [{ kind: "higher", name: "Acme Mortgage", paid: 1195, expected: 1060 }] },

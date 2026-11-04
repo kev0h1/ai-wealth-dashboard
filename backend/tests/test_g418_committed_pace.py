@@ -203,6 +203,30 @@ def test_committed_only_majority_reading_never_says_building_a_usual():
         assert "don't have a usual" not in text and "building a usual" not in text, text
 
 
+def _row(cat, status, name=None):
+    pay = [] if status == "as_expected" else [
+        {"kind": status, "name": name or f"a payment in {cat}", "paid": 90.0, **({"expected": 80.0} if status == "higher" else {})}]
+    return {"category": cat, "spent": 100.0, "payments_count": 1, "has_baseline": True, "elevated": False,
+            "committed": {"status": status, "paid_count": 1, "payments": pay}}
+
+
+def test_headline_never_calls_a_higher_or_new_committed_row_close_to_usual():
+    from app.services.spend_verdict import build_reading
+    for state in ("nothing", "normal"):
+        higher = build_reading(state, days_elapsed=12, qualifying=[{"category": "Eating Out"}],
+                               majority=[_row("Mortgage", "higher", "Acme Mortgage"), _row("Bills", "as_expected")], total_excess=0.0)
+        assert "Acme Mortgage in Mortgage was higher than usual." in higher, higher
+        new = build_reading(state, days_elapsed=12, qualifying=[{"category": "Eating Out"}],
+                            majority=[_row("Bills", "new"), _row("Mortgage", "as_expected")], total_excess=0.0)
+        assert "There is a new payment in Bills." in new, new
+        only = build_reading(state, days_elapsed=12, qualifying=[{"category": "Eating Out"}],
+                             majority=[_row("Mortgage", "higher"), _row("Bills", "new")], total_excess=0.0)
+        assert "close to usual" not in only and "Everything else looks normal" not in only, only
+        assert "A payment in Mortgage was higher than usual." in only and "—" not in only and "!" not in only
+    nothing = build_reading("nothing", days_elapsed=12, qualifying=[], majority=[_row("Mortgage", "higher"), _row("Bills", "as_expected")], total_excess=0.0)
+    assert "all 1 category is running close to usual" in nothing
+
+
 def test_discretionary_pace_unchanged(monkeypatch):
     txns = [{"date": date(2026, 11, 3), "category": "Eating Out", "amount": 300.0, "key": "SOME CAFE", "name": "SOME CAFE"}]
     result = asyncio.run(_signals(monkeypatch, date(2026, 11, 8), txns, {"Eating Out": 300.0}, SERIES))

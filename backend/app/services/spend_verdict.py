@@ -538,6 +538,27 @@ def _join_names(names: list[str]) -> str:
     return f"{', '.join(names[:-1])} and {names[-1]}"
 
 
+def _committed_flag_sentences(majority: list[dict]) -> tuple[list[dict], list[str]]:
+    """G418: judged (committed) rows whose payment was higher than expected or
+    new. They are left out of any close-to-usual claim and get one hedged,
+    factual sentence each, with no figures."""
+    flagged, sentences = [], []
+    for m in majority:
+        c = m.get("committed") or {}
+        if c.get("status") not in ("higher", "new"):
+            continue
+        flagged.append(m)
+        cat = m["category"]
+        first = (c.get("payments") or [{}])[0]
+        name = str(first.get("name") or f"a payment in {cat}")
+        if c["status"] == "higher":
+            subject = f"{name[0].upper()}{name[1:]}" if name.startswith("a payment in") else f"{name} in {cat}"
+            sentences.append(f"{subject} was higher than usual.")
+        else:
+            sentences.append(f"There is a new payment in {cat}.")
+    return flagged, sentences
+
+
 def build_reading(
     state: str, *, days_elapsed: int, qualifying: list[dict],
     majority: list[dict], total_excess: float, unresolved_total: float = 0.0,
@@ -553,7 +574,9 @@ def build_reading(
     pound-threshold gate, is named and hedged instead of swept silently into
     the blanket claim (ENGINE.md Traceability — no manufactured reassurance).
     """
-    majority_count = len(majority)
+    flagged_rows, flag_sentences = _committed_flag_sentences(majority)
+    flag_text = " ".join(flag_sentences)
+    majority_count = len(majority) - len(flagged_rows)
     elevated = [m["category"] for m in majority if m.get("elevated")]
     no_baseline = [m["category"] for m in majority if not m.get("has_baseline", True)]
 
@@ -565,6 +588,8 @@ def build_reading(
             "before I can compare. Here's where this period's money went so far."
         )
     if state == "nothing":
+        if majority_count == 0 and flag_text:
+            return "Nothing crossed the line this period. " + flag_text
         if majority_count == 0:
             if unresolved_total > 0:
                 return "No spend categories to compare yet this period, everything so far is still unreviewed."
@@ -575,13 +600,14 @@ def build_reading(
             f"{'is' if majority_count == 1 else 'are'} running close to usual."
         )
         if not elevated and not no_baseline:
-            return base
+            return f"{base} {flag_text}" if flag_text else base
         notes = []
         if elevated:
             notes.append(f"{_join_names(elevated)} ran hotter than usual, just not by much yet")
         if no_baseline:
             notes.append(f"I don't have a usual yet for {_join_names(no_baseline)}")
-        return "Nothing crossed the line this period. " + " ".join(f"{n[0].upper()}{n[1:]}." for n in notes)
+        out = "Nothing crossed the line this period. " + " ".join(f"{n[0].upper()}{n[1:]}." for n in notes)
+        return f"{out} {flag_text}" if flag_text else out
     if state == "everything":
         return (
             f"Spending is running high across the board, about "
@@ -592,7 +618,7 @@ def build_reading(
     n = len(qualifying)
     word = _ORDINAL_COUNT_WORD.get(n, f"{n} categories are")
     top_name = qualifying[0]["category"] if qualifying else ""
-    tail = "Everything else looks normal."
+    tail = flag_text or "Everything else looks normal."
     if elevated or no_baseline:
         notes = []
         if elevated:
@@ -601,6 +627,8 @@ def build_reading(
             notes.append(f"still building a usual for {_join_names(no_baseline)}")
         joined = "; ".join(notes)
         tail = f"{joined[0].upper()}{joined[1:]}."
+        if flag_text:
+            tail = f"{tail} {flag_text}"
     return f"{word} running above your usual pace, mostly {top_name}. {tail}"
 
 
