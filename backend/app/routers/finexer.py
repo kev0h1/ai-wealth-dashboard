@@ -217,7 +217,9 @@ async def finexer_link(
         {"_id": consent_id},
         {"$set": {
             "user_id":     user["email"],
-            "customer_id": customer_id,
+            # A191: the customer the consent was really created under (an A178
+            # retry may have replaced the one we passed in).
+            "customer_id": getattr(consent, "customer_id_used", None) or customer_id,
             "provider":    provider or None,
             "state":       state,
             "status":      "pending",

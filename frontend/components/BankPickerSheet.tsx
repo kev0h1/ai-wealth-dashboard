@@ -1,6 +1,5 @@
 "use client";
 
-import { consentToolbarColor, isDarkPreferenceOn } from "@/lib/consentToolbar";
 import { useState, useEffect, useRef, type ReactNode } from "react";
 import { X, Search, ChevronRight, ChevronDown, Loader2 } from "lucide-react";
 import { api, ApiError, resolveApiAsset } from "@/lib/api";
@@ -12,7 +11,7 @@ import { isNativePlatform } from "@/lib/nativeAuth";
 import { DEEP_LINK_EVENT, type DeepLinkDetail } from "@/lib/deepLinks";
 import { registerBankSheet } from "@/lib/bankConnectReturn";
 import { useBankReturnReset } from "@/lib/useBankReturnReset";
-import { launchMode, buildLinkQuery } from "@/lib/bankConsentLaunch";
+import { startConsent } from "@/lib/startConsent";
 
 const BANK_FAILED = "The bank connection didn’t complete. Try again.";
 
@@ -198,45 +197,22 @@ export default function BankPickerSheet({ onClose, onConnecting, provider = "fin
     setError(null);
     bankReturn.begin();
     closeRef.current = close;
-    const rn = (window as unknown as { ReactNativeWebView?: { postMessage(s: string): void } }).ReactNativeWebView;
-    const mode = launchMode(isNativePlatform(), !!rn);
-    const { native } = buildLinkQuery(mode === "browser");
-    try {
-      const { auth_url } = provider === "legacy"
-        ? await api.legacyBankConnectLink(bank.id, native)
-        : await api.finexerConnectLink(bank.id, native);
-      if (mode === "browser") {
-        // A108: the in-app browser (Custom Tab / SFSafariViewController), not
-        // full Chrome and not a WebView; the hand-off page returns by deep link.
-        // The sheet stays mounted so its deep-link and browserFinished listeners
-        // live; the connecting callback fires only from the ok return handler above.
-        // A139: destructure and call inline, never return the plugin proxy.
-        const { Browser } = await import("@capacitor/browser");
-        await Browser.open({ url: auth_url, toolbarColor: consentToolbarColor(isDarkPreferenceOn()) });
-      } else if (mode === "rn") {
-        // React Native WebView: external browser so bank apps (e.g. Starling) work.
-        onConnecting?.();
-        rn!.postMessage(JSON.stringify({ type: "open_external", url: auth_url }));
-        close();
-      } else {
-        onConnecting?.();
-        window.location.href = auth_url;
-      }
-    } catch (err) {
-      // A178: the server sends a plain message for a bank link it could not
-      // start (502) or a bank Finexer rejected outright (422). Show it, keep
-      // the list tappable for a retry, and for a rejected bank drop it from
-      // the list for the rest of this session.
-      const rejected = err instanceof ApiError && err.status === 422
-        && (err.detail as { code?: string } | null)?.code === "BANK_PROVIDER_REJECTED";
-      if (rejected) {
+    // A191: the same launch code the Home and Accounts reconnect handlers use.
+    // A108 (in-app browser, deep-link return) and A178 (error copy) live in lib/startConsent.
+    const result = await startConsent({
+      providerId: bank.id,
+      legacy: provider === "legacy",
+      onConnecting: () => onConnecting?.(),
+      onHandedOff: () => close(),
+    });
+    if (!result.ok) {
+      // A178: show the message, keep the list tappable for a retry, and for a
+      // rejected bank drop it from the list for the rest of this session.
+      if (result.rejected) {
         unavailableBankIds.add(bank.id);
         setUnavailableVersion(v => v + 1);
       }
-      const msg = err instanceof ApiError && (err.status === 402 || err.status === 422 || err.status === 502)
-        ? err.message
-        : "Failed to connect. Please try again.";
-      setError(msg);
+      setError(result.message);
       bankReturn.end();
       updateConnecting(null);
     }

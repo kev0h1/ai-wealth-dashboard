@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import dynamic from "next/dynamic";
 import { ChevronRight } from "lucide-react";
 import { api, ApiError, Account, type Connection, AccountEligibility, Transaction, InvestmentAccount, SafeToSpend, CompanionItem, type SyncStatus } from "@/lib/api";
+import { startConsent } from "@/lib/startConsent";
 import { bestSpendAccount, type TodayRequestStatus } from "@/lib/spendFromAccount";
 import { coverMoveEvidence } from "@/lib/coverMoveEvidence";
 import SafeToSpendCard from "@/components/SafeToSpendCard";
@@ -938,20 +939,12 @@ export default function HomePage() {
       setShowBankPicker(true);
       return;
     }
-    try {
-      const { auth_url } = legacy
-        ? await api.legacyBankConnectLink(providerId)
-        : await api.finexerConnectLink(providerId);
-      // `location.assign()`, not `location.href = ...`: introducing a state
-      // setter into this function brought it under the React compiler's
-      // `react-hooks/immutability` rule, which reads the assignment as
-      // modifying a value defined outside the component. A method call is
-      // not a mutation, so it does not trip, and it is the shape
-      // components/PlanPicker.tsx already uses for exactly this. Identical
-      // navigation semantics.
-      window.location.assign(auth_url);
-    } catch (err) {
-      void noticeSheet({ title: "Couldn’t start reconnection", body: err instanceof ApiError ? err.message : "Please try again." });
+    // A191: the shared launcher, so the consent opens in the in-app browser on
+    // native (a bank that hands off to its own app, like Chase, can then
+    // complete). The return is handled app-wide by DeepLinkHandler.
+    const result = await startConsent({ providerId, legacy });
+    if (!result.ok) {
+      void noticeSheet({ title: "Couldn’t start reconnection", body: result.message });
     }
   }
 

@@ -137,6 +137,29 @@ def test_link_without_provider_passes_none(monkeypatch):
     assert result["auth_url"]
 
 
+def test_link_stamps_the_customer_the_consent_was_created_under(monkeypatch):
+    """A191: after an A178 unknown-customer retry the consent belongs to the
+    fresh customer; the stored doc must carry that id, not the stale one."""
+    from app.services.finexer_sync import ConsentDict
+
+    fake_consents = _setup(monkeypatch)
+
+    async def retried_consent(user_id, customer_id, provider, state, user=None):
+        out = ConsentDict({"id": "cst_retry", "redirect": {"consent_url": "https://consent.finexer.example/r"}})
+        out.customer_id_used = "cus_fresh"
+        return out
+
+    monkeypatch.setattr(finexer_module, "create_consent", retried_consent)
+    asyncio.run(finexer_module.finexer_link(provider="chase", user={"email": "kevin@example.com"}))
+    assert fake_consents.docs[0]["customer_id"] == "cus_fresh"
+
+
+def test_link_without_retry_keeps_the_original_customer(monkeypatch):
+    fake_consents = _setup(monkeypatch)
+    asyncio.run(finexer_module.finexer_link(provider="chase", user={"email": "kevin@example.com"}))
+    assert fake_consents.docs[0]["customer_id"] == "cus_test_1"
+
+
 # ── GET /auth/finexer/providers ─────────────────────────────────────────
 
 

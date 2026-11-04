@@ -6,6 +6,7 @@ import { useSearchParams, useRouter, usePathname } from "next/navigation";
 import { ArrowLeft, Plus, Landmark, RefreshCw, Upload, Trash2, AlertTriangle, TrendingUp, Eye, EyeOff, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Pencil, PiggyBank, Wallet, CreditCard, X, CircleDashed, Check, FileText, Star, Info } from "lucide-react";
 import { formatPriceDay } from "@/lib/priceDay";
 import { api, ApiError, Account, Connection, Transaction, InvestmentAccount, InvestmentHolding, InvestmentNote, ManualAccount, ManualAccountType, ManualAccountRule, RuleMatchType, RuleMatchField, RuleSign, AccountCategorySummary, CardTermsCard } from "@/lib/api";
+import { startConsent } from "@/lib/startConsent";
 import { accountBrand, BankBadge, TermsPill } from "@/components/AccountMiniCard";
 import AccountLedgerRow from "@/components/AccountLedgerRow";
 import AccountsHeader from "@/components/AccountsHeader";
@@ -1180,27 +1181,31 @@ export default function AccountsPage() {
         setShowBankPicker("finexer");
         return;
       }
-      const { auth_url } = legacy
-        ? await api.legacyBankConnectLink(providerId)
-        : await api.finexerConnectLink(providerId);
-      // A67: written HERE, immediately before navigating, not at the top of
-      // this function. It used to be written first, which was safe only
-      // while every path through here ended in a redirect. It no longer
-      // does: the provider-less branch above opens a picker instead, and the
-      // link call itself can throw. Either left an orphaned record that the
-      // next loadAccounts() consumes (see the "reconnect_expected" read
-      // above), warning "We couldn't find your <provider> account ••••NNNN
-      // in what was reconnected" about a reconnection that never started.
-      // Saves the connection id and a masked last 4, never the full account
-      // number or sort code.
-      if (account?.account_number) {
-        localStorage.setItem("reconnect_expected", JSON.stringify({
-          provider: account.provider,
-          account_id: account.id,
-          last4: account.account_number.slice(-4),
-        }));
+      // A67: reconnect_expected is written only once the link exists, immediately
+      // before the hand-off (beforeLaunch), never at the top of this function: the
+      // provider-less branch above opens a picker instead and the link call can
+      // throw, and either would leave an orphaned record that the next
+      // loadAccounts() consumes (see the "reconnect_expected" read above),
+      // warning about a reconnection that never started. It saves the connection
+      // id and a masked last 4, never the full account number or sort code.
+      // A191: the shared launcher, so native uses the in-app browser (A108) and
+      // an app-to-app bank can complete; DeepLinkHandler handles the return.
+      const result = await startConsent({
+        providerId,
+        legacy,
+        beforeLaunch: () => {
+          if (account?.account_number) {
+            localStorage.setItem("reconnect_expected", JSON.stringify({
+              provider: account.provider,
+              account_id: account.id,
+              last4: account.account_number.slice(-4),
+            }));
+          }
+        },
+      });
+      if (!result.ok) {
+        void noticeSheet({ title: "Couldn’t start reconnection", body: result.message });
       }
-      window.location.href = auth_url;
     } catch (err) {
       void noticeSheet({ title: "Couldn’t start reconnection", body: err instanceof ApiError ? err.message : "Please try again." });
     }

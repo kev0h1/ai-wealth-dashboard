@@ -987,6 +987,9 @@ class ConsentDict(dict):
     """The consent object Finexer returned. Equal to the plain dict; also
     carries what we asked for (A182) so the caller can store it."""
     retro_date_requested: Optional[str] = None
+    # A191: the Finexer customer the consent was actually created under. After an
+    # A178 unknown-customer retry this is the fresh customer, not the id passed in.
+    customer_id_used: Optional[str] = None
 
 
 def _rejected_first_attempt(resp) -> bool:
@@ -1020,6 +1023,7 @@ async def create_consent(
     from app.services.finexer_consent import retro_date_for, retro_months_setting
     retro = retro_date_for(await retro_months_setting())
 
+    used_customer = customer_id
     r = await _post_consent(customer_id, provider, state, retro)
     if r.status_code not in (200, 201) and retro and _rejected_first_attempt(r):
         log_finexer_error(r, "POST /consents (first attempt rejected, retrying without retro_date)")
@@ -1028,7 +1032,7 @@ async def create_consent(
         retro = None
         r = await _post_consent(customer_id, provider, state, None)
     if r.status_code in (200, 201):
-        return _consent_result(r, retro)
+        return _consent_result(r, retro, used_customer)
 
     if _is_unknown_customer(r):
         log_finexer_error(r, "POST /consents (unknown customer)")
@@ -1038,9 +1042,10 @@ async def create_consent(
             provider, r.status_code, _scrub_reason(r.text),
         )
         new_customer = await get_or_create_customer(user or {"email": user_id}, force_new=True)
+        used_customer = new_customer
         r = await _post_consent(new_customer, provider, state, retro)
         if r.status_code in (200, 201):
-            return _consent_result(r, retro)
+            return _consent_result(r, retro, used_customer)
 
     log_finexer_error(r, "POST /consents")
     logger.warning(
@@ -1054,9 +1059,10 @@ async def create_consent(
                               _CONSENT_FAILED_MESSAGE)
 
 
-def _consent_result(r, retro: Optional[str]) -> dict:
+def _consent_result(r, retro: Optional[str], customer_id: Optional[str] = None) -> dict:
     out = ConsentDict(r.json())
     out.retro_date_requested = retro
+    out.customer_id_used = customer_id
     return out
 
 

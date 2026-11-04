@@ -138,8 +138,11 @@ assert.equal(findLandedAccount([], null), undefined);
 assert.equal(SYNC_POLL_TIMEOUT_MS, 180000);
 
 // Source guards.
-const sheet = read("components/BankPickerSheet.tsx");
-assert.ok(sheet.includes("Browser.open({ url: auth_url, toolbarColor: consentToolbarColor(isDarkPreferenceOn()) })"), "native consent opens in the in-app browser with a theme toolbar (A150)");
+// A191: the launch code moved from BankPickerSheet into lib/startConsent.ts (shared with the reconnect handlers).
+const sheetOnly = read("components/BankPickerSheet.tsx");
+assert.ok(sheetOnly.includes("startConsent(") && sheetOnly.includes("stayOnReturn"));
+const sheet = read("lib/startConsent.ts");
+assert.ok(sheet.includes("Browser.open({ url, toolbarColor })") && sheet.includes("consentToolbarColor(isDarkPreferenceOn())"), "native consent opens in the in-app browser with a theme toolbar (A150)");
 assert.ok(!/return\s+Browser\b/.test(sheet), "A139: plugin proxy never returned");
 // A150: toolbar colour follows the dark preference, with a fake Browser and document.
 assert.equal(consentToolbarColor(true), "#0f172a");
@@ -154,21 +157,22 @@ for (const dark of [true, false]) {
   assert.equal(opened[0].toolbarColor, dark ? "#0f172a" : "#f0f2f7");
 }
 delete globalThis.document;
-assert.ok(sheet.includes("launchMode(") && sheet.includes("buildLinkQuery(") && sheet.includes("stayOnReturn"));
-assert.ok(/finexerConnectLink\(bank\.id, native\)/.test(sheet) && /legacyBankConnectLink\(bank\.id, native\)/.test(sheet));
+assert.ok(sheet.includes("launchMode(") && sheet.includes("buildLinkQuery("));
+assert.ok(/finexerConnectLink\(providerId, native\)/.test(sheet) && /legacyBankConnectLink\(providerId, native\)/.test(sheet));
 assert.ok(sheet.includes("isNativePlatform()"));
 assert.ok(read("lib/useBankReturnReset.ts").includes("browserFinished"), "A149: the shared hook owns browserFinished");
-const hrefAt = sheet.indexOf("window.location.href = auth_url");
-assert.ok(hrefAt > sheet.indexOf("} else {", sheet.indexOf("Browser.open")), "full-page redirect only in the web branch");
+const hrefAt = sheet.indexOf("deps.navigate(auth_url)");
+assert.ok(hrefAt > sheet.indexOf("} else {", sheet.indexOf("deps.openBrowser")), "full-page redirect only in the web branch");
 // onConnecting is not called before the native Browser.open (single native call site is the return handler).
-const linkAt = sheet.indexOf("await api.finexerConnectLink");
+const linkAt = sheet.indexOf("await deps.link(");
 const browserBranch = sheet.slice(sheet.indexOf('mode === "browser"', linkAt), sheet.indexOf('mode === "rn"', linkAt));
 assert.ok(!browserBranch.includes("onConnecting"), "no onConnecting on the native branch");
 assert.ok(read("components/DeepLinkHandler.tsx").includes("bankSheetState()"));
 assert.ok(read("components/Onboarding.tsx").includes("stayOnReturn"));
 assert.ok(read("components/AuthProvider.tsx").includes("wd:session-established"));
-assert.equal(sheet.split("window.location.href = auth_url").length, 2);
+assert.equal(sheet.split("deps.navigate(auth_url)").length, 2);
 assert.ok(!sheet.includes("A139") || sheet.includes("never return the plugin proxy"));
+assert.ok(!/return\s+Browser\b/.test(sheetOnly));
 const api = read("lib/api.ts");
 assert.ok(api.includes('q.push("native=1")'));
 assert.ok(read("app/components/AccountsPage.tsx").includes("findLandedAccount("));
