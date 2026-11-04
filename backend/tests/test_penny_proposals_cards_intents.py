@@ -192,6 +192,40 @@ def test_propose_card_payment_settings_rejects_conflicting_due_rules(monkeypatch
     assert fake_proposals.docs == []
 
 
+def test_propose_payment_match_rule_needs_the_paying_account_and_never_writes(monkeypatch):
+    # G413: propose-only, and a rule without the paying account is refused
+    # by the same route validator the account sheet uses.
+    fake_proposals = _patch_proposals_col(monkeypatch)
+    fake_terms = _FakeCol()
+    monkeypatch.setattr(penny_tools_module, "card_terms_col", fake_terms)
+    _patch_card_accounts(monkeypatch, [_card_acc("c1", "Green Amex", provider="American Express")])
+
+    result = asyncio.run(execute_tool(UID, "propose_set_card_terms", {
+        "card_ref": "amex", "payment_match": {"kind": "contains", "text": "20001"},
+    }))
+
+    assert "error" in result
+    assert "paying account" in result["error"]
+    assert fake_proposals.docs == [] and fake_terms.docs == []
+
+
+def test_propose_clearing_a_payment_match_rule_is_described_and_valid(monkeypatch):
+    fake_proposals = _patch_proposals_col(monkeypatch)
+    existing = {"_id": f"{UID}:c1", "user_id": UID, "account_id": "c1", "status": "confirmed",
+                "payment_match": {"kind": "contains", "text": "20001"}}
+    fake_terms = _FakeCol([existing.copy()])
+    monkeypatch.setattr(penny_tools_module, "card_terms_col", fake_terms)
+    _patch_card_accounts(monkeypatch, [_card_acc("c1", "Green Amex", provider="American Express")])
+
+    result = asyncio.run(execute_tool(UID, "propose_set_card_terms", {"card_ref": "amex", "payment_match": None}))
+
+    assert result["proposal"] is True
+    assert result["params"] == {"account_id": "c1", "payment_match": None}
+    assert "payment match rule cleared" in result["summary"]
+    assert fake_terms.docs == [existing]
+    assert len(fake_proposals.docs) == 1
+
+
 def test_propose_card_terms_clearing_promos_with_empty_list(monkeypatch):
     _patch_proposals_col(monkeypatch)
     monkeypatch.setattr(penny_tools_module, "card_terms_col", _FakeCol())

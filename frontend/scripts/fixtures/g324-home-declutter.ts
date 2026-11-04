@@ -56,7 +56,7 @@ export const FORECASTS = {
   "plans-only": { ...base, safe_to_spend: -250, safe_to_spend_cash: -250, spendable_now: 880, lowest_projected_balance: 220, commitments_reserved: 300, commitments_count: 1, allocations_reserved: 70, state: "short", short_reason: "bills", plans_only_short: true },
   "card-purchases": { ...base },
   "card-monthly": { ...base, spendable_now: 3048, bills_total: 2607, card_growth_wording: "cleared_monthly", card_growth_due_date: "2026-10-28T12:00:00Z" },
-  "card-reserve": { ...base, safe_to_spend: -73, safe_to_spend_cash: 252, spendable_now: 1092, lowest_projected_balance: 432, card_growth_total: 325, card_new_spend_total: 200, card_growth_reserved: 325, card_debt: 325, state: "short", short_reason: "cards_unconfirmed" },
+  "card-reserve": { ...base, safe_to_spend: 252, safe_to_spend_cash: 252, spendable_now: 1092, lowest_projected_balance: 432, card_growth_total: 325, card_new_spend_total: 200, card_debt: 325 },  // G413: id kept, card growth is a fact only, nothing held
   "no-account": { ...base, safe_to_spend: 0, safe_to_spend_cash: 0, spendable_now: 0, bills_total: 0, lowest_projected_balance: 0, buffer: 0, allocations_reserved: 0, card_growth_total: 0, card_new_spend_total: 0, card_debt: 0 },
 } satisfies Record<string, Forecast>;
 export type ReadyState = keyof typeof FORECASTS;
@@ -65,7 +65,7 @@ export const STATES: { id: State; label: string }[] = [
   { id: "tight", label: "Tight, with a move" }, { id: "comfortable", label: "Looks on track" },
   { id: "payments-short", label: "Payments short" }, { id: "plans-only", label: "Plans gap" },
   { id: "card-purchases", label: "Card purchases" }, { id: "card-monthly", label: "Confirmed card bill" },
-  { id: "card-reserve", label: "Unconfirmed card bill" }, { id: "no-account", label: "No account headroom" },
+  { id: "card-reserve", label: "Card spending, nothing held" }, { id: "no-account", label: "No account headroom" },
   { id: "loading", label: "Loading" }, { id: "cold-sync", label: "First sync" },
   { id: "warm-sync", label: "Updating saved figure" }, { id: "degraded", label: "Incomplete calculation" },
   { id: "error", label: "Request failed" }, { id: "unsupported", label: "No supported forecast" },

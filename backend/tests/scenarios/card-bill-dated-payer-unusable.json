@@ -145,10 +145,10 @@
     }
   ],
   "expected": {
-    "left_to_spend": 1150.0,
+    "left_to_spend": 1350.0,
     "accounts": {
       "acc-bc": {
-        "spend_from": 1150.0,
+        "spend_from": 1350.0,
         "after_payments": 1350.0,
         "low_point": 1350.0,
         "verdict": "covered"
@@ -160,6 +160,6 @@
     },
     "payday_plan": null,
     "at_risk_count": 0,
-    "notes": "Same card, history and dates as card-bill-dated-statement, but the paying account chosen is a savings pot the user excludes from Left to spend, so it is not a usable payer and the dated rule yields no payment (source unavailable). The card keeps today's learned behaviour: nothing learned, so net card growth this period is held. Card purchases since 25 Sep: 150 + 50 = 200. The 500 in the savings pot is in no pool. Cash: 1,500 - 150 council tax = 1,350. Left to spend = 1,350 - 200 = 1,150. Calculation status stays complete."
+    "notes": "Same card, history and dates as card-bill-dated-statement, but the paying account chosen is a savings pot the user excludes from Left to spend, so it is not a usable payer and the dated rule yields no payment (source unavailable). The card keeps today's learned behaviour: nothing learned, so nothing is predicted and, since G413 (Kevin, 2026-11-04, deliberate behaviour change; the old rule held the 200 and gave 1,150), nothing is held back. Card purchases since 25 Sep: 150 + 50 = 200, an information fact only. The 500 in the savings pot is in no pool. Cash: 1,500 - 150 council tax = 1,350. Left to spend = 1,350. Calculation status stays complete."
   }
 }

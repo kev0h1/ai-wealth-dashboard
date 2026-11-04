@@ -42,7 +42,6 @@ export function formatSafeToSpendAmount(value: number): string {
 export type SafeToSpendHeadline = {
   state: "comfortable" | "tight" | "short";
   stateLabel: string;
-  isCardsUnconfirmedShort: boolean;
   heroAmount: number;
   paydayLabel: string;
   /** G218: short only because of plans and envelopes; reads amber, calm. */
@@ -55,7 +54,7 @@ export type SafeToSpendHeadline = {
  * net_position.plans_only_short_for) and otherwise derives the same rule
  * from the payload, for responses cached before the field existed. */
 export function isPlansOnlyShort(data: Extract<SafeToSpend, { status: "ok" }>): boolean {
-  if (data.state !== "short" || data.short_reason === "cards_unconfirmed") return false;
+  if (data.state !== "short") return false;
   if (typeof data.plans_only_short === "boolean") return data.plans_only_short;
   const cash = data.safe_to_spend_cash ?? data.safe_to_spend;
   if (cash >= 0 || data.lowest_projected_balance == null) return false;
@@ -70,11 +69,10 @@ export function deriveSafeToSpendHeadline(data: Extract<SafeToSpend, { status: "
   // G330: a penny shortfall is still a shortfall. Never snap it to £0.
   const freeAmount = data.safe_to_spend;
   const cashRunway = data.safe_to_spend_cash ?? freeAmount;
-  const isCardsUnconfirmedShort = data.state === "short" && data.short_reason === "cards_unconfirmed";
   const state: "comfortable" | "tight" | "short" =
-    data.state === "short" && !isCardsUnconfirmedShort && freeAmount >= 0 ? "tight" : data.state;
-  const stateLabel = state === "comfortable" ? "Looks on track" : state === "tight" ? "Tight" : isCardsUnconfirmedShort ? "Check card bill" : "Short";
-  const heroAmount = state === "short" ? (isCardsUnconfirmedShort ? 0 : Math.abs(cashRunway)) : freeAmount;
+    data.state === "short" && freeAmount >= 0 ? "tight" : data.state;
+  const stateLabel = state === "comfortable" ? "Looks on track" : state === "tight" ? "Tight" : "Short";
+  const heroAmount = state === "short" ? Math.abs(cashRunway) : freeAmount;
 
   const paydayDate = new Date(data.next_payday);
   paydayDate.setHours(0, 0, 0, 0);
@@ -85,7 +83,7 @@ export function deriveSafeToSpendHeadline(data: Extract<SafeToSpend, { status: "
     ? new Date(data.next_payday).toLocaleDateString("en-GB", { weekday: "long" })
     : new Date(data.next_payday).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
 
-  return { state, stateLabel, isCardsUnconfirmedShort, heroAmount, paydayLabel, plansOnly: state === "short" && isPlansOnlyShort(data) };
+  return { state, stateLabel, heroAmount, paydayLabel, plansOnly: state === "short" && isPlansOnlyShort(data) };
 }
 
 type SafeToSpendOk = Extract<SafeToSpend, { status: "ok" }>;
@@ -95,7 +93,7 @@ const finite = (value: unknown): value is number => typeof value === "number" &&
  * remain separate. Optional reserves cannot establish a payment cash gap. */
 export function homeForecastPresentation(data: SafeToSpendOk, headline: SafeToSpendHeadline): HomeForecastPresentation {
   const cash = data.safe_to_spend_cash ?? data.safe_to_spend;
-  const signed = headline.state === "short" && !headline.isCardsUnconfirmedShort && cash < 0 && headline.heroAmount > 0;
+  const signed = headline.state === "short" && cash < 0 && headline.heroAmount > 0;
   const neutral: HomeForecastPresentation = {
     status: { tone: "neutral", label: "Check forecast" },
     eyebrow: signed ? "Cash before payday" : "Estimated left to spend", signed,
@@ -104,7 +102,6 @@ export function homeForecastPresentation(data: SafeToSpendOk, headline: SafeToSp
   if (data.calculation_status === "syncing" || data.calculation_status === "degraded" || !finite(low) || !finite(cash)
     || ![data.buffer, data.allocations_reserved ?? 0, data.commitments_reserved ?? 0].every(finite)) return neutral;
   if (low < 0) return { status: { tone: "risk", label: "Short" }, eyebrow: "Shortfall before payday", signed };
-  if (headline.isCardsUnconfirmedShort) return { status: { tone: "watch", label: "Check card bill" }, eyebrow: "Estimated left to spend", signed: false };
   const end = finite(data.spendable_now) && finite(data.income_before_payday) && finite(data.bills_total)
     ? data.spendable_now + data.income_before_payday - data.bills_total - (data.allocations_reserved ?? 0) - (data.commitments_reserved ?? 0)
     : null;
@@ -140,7 +137,7 @@ export function buildSafeToSpendView(
       key: "safe_to_spend",
       label: presentation.caption ? "Below your safety buffer" : headline.plansOnly
         ? "Short after plans and set-asides"
-        : headline.state === "short" && !headline.isCardsUnconfirmedShort ? "Short before payday" : "Estimated left to spend",
+        : headline.state === "short" ? "Short before payday" : "Estimated left to spend",
       value: `${presentation.signed ? "−" : ""}${formatSafeToSpendAmount(headline.heroAmount)}`,
     }],
     asOf: data.last_synced ?? new Date().toISOString(),

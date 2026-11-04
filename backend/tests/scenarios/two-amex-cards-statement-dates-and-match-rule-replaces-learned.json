@@ -1,0 +1,211 @@
+{
+  "name": "Two Amex cards, one with statement dates and a match rule: its defined bill replaces its learned series and nothing is doubled (G413)",
+  "today": "2026-10-12",
+  "pay_period_config": {
+    "type": "last_friday"
+  },
+  "confirmed_income_streams": [],
+  "accounts": [
+    {
+      "_id": "acc-bc",
+      "name": "Example Current",
+      "provider": "barclays",
+      "type": "BANK",
+      "subtype": "TRANSACTION",
+      "balance": 1500.0,
+      "currency": "GBP",
+      "status": "connected",
+      "include_in_safe_to_spend": true
+    },
+    {
+      "_id": "acc-amex-a",
+      "name": "Example Amex Alpha",
+      "provider": "amex",
+      "type": "CREDIT",
+      "subtype": "CREDIT_CARD",
+      "balance": -600.0,
+      "currency": "GBP",
+      "status": "connected",
+      "include_in_safe_to_spend": true
+    },
+    {
+      "_id": "acc-amex-b",
+      "name": "Example Amex Beta",
+      "provider": "amex",
+      "type": "CREDIT",
+      "subtype": "CREDIT_CARD",
+      "balance": -400.0,
+      "currency": "GBP",
+      "status": "connected",
+      "include_in_safe_to_spend": true
+    }
+  ],
+  "manual_accounts": [],
+  "cashflow_cache": {
+    "recurring_spend": [
+      {
+        "key": "COUNCIL TAX",
+        "avg_amount": 150.0,
+        "avg_interval": 30,
+        "next_date": "2026-10-20",
+        "account_id": "acc-bc",
+        "account_name": "Example Current",
+        "account_bank": "barclays",
+        "account_balance": 1500.0,
+        "is_credit_card": false,
+        "category": "Bills"
+      },
+      {
+        "key": "American Express 20001",
+        "avg_amount": 200.0,
+        "avg_interval": 30,
+        "next_date": "2026-10-24",
+        "account_id": "acc-bc",
+        "account_name": "Example Current",
+        "account_bank": "barclays",
+        "account_balance": 1500.0,
+        "is_credit_card": false,
+        "category": "Debt",
+        "card_dest_account_id": "acc-amex-b",
+        "card_dest_account_name": "Example Amex Beta",
+        "card_dest_account_bank": "amex"
+      }
+    ],
+    "recurring_income": [
+      {
+        "key": "acme|payroll::acc-bc",
+        "display_name": "Acme Payroll",
+        "avg_amount": 3000.0,
+        "avg_interval": 30,
+        "next_date": "2026-10-30",
+        "account_id": "acc-bc",
+        "account_name": "Example Current",
+        "account_bank": "barclays",
+        "account_balance": 1500.0,
+        "category": "Income",
+        "occurrences": 3,
+        "amounts_recent": [
+          3000.0,
+          3000.0,
+          3000.0
+        ]
+      }
+    ],
+    "bnpl_commitments": [],
+    "avg_daily_spend": 0
+  },
+  "transactions": [
+    {
+      "account_id": "acc-bc",
+      "date": "2026-08-24",
+      "amount": 200.0,
+      "transaction_type": "debit",
+      "description": "AMERICAN EXPRESS 3799-111111-20001",
+      "merchant_name": "American Express",
+      "category": "Debt"
+    },
+    {
+      "account_id": "acc-bc",
+      "date": "2026-09-24",
+      "amount": 200.0,
+      "transaction_type": "debit",
+      "description": "AMERICAN EXPRESS 3799-111111-20001",
+      "merchant_name": "American Express",
+      "category": "Debt"
+    },
+    {
+      "account_id": "acc-bc",
+      "date": "2026-09-11",
+      "amount": 90.0,
+      "transaction_type": "debit",
+      "description": "AMERICAN EXPRESS 3799-111111-20002",
+      "merchant_name": "American Express",
+      "category": "Debt"
+    },
+    {
+      "account_id": "acc-amex-a",
+      "date": "2026-09-02",
+      "amount": 200.0,
+      "transaction_type": "debit",
+      "description": "HARDWARE STORE",
+      "merchant_name": "HARDWARE STORE",
+      "category": "Shopping"
+    },
+    {
+      "account_id": "acc-amex-a",
+      "date": "2026-09-20",
+      "amount": 250.0,
+      "transaction_type": "debit",
+      "description": "GARAGE",
+      "merchant_name": "GARAGE",
+      "category": "Transport"
+    },
+    {
+      "account_id": "acc-amex-a",
+      "date": "2026-10-08",
+      "amount": 150.0,
+      "transaction_type": "debit",
+      "description": "SUPERMARKET",
+      "merchant_name": "SUPERMARKET",
+      "category": "Groceries"
+    },
+    {
+      "account_id": "acc-amex-b",
+      "date": "2026-10-04",
+      "amount": 300.0,
+      "transaction_type": "debit",
+      "description": "FURNITURE SHOP",
+      "merchant_name": "FURNITURE SHOP",
+      "category": "Shopping"
+    },
+    {
+      "account_id": "acc-amex-b",
+      "date": "2026-10-10",
+      "amount": 100.0,
+      "transaction_type": "debit",
+      "description": "RESTAURANT",
+      "merchant_name": "RESTAURANT",
+      "category": "Eating Out"
+    }
+  ],
+  "commitments": [],
+  "allocations": [],
+  "card_terms": [
+    {
+      "account_id": "acc-amex-a",
+      "status": "confirmed",
+      "apr_pct": 22.9,
+      "promos": [],
+      "bt_offers": [],
+      "statement_close_day": 3,
+      "payment_due_day": 28,
+      "payment_due_days_after_close": null,
+      "payment_method": "full",
+      "payment_account_id": "acc-bc",
+      "fixed_payment_amount": null,
+      "usage": "clear_monthly",
+      "payment_match": {
+        "kind": "contains",
+        "text": "20001"
+      }
+    }
+  ],
+  "expected": {
+    "left_to_spend": 900.0,
+    "accounts": {
+      "acc-bc": {
+        "spend_from": 900.0,
+        "after_payments": 900.0,
+        "low_point": 900.0,
+        "verdict": "covered"
+      }
+    },
+    "cover_plan": {
+      "moves_total": 0,
+      "moves": []
+    },
+    "payday_plan": null,
+    "at_risk_count": 0,
+    "notes": "Today is Mon 12 Oct 2026, pay is the last Friday (30 Oct), so the window is 12 Oct to 29 Oct and the period began 25 Sep (period day 18, so no payday plan). As the previous scenario, but card Alpha now has statement dates (closes on the 3rd, due on the 28th by full Direct Debit from Example Current) and a match rule: the payment contains 20001. Its learned series (key American Express 20001, 200 a month) is attributed to card Beta by mistake, the old merged-series fault, yet the rule claims it for Alpha, so the learned occurrence of 200 on 26 Oct is suppressed and replaced by the defined bill. The last close is 3 Oct, so the statement runs 4 Sep to 3 Oct. Alpha's balance is -600 and 150 was spent after the close (8 Oct), so the closed bill is 600 - 150 = 450 (history reaches 2 Sep, before the statement start). It is due Wed 28 Oct, before payday on 30 Oct, so it is a payment in this window. Council tax is 150 on 20 Oct. Cash: 1,500 - 150 = 1,350, then - 450 on 28 Oct = 900 at the end and lowest point. Had the learned 200 stayed as well the figure would be 700 (a double count); it is 900. Card Beta has no details and no predicted payment: nothing is held for its 400 of purchases. Barclays: after payments 900, low point 900, Spend from 900, equal to the pool. Nothing is short, no cover move, at risk 0."
+  }
+}

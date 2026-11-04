@@ -25,7 +25,7 @@ const cashWithCards: SafeToSpendOk = {
   bills_total: 500, buffer: 100, lowest_projected_balance: 500,
   commitments_reserved: 100, allocations_reserved: 48, state: "tight", short_reason: null,
   card_debt: 2200, card_growth_total: 140, card_new_spend_total: 140,
-  card_growth_reserved: 0, card_growth_wording: "carried", pooled_transfers_excluded: 50,
+  card_growth_wording: "carried", pooled_transfers_excluded: 50,
 };
 
 export const G287_SCENARIOS: Record<G287Scenario, { data: SafeToSpend | null; loading?: boolean; error?: boolean }> = {
@@ -35,7 +35,7 @@ export const G287_SCENARIOS: Record<G287Scenario, { data: SafeToSpend | null; lo
   tight: { data: { ...shortBase, safe_to_spend: 125, safe_to_spend_cash: 125, spendable_now: 600, bills_total: 375, buffer: 100, lowest_projected_balance: 225, state: "tight", short_reason: null } },
   buffer: { data: { ...shortBase, safe_to_spend: -50, safe_to_spend_cash: -50, spendable_now: 350, bills_total: 300, buffer: 100, lowest_projected_balance: 50 } },
   even: { data: { ...shortBase, safe_to_spend: 0, safe_to_spend_cash: 0, spendable_now: 350, bills_total: 350, lowest_projected_balance: 0, state: "tight", short_reason: null } },
-  "card-check": { data: { ...cashWithCards, safe_to_spend: -73, card_growth_total: 325, card_growth_reserved: 325, state: "short", short_reason: "cards_unconfirmed" } },
+  "card-check": { data: { ...cashWithCards, card_growth_total: 325 } },  // G413: card growth is a fact only, nothing held
   chronology: { data: { ...shortBase, income_before_payday: 1000 } },
   cards: { data: cashWithCards },
   move: { data: { ...shortBase, safe_to_spend: 185, safe_to_spend_cash: 185, spendable_now: 365, bills_total: 80, buffer: 100, lowest_projected_balance: 285, state: "tight", short_reason: null } },

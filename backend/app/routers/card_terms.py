@@ -25,6 +25,7 @@ from app.core import timeutil
 from app.db.collections import accounts_col, card_terms_col
 from app.services.account_kinds import is_credit_card_account
 from app.services.counted_accounts import is_excluded
+from app.services.card_statements import mask_long_digits as _mask_long_digits, normalise_match_rule as _normalise_match_rule
 from app.services.card_rates import (
     derive_product_identity,
     is_ask_eligible,
@@ -49,6 +50,18 @@ class BtOffer(BaseModel):
     ends: Optional[str] = None      # ISO date
     fee_pct: Optional[float] = None
     note: Optional[str] = None
+
+
+class PaymentMatch(BaseModel):
+    """G413: which of the paying account's payments is this card's bill.
+
+    "contains" needs `text` (for example the tail of a card reference);
+    "payment" needs `series_key` (a payment the user picked from that account).
+    """
+    kind: Literal["contains", "payment"]
+    text: Optional[str] = None
+    series_key: Optional[str] = None
+    label: Optional[str] = None
 
 
 class CardPromo(BaseModel):
@@ -108,6 +121,8 @@ def _serialize_terms(doc: dict | None) -> dict | None:
         "payment_method": doc.get("payment_method") if doc.get("payment_method") in ("full", "minimum", "fixed", "manual") else None,
         "payment_account_id": str(doc["payment_account_id"]) if doc.get("payment_account_id") is not None else None,
         "fixed_payment_amount": doc.get("fixed_payment_amount"),
+        # G413: absent on every legacy document, which reads as no rule.
+        "payment_match": _normalise_match_rule(doc.get("payment_match")),
     }
 
 
@@ -168,6 +183,48 @@ async def _owned_card_or_404(uid: str, account_id: str) -> dict:
     return acc
 
 
+@router.get("/card-terms/{account_id}/recent-payments")
+async def recent_payer_payments(account_id: str, payer_id: str, user: dict = Depends(current_user)):
+    """G413: the paying account's recent payments, one row per recurring
+    series, so a person can pick the one that is this card's bill. Read only,
+    scoped to the signed-in user, and the payer must be one of their own
+    counted cash accounts. Narratives are the user's own, shortened."""
+    uid = user["email"]
+    await _owned_card_or_404(uid, account_id)
+    payer_id = _clean(payer_id)
+    try:
+        from bson import ObjectId
+        keys = [payer_id, ObjectId(payer_id)] if ObjectId.is_valid(payer_id) else [payer_id]
+    except Exception:
+        keys = [payer_id]
+    payer = await accounts_col.find_one({"_id": {"$in": keys}, "user_id": uid})
+    if not payer or is_credit_card_account(payer) or is_excluded(payer):
+        raise HTTPException(422, "Choose one of your counted current accounts")
+    from datetime import time, timedelta, timezone
+    from app.db.collections import transactions_col
+    from app.services.own_account_transfers import series_key
+    cutoff = datetime.combine(timeutil.user_today() - timedelta(days=100), time.min, tzinfo=timezone.utc)
+    rows = await transactions_col.find(
+        {"user_id": uid, "account_id": str(payer["_id"]), "transaction_type": "debit", "date": {"$gte": cutoff}},
+        {"description": 1, "merchant_name": 1, "amount": 1, "date": 1, "own_transfer_match": 1},
+    ).to_list(None)
+    rows.sort(key=lambda r: r.get("date") or datetime.min, reverse=True)
+    seen: dict[str, dict] = {}
+    for r in rows:
+        key = series_key(r)
+        if not key or key in seen:
+            continue
+        seen[key] = {
+            "series_key": key,
+            "label": _mask_long_digits(_clean(r.get("description") or r.get("merchant_name") or key))[:80],
+            "last_amount": round(abs(float(r.get("amount") or 0.0)), 2),
+            "last_date": (r["date"].date() if isinstance(r.get("date"), datetime) else r.get("date")).isoformat() if r.get("date") else None,
+        }
+        if len(seen) >= 30:
+            break
+    return {"status": "ok", "payments": list(seen.values())}
+
+
 @router.post("/card-terms/{account_id}/lookup")
 async def lookup_card_terms(account_id: str, user: dict = Depends(current_user)):
     """Product identification + cached-or-fresh representative-APR prefill.
@@ -221,6 +278,7 @@ class CardTermsBody(BaseModel):
     payment_method: Optional[Literal["full", "minimum", "fixed", "manual"]] = None
     payment_account_id: Optional[str] = None
     fixed_payment_amount: Optional[float] = None
+    payment_match: Optional[PaymentMatch] = None
 
     @field_validator("fixed_payment_amount", mode="before")
     @classmethod
@@ -239,6 +297,7 @@ _PAYMENT_FIELDS = (
     "payment_method",
     "payment_account_id",
     "fixed_payment_amount",
+    "payment_match",
 )
 
 
@@ -255,10 +314,15 @@ def _submitted(body: CardTermsBody, field: str) -> bool:
 def normalise_payment_settings(existing: dict | None, body: CardTermsBody) -> dict:
     """Merge the new optional payment facts without losing legacy settings."""
     existing = existing or {}
-    return {
+    merged = {
         field: getattr(body, field) if _submitted(body, field) else existing.get(field)
         for field in _PAYMENT_FIELDS
     }
+    match = merged.get("payment_match")
+    if isinstance(match, BaseModel):
+        match = match.model_dump(exclude_none=True)
+    merged["payment_match"] = match
+    return merged
 
 
 async def _validate_payment_settings(
@@ -296,6 +360,18 @@ async def _validate_payment_settings(
 
     source_id = _clean(settings["payment_account_id"])
     settings["payment_account_id"] = source_id or None
+    # G413: the match rule names a payment from the paying account, so it
+    # needs that account, and must be one of the two supported shapes.
+    raw_match = settings.get("payment_match")
+    if raw_match is None:
+        settings["payment_match"] = None
+    else:
+        match = _normalise_match_rule(raw_match)
+        if match is None:
+            raise HTTPException(400, "payment_match needs some text (at least 3 letters or digits) or a chosen payment")
+        if not source_id:
+            raise HTTPException(422, "Choose the paying account before adding a payment match rule")
+        settings["payment_match"] = match
     if not source_id:
         return settings
     # An APR or promo-only legacy save must not become impossible merely

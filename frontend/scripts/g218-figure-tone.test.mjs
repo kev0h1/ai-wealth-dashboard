@@ -22,7 +22,6 @@ assert.equal(isPlansOnlyShort({ ...ok, buffer: 40 }), false, "buffer eats the he
 assert.equal(isPlansOnlyShort({ ...ok, buffer: 40, lowest_projected_balance: 40 }), true);
 assert.equal(isPlansOnlyShort({ ...ok, commitments_reserved: 0, allocations_reserved: 0 }), false);
 assert.equal(isPlansOnlyShort({ ...ok, lowest_projected_balance: undefined }), false);
-assert.equal(isPlansOnlyShort({ ...ok, short_reason: "cards_unconfirmed" }), false);
 assert.equal(isPlansOnlyShort({ ...ok, state: "tight", safe_to_spend_cash: 20 }), false);
 // The server field wins when present.
 assert.equal(isPlansOnlyShort({ ...ok, plans_only_short: false }), false);

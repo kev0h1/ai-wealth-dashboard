@@ -529,7 +529,7 @@ oauth_tokens_col       = db["oauth_tokens"]
 # safe_to_spend_cash, state, spendable_now, bills_total,
 # income_before_payday, lowest_projected_balance, buffer,
 # commitments_reserved, allocations_reserved, card_growth_total,
-# card_growth_reserved, bills: [{name, amount, days_away}, ...] (the
+# bills: [{name, amount, days_away}, ...] (the
 # window's bill-list IDENTITY, not full transaction detail, so a future
 # diff can name which bill appeared/disappeared, not just that the total
 # moved)}. Written by app.workers.sync_worker.task_safe_to_spend_snapshot,

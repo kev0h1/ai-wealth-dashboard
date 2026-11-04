@@ -65,7 +65,6 @@ def build_snapshot_doc(uid: str, day: _date, computed_at: datetime, result: dict
         "commitments_reserved": result.get("commitments_reserved"),
         "allocations_reserved": result.get("allocations_reserved"),
         "card_growth_total": result.get("card_growth_total"),
-        "card_growth_reserved": result.get("card_growth_reserved"),
         # Bill-list IDENTITY, not full transaction detail — enough for a
         # future diff to name which bill appeared/disappeared between two
         # snapshots, not just that bills_total moved.

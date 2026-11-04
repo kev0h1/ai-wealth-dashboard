@@ -152,7 +152,7 @@
       "type": "ask"
     }
   ],
-  "name": "Learned card repayment releases the hold: the repayment is a cash payment instead of a reserve",
+  "name": "Learned card repayment is predicted as an ordinary payment from the paying account",
   "period": {
     "end": "2026-10-29",
     "start": "2026-09-25"
@@ -160,7 +160,6 @@
   "safe_to_spend": {
     "allocations_reserved": 0.0,
     "calculation_status": "complete",
-    "card_growth_reserved": 0,
     "commitments_reserved": 0,
     "safe_to_spend": 950.0,
     "safe_to_spend_cash": 950.0

@@ -352,7 +352,7 @@ def test_a_movement_between_two_pooled_accounts_does_not_reduce_cash(monkeypatch
     assert result["safe_to_spend"] == 603.0
 
 
-def test_reserve_still_catches_growth_with_no_predicted_repayment(monkeypatch):
+def test_no_reserve_is_held_for_growth_with_no_predicted_repayment(monkeypatch):
     """The dangerous-failure-mode check the ticket calls out by name: a
     card is growing (spending on it) but has NO learned repayment series at
     all, and this period's cache still carries a future occurrence of that
@@ -434,18 +434,18 @@ def test_reserve_still_catches_growth_with_no_predicted_repayment(monkeypatch):
     result = asyncio.run(analytics.compute_safe_to_spend(UID))
 
     # window_bills passed the £180 future charge through with is_credit_card
-    # excluded from the walk (bills_total stays 0), so nothing already
-    # accounted for it via the walk — the reserve must carry the full £200
-    # PAST growth (not £20 = 200 - 180, the pre-fix double-count-guard
-    # mismatch) PLUS the £180 not-yet-posted future charge on top.
+    # excluded from the walk (bills_total stays 0). G413 (Kevin, 2026-11-04,
+    # deliberate behaviour change): the old fail-closed reserve of 380 (200
+    # past growth plus the 180 future charge, giving -280) is retired. The
+    # charge is not cash leaving today and no repayment is predicted, so
+    # nothing is predicted and nothing is held back: 100 stays 100.
     assert result["bills_total"] == 0.0
     assert result["card_growth_total"] == 200.0
-    assert result["card_growth_reserved"] == 380.0
-    assert result["safe_to_spend"] == -280.0
-    assert result["state"] == "short"
+    assert "card_growth_reserved" not in result
+    assert result["safe_to_spend"] == 100.0
 
 
-def test_reserve_catches_a_not_yet_posted_charge_even_with_zero_past_growth(monkeypatch):
+def test_a_not_yet_posted_card_charge_is_not_held_back_either(monkeypatch):
     """The purest form of the gap: a card with NO transaction history at
     all this period (growth=0 — e.g. a brand new card, or one that simply
     hasn't been used until today) whose only exposure is a single
@@ -499,8 +499,8 @@ def test_reserve_catches_a_not_yet_posted_charge_even_with_zero_past_growth(monk
 
     assert result["bills_total"] == 0.0  # the charge never enters the cash walk
     assert result["card_growth_total"] == 0.0  # nothing has posted — the descriptive fact stays honest
-    assert result["card_growth_reserved"] == 45.0  # but the forecasted charge is still reserved for
-    assert result["safe_to_spend"] == 155.0  # 200 - 45, not 200
+    assert "card_growth_reserved" not in result  # G413: no reserve, even for a forecast charge
+    assert result["safe_to_spend"] == 200.0  # was 155.0 (200 - 45) before Kevin's G413 decision
 
 
 # ── H98 guard: the fourth blockage cannot come from this file ──────────────

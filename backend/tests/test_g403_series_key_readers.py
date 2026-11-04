@@ -110,8 +110,8 @@ def test_debt_plan_maps_a_per_card_series_to_its_card(monkeypatch):
 
 
 def test_learned_card_repayment_destination_uses_the_per_card_key():
-    """The learned-repayment path behind card_growth_reserved keys by the
-    wrapper too; end to end card_growth_reserved is unproven until UAT."""
+    """The learned-repayment path behind a card's predicted bill keys by the
+    wrapper too; end to end it is unproven until UAT (G413 retired the reserve)."""
     kinds = dict(BUILTIN_CATEGORY_KINDS)
     account_map = {
         "bank1": {"name": "Current", "balance": 500.0, "provider": "Bank", "is_credit_card": False, "is_spendable": True},

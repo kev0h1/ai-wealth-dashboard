@@ -366,7 +366,6 @@
   "safe_to_spend": {
     "allocations_reserved": 0.0,
     "calculation_status": "complete",
-    "card_growth_reserved": 0.0,
     "commitments_reserved": 554.48,
     "safe_to_spend": 2845.52,
     "safe_to_spend_cash": 2845.52

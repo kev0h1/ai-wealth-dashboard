@@ -68,15 +68,12 @@ def _per_day_line(per_day: float) -> str:
     return f"That's about {_fmt_rate(per_day)} a day"
 
 
-# Safe-to-Spend is cash-led. Card growth is returned as a separate fact and
-# only an unconfirmed repayment can still create a card-related short state.
+# Safe-to-Spend is cash-led. Card growth is returned as a separate fact only.
 def _nothing_spare_line(payday_label: str | None, short_reason: str | None, plans_only: bool = False) -> str:
     until = f"until {payday_label}" if payday_label else "until payday"
     if plans_only:
         # G218: short only because of set-asides; the bills themselves are covered.
         return f"Nothing spare {until} once your set-asides are counted; your bills are covered"
-    if short_reason == "cards_unconfirmed":
-        return f"Nothing spare {until}. A card repayment still needs confirming"
     return f"Nothing spare {until}, bills come first"
 
 
@@ -314,7 +311,6 @@ async def check_affordability(uid: str, amount: float, timeframe: str | None = N
         "plans_only_short": bool(sts.get("plans_only_short")),
         "bills_total": _money(sts.get("bills_total")),
         "card_growth": _money(sts.get("card_growth_total")),
-        "card_growth_reserved": _money(sts.get("card_growth_reserved")),
         "card_growth_wording": sts.get("card_growth_wording"),
         "card_growth_due_date": sts.get("card_growth_due_date"),
     }

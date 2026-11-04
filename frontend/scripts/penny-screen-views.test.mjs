@@ -107,21 +107,11 @@ const shortSts = {
   check("short figure keeps the signed amount shown on Home", view.figures[0].value, "−£45");
 }
 
-// cards_unconfirmed short carve-out — never treated as a genuine shortfall
-// for the figure/label (SafeToSpendCard.tsx's own isCardsUnconfirmedShort
-// branch keeps the ordinary "Estimated left to spend" framing at £0, not a red
-// "short" figure — a repayment that hasn't been matched yet is not the
-// same as the user actually running out of cash).
-const cardsUnconfirmedSts = {
-  ...comfortableSts,
-  safe_to_spend: -10,
-  state: "short",
-  short_reason: "cards_unconfirmed",
-};
+// G413: the cards_unconfirmed carve-out is retired. A short state is always a
+// genuine shortfall, with no card special case.
 {
-  const headline = deriveSafeToSpendHeadline(cardsUnconfirmedSts);
-  check("cards-unconfirmed short label", headline.stateLabel, "Check card bill");
-  check("cards-unconfirmed short hero amount is zero, not the raw negative", headline.heroAmount, 0);
+  const headline = deriveSafeToSpendHeadline({ ...comfortableSts, safe_to_spend: -10, state: "short", short_reason: "bills" });
+  check("short label is always Short", headline.stateLabel, "Short");
 }
 
 // ── Spend period view — pure mapping over an already-server-computed

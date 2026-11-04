@@ -10,8 +10,8 @@
       "low_point_and_plans": 1350.0,
       "plans_reserved": 0.0,
       "short": false,
-      "spend_from_capped": true,
-      "spend_from_headroom": 430.0,
+      "spend_from_capped": false,
+      "spend_from_headroom": 1350.0,
       "uncertain": false
     }
   },
@@ -124,7 +124,7 @@
       "type": "ask"
     }
   ],
-  "name": "Unconfirmed card bill hold: card growth with no learned repayment is reserved (fail closed)",
+  "name": "Unconfirmed card growth is not held back: a card with no learned repayment is simply not predicted (G413)",
   "period": {
     "end": "2026-10-29",
     "start": "2026-09-25"
@@ -132,9 +132,8 @@
   "safe_to_spend": {
     "allocations_reserved": 0.0,
     "calculation_status": "complete",
-    "card_growth_reserved": 920.0,
     "commitments_reserved": 0,
-    "safe_to_spend": 430.0,
+    "safe_to_spend": 1350.0,
     "safe_to_spend_cash": 1350.0
   },
   "today": "2026-10-12"

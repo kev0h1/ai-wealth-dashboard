@@ -77,7 +77,7 @@ const short = render({ data: FIGURE_DATA["short-cash"] });
 const row = short.slice(short.indexOf("data-g219-action-row"));
 assert.ok(row.includes("See what’s due"), "recovery button in the action row");
 assert.equal(count(short, "<button"), count(short, "See what’s due"), "one primary button only");
-assert.match(render({ data: FIGURE_DATA.card }), /Review card bill/);
+assert.doesNotMatch(render({ data: FIGURE_DATA.card }), /Review card bill/, "G413: no card-bill recovery action");
 
 // 7. The existing tight/high-card-debt route lives inside card evidence,
 // including when repayments leave zero growth or there is no period activity.
@@ -87,10 +87,10 @@ assert.match(cardStyles,/\.cardsButton:focus-visible \{[^}]*outline: 2px/);
 assert.match(cardStyles,/\.cardsButton \{[^}]*background: #4f46e5/);
 const hero = html => html.slice(html.indexOf("data-g324-hero"), html.indexOf("data-g324-evidence"));
 for (const patch of [
-  { card_growth_total: 420, card_new_spend_total: 420, card_growth_reserved: 0 },
-  { card_growth_total: 420, card_new_spend_total: 200, card_growth_reserved: 20 },
-  { card_growth_total: 0, card_new_spend_total: 420, card_growth_reserved: 0 },
-  { card_growth_total: 0, card_new_spend_total: 0, card_growth_reserved: 0 },
+  { card_growth_total: 420, card_new_spend_total: 420 },
+  { card_growth_total: 420, card_new_spend_total: 200 },
+  { card_growth_total: 0, card_new_spend_total: 420 },
+  { card_growth_total: 0, card_new_spend_total: 0 },
 ]) {
   const data = { ...FIGURE_DATA.tight, card_debt: 1800, ...patch };
   for (const hidden of [false, true]) {
@@ -99,7 +99,7 @@ for (const patch of [
     const card = html.slice(html.indexOf("data-g324-card-activity"));
     assert.equal(count(card, 'href="/cards"'), 1, "one real Cards route within card evidence");
     assert.match(card, /class="[^"]*cardsButton[^"]*"[^>]*>See your cards/);
-    if (patch.card_growth_reserved) assert.match(card, /Repayment not confirmed/);
+    assert.doesNotMatch(card, /Repayment not confirmed/);
     if (hidden) assert.doesNotMatch(html, /£\d/, "amounts remain masked in DOM and accessible names");
   }
   assert.doesNotMatch(render({ data, syncing: SYNCING_INFO }), /See your cards/, "sync does not offer a stale recovery action");

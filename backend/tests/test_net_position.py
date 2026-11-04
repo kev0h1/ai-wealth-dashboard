@@ -305,21 +305,18 @@ def test_card_growth_by_card_returns_none_when_lookup_fails(monkeypatch):
 # ── short_reason_for ──────────────────────────────────────────────────────
 
 def test_short_reason_none_when_not_short():
-    assert short_reason_for("comfortable", 500.0, 0.0) is None
-    assert short_reason_for("tight", 50.0, 40.0) is None
+    assert short_reason_for("comfortable", 500.0) is None
+    assert short_reason_for("tight", 50.0) is None
 
 
 def test_short_reason_bills_when_cash_pot_itself_non_positive():
-    assert short_reason_for("short", 0.0, 40.0) == "bills"
-    assert short_reason_for("short", -20.0, 0.0) == "bills"
-
-
-def test_short_reason_cards_unconfirmed_when_fallback_reserve_makes_it_short():
-    assert short_reason_for("short", 40.0, 120.0) == "cards_unconfirmed"
+    assert short_reason_for("short", 0.0) == "bills"
+    assert short_reason_for("short", -20.0) == "bills"
 
 
 def test_short_reason_defensive_none_for_contradictory_short_state():
-    assert short_reason_for("short", 40.0, 0.0) is None
+    # G413: the card fallback reserve is retired, so positive cash is never short.
+    assert short_reason_for("short", 40.0) is None
 
 
 # ── plans_only_short_for (G218) ───────────────────────────────────────────
@@ -339,7 +336,7 @@ def test_plans_only_short_false_when_bills_or_buffer_cause_it():
 def test_plans_only_short_false_for_other_states_and_unknowns():
     assert plans_only_short_for("tight", None, 20.0, 0.0, 0.0, 50, 0.0) is False
     assert plans_only_short_for("comfortable", None, 500.0, 600.0, 0.0, 50, 0.0) is False
-    assert plans_only_short_for("short", "cards_unconfirmed", 40.0, 0.0, 0.0, 50, 0.0) is False
+    assert plans_only_short_for("short", None, 40.0, 0.0, 0.0, 50, 0.0) is False
     assert plans_only_short_for("short", "bills", -250.0, None, 0.0, 50, 200.0) is False
     assert plans_only_short_for("short", "bills", -250.0, 0.0, 0.0, 0, 0.0) is False
 

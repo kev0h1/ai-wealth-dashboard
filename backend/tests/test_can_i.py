@@ -499,8 +499,8 @@ def test_can_i_suggestions_negative_safe_to_spend_uses_reassurance_chips(monkeyp
         return {
             "status": "ok", "safe_to_spend": -83.0, "days_until_payday": 3,
             "next_payday": "2026-08-28", "state": "short",
-            "short_reason": "cards_unconfirmed", "card_growth_total": 83.0,
-            "card_growth_reserved": 83.0, "card_growth_wording": "carried",
+            "short_reason": "bills", "card_growth_total": 83.0,
+            "card_growth_wording": "carried",
         }
 
     monkeypatch.setattr(can_i_module, "get_cached_safe_to_spend", fake_sts)
@@ -508,7 +508,7 @@ def test_can_i_suggestions_negative_safe_to_spend_uses_reassurance_chips(monkeyp
     labels = [c["label"] for c in result["chips"]]
     assert labels == can_i_module._REASSURANCE_CHIPS
     assert "−£" not in result["context_line"] and "-£" not in result["context_line"]
-    assert "repayment still needs confirming" in result["context_line"]
+    assert "bills come first" in result["context_line"]
     assert "£83 added to card balances this pay period" in result["context_line"]
 
 
@@ -556,7 +556,7 @@ def test_can_i_suggestions_keeps_card_growth_separate_from_positive_cash(monkeyp
         return {
             "status": "ok", "safe_to_spend": 38.0, "days_until_payday": 4,
             "next_payday": "2026-09-13", "state": "tight", "short_reason": None,
-            "card_growth_total": 761.0, "card_growth_reserved": 0.0,
+            "card_growth_total": 761.0,
             "card_growth_wording": "cleared_monthly",
             "card_growth_due_date": "2026-09-18",
         }

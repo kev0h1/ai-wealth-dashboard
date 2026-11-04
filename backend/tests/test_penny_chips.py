@@ -135,7 +135,7 @@ def test_home_payday_status_short_bills_quotes_cash_not_net_when_card_growth_pre
         return {
             "status": "ok", "state": "short", "short_reason": "bills",
             "safe_to_spend": -803.0, "safe_to_spend_cash": -42.0,
-            "card_growth_total": 761.0, "card_growth_reserved": 761.0,
+            "card_growth_total": 761.0,
             "card_growth_wording": "carried", "days_until_payday": 4,
             "next_payday": "2026-09-13", "lowest_projected_balance": None,
             "calculation_status": "complete",
@@ -170,13 +170,15 @@ def test_home_payday_status_short_bills_falls_back_to_net_when_cash_missing(monk
     _assert_house_style(answer)
 
 
-def test_home_payday_status_unconfirmed_card_short_never_says_short_of_covering(monkeypatch):
+def test_home_payday_status_card_growth_never_reads_as_a_hold(monkeypatch):
+    # G413: a card with growth and no predicted repayment holds nothing back.
+    # The chip quotes the cash figure, then the card fact separately.
     async def fake_sts(uid):
         return {
-            "status": "ok", "state": "short", "short_reason": "cards_unconfirmed",
-            "safe_to_spend": -120.0, "days_until_payday": 6,
+            "status": "ok", "state": "tight", "short_reason": None,
+            "safe_to_spend": 120.0, "days_until_payday": 6,
             "next_payday": "2026-09-12", "lowest_projected_balance": None,
-            "card_growth_total": 200.0, "card_growth_reserved": 200.0,
+            "card_growth_total": 200.0,
             "card_growth_wording": "carried",
             "calculation_status": "complete",
         }
@@ -184,9 +186,8 @@ def test_home_payday_status_unconfirmed_card_short_never_says_short_of_covering(
 
     result = _run(answer_chip(UID, "home_payday_status", None))
     answer = result["answer"]
-    assert "card repayment still needs confirming" in answer
-    assert "short of covering this pay period" not in answer
-    assert "£120" not in answer  # bills are covered, no cash-shortfall figure to quote
+    assert "needs confirming" not in answer
+    assert "£120" in answer
     assert "£200 was added to your card balances this pay period" in answer
     _assert_house_style(answer)
 
@@ -197,7 +198,7 @@ def test_home_payday_status_positive_cash_mentions_clear_monthly_card_due_date(m
             "status": "ok", "state": "tight", "safe_to_spend": 38.0,
             "days_until_payday": 4, "next_payday": "2026-09-13",
             "lowest_projected_balance": None, "calculation_status": "complete",
-            "card_growth_total": 761.0, "card_growth_reserved": 0.0,
+            "card_growth_total": 761.0,
             "card_growth_wording": "cleared_monthly",
             "card_growth_due_date": "2026-09-18",
         }

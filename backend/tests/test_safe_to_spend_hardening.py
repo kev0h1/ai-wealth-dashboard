@@ -261,7 +261,7 @@ def test_safe_to_spend_returns_lowest_projected_balance_and_reconciles_cash(monk
     assert result["safe_to_spend_cash"] == 51.0
     assert result["safe_to_spend"] == 51.0
     assert result["card_growth_total"] == 3.0
-    assert result["card_growth_reserved"] == 0.0
+    assert "card_growth_reserved" not in result  # G413: no card reserve exists
     assert result["card_growth_wording"] == "cleared_monthly"
     assert result["card_growth_due_date"] == due_date
     assert result["bills_total"] == 30.0
@@ -275,7 +275,7 @@ def test_safe_to_spend_returns_lowest_projected_balance_and_reconciles_cash(monk
     )
 
 
-def test_safe_to_spend_reserves_only_growth_without_a_learned_repayment(monkeypatch):
+def test_safe_to_spend_never_reserves_card_growth_without_a_learned_repayment(monkeypatch):
     monkeypatch.setattr(analytics, "preferences_col", _PrefsCol({"user_id": "user@example.com"}))
     monkeypatch.setattr(analytics, "cashflow_cache_col", _CacheDocCol({
         "_id": "user@example.com", "recurring_spend": [],
@@ -318,16 +318,16 @@ def test_safe_to_spend_reserves_only_growth_without_a_learned_repayment(monkeypa
 
     assert result["safe_to_spend_cash"] == 100.0
     assert result["card_growth_total"] == 150.0
-    # The unlearned card grew by £200, but a £50 paydown elsewhere means
-    # the portfolio grew by £150. The fallback reserve is capped to that
-    # visible total so the card fact and arithmetic still reconcile.
-    assert result["card_growth_reserved"] == 150.0
-    assert result["safe_to_spend"] == -50.0
-    assert result["state"] == "short"
-    assert result["short_reason"] == "cards_unconfirmed"
+    # G413 (Kevin, 2026-11-04): the unlearned card grew by £200 and a £50
+    # paydown elsewhere nets the visible fact to £150, but nothing is held
+    # back. A card with no predicted repayment is simply not predicted.
+    assert "card_growth_reserved" not in result
+    assert result["safe_to_spend"] == 100.0
+    assert result["state"] == "comfortable"
+    assert result["short_reason"] is None
 
 
-def test_safe_to_spend_fails_closed_when_card_growth_cannot_be_verified(monkeypatch):
+def test_safe_to_spend_card_growth_fact_failure_never_degrades_the_cash_figure(monkeypatch):
     monkeypatch.setattr(analytics, "preferences_col", _PrefsCol({"user_id": "user@example.com"}))
     monkeypatch.setattr(analytics, "cashflow_cache_col", _CacheDocCol())
 
@@ -362,9 +362,12 @@ def test_safe_to_spend_fails_closed_when_card_growth_cannot_be_verified(monkeypa
 
     result = asyncio.run(analytics.compute_safe_to_spend("user@example.com"))
 
-    assert result["calculation_status"] == "degraded"
-    assert result["unavailable_components"] == ["card_growth_reserve"]
-    assert result["safe_to_spend"] == 0.0
+    # G413: card growth is an information fact only, so failing to read it
+    # neither degrades the calculation nor clamps the cash figure.
+    assert result["calculation_status"] == "complete"
+    assert result["unavailable_components"] == []
+    assert result["safe_to_spend"] == 100.0
+    assert result["card_growth_total"] == 0.0
     assert result["short_reason"] is None
 
 
@@ -527,8 +530,9 @@ def test_safe_to_spend_pins_against_a_fixed_transaction_fixture(monkeypatch):
     # after commitments_reserved (40): 250 - 40 = 210.0
     # after allocations_reserved (30.5): 210 - 30.5 = 179.5  (== safe_to_spend_cash)
     # card_growth_total = 120 (Card A, learned) + 80 (Card B, unlearned) = 200.0
-    # card_growth_reserved = min(200.0, unlearned_growth=80.0) = 80.0
-    # final safe_to_spend: 179.5 - 80.0 = 99.5
+    # G413: no card reserve (the old rule held min(200.0, unlearned 80.0) = 80.0
+    # and gave 99.5; deliberate change by Kevin, 2026-11-04).
+    # final safe_to_spend: 179.5
 
     def fake_confirmed_payday(_prefs, _today):
         return (next_payday, {"schedule": "fixed"})
@@ -587,8 +591,8 @@ def test_safe_to_spend_pins_against_a_fixed_transaction_fixture(monkeypatch):
     assert result["calculation_status"] == "complete"
     assert result["unavailable_components"] == []
 
-    # The composed headline figure and its pre-card-reserve twin.
-    assert result["safe_to_spend"] == 99.5
+    # The composed headline figure and its cash twin (equal since G413).
+    assert result["safe_to_spend"] == 179.5
     assert result["safe_to_spend_cash"] == 179.5
 
     # Every named component that feeds it, so a future change can never
@@ -606,7 +610,7 @@ def test_safe_to_spend_pins_against_a_fixed_transaction_fixture(monkeypatch):
     assert result["card_debt"] == 550.0
     assert result["card_growth_total"] == 200.0
     assert result["card_new_spend_total"] == 170.0
-    assert result["card_growth_reserved"] == 80.0
+    assert "card_growth_reserved" not in result
     assert result["card_growth_wording"] == "carried"
     assert result["card_growth_due_date"] is None
     assert result["commitments_reserved"] == 40

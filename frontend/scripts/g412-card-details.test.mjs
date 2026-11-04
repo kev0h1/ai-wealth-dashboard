@@ -22,4 +22,12 @@ assert.match(sheet, /No connected current account is available to choose\./, "em
 assert.match(accounts, /account\.include_in_safe_to_spend !== false/, "excluded accounts cannot be selected");
 assert.match(api, /export type CardStatementBill/, "the API documents the server bill response");
 assert.match(api, /statement_bill\?: CardStatementBill \| null/, "older cached responses remain valid");
+// G413: the optional match rule lives in the same section, needs the paying account, and says what it does in plain words.
+assert.match(sheet, /Which payment is this bill\?/, "the rule question is in the payment section");
+assert.match(sheet, /paymentAccountId && matchKind === "contains"/, "a rule is only sent with a paying account");
+assert.match(sheet, /payment_match: paymentMatch/, "the rule is saved with the other payment fields");
+assert.match(sheet, /getCardPayerPayments\(currentId, paymentAccountId\)/, "picking reads the paying account's recent payments");
+assert.doesNotMatch(sheet, /No rule[^<]*!|Contains text[^<]*!/, "no exclamation marks");
+assert.match(api, /payment_match\?: CardPaymentMatch \| null/, "the API type carries the rule");
+assert.match(api, /rule_status\?: "matched" \| "unmatched" \| "unknown"/, "the bill carries the quiet rule status");
 console.log("g412-card-details: ok");

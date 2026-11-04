@@ -374,7 +374,6 @@ def test_get_safe_to_spend_returns_cash_and_card_growth_as_separate_facts(monkey
             "bills_total": 332.0,
             "card_debt": 2104.0,
             "card_growth_total": 761.0,
-            "card_growth_reserved": 0.0,
             "card_growth_wording": "cleared_monthly",
             "card_growth_due_date": "2026-09-18",
             "estimated": False,
@@ -386,7 +385,7 @@ def test_get_safe_to_spend_returns_cash_and_card_growth_as_separate_facts(monkey
     assert result["safe_to_spend"] == {"raw": 38.0, "formatted": "£38"}
     assert result["safe_to_spend_cash"] == {"raw": 38.0, "formatted": "£38"}
     assert result["card_growth"] == {"raw": 761.0, "formatted": "£761"}
-    assert result["card_growth_reserved"] == {"raw": 0.0, "formatted": "£0"}
+    assert "card_growth_reserved" not in result
     assert result["card_growth_wording"] == "cleared_monthly"
     assert result["card_growth_due_date"] == "2026-09-18"
 
@@ -829,7 +828,7 @@ def test_get_accounts_includes_recorded_card_payment_settings(monkeypatch):
         "product_key": None, "usage": None, "statement_close_day": 4,
         "payment_due_day": None, "payment_due_days_after_close": 25,
         "payment_method": "fixed", "payment_account_id": "cash1",
-        "fixed_payment_amount": 125,
+        "fixed_payment_amount": 125, "payment_match": None,
     }
 
 

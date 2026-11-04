@@ -19,13 +19,17 @@ import React from 'react';import{createRoot}from'react-dom/client';
 import styles from './components/AccountDetailLayout.module.css';
 import CardDetailsSections from './components/CardDetailsSections';import{SheetFrame}from'./components/SheetFrame';
 import{BalancesHiddenContext}from'./lib/balancesHidden';
+import CardTermsSheet from './components/CardTermsSheet';
 import{Star,Trash2}from'lucide-react';
-const params=new URLSearchParams(location.search),dated=params.get('dates')!=='none',hidden=params.get('hidden')==='true';
+// The harness blocks every /api request, so the picker's one read is answered in the page.
+const realFetch=globalThis.fetch;globalThis.fetch=(u,...r)=>String(u).includes('/recent-payments')?Promise.resolve(new Response(JSON.stringify({status:'ok',payments:[{series_key:'American Express 20001',label:'AMERICAN EXPRESS …20001',last_amount:301,last_date:'2026-10-09'},{series_key:'American Express 20002',label:'AMERICAN EXPRESS …20002 PAYMENT REFERENCE WITH A LONG TRAILING NARRATIVE',last_amount:75.5,last_date:'2026-10-02'},{series_key:'Council Tax',label:'COUNCIL TAX',last_amount:150,last_date:'2026-10-20'}]}),{status:200,headers:{'Content-Type':'application/json'}})):realFetch(u,...r);
+const params=new URLSearchParams(location.search),dated=params.get('dates')!=='none',hidden=params.get('hidden')==='true',view=params.get('view')||'details',rule=params.get('rule')||'none';
+const match=rule==='contains'||rule==='unmatched'?{kind:'contains',text:'3799-111111-20001'}:rule==='payment'?{kind:'payment',series_key:'American Express 20001',label:'AMERICAN EXPRESS …20001'}:null;
 const bill={statement_start:'2026-09-04',statement_close:'2026-10-03',payment_due:'2026-10-28',next_payment_due:'2026-11-28',estimated_bill:720,payment_amount:720,payment_remaining:720,paid_since_close:0,spending_since_close:200,payment_method:'full',payment_account_id:'pay',status:'estimated',reason:null,estimated:true,next_payday:'2026-10-30',due_before_payday:true};
 const terms={status:'confirmed',apr_pct:22.9,promos:[{kind:'purchases',apr_pct:0,until:'2099-05-31'}],bt_offers:[{ends:'2099-08-31',fee_pct:2.5,note:null}],bt_offer_note:null,min_payment_note:null,confirmed_at:null,product_key:null,usage:dated?'clear_monthly':null,
- statement_close_day:dated?3:null,payment_due_day:dated?28:null,payment_due_days_after_close:null,payment_method:dated?'full':null,payment_account_id:dated?'pay':null,fixed_payment_amount:null};
-const card={account_id:'c1',name:'Example Rewards Card',provider:'Example Bank',balance:-920,currency:'GBP',source:'finexer',ask_eligible:false,statement_bill:dated?bill:null,terms};
-createRoot(document.getElementById('root')).render(<BalancesHiddenContext.Provider value={hidden}><main data-ready>
+ statement_close_day:dated?3:null,payment_due_day:dated?28:null,payment_due_days_after_close:null,payment_method:dated?'full':null,payment_account_id:dated?'pay':null,fixed_payment_amount:null,payment_match:match};
+const card={account_id:'c1',name:'Example Rewards Card',provider:'Example Bank',balance:-920,currency:'GBP',source:'finexer',ask_eligible:false,statement_bill:dated?(rule==='unmatched'?{...bill,rule_status:'unmatched'}:bill):null,terms};
+if(view==='editor'){createRoot(document.getElementById('root')).render(<BalancesHiddenContext.Provider value={hidden}><main data-ready><CardTermsSheet cards={[card]} ready startAccountId='c1' onClose={()=>{}} onSaved={()=>{}} paymentAccounts={[{id:'pay',name:'Example Current',provider:'Example Bank'}]}/></main></BalancesHiddenContext.Provider>);}else createRoot(document.getElementById('root')).render(<BalancesHiddenContext.Provider value={hidden}><main data-ready>
 <SheetFrame title='Account details' description='Credit card · Example Bank' variant='focused' onClose={()=>{}}>{()=><div className='divide-y divide-slate-200 dark:divide-slate-700 [&>*]:py-4 [&>*:first-child]:pt-0 [&>*:last-child]:pb-0'>
 <CardDetailsSections card={card} hiddenOverride={hidden} paymentAccounts={[{id:'pay',name:'Example Current'}]} onEditPayment={()=>{}} onEditRates={()=>{}}/>
 <div data-g412-section='connection'><h3 className='mb-1 text-base font-bold text-slate-900 dark:text-slate-100'>Connection</h3><p className='mb-2 text-[13px] text-slate-600 dark:text-slate-300'>Connected until 21 January 2027</p><button className='min-h-11 text-[13px] font-semibold'>Refresh bank data</button></div>
@@ -51,6 +55,30 @@ try {
     if(hidden==='true')assert.equal(/£\d/.test(await browser.evaluate('document.body.innerHTML')),false,'masked');
     if(dates==='none')assert.equal(/statement dates|Add statement/i.test(text),false,'no nudge');
     await browser.shot(`sheet-${theme}-${dates}-${hidden==='true'?'masked':'shown'}`);
+  }
+  // G413: the Bill payment row and the quiet unmatched line in the details sheet.
+  for(const theme of ['light','dark'])for(const hidden of ['false','true'])for(const rule of ['contains','unmatched','payment']){
+    await browser.navigate(`/?dates=yes&hidden=${hidden}&rule=${rule}`,"document.querySelector('[data-g412-section=payment]')");
+    await browser.evaluate(`document.documentElement.className=${JSON.stringify(theme==='dark'?'dark':'')}`);await browser.settle();
+    assert.equal(await browser.evaluate('document.documentElement.scrollWidth>innerWidth'),false);
+    const text=await browser.evaluate('document.body.innerText');
+    assert.match(text,/Bill payment/);
+    assert.equal(/3799|111111/.test(text),false,'card number masked');
+    assert.equal(/No payment matched this rule in the last two statements\./.test(text),rule==='unmatched');
+    await browser.shot(`rule-row-${rule}-${theme}-${hidden==='true'?'masked':'shown'}`);
+  }
+  // G413: the match-rule editor at 390px: the three-chip choice, the contains input and the picker.
+  for(const theme of ['light','dark'])for(const hidden of ['false','true'])for(const rule of ['none','contains','payment']){
+    await browser.navigate(`/?view=editor&dates=yes&hidden=${hidden}&rule=${rule}`,"document.querySelector('[data-g413-match-rule]')");
+    await browser.evaluate(`document.documentElement.className=${JSON.stringify(theme==='dark'?'dark':'')}`);await browser.settle();
+    if(rule==='payment')await browser.waitFor("document.querySelectorAll('[data-g413-match-rule] [role=radio]').length>=6");
+    await browser.evaluate("document.querySelector('[data-g413-match-rule]').scrollIntoView({block:'start'})");await browser.settle();
+    assert.equal(await browser.evaluate('document.documentElement.scrollWidth>innerWidth'),false);
+    const clipped=await browser.evaluate("[...document.querySelectorAll('[data-g413-match-rule] [role=radio]')].filter(b=>b.scrollWidth>b.clientWidth+1).map(b=>b.innerText)");
+    assert.deepEqual(clipped,[],'no clipped chip or option');
+    const legend=await browser.evaluate("document.querySelector('[data-g413-match-rule]').innerText");
+    assert.equal(/3799-111111|111111/.test(legend),false,'picker never shows a full card number');
+    await browser.shot(`rule-editor-${rule}-${theme}-${hidden==='true'?'masked':'shown'}`);
   }
   assert.deepEqual(browser.exceptions,[]);
 }finally{browser.close();await new Promise(resolve=>server.close(resolve))}

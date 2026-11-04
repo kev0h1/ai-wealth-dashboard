@@ -31,6 +31,7 @@ assert.match(text(renderScenario({patch:smallPositive})),/£0\.42/);
 for(const state of ['degraded','cold-sync','error','loading'])assert.doesNotMatch(text(renderScenario({state})),/How we got £0 short/);
 console.log('G330: neutral zero, signed penny gaps, positive pennies, masking and unavailable states passed');
 
-const pennyReserve={...zero,safe_to_spend:-0.10,safe_to_spend_cash:0.32,lowest_projected_balance:0.32,short_reason:'cards_unconfirmed',card_growth_reserved:0.42,card_growth_total:0.42,card_new_spend_total:0.42};
-assert.match(text(renderScenario({patch:pennyReserve})), /£0\.42 held while a card bill is unconfirmed, leaving a £0\.10 safety shortfall/);
-assert.doesNotMatch(renderScenario({patch:pennyReserve,hidden:true}),/£\d/);
+// G413: no card reserve exists, so a card with growth never produces a hold line.
+const pennyCard={...zero,safe_to_spend:0.32,safe_to_spend_cash:0.32,lowest_projected_balance:0.32,state:'tight',card_growth_total:0.42,card_new_spend_total:0.42};
+assert.doesNotMatch(text(renderScenario({patch:pennyCard})), /held while a card bill|safety shortfall/);
+assert.doesNotMatch(renderScenario({patch:pennyCard,hidden:true}),/£\d/);

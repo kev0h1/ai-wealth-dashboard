@@ -43,6 +43,23 @@ assert.doesNotMatch(quiet, /data-g412-estimate/);
 assert.doesNotMatch(quiet, /Add statement|add its statement|statement dates/i);
 assert.match(quiet, /Statement closes[\s\S]*Not set/);
 
+// G413: the match rule is shown, and a rule that matched nothing in two statements says so once, quietly, here only.
+const ruled = { ...dated, terms: { ...dated.terms, payment_match: { kind: "contains", text: "20001" } } };
+const matchedHtml = render({ ...ruled, statement_bill: { ...bill, rule_status: "matched" } }, false);
+assert.match(matchedHtml, /Bill payment/); assert.match(matchedHtml, /Contains 20001/);
+assert.doesNotMatch(matchedHtml, /No payment matched this rule/);
+const unmatchedHtml = render({ ...ruled, statement_bill: { ...bill, rule_status: "unmatched" } }, false);
+assert.match(unmatchedHtml, /No payment matched this rule in the last two statements\./);
+assert.equal((unmatchedHtml.match(/No payment matched this rule/g) || []).length, 1, "said once");
+assert.doesNotMatch(render({ ...dated, statement_bill: { ...bill, rule_status: "unmatched" } }, false), /No payment matched/, "no rule, no line");
+assert.doesNotMatch(unmatchedHtml, /—|!/);
+// Privacy: a card number in a rule's text or label shows its last five digits only.
+const pan = render({ ...ruled, terms: { ...ruled.terms, payment_match: { kind: "payment", series_key: "K", label: "AMERICAN EXPRESS 3799-111111-20001" } } }, false);
+assert.match(pan, /AMERICAN EXPRESS …20001/); assert.doesNotMatch(pan, /3799|111111/);
+const panText = render({ ...ruled, terms: { ...ruled.terms, payment_match: { kind: "contains", text: "3799 111111 20001" } } }, false);
+assert.match(panText, /Contains …20001/); assert.doesNotMatch(panText, /3799|111111/);
+assert.match(render({ ...ruled, terms: { ...ruled.terms, payment_match: { kind: "payment", series_key: "K", label: "EXAMPLE DD" } } }, false), /EXAMPLE DD/);
+
 // A settled bill reads Paid, never "due" with the amount still owing; a part-paid bill shows what is left.
 const paid = render({ ...dated, statement_bill: { ...bill, status: "paid", payment_remaining: 0, paid_since_close: 412.5 } }, false);
 assert.match(paid, />Paid</); assert.doesNotMatch(paid, /Payment due 28 October/);

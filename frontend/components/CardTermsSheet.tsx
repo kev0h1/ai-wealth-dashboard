@@ -3,12 +3,13 @@ import { useEffect, useMemo, useState } from "react";
 import { ChevronDown, X } from "lucide-react";
 import { BANK_META, BankBadge, bankKey, bankLogoSrc } from "@/components/AccountMiniCard";
 import { RadioDot } from "@/components/PlanOneOffSheet";
-import { api, BtOffer, CardPromo, CardPromoKind, CardTermsCard, CardTermsLookup } from "@/lib/api";
+import { api, BtOffer, CardPayerPayment, CardPaymentMatch, CardPromo, CardPromoKind, CardTermsCard, CardTermsLookup } from "@/lib/api";
 import { usePreferences } from "@/components/PreferencesContext";
 import Spinner from "@/components/Spinner";
 import MoneyText from "@/components/MoneyText";
 import { SheetFrame } from "@/components/SheetFrame";
 import { DateField } from "@/components/DatePicker";
+import { maskLongDigits } from "@/lib/maskLongDigits";
 
 interface CardTermsSheetProps {
   /** All the user's credit cards, from GET /card-terms */
@@ -25,6 +26,11 @@ interface CardTermsSheetProps {
 }
 
 type PaymentMethod = "full" | "minimum" | "fixed" | "manual";
+type MatchKind = "none" | "contains" | "payment";
+
+function matchKindOf(rule: CardPaymentMatch | null | undefined): MatchKind {
+  return rule?.kind === "contains" ? "contains" : rule?.kind === "payment" ? "payment" : "none";
+}
 
 const PROMO_KINDS: { value: CardPromoKind; label: string }[] = [
   { value: "purchases", label: "Purchases" },
@@ -238,6 +244,14 @@ export default function CardTermsSheet({ cards, ready, startAccountId, onClose, 
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod | null>(current?.terms?.payment_method ?? null);
   const [paymentAccountId, setPaymentAccountId] = useState<string>(current?.terms?.payment_account_id ?? "");
   const [fixedPayment, setFixedPayment] = useState<string>(current?.terms?.fixed_payment_amount?.toString() ?? "");
+  // G413: optional rule naming which payment from the paying account is this card's bill.
+  const [matchKind, setMatchKind] = useState<MatchKind>(matchKindOf(current?.terms?.payment_match));
+  const [matchText, setMatchText] = useState<string>(current?.terms?.payment_match?.kind === "contains" ? current.terms.payment_match.text : "");
+  const [matchPicked, setMatchPicked] = useState<{ series_key: string; label?: string } | null>(
+    current?.terms?.payment_match?.kind === "payment" ? { series_key: current.terms.payment_match.series_key, label: current.terms.payment_match.label } : null,
+  );
+  const [payerPayments, setPayerPayments] = useState<CardPayerPayment[] | null>(null);
+  const [payerPaymentsFailed, setPayerPaymentsFailed] = useState(false);
 
   useEffect(() => {
     if (!currentId || !current) return;
@@ -264,8 +278,27 @@ export default function CardTermsSheet({ cards, ready, startAccountId, onClose, 
     setPaymentMethod(current.terms?.payment_method ?? null);
     setPaymentAccountId(current.terms?.payment_account_id ?? "");
     setFixedPayment(current.terms?.fixed_payment_amount?.toString() ?? "");
+    const rule = current.terms?.payment_match;
+    setMatchKind(matchKindOf(rule));
+    setMatchText(rule?.kind === "contains" ? rule.text : "");
+    setMatchPicked(rule?.kind === "payment" ? { series_key: rule.series_key, label: rule.label } : null);
+    setPayerPayments(null);
+    setPayerPaymentsFailed(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentId]);
+
+  // The paying account's recent payments, fetched only when the person chooses
+  // to pick one, and again if they change the paying account.
+  useEffect(() => {
+    if (!currentId || matchKind !== "payment" || !paymentAccountId) return;
+    let cancelled = false;
+    setPayerPayments(null);
+    setPayerPaymentsFailed(false);
+    api.getCardPayerPayments(currentId, paymentAccountId)
+      .then(res => { if (!cancelled) setPayerPayments(res.payments ?? []); })
+      .catch(() => { if (!cancelled) setPayerPaymentsFailed(true); });
+    return () => { cancelled = true; };
+  }, [currentId, matchKind, paymentAccountId]);
 
   // Fire the representative-rate lookup when a card without confirmed terms opens.
   useEffect(() => {
@@ -422,6 +455,22 @@ export default function CardTermsSheet({ cards, ready, startAccountId, onClose, 
       return;
     }
 
+    let paymentMatch: CardPaymentMatch | null = null;
+    if (paymentAccountId && matchKind === "contains") {
+      const text = matchText.trim();
+      if (text.replace(/[^a-z0-9]/gi, "").length < 3) {
+        setError("Enter at least three letters or numbers for the payment to look for.");
+        return;
+      }
+      paymentMatch = { kind: "contains", text };
+    } else if (paymentAccountId && matchKind === "payment") {
+      if (!matchPicked) {
+        setError("Choose which payment is this bill, or choose no match rule.");
+        return;
+      }
+      paymentMatch = { kind: "payment", series_key: matchPicked.series_key, ...(matchPicked.label ? { label: matchPicked.label } : {}) };
+    }
+
     postAndAdvance(
       {
         status: "confirmed",
@@ -437,6 +486,7 @@ export default function CardTermsSheet({ cards, ready, startAccountId, onClose, 
         payment_method: paymentMethod,
         payment_account_id: paymentAccountId || null,
         fixed_payment_amount: paymentMethod === "fixed" ? fixed : null,
+        payment_match: paymentMatch,
         ...(productKey ? { product_key: productKey } : {}),
       },
       "save"
@@ -803,6 +853,22 @@ export default function CardTermsSheet({ cards, ready, startAccountId, onClose, 
       </div></fieldset>
       {paymentMethod === "fixed" && <label className="block"><FieldLabel>Fixed payment (£)</FieldLabel><input type="text" inputMode="decimal" value={fixedPayment} onChange={event => setFixedPayment(event.target.value)} placeholder="0.00" className={`${INPUT_CLS} px-3`} /></label>}
       <fieldset className="space-y-2"><legend className="text-sm font-semibold text-slate-800 dark:text-slate-100">Which account pays it?</legend><div className="space-y-2" role="radiogroup" aria-label="Which account pays it?">{paymentAccounts.map(account => <button key={account.id} type="button" role="radio" aria-checked={paymentAccountId === account.id} onClick={() => setPaymentAccountId(account.id)} className={`flex min-h-12 w-full items-center gap-3 rounded-xl border px-3 text-left text-sm font-semibold ${paymentAccountId === account.id ? "border-indigo-500 bg-indigo-50 text-indigo-800 dark:bg-indigo-900/30 dark:text-indigo-100" : "border-slate-200 text-slate-800 dark:border-slate-600 dark:text-slate-100"}`}><RadioDot selected={paymentAccountId === account.id} /><span>{account.name}<span className="ml-1 font-normal text-slate-500 dark:text-slate-400">{account.provider ? `· ${account.provider}` : ""}</span></span></button>)}<button type="button" role="radio" aria-checked={paymentAccountId === ""} onClick={() => setPaymentAccountId("")} className={`flex min-h-12 w-full items-center gap-3 rounded-xl border px-3 text-left text-sm font-semibold ${paymentAccountId === "" ? "border-indigo-500 bg-indigo-50 text-indigo-800 dark:bg-indigo-900/30 dark:text-indigo-100" : "border-slate-200 text-slate-800 dark:border-slate-600 dark:text-slate-100"}`}><RadioDot selected={paymentAccountId === ""} /><span>No account recorded</span></button></div>{paymentAccounts.length === 0 && <p className="text-[13px] leading-5 text-slate-600 dark:text-slate-300">No connected current account is available to choose.</p>}</fieldset>
+      {paymentAccountId && <fieldset className="space-y-2" data-g413-match-rule><legend className="text-sm font-semibold text-slate-800 dark:text-slate-100">Which payment is this bill?</legend>
+        <p className="text-[13px] leading-5 text-slate-600 dark:text-slate-300">Optional. If the bill already shows up as a regular payment from this account, say which one so it is counted once.</p>
+        <div className="grid grid-cols-3 gap-2" role="radiogroup" aria-label="Which payment is this bill?">
+          <Chip selected={matchKind === "none"} onClick={() => setMatchKind("none")}>No rule</Chip>
+          <Chip selected={matchKind === "contains"} onClick={() => setMatchKind("contains")}>Contains text</Chip>
+          <Chip selected={matchKind === "payment"} onClick={() => setMatchKind("payment")}>Pick a payment</Chip>
+        </div>
+        {matchKind === "contains" && <label className="block"><FieldLabel>Payment contains</FieldLabel><input type="text" value={matchText} onChange={event => setMatchText(event.target.value)} maxLength={40} placeholder="For example, the end of a card reference" className={`${INPUT_CLS} px-3`} /></label>}
+        {matchKind === "payment" && <div className="space-y-2" role="radiogroup" aria-label="Recent payments from this account">
+          {payerPayments === null && !payerPaymentsFailed && <p className="text-[13px] text-slate-600 dark:text-slate-300">Looking at recent payments…</p>}
+          {payerPaymentsFailed && <p className="text-[13px] text-slate-600 dark:text-slate-300">Recent payments could not be loaded. Try again in a moment.</p>}
+          {matchPicked && !(payerPayments ?? []).some(item => item.series_key === matchPicked.series_key) && payerPayments !== null && <p className="text-[13px] text-slate-600 dark:text-slate-300">Chosen: {maskLongDigits(matchPicked.label) || "your chosen payment"}</p>}
+          {(payerPayments ?? []).map(item => <button key={item.series_key} type="button" role="radio" aria-checked={matchPicked?.series_key === item.series_key} onClick={() => setMatchPicked({ series_key: item.series_key, label: item.label })} className={`flex min-h-12 w-full items-center gap-3 rounded-xl border px-3 py-2 text-left ${matchPicked?.series_key === item.series_key ? "border-indigo-500 bg-indigo-50 dark:bg-indigo-900/30" : "border-slate-200 dark:border-slate-600"}`}><RadioDot selected={matchPicked?.series_key === item.series_key} /><span className="min-w-0 text-sm font-semibold text-slate-900 [overflow-wrap:anywhere] dark:text-slate-100">{maskLongDigits(item.label)}<span className="mt-0.5 block text-xs font-normal text-slate-600 dark:text-slate-300"><MoneyText text={formatMoney(item.last_amount)} />{item.last_date ? `, last ${formatDate(item.last_date)}` : ""}</span></span></button>)}
+          {payerPayments !== null && payerPayments.length === 0 && <p className="text-[13px] text-slate-600 dark:text-slate-300">No recent payments from this account to choose from.</p>}
+        </div>}
+      </fieldset>}
     </section>
   );
 
