@@ -31,7 +31,7 @@ from app.db.collections import (
     yapily_transactions_col,
 )
 from app.services.pay_period import get_pay_period_for_date, prev_pay_period
-from app.services.categorisation import series_key
+from app.services.own_account_transfers import IssuerFallbackSet, series_key
 from app.services.categories import CategoryKinds, get_category_kinds, is_non_spend
 from app.services.spending import REFUND, SPEND, build_spending_context, classify_flow, try_build_spending_context, txn_flow
 
@@ -192,6 +192,7 @@ async def load_spend_txns(
     kind_map: _KindMap | None = None,
     *,
     include_evidence: bool = False,
+    include_series: bool = False,
     require_complete: bool = False,
 ) -> list[dict]:
     """Every spend-category transaction in [start, end], signed.
@@ -233,8 +234,9 @@ async def load_spend_txns(
                     "transaction_type": {"$in": ["debit", "credit"]},
                     "date": date_filter,
                 },
-                {**_SPEND_PROJ, "merchant_name": 1, "description": 1, "name": 1}
-                if include_evidence else _SPEND_PROJ,
+                {**_SPEND_PROJ, "merchant_name": 1, "description": 1, "name": 1,
+                 **({"own_transfer_match": 1, "account_id": 1} if include_series else {})}
+                if (include_evidence or include_series) else _SPEND_PROJ,
             ):
                 raw_docs.append(doc)
         except Exception as exc:
@@ -274,6 +276,13 @@ async def load_spend_txns(
         if include_evidence:
             record.update({
                 "id": str(doc.get("_id") or ""),
+                "name": str(doc.get("merchant_name") or doc.get("description") or doc.get("name") or cat)[:160],
+            })
+        if include_series:
+            # G418: the recurrence-series key and a label, for comparing a
+            # committed payment with its expected series. Additive and opt-in.
+            record.update({
+                "key": series_key(doc),
                 "name": str(doc.get("merchant_name") or doc.get("description") or doc.get("name") or cat)[:160],
             })
         result.append(record)
@@ -1448,13 +1457,16 @@ async def compute_category_signals(
 
     if cached_baseline is not None:
         baseline, baseline_months = cached_baseline
-        txns = await load_spend_txns(uid, period_start, period_end, kind_map=kind_map)
+        txns = await load_spend_txns(
+            uid, period_start, period_end, kind_map=kind_map, include_series=True,
+        )
     else:
         txns = await load_spend_txns(
             uid,
             period_start - timedelta(days=_BASELINE_DAYS),
             period_end,
             kind_map=kind_map,
+            include_series=True,
         )
         baseline, baseline_months = _total_baseline(txns, period_start)
         await _write_cached_baseline(
@@ -1524,6 +1536,25 @@ async def compute_category_signals(
                 "compute_category_signals: derive_aim import failed for closed period %s", uid
             )
 
+    # ── G418: committed categories are never judged by day-N pace ─────────────
+    # Fixed bills sit on fixed calendar dates while pay periods start on
+    # different dates, so the same bill lands on a different period day each
+    # time. They are compared with their expected recurring payments instead.
+    committed: dict[str, dict] = {}
+    if cat_spent:
+        try:
+            from app.services.committed_spend import committed_findings
+            from app.services.spend_verdict import _unresolved_display_name
+            cache_doc = await cashflow_cache_col.find_one({"_id": uid}, {"recurring_spend": 1}) or {}
+            committed = committed_findings(
+                txns, cache_doc.get("recurring_spend") or [], kind_map,
+                period_start, period_end,
+                name_fn=lambda n: _unresolved_display_name(n, ""),
+                dismissed=IssuerFallbackSet(prefs.get("dismissed_recurring") or []),
+            )
+        except Exception:
+            logger.exception("compute_category_signals: committed comparison failed for %s", uid)
+
     # ── Build per-category signals ────────────────────────────────────────────
     signals: dict[str, dict] = {}
     for cat, spent in cat_spent.items():
@@ -1544,7 +1575,7 @@ async def compute_category_signals(
             cat_shape_fn = cat_shape_fns.get(cat)
             shaped_frac = cat_shape_fn(f_now) if cat_shape_fn is not None else f_now
             usual_by_now = round(usual_total_for_period * shaped_frac, 2)
-            if suppress_multiple or usual_by_now <= 0.01:
+            if suppress_multiple or usual_by_now <= 0.01 or cat in committed:
                 multiple = None
             else:
                 multiple = round(spent / usual_by_now, 1)
@@ -1584,6 +1615,12 @@ async def compute_category_signals(
                 "intent":             None,
                 "door_engaged":       False,
             }
+
+    # G418: the comparison is attached only where it exists, so a discretionary
+    # signal keeps exactly its previous shape.
+    for cat, finding in committed.items():
+        if cat in signals:
+            signals[cat]["committed"] = finding
 
     return {
         "period": {

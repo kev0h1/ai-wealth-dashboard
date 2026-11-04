@@ -6350,7 +6350,7 @@ async def compute_today_items(
         if _rc_cached is not None:
             _rc_baseline, _rc_months = _rc_cached
             _rc_txns = await _load_spend_txns(
-                uid, _rc_period_start, _rc_period_end, kind_map=_rc_kinds
+                uid, _rc_period_start, _rc_period_end, kind_map=_rc_kinds, include_series=True,
             )
         else:
             _rc_txns = await _load_spend_txns(
@@ -6358,12 +6358,29 @@ async def compute_today_items(
                 _rc_period_start - timedelta(days=_PACE_BASELINE_DAYS),
                 _rc_period_end,
                 kind_map=_rc_kinds,
+                include_series=True,
             )
             _rc_baseline, _rc_months = _total_baseline(_rc_txns, _rc_period_start)
             await _write_cached_baseline(uid, _rc_baseline_key, _rc_baseline, _rc_months)
 
         # thin history guard — same rule pace uses
         _rc_thin = _rc_months < 2
+
+        # G418: categories judged against expected recurring payments (never day-N pace).
+        _rc_committed: dict = {}
+        try:
+            from app.db.collections import cashflow_cache_col as _rc_cache_col
+            from app.services.committed_spend import committed_findings as _committed_findings
+            from app.services.own_account_transfers import IssuerFallbackSet as _IssuerFallbackSet
+            _rc_cache = await _rc_cache_col.find_one({"_id": uid}, {"recurring_spend": 1}) or {}
+            _rc_prefs = await preferences_col.find_one({"user_id": uid}) or {}
+            _rc_committed = _committed_findings(
+                _rc_txns, _rc_cache.get("recurring_spend") or [], _rc_kinds,
+                _rc_period_start, _rc_period_end,
+                dismissed=_IssuerFallbackSet(_rc_prefs.get("dismissed_recurring") or []),
+            )
+        except Exception:
+            log.exception("companion rhythm: committed comparison failed for %s", uid)
 
         # ── per-category period totals ─────────────────────────────────────────
         _rc_cat_spent: dict[str, float] = {}
@@ -6383,6 +6400,9 @@ async def compute_today_items(
         _rc_candidates: list[tuple[float, float, str]] = []  # (multiple, spent, category)
         for _cat, _spent in _rc_cat_spent.items():
             if _is_non_spend(_rc_kinds, _cat):
+                continue
+            # G418: a committed category is judged against its expected payments, never by day-N pace.
+            if _cat in _rc_committed:
                 continue
             if _cat in _rc_engaged:
                 continue

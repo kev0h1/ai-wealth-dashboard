@@ -561,3 +561,29 @@ def card_violations(card: dict, category: str, label: Optional[str] = None) -> l
     if lead and card.get("title") and lead != card.get("title"):
         found.append("headline_mismatch")
     return found
+
+
+# ── G418: a tip is shown only when it carries something beyond the user's own figure ──
+# The composer (routers/savings_insights._compose_tip_content) builds these
+# sentences with these exact prefixes, and the one serving predicate below
+# reads the stored body for them, so a stored tip and a freshly composed one
+# are judged by the same rule. Real lines, and only these:
+#   Typical: ...            a regulator figure (G405 typical_regulated)
+#   Also listed: ...        like-for-like listings (alternatives)
+#   ... Offer listed until  a dated provider price change (a deal with a date)
+#   You noted your ...      a concrete contract-ending fact the user gave
+# A range ("Plans are listed at") and the user's own spend sentence are not real lines.
+TYPICAL_PREFIX = "Typical: "
+ALSO_LISTED_PREFIX = "Also listed: "
+DEAL_DATED_MARKER = "Offer listed until "
+CONTRACT_PREFIX = "You noted your "
+
+_REAL_LINE_MARKERS = (TYPICAL_PREFIX, ALSO_LISTED_PREFIX, DEAL_DATED_MARKER, CONTRACT_PREFIX)
+
+
+def carries_beyond_own_figure(body: Optional[str]) -> bool:
+    """True when a tip body carries a regulator Typical line, a like-for-like
+    Also listed line, a dated provider price change or a contract-ending fact.
+    A body that would only restate the user's own spend is not a tip."""
+    text = body or ""
+    return any(marker in text for marker in _REAL_LINE_MARKERS)

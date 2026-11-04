@@ -32,6 +32,7 @@ import type {
   SpendVerdict,
   SpendVerdictCause,
   SpendVerdictMajorityRow,
+  CommittedFinding,
   SpendVerdictMoved,
   SpendVerdictNotable,
   SpendVerdictState,
@@ -78,6 +79,21 @@ export function paceLine(multiple: number, excess: number, daysElapsed: number):
   if (rounded >= 1.9 && rounded <= 2.1) return `About twice what you usually spend by ${dayLabel}.`;
   if (rounded > 2.1) return `About ${Math.round(multiple)} times what you usually spend by ${dayLabel}.`;
   return `${fmtRaw(excess)} more than usual by ${dayLabel}.`;
+}
+
+/** G418: a committed category is compared with its expected payments, never with day-N pace. */
+export function committedLine(c: CommittedFinding): string {
+  if (c.status === "as_expected") return "Paid as expected";
+  const first = c.payments[0];
+  if (!first) return "Paid as expected";
+  const more = c.payments.length > 1 ? `, and ${c.payments.length - 1} more` : "";
+  if (first.kind === "higher") {
+    const name = `${first.name.charAt(0).toUpperCase()}${first.name.slice(1)}`;
+    return `${name} was ${fmtRaw(first.paid)}, usually ${fmtRaw(first.expected)}${more}`;
+  }
+  // The name is a payment label, or the category fallback ("a payment in Bills").
+  const where = first.name.startsWith("a payment in ") ? first.name.slice("a payment in ".length) : null;
+  return where ? `New payment in ${where}: ${fmtRaw(first.paid)}${more}` : `New payment: ${first.name}, ${fmtRaw(first.paid)}${more}`;
 }
 
 function causeLine(cause: SpendVerdictCause[]): string | null {
@@ -811,6 +827,7 @@ export function MajorityRowView({
           {quietTag && <span className="text-amber-700 dark:text-amber-300 font-semibold"> · above usual</span>}
           {suffix && <MoneyText text={` · ${suffix}`} />}
         </p>
+        {row.committed && <p data-committed={row.committed.status} className={`text-[11px] mt-0.5 ${row.committed.status === "as_expected" ? "text-slate-600 dark:text-slate-400" : "text-slate-800 dark:text-slate-200 font-medium"}`}><MoneyText text={committedLine(row.committed)} /></p>}
         {aim && <p className="sr-only">{maskMoneyText(aimSentence(aim, periodDays, sym), hidden)}</p>}
         {/* G275 (Kevin 2026-10-15): the visible hint, so the ring never has to be decoded. */}
         {aim && <p aria-hidden="true" className="text-[11px] text-slate-600 dark:text-slate-400 mt-0.5 font-mono tabular-nums">{maskMoneyText(aimHint(aim, sym), hidden)}</p>}

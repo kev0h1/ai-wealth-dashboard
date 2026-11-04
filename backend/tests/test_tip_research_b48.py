@@ -815,3 +815,15 @@ def test_pending_stub_is_fetched_by_the_first_pass(pass_env):
     run(tr.precreate_pending(key))
     run(si._refresh_savings_insights_for_user(ALICE))
     assert tip_col.docs[key.doc_id]["status"] == "ok" and len(_sim_calls(calls)) == 1
+
+
+import pytest as _pytest_g418
+from app.services import tip_facts as _tip_facts_g418
+
+
+@_pytest_g418.fixture(autouse=True)
+def _g418_real_line_gate_off(monkeypatch):
+    """G418 adds a serving rule: a tip must carry a line beyond the user's own
+    figure. This file pins other behaviour with own-fact fixtures, so the rule is
+    switched off here and covered on its own in test_g418_tip_filter.py."""
+    monkeypatch.setattr(_tip_facts_g418, "carries_beyond_own_figure", lambda body: True)
