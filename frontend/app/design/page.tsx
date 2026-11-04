@@ -33,6 +33,15 @@ type PreviewRoute = {
 const ROUTES: PreviewRoute[] = [
 
   {
+    slug: "upcoming-shortfall-first",
+    name: "Upcoming shortfall first · G417",
+    description: "G417 · frontend-design then impeccable · Upcoming leads with the gap before a suggested move. A keeps one bounded account list; B separates accounts needing money from suggested funding. Both show the pre-move result, what the move changes, exact working and dated suggestions on source and receiver. Synthetic examples only; Home, Accounts and production Upcoming await selection. Both themes and Hide balances.",
+    variants: [{ label: "A · One list", value: "a" }, { label: "B · Separate the actions", value: "b" }],
+    states: [{ label: "Gaps and suggested move", value: "mixed" }, { label: "Move leaves a gap", value: "partial" }, { label: "Short before income", value: "early" }, { label: "All covered", value: "clear" }, { label: "49p shortfall", value: "pennies" }, { label: "Missing balance", value: "unknown" }, { label: "Checking plans", value: "loading" }, { label: "Plans check failed", value: "error" }, { label: "No accounts", value: "empty" }],
+    group: "current",
+  },
+
+  {
     slug: "spend-patterns-charts",
     name: "Clearer Spend patterns · G380",
     description: "G380 · impeccable · A separates larger payments alongside daily spending. B explores one question at a time with a reversible chart-only filter. Even scales, payment counts, missing history and hidden figures. Synthetic examples; production charts await a choice.",
