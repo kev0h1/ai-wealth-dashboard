@@ -34,7 +34,8 @@ for (const id of ["long", "watch", "clear", "all"]) {
   const { fixture, html } = render("long");
   assert.equal(fixture.accounts.length, 20);
   const { lead, region } = split(html);
-  assert.equal((lead.match(/data-status-caption="true"[^>]*>Available</g) ?? []).length, 2, "compact rows keep the calm visible caption");
+  assert.match(html, /data-g417-variant="a"/);
+  assert.doesNotMatch(html, /Available|Spend from/, "the action list does not reuse Home's pooled allocation language");
   assert.match(lead, /short for payments/, "payment-risk detail remains accessible in the row label");
   assert.match(lead, /short for plans/, "plan-risk detail remains accessible in the row label");
   assert.equal(rows(lead).length, 2, "only attention rows before the fold region");
@@ -83,7 +84,7 @@ for (const plansStatus of ["loading", "error"]) {
 {
   const fixture = fixtureFor("clear");
   const html = renderToStaticMarkup(React.createElement(UpcomingAccountsCard, { accounts: fixture.accounts, plans: [], plansStatus: "loading", periodLabel: PERIOD, onOpen() {} }));
-  assert.match(html, /Every paying account covers its payments this period\./);
+  assert.match(html, /Every account covers its payments\. Plans are still to be checked\./);
 }
 
 // Ordering of all tiers on a synthetic mix: payments, plans, watch.

@@ -5,6 +5,7 @@ import { AlertCircle, AlertTriangle, Check, ChevronDown, Clock } from "lucide-re
 import SwipeDismissRow from "@/components/upcoming/SwipeDismissRow";
 import { useBalancesHidden, maskMoneyText } from "@/lib/balancesHidden";
 import { getUpcomingStatus, upcomingMoney, upcomingStatusText } from "@/lib/upcomingAttention";
+import { accountSummaryMoney } from "@/lib/upcomingAccountPresentation";
 
 /**
  * G176 row boundary. The default `current` treatment preserves the shipped
@@ -154,6 +155,7 @@ function CurrentSupportingCopy({
   const hidden = useBalancesHidden();
   const hasAccount = Boolean(model.accountLabel);
   const culprit = model.why?.culprit;
+  const bankBalance = typeof model.accountBalance === "number" && Number.isFinite(model.accountBalance) ? Math.round(model.accountBalance * 100) : null;
 
   return (
     <>
@@ -164,7 +166,7 @@ function CurrentSupportingCopy({
       {model.accountShort && hasAccount && (
         <p className="flex min-w-0 items-center gap-1.5 text-xs font-semibold text-slate-500 dark:text-slate-400">
           <span className="min-w-0 truncate">
-            {model.accountLabel} · only <span className="font-mono tabular-nums">{maskMoneyText(`${sym}${(model.accountBalance ?? 0).toLocaleString("en-GB", { maximumFractionDigits: 0 })}`, hidden)}</span> available
+            {model.accountLabel} · bank balance {bankBalance === null ? "not yet known" : <span className="font-mono tabular-nums">{maskMoneyText(accountSummaryMoney(bankBalance), hidden)}</span>}
           </span>
           {culprit && onToggleWhy && (
             <button

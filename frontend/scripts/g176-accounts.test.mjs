@@ -36,8 +36,11 @@ const lateIncome = credit({ expected_date: "2026-10-04", amount: 200 });
 accounts = summary([bill({ amount: 130 }), bill({ amount: 50, expected_date: "2026-10-03" })], [lateIncome]);
 assert.deepEqual([accounts[0].closing, accounts[0].shortfall, accounts[0].firstShortDate], [120, 80, "2026-10-02"], "Peak funding need and first gap are distinct evidence");
 const detail = renderToStaticMarkup(React.createElement(UpcomingAccountDetails, { account: accounts[0], periodLabel: "Payments through Thu 29 Oct" }));
-assert.match(detail, /£80.*needed for payments/);
-assert.match(detail, /First shortfall .*2 Oct/);
+assert.match(detail, /−£80/, "the earlier payment gap remains a signed headline");
+assert.match(detail, /later balance does not remove this earlier gap/i);
+assert.match(detail, /First shortfall 2 Oct/);
+assert.match(detail, /largest gap in this period/);
+assert.doesNotMatch(detail, /Money is needed by 2 Oct/, "the maximum gap is not presented as the amount due at the first smaller gap");
 assert.doesNotMatch(detail, /short by.*on.*2 Oct/, "Never attribute the later maximum amount to the first gap date");
 assert.equal(summary([bill({ account_balance: -10 })])[0].shortfall, 90, "Overdrawn opening cash is not omitted");
 assert.equal(summary([bill({ amount: 0.2, account_balance: 0.3 })])[0].closing, 0.1, "Penny arithmetic");
@@ -112,7 +115,8 @@ let paired = assertAgreement([bill(), bill({ account_id: "b", account_balance: 2
 assert.deepEqual(paired.statuses.map((status) => status.label), ["Covered", "short"]);
 const mixedCard = renderToStaticMarkup(React.createElement(UpcomingAccountsCard, { accounts: paired.walk.accounts, periodLabel: "This period", onOpen() {} }));
 const mixedRows = renderToStaticMarkup(React.createElement(UpcomingAttentionDay, { dayKeyIso: "2026-10-02", heading: "Fri 2 Oct", rows: paired.models, onOpen() {}, onDismiss() {} }));
-assert.match(mixedCard, /£60\.00, short for payments/);
+assert.match(mixedCard, /−£60/, "the actual payment gap is the signed account headline");
+assert.match(mixedCard, /short for payments/i, "a negative closing payment result is qualified as a payment shortfall");
 assert.match(mixedRows, /1 covered payment/);
 assert.ok(mixedRows.indexOf('data-bill-key="payment-1"') < mixedRows.indexOf("<details"), "The short account's payment stays visible");
 
@@ -180,7 +184,7 @@ for (const scenario of SCENARIOS) {
 const empty = renderToStaticMarkup(React.createElement(UpcomingAccountsCard, { accounts: [], periodLabel: "This period", onOpen() {} }));
 assert.match(empty, /No account payments/); assert.doesNotMatch(empty, /<button/);
 const unknown = renderToStaticMarkup(React.createElement(UpcomingAccountsCard, { accounts: summary([bill({ account_balance: null })]), periodLabel: "This period", onOpen() {} }));
-assert.match(unknown, /Unavailable/); assert.match(unknown, /coverage unavailable/i); assert.doesNotMatch(unknown, /£0/);
+assert.match(unknown, /Not yet known/); assert.match(unknown, /data-status-signal="unknown"/); assert.doesNotMatch(unknown, /£0/);
 
 const opaque = { name: "goldman|sachs::opaque-account", display_name: "Goldman Sachs" };
 assert.equal(upcomingDisplayName(opaque), "Goldman Sachs");
@@ -192,7 +196,7 @@ const hero = renderToStaticMarkup(React.createElement(UpcomingHeroCard, {
   runwayIncomeTotal: 15, runwayBillsTotal: 1045, allocationsRemainingTotal: 100,
   savingsNow: 300, runway: 100, runwayStatus: "left",
 }));
-for (const label of ["Full calculation", "Available now", "Income before payday", "Bills before payday", "Still to set aside", "Projected balance", "Savings backup"]) assert.match(hero, new RegExp(label));
+for (const label of ["Full calculation", "Cash to start", "Income before payday", "Bills before payday", "Still to set aside", "Projected balance", "Savings backup"]) assert.match(hero, new RegExp(label));
 assert.doesNotMatch(hero, /Plans this period/, "no plans, no plans row");
 const heroPlans = renderToStaticMarkup(React.createElement(UpcomingHeroCard, {
   isCalendarMonth: false, daysToPayday: 2, paydayLabel: "Fri 30 Oct", spendableNow: 1230,
