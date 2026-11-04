@@ -63,6 +63,7 @@ _CARD_PAYMENT_FIELDS = (
     "payment_method",
     "payment_account_id",
     "fixed_payment_amount",
+    "payment_match",
 )
 
 router = APIRouter(tags=["can-i"])

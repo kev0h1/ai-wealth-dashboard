@@ -1952,6 +1952,20 @@ PROPOSE_TOOL_SCHEMAS = [
                     "payment_method": {"type": ["string", "null"], "enum": ["full", "minimum", "fixed", "manual", None], "description": "How the card is paid. Fixed payments also need fixed_payment_amount."},
                     "payment_account_id": {"type": ["string", "null"], "description": "Optional id of the counted cash account that pays the card."},
                     "fixed_payment_amount": {"type": ["number", "null"], "description": "Fixed payment amount greater than zero, required when payment_method is fixed."},
+                    "payment_match": {
+                        "type": ["object", "null"],
+                        "description": (
+                            "Optional rule saying which payment from the paying account is this card's bill, so the bill "
+                            "replaces that payment instead of doubling it. Needs payment_account_id. Null clears it."
+                        ),
+                        "properties": {
+                            "kind": {"type": "string", "enum": ["contains", "payment"]},
+                            "text": {"type": "string", "description": "For kind contains: text the payment narrative holds, such as the tail of a card reference."},
+                            "series_key": {"type": "string", "description": "For kind payment: the series key of a payment taken from the paying account's recent payments."},
+                            "label": {"type": "string", "description": "Optional short name for the chosen payment."},
+                        },
+                        "required": ["kind"],
+                    },
                 },
                 "required": ["card_ref"],
             },
@@ -7751,6 +7765,14 @@ def _describe_card_terms_changes(changed: dict) -> str:
     if "fixed_payment_amount" in changed:
         amount = changed["fixed_payment_amount"]
         parts.append(f"fixed payment to £{amount:,.2f}" if amount is not None else "fixed payment amount cleared")
+    if "payment_match" in changed:
+        rule = changed["payment_match"]
+        if not rule:
+            parts.append("payment match rule cleared")
+        elif rule.get("kind") == "contains":
+            parts.append(f"payment match rule to payments containing '{rule.get('text')}'")
+        else:
+            parts.append("payment match rule to the chosen payment")
     if "status" in changed:
         parts.append("marked as skipped ('ask later')" if changed["status"] == "skipped" else "marked as confirmed")
     return ", ".join(parts) if parts else "no changes"
@@ -7765,6 +7787,7 @@ async def _exec_propose_set_card_terms(
     statement_close_day=_PAYMENT_UNSET, payment_due_day=_PAYMENT_UNSET,
     payment_due_days_after_close=_PAYMENT_UNSET, payment_method=_PAYMENT_UNSET,
     payment_account_id=_PAYMENT_UNSET, fixed_payment_amount=_PAYMENT_UNSET,
+    payment_match=_PAYMENT_UNSET,
 ) -> dict:
     if not card_ref or not str(card_ref).strip():
         return _tool_error("card_ref required")
@@ -7784,8 +7807,11 @@ async def _exec_propose_set_card_terms(
         "payment_method": payment_method,
         "payment_account_id": payment_account_id,
         "fixed_payment_amount": fixed_payment_amount,
+        "payment_match": payment_match,
     }
-    if all(v is None or v is _PAYMENT_UNSET for v in supplied.values()):
+    # G413: an explicit null payment_match is a deliberate clear, so it counts.
+    if all(v is None or v is _PAYMENT_UNSET for k, v in supplied.items() if k != "payment_match") \
+            and payment_match is _PAYMENT_UNSET:
         return _tool_error(
             "at least one of status, apr_pct, promos, bt_offers, min_payment_note, "
             "product_key, usage or payment setting is required"
@@ -7797,7 +7823,7 @@ async def _exec_propose_set_card_terms(
         v is not None and v is not _PAYMENT_UNSET
         for v in (apr_pct, promos, bt_offers, min_payment_note, usage, statement_close_day,
                   payment_due_day, payment_due_days_after_close, payment_method,
-                  payment_account_id, fixed_payment_amount)
+                  payment_account_id, fixed_payment_amount, payment_match)
     ):
         return _tool_error(
             "status='skipped' only accepts card_ref, status, and optionally product_key, "
@@ -7885,6 +7911,7 @@ async def _exec_propose_set_card_terms(
         "payment_method": payment_method,
         "payment_account_id": payment_account_id,
         "fixed_payment_amount": fixed_payment_amount,
+        "payment_match": payment_match,
     }
     for key, value in payment_values.items():
         if value is not _PAYMENT_UNSET:
@@ -8400,6 +8427,7 @@ async def execute_tool(uid: str, name: str, args: dict) -> dict:
                 payment_method=args["payment_method"] if "payment_method" in args else _PAYMENT_UNSET,
                 payment_account_id=args["payment_account_id"] if "payment_account_id" in args else _PAYMENT_UNSET,
                 fixed_payment_amount=args["fixed_payment_amount"] if "fixed_payment_amount" in args else _PAYMENT_UNSET,
+                payment_match=args["payment_match"] if "payment_match" in args else _PAYMENT_UNSET,
             )
         if name == "propose_record_trend_intent":
             return await _exec_propose_record_trend_intent(uid, args.get("category"), args.get("answer"))

@@ -2807,7 +2807,17 @@ export type CardTerms = {
   payment_method?: "full" | "minimum" | "fixed" | "manual" | null;
   payment_account_id?: string | null;
   fixed_payment_amount?: number | null;
+  /** G413: which of the paying account's payments is this card's bill. */
+  payment_match?: CardPaymentMatch | null;
 };
+
+/** G413: "contains" holds text such as a reference tail; "payment" holds the
+ * series key of a payment picked from the paying account. */
+export type CardPaymentMatch =
+  | { kind: "contains"; text: string }
+  | { kind: "payment"; series_key: string; label?: string };
+
+export type CardPayerPayment = { series_key: string; label: string; last_amount: number; last_date: string | null };
 
 /** Evidence supplied by the server's one statement-bill calculation. The
  * client renders it and never derives a payment from card transactions. */
@@ -2828,6 +2838,9 @@ export type CardStatementBill = {
   estimated: boolean;
   next_payday: string | null;
   due_before_payday?: boolean | null;
+  /** G413: only present when the card has a match rule. "unmatched" means no
+   * payment matched it in the last two statements. */
+  rule_status?: "matched" | "unmatched" | "unknown";
 };
 
 export type CardTermsCard = {
@@ -2879,6 +2892,7 @@ export type CardTermsSaveBody = {
   payment_method?: "full" | "minimum" | "fixed" | "manual" | null;
   payment_account_id?: string | null;
   fixed_payment_amount?: number | null;
+  payment_match?: CardPaymentMatch | null;
 };
 
 export interface CycleStoryPeriod {
@@ -4433,6 +4447,10 @@ export const api = {
   getCardTerms: () => get<CardTermsList>("/card-terms"),
   lookupCardTerms: (accountId: string) =>
     post<CardTermsLookup>(`/card-terms/${encodeURIComponent(accountId)}/lookup`),
+  getCardPayerPayments: (accountId: string, payerId: string) =>
+    get<{ status: string; payments: CardPayerPayment[] }>(
+      `/card-terms/${encodeURIComponent(accountId)}/recent-payments?payer_id=${encodeURIComponent(payerId)}`,
+    ),
   saveCardTerms: (accountId: string, body: CardTermsSaveBody) =>
     post<{ status: string; terms: CardTerms }>(`/card-terms/${encodeURIComponent(accountId)}`, body),
   getCycleStory: (which: "current" | "last", preview?: boolean, persona?: string) =>

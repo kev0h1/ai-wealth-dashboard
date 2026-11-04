@@ -19,6 +19,56 @@ PAYMENT_FIELDS = (
     "statement_close_day", "payment_due_day", "payment_due_days_after_close",
     "payment_method", "payment_account_id", "fixed_payment_amount",
 )
+# G413: the optional rule that says which of the paying account's payments is
+# this card's bill. Kept out of PAYMENT_FIELDS: those six describe the dated
+# instruction, this one only links it to a payment in the ledger.
+MATCH_FIELD = "payment_match"
+
+
+def _squash(text) -> str:
+    """Lowercase letters and digits only, so spacing and hyphens never matter."""
+    return "".join(ch for ch in str(text or "").lower() if ch.isalnum())
+
+
+def normalise_match_rule(rule) -> dict | None:
+    """The stored shape of a match rule, or None when absent or unusable.
+
+    {"kind": "contains", "text": "41009"} matches any payment from the paying
+    account whose narrative contains that text. {"kind": "payment",
+    "series_key": "...", "label": "..."} matches the recurring series of one
+    payment the user picked from that account. Never raises."""
+    if not isinstance(rule, dict):
+        return None
+    kind = rule.get("kind")
+    if kind == "contains":
+        text = " ".join(str(rule.get("text") or "").split())[:40]
+        return {"kind": "contains", "text": text} if len(_squash(text)) >= 3 else None
+    if kind == "payment":
+        key = " ".join(str(rule.get("series_key") or "").split())[:80]
+        if not key:
+            return None
+        out = {"kind": "payment", "series_key": key}
+        label = " ".join(str(rule.get("label") or "").split())[:80]
+        if label:
+            out["label"] = label
+        return out
+    return None
+
+
+def _narrative(row: dict) -> str:
+    return f"{row.get('merchant_name') or ''} {row.get('description') or ''}".strip()
+
+
+def row_matches_rule(row: dict, rule: dict | None) -> bool:
+    """Does one ledger row satisfy the rule? Pure; the caller scopes the row to
+    the paying account and to debits."""
+    rule = normalise_match_rule(rule)
+    if rule is None:
+        return False
+    if rule["kind"] == "contains":
+        return _squash(rule["text"]) in _squash(_narrative(row))
+    from app.services.own_account_transfers import series_key
+    return series_key(row) == rule["series_key"]
 
 
 def _money(value) -> float:
@@ -127,6 +177,28 @@ def estimate_statement(
         "next_payday": next_payday.isoformat() if next_payday else None,
         "due_before_payday": due < next_payday if next_payday else None,
     }
+    rule = normalise_match_rule(terms.get(MATCH_FIELD))
+    rule_hits: list[dict] = []
+    if rule is not None and source_id:
+        payer_debits = [r for r in rows if str(r.get("account_id")) == source_id
+                        and r.get("transaction_type") == "debit" and _finite(r.get("amount"))
+                        and (_day(r.get("date")) or date.max) <= today]
+        matching = [r for r in payer_debits if row_matches_rule(r, rule)]
+        keys = {rule["series_key"]} if rule["kind"] == "payment" else set()
+        from app.services.own_account_transfers import series_key as _series_key
+        keys.update(_series_key(r) for r in matching)
+        result["rule_series_keys"] = sorted(k for k in keys if k)
+        # Two statements back: the quiet "nothing matched" line needs enough
+        # payer history to say so honestly, otherwise the answer is unknown.
+        lookback = _month_day(close, -2, terms["statement_close_day"])
+        payer_start = min((_day(r["date"]) for r in payer_debits if _day(r.get("date"))), default=None)
+        if any((_day(r["date"]) or date.min) >= lookback for r in matching):
+            result["rule_status"] = "matched"
+        elif payer_start is not None and payer_start <= lookback:
+            result["rule_status"] = "unmatched"
+        else:
+            result["rule_status"] = "unknown"
+        rule_hits = [r for r in matching if not r.get("is_pending") and (_day(r["date"]) or date.min) > close]
     if str(card.get("currency") or "GBP").upper() != "GBP":
         result.update(status="source_unavailable", reason="A payment estimate is not available for this card currency.")
         return result
@@ -198,6 +270,12 @@ def estimate_statement(
             paid = amount
             result["paid_since_close"] = _money(paid)
             break
+    # G413: the actual payment arriving and matching the user's rule marks the
+    # bill paid, whatever amount the bank took. One payment, never two bills.
+    if rule_hits and amount > 0 and paid < amount and any(
+            payment_floor <= (_day(r["date"]) or date.min) for r in rule_hits):
+        paid = amount
+        result["paid_since_close"] = _money(paid)
     remaining = _money(max(0.0, amount - paid))
     result.update(payment_amount=amount, payment_remaining=remaining,
                   status="paid" if remaining == 0 else "estimated")
@@ -254,6 +332,23 @@ async def load_statement_bills(uid: str, *, cards=None, terms=None, today=None) 
     return result
 
 
+def statement_card_for_bill(bill: dict, statements: dict[str, dict], resolved: set[str]) -> str:
+    """The card whose defined bill replaces this learned occurrence, or "".
+
+    G413: a user-defined match rule wins. A learned series the paying account
+    makes, whose key the card's rule names, belongs to that card whatever its
+    own card attribution says (two cards once merged into one series). With no
+    rule hit the card attribution decides, exactly as G412 did."""
+    name = str(bill.get("name") or "")
+    account = str(bill.get("account_id") or "")
+    if name and account:
+        for aid in sorted(resolved):
+            st = statements.get(aid) or {}
+            if str(st.get("payment_account_id") or "") == account and name in (st.get("rule_series_keys") or ()):
+                return aid
+    return str(bill.get("card_dest_account_id") or "")
+
+
 def apply_statement_bills(
     raw_bills: list[dict], statements: dict[str, dict], accounts: dict[str, dict],
     today: date, window_end: date, *, observed_pending: list[dict] = (),
@@ -267,7 +362,7 @@ def apply_statement_bills(
     resolved = {aid for aid, bill in statements.items() if bill.get("status") in ("estimated", "paid")}
     kept = []
     for original in raw_bills:
-        aid = str(original.get("card_dest_account_id") or "")
+        aid = statement_card_for_bill(original, statements, resolved)
         if aid not in resolved or original.get("planned"):
             kept.append(original)
             continue
@@ -296,7 +391,7 @@ def apply_statement_bills(
         payer, card = accounts[payer_id], accounts[aid]
         # A matched, bank-pending repayment is already in cash balances. It
         # stays display-only, exactly like the existing learned occurrence.
-        if any(str(p.get("card_dest_account_id") or "") == aid
+        if any(statement_card_for_bill(p, statements, resolved) == aid
                and str(p.get("account_id") or "") == payer_id
                and _finite(p.get("amount")) and _money(p["amount"]) >= remaining for p in observed_pending):
             continue

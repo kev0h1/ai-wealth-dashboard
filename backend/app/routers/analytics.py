@@ -4730,7 +4730,7 @@ async def _build_cashflow_response(cached: dict, uid: str | None = None, prefs: 
     statement_bills_unverified = False
     if uid:
         try:
-            from app.services.card_statements import apply_statement_bills, load_statement_bills
+            from app.services.card_statements import apply_statement_bills, load_statement_bills, statement_card_for_bill
             statement_bills = await load_statement_bills(uid, today=today_d)
             if statement_bills:
                 _statement_accounts = {str(a["_id"]): a for a in await accounts_col.find({"user_id": uid}).to_list(None)}
@@ -4744,12 +4744,12 @@ async def _build_cashflow_response(cached: dict, uid: str | None = None, prefs: 
                 _bill_occ_dates.extend(
                     (_date.fromisoformat(b["expected_date"]), -b["amount"])
                     for b in _before_statement_bills
-                    if str(b.get("card_dest_account_id") or "") in statement_card_ids and not b.get("planned")
+                    if statement_card_for_bill(b, statement_bills, statement_card_ids) in statement_card_ids and not b.get("planned")
                 )
                 _bill_occ_dates.extend(
                     (_date.fromisoformat(b["expected_date"]), b["amount"])
                     for b in raw_bills
-                    if str(b.get("card_dest_account_id") or "") in statement_card_ids and not b.get("planned")
+                    if statement_card_for_bill(b, statement_bills, statement_card_ids) in statement_card_ids and not b.get("planned")
                 )
         except Exception:
             logger.exception("dated card payments could not be checked for %s", mask_email(uid))
