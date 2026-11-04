@@ -9,6 +9,7 @@ import type { CardTermsCard } from "@/lib/api";
 import MoneyText from "@/components/MoneyText";
 import { BalancesHiddenContext } from "@/lib/balancesHidden";
 import { usePreferences } from "@/components/PreferencesContext";
+import { maskLongDigits } from "@/lib/maskLongDigits";
 
 const METHOD_LABEL: Record<string, string> = {
   full: "Paid in full by Direct Debit",
@@ -97,9 +98,9 @@ export default function CardDetailsSections({ card, paymentAccounts = [], onEdit
         <Row label="How you pay">{terms?.payment_method === "fixed" && terms.fixed_payment_amount != null
           ? <MoneyText text={`Fixed ${gbp(terms.fixed_payment_amount)}`} /> : labels.method}</Row>
         <Row label="Paying account">{payer}</Row>
-        {terms?.payment_match && <Row label="Bill payment">{terms.payment_match.kind === "contains" ? `Contains ${terms.payment_match.text}` : terms.payment_match.label ?? "A payment you chose"}</Row>}
+        {terms?.payment_match && <Row label="Bill payment">{terms.payment_match.kind === "contains" ? `Contains ${maskLongDigits(terms.payment_match.text)}` : maskLongDigits(terms.payment_match.label) || "A payment you chose"}</Row>}
       </dl>
-      {terms?.payment_match && bill?.rule_status === "unmatched" && <p data-g413-rule-unmatched className="pb-2 text-[13px] leading-5 text-slate-600 dark:text-slate-300">No payment matched this rule in the last two statements.</p>}
+      {terms?.payment_match && bill?.rule_status === "unmatched" && <p data-g413-rule-unmatched className="pb-2 pt-1 text-[13px] leading-5 text-slate-600 dark:text-slate-300">No payment matched this rule in the last two statements.</p>}
     </section>
     <section data-g412-section="rates" aria-label="Rates and deals">
       <Heading title="Rates and deals" action={chargeCard ? undefined : edit("Edit rates and deals", onEditRates)} />

@@ -9,6 +9,7 @@ import Spinner from "@/components/Spinner";
 import MoneyText from "@/components/MoneyText";
 import { SheetFrame } from "@/components/SheetFrame";
 import { DateField } from "@/components/DatePicker";
+import { maskLongDigits } from "@/lib/maskLongDigits";
 
 interface CardTermsSheetProps {
   /** All the user's credit cards, from GET /card-terms */
@@ -863,8 +864,8 @@ export default function CardTermsSheet({ cards, ready, startAccountId, onClose, 
         {matchKind === "payment" && <div className="space-y-2" role="radiogroup" aria-label="Recent payments from this account">
           {payerPayments === null && !payerPaymentsFailed && <p className="text-[13px] text-slate-600 dark:text-slate-300">Looking at recent payments…</p>}
           {payerPaymentsFailed && <p className="text-[13px] text-slate-600 dark:text-slate-300">Recent payments could not be loaded. Try again in a moment.</p>}
-          {matchPicked && !(payerPayments ?? []).some(item => item.series_key === matchPicked.series_key) && payerPayments !== null && <p className="text-[13px] text-slate-600 dark:text-slate-300">Chosen: {matchPicked.label ?? matchPicked.series_key}</p>}
-          {(payerPayments ?? []).map(item => <button key={item.series_key} type="button" role="radio" aria-checked={matchPicked?.series_key === item.series_key} onClick={() => setMatchPicked({ series_key: item.series_key, label: item.label })} className={`flex min-h-12 w-full items-center gap-3 rounded-xl border px-3 py-2 text-left ${matchPicked?.series_key === item.series_key ? "border-indigo-500 bg-indigo-50 dark:bg-indigo-900/30" : "border-slate-200 dark:border-slate-600"}`}><RadioDot selected={matchPicked?.series_key === item.series_key} /><span className="min-w-0 text-sm font-semibold text-slate-900 [overflow-wrap:anywhere] dark:text-slate-100">{item.label}<span className="mt-0.5 block text-xs font-normal text-slate-600 dark:text-slate-300"><MoneyText text={formatMoney(item.last_amount)} />{item.last_date ? `, last ${formatDate(item.last_date)}` : ""}</span></span></button>)}
+          {matchPicked && !(payerPayments ?? []).some(item => item.series_key === matchPicked.series_key) && payerPayments !== null && <p className="text-[13px] text-slate-600 dark:text-slate-300">Chosen: {maskLongDigits(matchPicked.label) || "your chosen payment"}</p>}
+          {(payerPayments ?? []).map(item => <button key={item.series_key} type="button" role="radio" aria-checked={matchPicked?.series_key === item.series_key} onClick={() => setMatchPicked({ series_key: item.series_key, label: item.label })} className={`flex min-h-12 w-full items-center gap-3 rounded-xl border px-3 py-2 text-left ${matchPicked?.series_key === item.series_key ? "border-indigo-500 bg-indigo-50 dark:bg-indigo-900/30" : "border-slate-200 dark:border-slate-600"}`}><RadioDot selected={matchPicked?.series_key === item.series_key} /><span className="min-w-0 text-sm font-semibold text-slate-900 [overflow-wrap:anywhere] dark:text-slate-100">{maskLongDigits(item.label)}<span className="mt-0.5 block text-xs font-normal text-slate-600 dark:text-slate-300"><MoneyText text={formatMoney(item.last_amount)} />{item.last_date ? `, last ${formatDate(item.last_date)}` : ""}</span></span></button>)}
           {payerPayments !== null && payerPayments.length === 0 && <p className="text-[13px] text-slate-600 dark:text-slate-300">No recent payments from this account to choose from.</p>}
         </div>}
       </fieldset>}

@@ -53,6 +53,11 @@ assert.match(unmatchedHtml, /No payment matched this rule in the last two statem
 assert.equal((unmatchedHtml.match(/No payment matched this rule/g) || []).length, 1, "said once");
 assert.doesNotMatch(render({ ...dated, statement_bill: { ...bill, rule_status: "unmatched" } }, false), /No payment matched/, "no rule, no line");
 assert.doesNotMatch(unmatchedHtml, /—|!/);
+// Privacy: a card number in a rule's text or label shows its last five digits only.
+const pan = render({ ...ruled, terms: { ...ruled.terms, payment_match: { kind: "payment", series_key: "K", label: "AMERICAN EXPRESS 3799-111111-20001" } } }, false);
+assert.match(pan, /AMERICAN EXPRESS …20001/); assert.doesNotMatch(pan, /3799|111111/);
+const panText = render({ ...ruled, terms: { ...ruled.terms, payment_match: { kind: "contains", text: "3799 111111 20001" } } }, false);
+assert.match(panText, /Contains …20001/); assert.doesNotMatch(panText, /3799|111111/);
 assert.match(render({ ...ruled, terms: { ...ruled.terms, payment_match: { kind: "payment", series_key: "K", label: "EXAMPLE DD" } } }, false), /EXAMPLE DD/);
 
 // A settled bill reads Paid, never "due" with the amount still owing; a part-paid bill shows what is left.
