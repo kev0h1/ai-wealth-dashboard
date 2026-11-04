@@ -67,7 +67,7 @@ const BIG_POOL = { data: { ...FIGURE_DATA["on-track"], safe_to_spend: 10000 } };
 const rail = render(BIG_POOL);
 assert.ok(rail.includes('data-g115-treatment="bank-rail"'), "bank rail renders");
 assert.ok(!hrefs(rail).includes("/accounts"), "rail and caption remain plain");
-assert.match(rail, /See the working in Your accounts\./, "allocation caption points to the account working");
+assert.match(rail, /Showing your top 2\. See them all in Your accounts\./, "two visible allocations direct the reader to the full account list without inventing an omitted rest");
 const named = render({ ...BIG_POOL, spendFrom: SPEND_FROM_NAMED });
 assert.ok(named.includes('data-g115-treatment="name-fallback"'), "name fallback renders");
 assert.ok(!hrefs(named).includes("/accounts"), "name rows are not links");

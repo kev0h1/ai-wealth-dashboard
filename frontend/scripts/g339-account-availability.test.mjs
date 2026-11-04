@@ -83,7 +83,7 @@ assert.match(overdrawn, /overdrawn/); assert.ok(!textOf(overdrawn).match(/overdr
 const paymentsRow = renderRow({ availability: accountAvailability(account(), snap({ positions: { barclays: position({ spend_from_headroom: 0, low_point: -2 }) } })) });
 const plansRow = renderRow({ availability: accountAvailability(account(), snap({ positions: { barclays: position({ spend_from_headroom: 0, low_point_and_plans: -2 }) } })) });
 assert.match(paymentsRow, /text-rose-700/); assert.match(plansRow, /text-amber-800/); assert.doesNotMatch(plansRow, /text-rose-/);
-assert.match(textOf(plansRow), /Short after plans £0/);
+assert.match(textOf(plansRow), /Available: £0/);
 
 // An allocation that only exists after the visible recommendation keeps both
 // the dependency and its pence. It cannot look like cash already in hand.
@@ -91,7 +91,9 @@ const conditional = accountAvailability(account(), snap({ positions: { barclays:
 assert.equal(conditional.requiresMove, true);
 assert.match(conditional.note, /available after the suggested move/);
 const conditionalRow = renderRow({ availability: conditional });
-assert.match(textOf(conditionalRow), /Available after move: £8.25/);
+assert.match(textOf(conditionalRow), /Available: £8.25/);
+assert.doesNotMatch(textOf(conditionalRow), /Available after move/);
+assert.match(conditionalRow, /available: £8\.25, .*available after the suggested move/, "the concise directory caption stays neutral while screen-reader detail retains the conditional explanation");
 
 // Home wires the same exact server value into the real row and masks it with the balance provider.
 const home = renderHome();
