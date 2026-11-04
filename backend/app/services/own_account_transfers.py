@@ -279,7 +279,7 @@ def pan_repayment_series_key(txn: dict) -> str | None:
 
     "Card-repayment-shaped" means an issuer's printed form (services/
     card_issuers.py) plus a 12+ digit PAN fragment in the narrative, e.g.
-    ``AMERICAN EXPRESS 3751-436040-41009``. Without this, a provider that
+    ``AMERICAN EXPRESS 3799-111111-20001``. Without this, a provider that
     sets ``merchant_name`` to the issuer alone folds every card of that
     issuer into one series. The key is the issuer label plus the fragment's
     last five digits, so each card keeps its own series even when the G403
@@ -288,6 +288,11 @@ def pan_repayment_series_key(txn: dict) -> str | None:
     five digits, never a 12+ character id, so `repayment_display_name`
     cannot mistake it for a per-card account key. None when the narrative
     is not shaped like that."""
+    # A credit is never a repayment leg of this shape. A row with no
+    # transaction_type (a pending row, or a projection that omits it) is read
+    # as a debit, the same default pending_transactions.py uses.
+    if txn.get("transaction_type", "debit") != "debit":
+        return None
     text = _text(txn)
     if not text:
         return None
@@ -298,6 +303,65 @@ def pan_repayment_series_key(txn: dict) -> str | None:
         if _names_issuer(text, issuer):
             return f"{spec['label']} {fragments[0][-5:]}"
     return None
+
+
+_TAIL_KEY = re.compile(r"^(?P<label>.+) (?P<tail>\d{5})$")
+
+
+def bare_issuer_label(key) -> str | None:
+    """G413: the bare card-issuer label behind a PAN-tail series key.
+
+    "American Express 20001" gives "American Express". None for any key that is
+    not exactly "<issuer label from card_issuers.py> <five digits>", so a
+    non-issuer key never gets a fallback."""
+    match = _TAIL_KEY.match(str(key or ""))
+    if not match:
+        return None
+    label = match.group("label")
+    return label if any(spec["label"] == label for spec in CARD_ISSUERS.values()) else None
+
+
+def saved_key_applies(saved, key) -> bool:
+    """A user decision saved under `saved` applies to series `key`: the same key,
+    or the bare issuer label this PAN-tail key used to be merged under (G413)."""
+    return saved == key or (saved is not None and saved == bare_issuer_label(key))
+
+
+class IssuerFallbackSet(set):
+    """A saved-key set (dismissals, judge overrides) that also answers for a
+    PAN-tail series whose old merged bare issuer key was saved (G413)."""
+
+    def __contains__(self, key):
+        if set.__contains__(self, key):
+            return True
+        bare = bare_issuer_label(key)
+        return bare is not None and set.__contains__(self, bare)
+
+
+class IssuerFallbackDict(dict):
+    """A saved-key map (recurrence rules) with the same fallback (G413)."""
+
+    def get(self, key, default=None):
+        if dict.__contains__(self, key):
+            return dict.__getitem__(self, key)
+        bare = bare_issuer_label(key)
+        if bare is not None and dict.__contains__(self, bare):
+            return dict.__getitem__(self, bare)
+        return default
+
+    def __contains__(self, key):
+        return self.get(key, None) is not None or dict.__contains__(self, key)
+
+
+def series_key_forms(txn: dict) -> set[str]:
+    """Every key a repayment row can be known by: the stamped per-card key, the
+    PAN-tail key and the base key (G413). A match rule saved under one form
+    still finds the row once another form takes over, for example when the
+    G403 link stamps a payment after the rule was saved."""
+    forms = {f for f in (repayment_series_key(txn), pan_repayment_series_key(txn)) if f}
+    # The base key is the bare issuer for a card-shaped row, which every card
+    # of that issuer shares, so it only counts when no per-card form exists.
+    return forms or {f for f in (_base_series_key(txn),) if f}
 
 
 def series_key(txn: dict) -> str:

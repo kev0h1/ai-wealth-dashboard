@@ -40,7 +40,9 @@ from app.services.account_names import display_account_name
 from app.services.pay_period import current_period_facts, get_pay_period_for_date, prev_pay_period
 from app.services import response_cache
 from app.services.sync_freshness import first_sync_state, last_bank_sync
-from app.services.own_account_transfers import series_key, repayment_display_name  # G403: per-card key for a linked repayment
+from app.services.own_account_transfers import (  # G413: IssuerFallback*: saved decisions under the old merged issuer key still apply
+    IssuerFallbackDict, IssuerFallbackSet, saved_key_applies, series_key, repayment_display_name,
+)  # G403: per-card key for a linked repayment
 from app.services.categorisation import series_key as _base_series_key
 from app.services.categorisation import (
     has_date_fragment, own_transfer_evidence, user_identity,
@@ -2869,11 +2871,11 @@ async def _compute_cashflow_patterns(uid: str) -> dict:
     income_credits = [t for t in income_credits_180 if t["date"] >= cutoff90]
 
     trusted   = set(prefs.get("recurring_categories") or DEFAULT_RECURRING_CATEGORIES)
-    dismissed = set(prefs.get("dismissed_recurring") or [])
+    dismissed = IssuerFallbackSet(prefs.get("dismissed_recurring") or [])
     # Keys the user has explicitly told the undo-log "this IS recurring"
     # (POST /dismissed-series/override) — outranks the engine judge by
     # design, see apply_verdicts' docstring in recurring_judge.py.
-    judge_overrides = set(prefs.get("judge_overrides") or [])
+    judge_overrides = IssuerFallbackSet(prefs.get("judge_overrides") or [])
     pay_period_config = prefs.get("pay_period_config") or {"type": "calendar_month"}
     _today = timeutil.user_today()
 
@@ -4235,7 +4237,7 @@ async def _build_cashflow_response(cached: dict, uid: str | None = None, prefs: 
         }
 
     # Load user-defined AI recurrence rules (highest priority)
-    rules: dict[str, dict] = {}
+    rules: dict[str, dict] = IssuerFallbackDict()
     if uid:
         for rdoc in await upcoming_rules_col.find({"uid": uid}).to_list(None):
             rules[rdoc["key"]] = rdoc
@@ -4368,7 +4370,7 @@ async def _build_cashflow_response(cached: dict, uid: str | None = None, prefs: 
         final_date = occ_date_str
         final_amount = amount
         for ov in overrides:
-            if ov.get("key") != key:
+            if not saved_key_applies(ov.get("key"), key):
                 continue
             scope = ov.get("scope", "one")
             ov_date = ov.get("date", "")
