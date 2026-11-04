@@ -52,18 +52,24 @@ for (const extra of [
   { include_in_safe_to_spend: false }, { manual: true }, { currency: "USD" }, { type: "Savings" },
 ]) assert.equal(accountAvailability(account(extra), snap()), undefined);
 for (const extra of [{ paused: true }, { status: "expired" }]) assert.equal(accountAvailability(account(extra), snap()).kind, "unavailable");
-assert.equal(formatAvailabilityAmount(8.25), "£8.25");
-assert.equal(formatAvailabilityAmount(-8.25), "−£8.25");
+// G418: summary Available figures are whole pounds (half away from zero, as the hero); only a non-zero amount under £1 keeps pence.
+assert.equal(formatAvailabilityAmount(8.25), "£8");
+assert.equal(formatAvailabilityAmount(-8.25), "−£8");
+assert.equal(formatAvailabilityAmount(312.29), "£312");
+assert.equal(formatAvailabilityAmount(115.65), "£116");
+assert.equal(formatAvailabilityAmount(0.5), "£0.50");
+assert.equal(formatAvailabilityAmount(0), "£0");
 
 // The actual row preserves its old output when the prop is absent or undefined.
 assert.equal(renderRow(), renderRow({ availability: undefined }));
 const ready = renderRow({ availability: accountAvailability(account(), snap()) });
 assert.match(ready, /£108/); assert.match(textOf(ready), /Available: £8/); assert.match(ready, /available: £8/);
 assert.match(ready, /data-g339-availability/);
-// Allocations preserve pence so Available figures can be added accurately.
-for (const [value, expected] of [[108.36, "£108.36"], [26.29, "£26.29"], [11.39, "£11.39"], [26.5, "£26.50"], [0.4, "£0.40"]]) {
+// G418: whole pounds on the row, spoken and visible; pence stay in the working ledger.
+for (const [value, expected] of [[108.36, "£108"], [26.29, "£26"], [11.39, "£11"], [26.5, "£27"], [0.4, "£0.40"]]) {
   const rounded = renderRow({ row: row(account({ balance: value })), availability: { kind: "ready", value } });
-  assert.ok(rounded.includes(`available: ${expected}`), "spoken allocation preserves pence");
+  assert.ok(rounded.includes(`available: ${expected}`), "spoken allocation is whole pounds");
+  if (value > 1) assert.ok(!/Available: £\d+\.\d\d/.test(textOf(rounded)), "no pence in the summary figure");
   assert.ok(textOf(rounded).includes(`Available: ${expected}`));
 }
 const hidden = renderRow({ availability: accountAvailability(account(), snap()), hideAmount: true });
@@ -91,9 +97,9 @@ const conditional = accountAvailability(account(), snap({ positions: { barclays:
 assert.equal(conditional.requiresMove, true);
 assert.match(conditional.note, /available after the suggested move/);
 const conditionalRow = renderRow({ availability: conditional });
-assert.match(textOf(conditionalRow), /Available: £8.25/);
+assert.match(textOf(conditionalRow), /Available: £8(?!\.)/);
 assert.doesNotMatch(textOf(conditionalRow), /Available after move/);
-assert.match(conditionalRow, /available: £8\.25, .*available after the suggested move/, "the concise directory caption stays neutral while screen-reader detail retains the conditional explanation");
+assert.match(conditionalRow, /available: £8, .*available after the suggested move/, "the concise directory caption stays neutral while screen-reader detail retains the conditional explanation");
 
 // Home wires the same exact server value into the real row and masks it with the balance provider.
 const home = renderHome();

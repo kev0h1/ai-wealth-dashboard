@@ -10,10 +10,20 @@ export type AccountAvailabilitySnapshot = {
   positions?: Record<string, AccountEligibility> | null;
 };
 
+/**
+ * G418: summary Available and Spend from figures use whole pounds, the same
+ * rule as the Left to spend hero (formatSafeToSpendAmount): Intl rounding to
+ * the nearest pound, halves away from zero, each figure rounded on its own, so
+ * rows can differ from the rounded hero by a pound and callers never claim an
+ * exact sum of rounded rows. A non-zero amount under £1 keeps its pence so it
+ * never reads as £0. Working ledgers format their own exact pence.
+ */
 export function formatAvailabilityAmount(value: number): string {
-  return `${value < 0 ? "−" : ""}£${Math.abs(value).toLocaleString("en-GB", {
-    minimumFractionDigits: Number.isInteger(value) ? 0 : 2,
-    maximumFractionDigits: 2,
+  const abs = Math.abs(value);
+  const pence = abs > 0 && abs < 1;
+  return `${value < 0 ? "−" : ""}£${abs.toLocaleString("en-GB", {
+    minimumFractionDigits: pence ? 2 : 0,
+    maximumFractionDigits: pence ? 2 : 0,
   })}`;
 }
 
