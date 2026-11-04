@@ -65,7 +65,7 @@ assert.ok(!/coverSuggestion|withCoverSuggestions|moves/.test(walkSource.replace(
 const page = readFileSync(new URL("../app/planning/PlanningPage.tsx", import.meta.url), "utf8");
 assert.match(page, /const accountSummaries = withCoverSuggestions\(\(accountWalk\?\.accounts \?\? \[\]\)\.map\(\(account\) => reconcileWithServerPosition\(account, accountPositions\[account\.id\]\)\)/);
 assert.equal((page.match(/accountWalk\?*\.accounts/g) ?? []).length, 1, "only the reconciling map reads the raw walk accounts");
-assert.equal((page.match(/<UpcomingAccountsCard accounts=\{accountSummaries\}/g) ?? []).length, 2);
+assert.equal((page.match(/<UpcomingAccountsCard accounts=\{listedAccountSummaries\}/g) ?? []).length, 2, "G420: both placements read the filtered list");
 assert.match(page, /<UpcomingDetailFlow[\s\S]{0,400}?summaries=\{accountSummaries\}/);
 const details = readFileSync(new URL("../components/upcoming/UpcomingAccountDetails.tsx", import.meta.url), "utf8");
 assert.match(details, /const gap = accountPaymentGap\(account\);[\s\S]*?if \(gap !== null\)/, "the sheet verdict derives short from the payment gap");

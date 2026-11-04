@@ -57,9 +57,12 @@ export default function UpcomingAccountsCard({ accounts, periodLabel, onOpen, pl
   }, [accounts, plans, plansStatus]);
   const allClear = accounts.length > 0 && attention.length === 0;
   const foldLabel = `${fine.length} ${fine.length === 1 ? "account is" : "accounts are"} fine${plansStatus === "ready" ? "" : " for payments"}`;
+  const pending = plansStatus !== "ready" && <div className={styles.pending} role="status">{plansStatus === "loading" ? "Checking goals and set-asides. Figures show payments only." : "Goals and set-asides could not be checked. Figures show payments only."}{plansStatus === "error" && onRetry && <button type="button" className={styles.retry} onClick={onRetry}>Try again</button>}</div>;
+  // G420: nothing to list means no heading and no empty card, unless a loading or error state applies.
+  if (accounts.length === 0) return plansStatus === "ready" ? null : <section data-account-status-card="b" className={styles.card}>{pending}</section>;
   return <section aria-labelledby={headingId} data-account-status-card="b" data-g417-variant="a" className={styles.card}>
     <div className={styles.listHeading}><h2 id={headingId}>By account</h2><p className={styles.period}>{periodLabel}</p></div>
-    {accounts.length === 0 ? <p className={styles.allClear}>No account payments are expected in this period.</p> : <>
+    {<>
       {allClear && <p data-all-clear className={styles.allClear}><Check size={16} aria-hidden="true" />{plansStatus === "ready" ? "Every account covers its payments and linked plans." : "Every account covers its payments. Plans are still to be checked."}</p>}
       {attention.map(({ account, reading }) => <AccountRow key={account.id} account={account} reading={reading} onOpen={onOpen} />)}
       {fine.length > 0 && <div data-fine-group className={styles.fineGroup}>
@@ -67,7 +70,7 @@ export default function UpcomingAccountsCard({ accounts, periodLabel, onOpen, pl
         <div id={regionId} data-fine-region inert={!open} className={`grid ${animate ? "transition-[grid-template-rows,opacity] duration-200 ease-out motion-reduce:transition-none" : ""} ${open ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0"}`}><div className="min-h-0 overflow-hidden"><div className={styles.fineRows}>{fine.map(({ account, reading }) => <AccountRow key={account.id} account={account} reading={reading} onOpen={onOpen} />)}</div></div></div>
       </div>}
     </>}
-    {plansStatus !== "ready" && <div className={styles.pending} role="status">{plansStatus === "loading" ? "Checking goals and set-asides. Figures show payments only." : "Goals and set-asides could not be checked. Figures show payments only."}{plansStatus === "error" && onRetry && <button type="button" className={styles.retry} onClick={onRetry}>Try again</button>}</div>}
-    {accounts.length > 0 && <p className={styles.listNote}>{attention.some(row => row.reading.moves.length > 0) ? "Suggested moves are for you to make. Nothing has been moved." : "Tap an account for its working."}</p>}
+    {pending}
+    {<p className={styles.listNote}>{attention.some(row => row.reading.moves.length > 0) ? "Suggested moves are for you to make. Nothing has been moved." : "Tap an account for its working."}</p>}
   </section>;
 }

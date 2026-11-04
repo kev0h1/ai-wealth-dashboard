@@ -30,7 +30,7 @@ import { canDismissUpcomingOccurrence, upcomingPaymentKey as atRiskKey } from "@
 import { isOptionalMove } from "@/lib/cardRepayment";
 import { withCoverSuggestions } from "@/lib/coverSuggestion";
 import { compareUpcomingEvents, upcomingAccountAssessment, walkUpcomingAccounts } from "@/lib/upcomingAccountWalk";
-import { paymentsThroughLabel, positionsFromToday, reconcileWithServerPosition, upcomingAccountWindow } from "@/lib/upcomingAccounts";
+import { accountsWithPeriodActivity, paymentsThroughLabel, positionsFromToday, reconcileWithServerPosition, upcomingAccountWindow } from "@/lib/upcomingAccounts";
 import UpcomingAccountsCard from "@/components/upcoming/UpcomingAccountsCard";
 import UnlinkedGoalPlans from "@/components/upcoming/UnlinkedGoalPlans";
 import { assessPlanOverlap, hasPlanSource, isPlanSourceAccount, plansFromApi } from "@/lib/upcomingPlans";
@@ -382,6 +382,8 @@ export default function PlanningPage() {
   const accountPeriodLabel = paymentsThroughLabel(accountEndMs);
   const accountSummaries = withCoverSuggestions((accountWalk?.accounts ?? []).map((account) => reconcileWithServerPosition(account, accountPositions[account.id])), todayItems);
   const plansStatus = accountPlansError ? "error" : accountPlans === null ? "loading" : "ready";
+  // G420: By account lists only accounts with something in the period. The detail flow keeps every summary so any row can still open its sheet.
+  const listedAccountSummaries = accountsWithPeriodActivity(accountSummaries, plans);
   const paymentDetails: PaymentDetail[] = [];
 
   // ── Undo state ──────────────────────────────────────────────────────────────
@@ -686,7 +688,7 @@ export default function PlanningPage() {
               <div className="glass-card rounded-2xl p-8 text-center">
                 <p className="text-slate-500 dark:text-slate-400 text-sm">Nothing more expected this pay period</p>
               </div>
-              <UpcomingAccountsCard accounts={accountSummaries} periodLabel={accountPeriodLabel} plans={plans} plansStatus={plansStatus} onOpen={(account) => setFlowView({ kind: "account", id: account.id })} />
+              <UpcomingAccountsCard accounts={listedAccountSummaries} periodLabel={accountPeriodLabel} plans={plans} plansStatus={plansStatus} onOpen={(account) => setFlowView({ kind: "account", id: account.id })} />
               <PlansSection
                 allocations={allocations}
                 allocationsError={allocationsError}
@@ -1067,7 +1069,7 @@ export default function PlanningPage() {
               />
             )}
 
-            <UpcomingAccountsCard accounts={accountSummaries} periodLabel={accountPeriodLabel} plans={plans} plansStatus={plansStatus} onRetry={() => { setAccountPlansError(false); api.listAccountPlans().then(setAccountPlans).catch(() => setAccountPlansError(true)); }} onOpen={(account) => setFlowView({ kind: "account", id: account.id })} />
+            <UpcomingAccountsCard accounts={listedAccountSummaries} periodLabel={accountPeriodLabel} plans={plans} plansStatus={plansStatus} onRetry={() => { setAccountPlansError(false); api.listAccountPlans().then(setAccountPlans).catch(() => setAccountPlansError(true)); }} onOpen={(account) => setFlowView({ kind: "account", id: account.id })} />
 
             <PlansSection
               allocations={allocations}
