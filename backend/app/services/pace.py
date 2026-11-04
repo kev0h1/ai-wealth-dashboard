@@ -32,7 +32,7 @@ from app.db.collections import (
 )
 from app.services.pay_period import get_pay_period_for_date, prev_pay_period
 from app.services.categorisation import series_key
-from app.services.categories import CategoryKinds, get_category_kinds, is_commitment, is_non_spend
+from app.services.categories import CategoryKinds, get_category_kinds, is_non_spend
 from app.services.spending import REFUND, SPEND, build_spending_context, classify_flow, try_build_spending_context, txn_flow
 
 logger = logging.getLogger(__name__)
@@ -911,8 +911,7 @@ async def compute_pace_detail(uid: str, sts: dict | None = None, offset: int = 0
             multiple = None
         else:
             usual_rate_per_day = round(usual_30d / 30, 2)
-            # G418: a committed category is never judged by day-N pace.
-            multiple = None if suppress_multiple or is_commitment(kind_map, cat) else round(rate_per_day / (usual_30d / 30), 1)
+            multiple = None if suppress_multiple else round(rate_per_day / (usual_30d / 30), 1)
 
         share = (
             round(spent / discretionary_so_far, 4)
@@ -1541,7 +1540,7 @@ async def compute_category_signals(
     # different dates, so the same bill lands on a different period day each
     # time. They are compared with their expected recurring payments instead.
     committed: dict[str, dict] = {}
-    if any(is_commitment(kind_map, c) for c in cat_spent):
+    if cat_spent:
         try:
             from app.services.committed_spend import committed_findings
             from app.services.spend_verdict import _unresolved_display_name
@@ -1550,6 +1549,7 @@ async def compute_category_signals(
                 txns, cache_doc.get("recurring_spend") or [], kind_map,
                 period_start, period_end,
                 name_fn=lambda n: _unresolved_display_name(n, ""),
+                dismissed=set(prefs.get("dismissed_recurring") or []),
             )
         except Exception:
             logger.exception("compute_category_signals: committed comparison failed for %s", uid)
@@ -1574,7 +1574,7 @@ async def compute_category_signals(
             cat_shape_fn = cat_shape_fns.get(cat)
             shaped_frac = cat_shape_fn(f_now) if cat_shape_fn is not None else f_now
             usual_by_now = round(usual_total_for_period * shaped_frac, 2)
-            if suppress_multiple or usual_by_now <= 0.01 or is_commitment(kind_map, cat):
+            if suppress_multiple or usual_by_now <= 0.01 or cat in committed:
                 multiple = None
             else:
                 multiple = round(spent / usual_by_now, 1)

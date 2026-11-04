@@ -50,8 +50,30 @@ def test_new_committed_payment_is_flagged_new():
     assert out["Bills"]["payments"][0]["kind"] == "new" and out["Bills"]["payments"][0]["paid"] == 240.0
 
 
-def test_committed_category_without_recurring_series_is_silent():
+def test_groceries_and_transport_without_a_series_are_not_judged():
     assert run([t("Groceries", 55.0, "SOME SHOP"), t("Transport", 60.0, "SOME TRAIN")]) == {}
+
+
+def test_commitment_kind_without_any_series_is_not_judged():
+    assert committed_findings([t("Rent", 900.0, "SOME LANDLORD")], SERIES, KINDS, START, END) == {}
+
+
+def test_subscriptions_with_every_payment_matching_a_series_are_judged():
+    subs = SERIES + [{"key": "STREAMCO", "display_name": "StreamCo", "avg_amount": 12.0, "category": "Subscriptions"}]
+    out = committed_findings([t("Subscriptions", 12.0, "STREAMCO")], subs, KINDS, START, END)
+    assert out["Subscriptions"]["status"] == "as_expected"
+
+
+def test_subscriptions_with_one_unmatched_payment_keep_pace():
+    subs = SERIES + [{"key": "STREAMCO", "display_name": "StreamCo", "avg_amount": 12.0, "category": "Subscriptions"}]
+    assert committed_findings([t("Subscriptions", 12.0, "STREAMCO"), t("Subscriptions", 9.0, "OTHER APP")],
+                              subs, KINDS, START, END) == {}
+
+
+def test_payment_matching_a_dismissed_series_is_not_new():
+    out = committed_findings([t("Bills", 240.0, "BRIGHT BROADBAND")], SERIES, KINDS, START, END,
+                             dismissed={"BRIGHT BROADBAND"})
+    assert out["Bills"]["status"] == "as_expected" and out["Bills"]["payments"] == []
 
 
 def test_discretionary_and_refunds_never_judged():
@@ -121,6 +143,21 @@ def test_fixed_bill_never_produces_a_multiple_wherever_it_falls(monkeypatch, tod
          ((x["category"], x) for x in txns)}, sig, 8)
     assert notables == []
     assert all("committed" in row for row in majority)
+
+
+def test_groceries_without_a_series_keeps_its_multiple(monkeypatch):
+    txns = [{"date": date(2026, 11, 3), "category": "Groceries", "amount": 400.0, "key": "SOME SHOP", "name": "SOME SHOP"}]
+    result = asyncio.run(_signals(monkeypatch, date(2026, 11, 8), txns, {"Groceries": 300.0}, SERIES))
+    sig = result["signals"]["Groceries"]
+    assert sig["multiple"] is not None and "committed" not in sig
+
+
+def test_subscriptions_matching_series_get_the_comparison_not_a_multiple(monkeypatch):
+    subs = SERIES + [{"key": "STREAMCO", "display_name": "StreamCo", "avg_amount": 12.0, "category": "Subscriptions"}]
+    txns = [{"date": date(2026, 11, 3), "category": "Subscriptions", "amount": 12.0, "key": "STREAMCO", "name": "STREAMCO"}]
+    result = asyncio.run(_signals(monkeypatch, date(2026, 11, 8), txns, {"Subscriptions": 12.0}, subs))
+    sig = result["signals"]["Subscriptions"]
+    assert sig["multiple"] is None and sig["committed"]["status"] == "as_expected"
 
 
 def test_discretionary_pace_unchanged(monkeypatch):
