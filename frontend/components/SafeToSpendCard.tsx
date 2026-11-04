@@ -22,6 +22,7 @@ import MoneyText from "@/components/MoneyText";
 import SafeToSpendDisclosures from "@/components/SafeToSpendDisclosures";
 import type { CoverMoveEvidence } from "@/lib/coverMoveEvidence";
 import { buildLeftToSpendEvidence } from "@/lib/leftToSpendEvidence";
+import { formatAvailabilityAmount } from "@/lib/accountAvailability";
 import PooledLedgerExplainer from "@/components/PooledLedgerExplainer";
 import SpendFromAccountList from "@/components/SpendFromAccountList";
 import { SyncGlyph, SyncLine, asOfLabel, syncChipClass, syncChipLabel, syncPhase, type SyncingInfo } from "@/components/SyncNote";
@@ -384,6 +385,7 @@ export default function SafeToSpendCard({ data, loading, error, onRetry, spendFr
   const presentation = homeForecastPresentation(data, headline);
 
   const amount = (value: number) => hidden ? "£••••" : formatSafeToSpendAmount(value);
+  const accountAmount = (value: number) => hidden ? "£••••" : formatAvailabilityAmount(value);
   const exactAmount = (value: number) => hidden ? "£••••" : fmt2(value);
 
   const sync = syncing ? { info: syncing, phase: syncPhase(syncing) } : null;
@@ -430,7 +432,7 @@ export default function SafeToSpendCard({ data, loading, error, onRetry, spendFr
   // changes; independent account ceilings are never addends.
   const approvedSpendFrom = approvedSpendFromTreatment(
     spendFromPlan,
-    amount,
+    accountAmount,
     coverMoveVisible,
     handleSpendFromLogoError,
     onRetry,

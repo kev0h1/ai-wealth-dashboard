@@ -112,6 +112,7 @@ export default function SafeToSpendDisclosures({
       <div className={styles.body}>
         {syncing && <p>Last known card figures while bank data updates.</p>}
         {!purchasesKnown && <p>Card spending is not available yet.</p>}
+        {purchasesKnown && <dl className={styles.facts}><Fact label="Card purchases"><MoneyText text={format(purchases, true)} /></Fact></dl>}
         <p>Purchases only. Balance transfers and repayments are not counted here.</p>
         <p>Known card repayments due before payday are included in your estimate. Card purchases aren&apos;t deducted again.{repaymentDue ? ` Due around ${repaymentDue}. Its repayment is forecast separately.` : ""}</p>
         {showCardsLink && !syncing && <Link href="/cards" className={styles.cardsButton}>See your cards</Link>}

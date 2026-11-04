@@ -198,16 +198,16 @@ for (const [kind, plan] of Object.entries(PLANS)) {
   check("G414: the pool-sized account still shows its allocation", textOf(markup).includes("£120"));
   check("G410: every listed account row carries a limit figure", (markup.match(/data-spend-from-limit/g) ?? []).length === entries.length);
   check("G414: lower account allocation remains visible", textOf(markup).includes("£30") && markup.includes('data-spend-from-limit'));
-  check("G414: allocations explain their shared total", markup.includes("account shares of Left to spend"));
+  check("G415: exactly two visible accounts invite the reader to see both in Your accounts", markup.includes("Showing your top 2. See them all in Your accounts.") && !markup.includes("make up the rest"));
   check("G320: duplicate bank accounts show their display names", markup.includes("Premier Current Account") && markup.includes("Maingi K M"));
   check("G320: rows are semantic list items with account markers", (markup.match(/data-spend-from-account=/g) ?? []).length === 2 && (markup.match(/<li /g) ?? []).length === 2);
 
   const unknownPool = renderList({ pool: null });
   check("G414: an unknown pool keeps account figures", unknownPool.includes("£120") && unknownPool.includes("£30"));
-  check("G414: an unknown shared estimate stays qualified", unknownPool.includes("account shares of Left to spend"));
-  check("G340: top accounts do not promise that omitted balances reconcile", !markup.includes("make up the rest"));
+  check("G415: an unknown shared estimate never claims omitted accounts make up a rest", unknownPool.includes("Showing your top 2. See them all in Your accounts.") && !unknownPool.includes("make up the rest"));
+  check("G340: top accounts do not promise that omitted balances reconcile when there are only two", !markup.includes("make up the rest"));
   const single = renderList({entries:entries.slice(0,1)});
-  check("G414: single allocation keeps its context", single.includes("These amounts add up to your Left to spend"));
+  check("G415: one visible account has singular, non-rest copy", single.includes("Showing your top account. See it in Your accounts.") && !single.includes("top 2") && !single.includes("make up the rest"));
 
   const noLogo = renderToStaticMarkup(React.createElement(SpendFromAccountList, {
     entries: [{ accountId: "unknown", name: "Everyday", headroom: 15, capped: false, provider: "Zzyzx Bank", account: account({ id: "unknown", provider: "Zzyzx Bank", provider_id: "zzyzx" }) }],
@@ -247,7 +247,7 @@ for (const [kind, plan] of Object.entries(PLANS)) {
     onLogoError: noop,
     kind: "bank-rail",
   }));
-  check("G414: conditional allocations say after suggested move", conditional.includes("after suggested move"));
+  check("G415: Spend from never repeats a conditional move caption", !conditional.includes("after suggested move"));
 }
 
 // ── The retry is a real 44px target (re-review finding 5) ──────────────────

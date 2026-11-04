@@ -50,13 +50,20 @@ for(const example of ACCOUNT_EXAMPLES){
   assert.match(hero,/data-spend-from-layout="account-list"/,'accounts always visible within the hero');
   if(example.id==='whole')assert.doesNotMatch(hero,/£261 held/,'whole estimate never repeated as an account amount');
   if(example.id==='same-bank'||example.id==='long')assert.match(hero,/Bills account|Joint household bills/,'same-bank accounts remain identifiable');
-  if(example.id==='standard'){assert.match(plain(hero),/These amounts are your account shares of Left to spend/);assert.doesNotMatch(plain(hero),/Showing your top 2 accounts/);assert.doesNotMatch(plain(hero),/already held back|for the move/);assert.match(plain(hero),/NatWest £146/);}
+  if(example.id==='standard'){assert.match(plain(hero),/Showing your top 2\. See them all in Your accounts\./);assert.doesNotMatch(plain(hero),/make up the rest|already held back|for the move/);assert.match(plain(hero),/NatWest £146/);}
   assert.doesNotMatch(hero,/<a[^>]+data-spend-from-account/,'bank rows are plain, not extra links');
   cases++;
 }
 const flat=renderScenario({patch:{card_growth_total:0,card_new_spend_total:1947}});
 assert.match(flat,/Card spending this pay period/,'card purchases remain present when repayments leave net growth at zero');
 assert.match(flat,/£1,947/);assert.match(plain(flat),/Card purchases aren't deducted again/);
+const roundedSummaries = renderScenario({patch:{safe_to_spend:261.4,safe_to_spend_cash:261.4,card_growth_total:0,card_new_spend_total:1947.37}});
+const roundedHero = roundedSummaries.slice(roundedSummaries.indexOf('data-g324-hero'), roundedSummaries.indexOf('data-g324-evidence'));
+assert.match(roundedHero,/£261/,'the ordinary Home headline is whole pounds');
+assert.doesNotMatch(roundedHero,/£261\.40/,'the ordinary Home headline does not expose ledger pence');
+assert.match(plain(roundedSummaries),/How we got £261/,'the collapsed calculation header matches the whole-pound hero');
+assert.doesNotMatch(plain(roundedSummaries),/Card spending this pay period £1,947\.37/,'the card-spending summary is whole pounds');
+assert.match(plain(roundedSummaries),/Card purchases.*£1,947\.37/,'expanded card evidence retains the exact ledger amount');
 const maskedPace=renderScenario({hidden:true,patch:{pace:{state:'on_pace',sustainable:37.29}}});
 assert.doesNotMatch(maskedPace,/£\d/);
 const pace=plain(renderScenario({patch:{pace:{state:'on_pace',sustainable:37.29}}}));

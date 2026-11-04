@@ -1173,11 +1173,11 @@ function MovePlanActions({ item }: { item: CompanionItem }) {
   if (!plans.length) return null;
   return <div className="mt-3 space-y-1">
     {plans.map(plan => <Link key={`${plan.kind}:${plan.id}`} href={plan.kind === "goal"
-      ? `/planning?goal=${encodeURIComponent(plan.id)}&edit=1`
-      : `/upcoming?plan=${encodeURIComponent(`allocation:${plan.id}`)}&edit=1`}
-      aria-label={`Edit plan: ${plan.name}`}
-      className="flex min-h-11 items-center justify-between gap-3 rounded-xl px-3 text-sm font-semibold text-indigo-600 hover:bg-indigo-50 active:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-indigo-400 dark:hover:bg-indigo-500/10">
-      <span className="min-w-0 break-words">{plans.length === 1 ? "Edit plan" : `Edit plan: ${plan.name}`}</span><ChevronRight size={16} aria-hidden="true" className="shrink-0" />
+      ? `/planning?goal=${encodeURIComponent(plan.id)}`
+      : `/upcoming?plan=${encodeURIComponent(`allocation:${plan.id}`)}`}
+      aria-label={`View plan: ${plan.name}`}
+      className="flex min-h-11 items-center justify-between gap-3 rounded-xl text-sm font-semibold text-indigo-600 hover:bg-indigo-50 active:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-indigo-400 dark:hover:bg-indigo-500/10">
+      <span className="min-w-0 break-words">{plans.length === 1 ? "View plan" : `View plan: ${plan.name}`}</span><ChevronRight size={16} aria-hidden="true" className="shrink-0" />
     </Link>)}
   </div>;
 }

@@ -33,9 +33,9 @@ function fmtGbp(value: number): string {
   return `£${Math.abs(value).toLocaleString("en-GB", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
 }
 
-/** Preserve pence so the account allocations visibly add up to this figure. */
+/** G415: headline figures use whole pounds; non-zero penny gaps stay visible. */
 export function formatSafeToSpendAmount(value: number): string {
-  const pence = !Number.isInteger(value);
+  const pence = Math.abs(value) > 0 && Math.abs(value) < 1;
   return `£${Math.abs(value).toLocaleString("en-GB", { minimumFractionDigits: pence ? 2 : 0, maximumFractionDigits: pence ? 2 : 0 })}`;
 }
 

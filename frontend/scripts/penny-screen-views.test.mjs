@@ -67,10 +67,9 @@ const comfortableSts = {
   check("comfortable heroAmount is the raw safe_to_spend, unrounded", headline.heroAmount, 83.4);
 
   const view = buildSafeToSpendView(comfortableSts, { hidden: false });
-  // The published figure is the FORMATTED (rounded) string, same as what
-  // fmt(heroAmount) renders on screen — proves the two never disagree even
-  // though the underlying raw number carries decimals.
-  check("published figure preserves the pence shown on Home", view.figures[0].value, "£83.40");
+  // The published figure is the same whole-pound hero string Home renders;
+  // the raw calculation retains pence for reconciliation elsewhere.
+  check("published figure uses Home's whole-pound ordinary amount", view.figures[0].value, "£83");
   check("published verdict matches rendered stateLabel exactly", view.verdict, headline.stateLabel);
   check("published label is 'Estimated left to spend' when not short", view.figures[0].label, "Estimated left to spend");
   check("asOf uses the payload's own last_synced, not 'now'", view.asOf, "2026-09-14T08:00:00.000Z");

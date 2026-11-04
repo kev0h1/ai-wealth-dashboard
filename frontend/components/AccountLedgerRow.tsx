@@ -224,14 +224,7 @@ export default function AccountLedgerRow({
         ? ", availability checking"
         : ", availability unavailable"
     : "";
-  const availabilityCaption = availabilityReading?.kind === "ready"
-    ? availabilityReading.warning && availabilityReading.value === 0
-      ? availabilityReading.coveredByMove && availabilityReading.coveredByMove.shortAfterCover <= 0
-        ? `${availabilityReading.warning === "payments" ? "Payment" : "Plan"} move covers it`
-        : `Short after ${availabilityReading.warning === "payments" ? "payments" : "plans"}`
-      : availabilityReading.requiresMove ? "Available after move:"
-      : "Available:"
-    : null;
+  const availabilityCaption = "Available:";
 
   return (
     <div
@@ -308,7 +301,7 @@ export default function AccountLedgerRow({
           <p data-g339-availability className="inline-flex items-center justify-end gap-1 whitespace-nowrap text-right text-[10px] leading-4 text-slate-500 dark:text-slate-400">
             {availabilityReading.kind === "ready" ? (
               <>
-                {availabilityReading.warning === "payments" && availabilityReading.coveredByMove && availabilityReading.coveredByMove.shortAfterCover <= 0 ? <Info size={10} aria-hidden="true" className="shrink-0 text-amber-800 dark:text-amber-200" /> : availabilityReading.warning === "payments" ? <AlertTriangle size={10} aria-hidden="true" className="shrink-0 text-rose-700 dark:text-rose-300" /> : availabilityReading.warning === "plans" ? <Info size={10} aria-hidden="true" className="shrink-0 text-amber-800 dark:text-amber-200" /> : null}
+                {availabilityReading.warning === "payments" && availabilityReading.coveredByMove && availabilityReading.coveredByMove.shortAfterCover <= 0 ? <Info size={10} aria-hidden="true" className="shrink-0 text-amber-800 dark:text-amber-200" /> : availabilityReading.warning === "payments" ? <AlertTriangle size={10} aria-hidden="true" className="shrink-0 text-rose-700 dark:text-rose-300" /> : availabilityReading.warning === "plans" || availabilityReading.requiresMove ? <Info size={10} aria-hidden="true" className="shrink-0 text-amber-800 dark:text-amber-200" /> : null}
                 {availabilityCaption} {hideAmount ? <MaskedAmount /> : <span className="money">{formatAvailabilityAmount(availabilityReading.value)}</span>}
               </>
             ) : availabilityReading.kind === "checking" ? (

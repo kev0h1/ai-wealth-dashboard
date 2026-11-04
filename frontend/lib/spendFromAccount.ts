@@ -127,11 +127,15 @@ function rankByHeadroom(
       // `account_headroom_raw`.
       return toSpendFromAccount(a, headroom, entry?.spend_from_capped === true, entry?.spend_from_requires_move === true);
     })
-    .sort((a, b) => {
-      const left = eligibility[a.accountId]?.allocation_order;
-      const right = eligibility[b.accountId]?.allocation_order;
-      return typeof left === "number" && typeof right === "number" ? left - right : b.headroom - a.headroom;
-    });
+    // G415: the server keeps its preferred allocation; Home presents the
+    // largest amounts first without redistributing any money.
+    .sort((a, b) => b.headroom - a.headroom);
+}
+
+/** G415: the compact rail shows the two largest positive allocations. */
+export function topSpendFromAccounts(entries: SpendFromAccount[]): SpendFromAccount[] {
+  return entries.filter(entry => Number.isFinite(entry.headroom) && entry.headroom > 0)
+    .sort((a, b) => b.headroom - a.headroom).slice(0, 2);
 }
 
 /**
@@ -522,7 +526,7 @@ export function spendFromTreatmentPlan(
   const entries = resolved.entries ?? [resolved.best, resolved.alternative].filter(
     (entry): entry is SpendFromAccount => entry != null,
   );
-  const kind: SpendFromTreatmentKind = entries.every((entry) => hasBankMark(entry.account))
+  const kind: SpendFromTreatmentKind = topSpendFromAccounts(entries).every((entry) => hasBankMark(entry.account))
     ? "bank-rail"
     : "name-fallback";
   return {
