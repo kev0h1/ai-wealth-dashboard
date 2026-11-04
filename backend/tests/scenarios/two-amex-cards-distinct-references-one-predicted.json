@@ -1,0 +1,183 @@
+{
+  "name": "Two Amex cards paid by direct debits with distinct references: the one with history is predicted, the other is not and nothing is held (G413)",
+  "today": "2026-10-12",
+  "pay_period_config": {
+    "type": "last_friday"
+  },
+  "confirmed_income_streams": [],
+  "accounts": [
+    {
+      "_id": "acc-bc",
+      "name": "Example Current",
+      "provider": "barclays",
+      "type": "BANK",
+      "subtype": "TRANSACTION",
+      "balance": 1500.0,
+      "currency": "GBP",
+      "status": "connected",
+      "include_in_safe_to_spend": true
+    },
+    {
+      "_id": "acc-amex-a",
+      "name": "Example Amex Alpha",
+      "provider": "amex",
+      "type": "CREDIT",
+      "subtype": "CREDIT_CARD",
+      "balance": -600.0,
+      "currency": "GBP",
+      "status": "connected",
+      "include_in_safe_to_spend": true
+    },
+    {
+      "_id": "acc-amex-b",
+      "name": "Example Amex Beta",
+      "provider": "amex",
+      "type": "CREDIT",
+      "subtype": "CREDIT_CARD",
+      "balance": -400.0,
+      "currency": "GBP",
+      "status": "connected",
+      "include_in_safe_to_spend": true
+    }
+  ],
+  "manual_accounts": [],
+  "cashflow_cache": {
+    "recurring_spend": [
+      {
+        "key": "COUNCIL TAX",
+        "avg_amount": 150.0,
+        "avg_interval": 30,
+        "next_date": "2026-10-20",
+        "account_id": "acc-bc",
+        "account_name": "Example Current",
+        "account_bank": "barclays",
+        "account_balance": 1500.0,
+        "is_credit_card": false,
+        "category": "Bills"
+      },
+      {
+        "key": "American Express 20001",
+        "avg_amount": 200.0,
+        "avg_interval": 30,
+        "next_date": "2026-10-24",
+        "account_id": "acc-bc",
+        "account_name": "Example Current",
+        "account_bank": "barclays",
+        "account_balance": 1500.0,
+        "is_credit_card": false,
+        "category": "Debt",
+        "card_dest_account_id": "acc-amex-a",
+        "card_dest_account_name": "Example Amex Alpha",
+        "card_dest_account_bank": "amex"
+      }
+    ],
+    "recurring_income": [
+      {
+        "key": "acme|payroll::acc-bc",
+        "display_name": "Acme Payroll",
+        "avg_amount": 3000.0,
+        "avg_interval": 30,
+        "next_date": "2026-10-30",
+        "account_id": "acc-bc",
+        "account_name": "Example Current",
+        "account_bank": "barclays",
+        "account_balance": 1500.0,
+        "category": "Income",
+        "occurrences": 3,
+        "amounts_recent": [
+          3000.0,
+          3000.0,
+          3000.0
+        ]
+      }
+    ],
+    "bnpl_commitments": [],
+    "avg_daily_spend": 0
+  },
+  "transactions": [
+    {
+      "account_id": "acc-bc",
+      "date": "2026-08-24",
+      "amount": 200.0,
+      "transaction_type": "debit",
+      "description": "AMERICAN EXPRESS 3799-111111-20001",
+      "merchant_name": "American Express",
+      "category": "Debt"
+    },
+    {
+      "account_id": "acc-bc",
+      "date": "2026-09-24",
+      "amount": 200.0,
+      "transaction_type": "debit",
+      "description": "AMERICAN EXPRESS 3799-111111-20001",
+      "merchant_name": "American Express",
+      "category": "Debt"
+    },
+    {
+      "account_id": "acc-bc",
+      "date": "2026-09-11",
+      "amount": 90.0,
+      "transaction_type": "debit",
+      "description": "AMERICAN EXPRESS 3799-111111-20002",
+      "merchant_name": "American Express",
+      "category": "Debt"
+    },
+    {
+      "account_id": "acc-amex-a",
+      "date": "2026-10-03",
+      "amount": 250.0,
+      "transaction_type": "debit",
+      "description": "ELECTRONICS RETAILER",
+      "merchant_name": "ELECTRONICS RETAILER",
+      "category": "Shopping"
+    },
+    {
+      "account_id": "acc-amex-a",
+      "date": "2026-10-08",
+      "amount": 150.0,
+      "transaction_type": "debit",
+      "description": "SUPERMARKET",
+      "merchant_name": "SUPERMARKET",
+      "category": "Groceries"
+    },
+    {
+      "account_id": "acc-amex-b",
+      "date": "2026-10-04",
+      "amount": 300.0,
+      "transaction_type": "debit",
+      "description": "FURNITURE SHOP",
+      "merchant_name": "FURNITURE SHOP",
+      "category": "Shopping"
+    },
+    {
+      "account_id": "acc-amex-b",
+      "date": "2026-10-10",
+      "amount": 100.0,
+      "transaction_type": "debit",
+      "description": "GARAGE",
+      "merchant_name": "GARAGE",
+      "category": "Transport"
+    }
+  ],
+  "commitments": [],
+  "allocations": [],
+  "card_terms": [],
+  "expected": {
+    "left_to_spend": 1150.0,
+    "accounts": {
+      "acc-bc": {
+        "spend_from": 1150.0,
+        "after_payments": 1150.0,
+        "low_point": 1150.0,
+        "verdict": "covered"
+      }
+    },
+    "cover_plan": {
+      "moves_total": 0,
+      "moves": []
+    },
+    "payday_plan": null,
+    "at_risk_count": 0,
+    "notes": "Today is Mon 12 Oct 2026, pay is the last Friday (30 Oct), so the window is 12 Oct to 29 Oct and the period began 25 Sep (period day 18, so no payday plan). Barclays holds 1,500. Two Amex cards are paid from it by direct debits whose narratives carry different card references (ending 20001 and 20002), and the provider reports the same merchant name for both. Card Alpha (reference 20001) has two monthly debits of 200 on 24 Aug and 24 Sep, enough history, so its next payment of 200 is predicted for Sat 24 Oct, which shows on Mon 26 Oct inside the window. Card Beta (reference 20002) has only one debit of 90 on 11 Sep, not enough history to predict, so nothing is predicted for it. Both cards have purchases this period (Alpha 250 + 150 = 400, Beta 300 + 100 = 400) but G413 (Kevin, 2026-11-04) holds nothing back for card spending: it is an information fact only. The only other bill is council tax of 150 on 20 Oct. Cash walk: 1,500 - 150 (20 Oct) = 1,350, then - 200 (26 Oct, Alpha) = 1,150 at the end and lowest point. Left to spend = 1,150 with no card hold. Barclays: after payments 1,150, low point 1,150, Spend from 1,150, equal to the pool so it is not capped. Nothing is short: no cover move and at risk 0."
+  }
+}
