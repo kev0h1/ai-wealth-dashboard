@@ -99,8 +99,10 @@ verdict context), Penny and any LLM call.
 
 Step 1 (H140): eve of payday, where everything dated on payday belongs to the next period (G359, G360), the same standing orders funded by a steady salary mid-period (G359, G360 funded-inflow rule),
 monthly bills on the 1st with month-end pay (G354), a reconnected account with
-two salary sightings and its one-sighting variant, with the salary mid-period (G359), the unconfirmed card
-bill hold and its release.
+two salary sightings and its one-sighting variant, with the salary mid-period (G359), the card
+bill hold and its release (the hold was retired by G413, Kevin 2026-11-04: those scenarios now pin no hold, and
+`two-amex-cards-*` pin two cards paid by direct debits with distinct references, a match rule that replaces the learned
+series, and a matching payment that marks the defined bill paid).
 
 Step 2 (H142), numbers are the board's scenario numbers:
 
