@@ -452,3 +452,15 @@ def test_sync_worker_reconnect_and_expiry_copy_use_london_dates(monkeypatch):
             title, body = sync_worker._expiring_copy("Barclays", expires_at, now)
             assert "7 days" in title, (tz_name, title)
             assert "1 Oct" in body, (tz_name, body)
+
+
+import pytest as _pytest_g418
+from app.services import tip_facts as _tip_facts_g418
+
+
+@_pytest_g418.fixture(autouse=True)
+def _g418_real_line_gate_off(monkeypatch):
+    """G418 adds a serving rule: a tip must carry a line beyond the user's own
+    figure. This file pins other behaviour with own-fact fixtures, so the rule is
+    switched off here and covered on its own in test_g418_tip_filter.py."""
+    monkeypatch.setattr(_tip_facts_g418, "carries_beyond_own_figure", lambda body: True)
