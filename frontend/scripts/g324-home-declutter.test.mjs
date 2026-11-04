@@ -50,7 +50,7 @@ for(const example of ACCOUNT_EXAMPLES){
   assert.match(hero,/data-spend-from-layout="account-list"/,'accounts always visible within the hero');
   if(example.id==='whole')assert.doesNotMatch(hero,/£261 held/,'whole estimate never repeated as an account amount');
   if(example.id==='same-bank'||example.id==='long')assert.match(hero,/Bills account|Joint household bills/,'same-bank accounts remain identifiable');
-  if(example.id==='standard'){assert.match(plain(hero),/Each amount is the most that account could cover\. Don't add them together/);assert.match(plain(hero),/Showing your top 2 accounts/);assert.doesNotMatch(plain(hero),/already held back|for the move/);assert.match(plain(hero),/up to £146/);}
+  if(example.id==='standard'){assert.match(plain(hero),/These amounts are your account shares of Left to spend/);assert.doesNotMatch(plain(hero),/Showing your top 2 accounts/);assert.doesNotMatch(plain(hero),/already held back|for the move/);assert.match(plain(hero),/NatWest £146/);}
   assert.doesNotMatch(hero,/<a[^>]+data-spend-from-account/,'bank rows are plain, not extra links');
   cases++;
 }

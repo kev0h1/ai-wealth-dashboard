@@ -61,7 +61,7 @@
       "uncertain": false
     },
     "acc-monzo-pot": {
-      "account_headroom_raw": 0.0,
+      "account_headroom_raw": 290.0,
       "after_payments": 300.0,
       "after_payments_and_plans": 300.0,
       "allocation_order": 3,

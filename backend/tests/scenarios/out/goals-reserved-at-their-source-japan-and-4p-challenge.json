@@ -1,7 +1,7 @@
 {
   "account_eligibility": {
     "acc-chal": {
-      "account_headroom_raw": 0.0,
+      "account_headroom_raw": 490.0,
       "after_payments": 500.0,
       "after_payments_and_plans": 500.0,
       "allocation_order": 3,
@@ -18,7 +18,7 @@
       "uncertain": false
     },
     "acc-jpn": {
-      "account_headroom_raw": 0.0,
+      "account_headroom_raw": 290.0,
       "after_payments": 300.0,
       "after_payments_and_plans": 300.0,
       "allocation_order": 1,

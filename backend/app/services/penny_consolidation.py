@@ -190,6 +190,8 @@ def classify_sources(
             skip("no_data")
             continue
         head = _headroom_of(entry)
+        if include_savings and not spending and is_savings_account(acc) and entry.get("is_current_account") is False:
+            head = max(0.0, float(entry.get("account_headroom_raw") or 0.0))
         if entry.get("spend_from_requires_move") and not spending:
             skip("requires_suggested_move")
             continue

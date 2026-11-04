@@ -18,7 +18,7 @@
       "uncertain": false
     },
     "acc-pot": {
-      "account_headroom_raw": 0.0,
+      "account_headroom_raw": 1640.0,
       "after_payments": 1650.0,
       "after_payments_and_plans": 1650.0,
       "allocation_order": 1,

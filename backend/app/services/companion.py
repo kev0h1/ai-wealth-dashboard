@@ -2462,7 +2462,12 @@ def cap_spend_from_to_pool(
         # be a safe source for a cover recommendation, but it is never an
         # everyday-spending allocation.
         if not entry.get("is_current_account", True) or entry.get("uncertain"):
-            entry["account_headroom_raw"] = 0.0
+            # Savings get no spending allocation, but an explicitly requested
+            # consolidation may still read their protected move capacity.
+            entry["account_headroom_raw"] = 0.0 if entry.get("uncertain") else round(max(0.0, min(
+                float(entry.get("account_headroom_raw", entry.get("spend_from_headroom", entry.get("headroom", 0.0))) or 0.0),
+                float(entry.get("headroom", 0.0) or 0.0) - float(entry.get("earmarked_total", 0.0) or 0.0),
+            )), 2)
             entry["spend_from_headroom"] = 0.0
             entry["spend_from_capped"] = False
             entry.pop("spend_from_requires_move", None)
