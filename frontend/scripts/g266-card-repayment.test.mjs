@@ -71,7 +71,10 @@ assert.equal(walkUpcomingAccounts(flow([repay({ amount: 10 })]), END).accounts[0
   const [withMove] = withCoverSuggestions([account], items);
   assert.equal(coverSuggestionSentence(withMove.coverSuggestion), "Moving £14 in from Easy Saver would cover it.");
   const html = renderToStaticMarkup(React.createElement(UpcomingAccountDetails, { account: withMove, periodLabel: "x", plans: [], plansStatus: "ready" }));
-  assert.match(plainText(html), /Without the £14 suggestion from Easy Saver, payments would be £13\.72 short\./);
-  assert.ok(!/<button/.test(html.split("Without the")[0].slice(-200)), "a sentence, not a button");
+  assert.match(plainText(html), /Move from Easy Saver/);
+  assert.match(plainText(html), /\+£14/);
+  assert.match(plainText(html), /£0\.28/);
+  assert.match(plainText(html), /£13\.72 short for the .*repayment/);
+  assert.doesNotMatch(html, /data-flow-focus="event-[^"]*suggest/, "legacy recommendation remains a sentence, not an editable payment");
 }
 console.log("g266-card-repayment: ok");

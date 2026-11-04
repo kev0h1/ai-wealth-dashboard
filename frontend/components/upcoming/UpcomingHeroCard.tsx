@@ -133,7 +133,7 @@ export default function UpcomingHeroCard({
         </summary>
         <dl className="border-t border-slate-200/80 pb-1 pt-1 text-[13px] text-slate-600 dark:border-white/10 dark:text-slate-300">
           <div className="flex items-center justify-between gap-4 py-1.5">
-            <dt>Available now</dt>
+            <dt>Cash to start</dt>
             <dd className="font-mono tabular-nums text-slate-900 dark:text-slate-100">
               {calculationAmount(spendableNow)}
             </dd>

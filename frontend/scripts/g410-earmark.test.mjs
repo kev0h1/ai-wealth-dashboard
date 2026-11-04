@@ -52,14 +52,14 @@ assert.equal(coveredByMoveSentence("£190", { ...suggestion, fromCount: 2 }), "S
 const sheet = (hidden, entry) => renderToStaticMarkup(h(BalancesHiddenContext.Provider, { value: hidden }, h(UpcomingAccountDetails, { account: summarise(entry)[0], periodLabel: "Payments through Wed 25 Nov", plans: [], plansStatus: "ready" })));
 let html = sheet(false, covered);
 assert.match(html, /data-covered-by-move/);
-assert.match(html, /A suggested move would cover payments/);
+assert.match(html, /The suggestion covers this gap\. You still need to make the move\./);
 assert.match(html, /lucide-info/);
 assert.doesNotMatch(html, /lucide-triangle-alert/);
 assert.ok(!html.includes("—"));
 html = sheet(true, covered);
 assert.ok(!/£190|£200/.test(html.replace(/£••••/g, "")), "hidden balances mask every new figure");
 html = sheet(false, base);
-assert.ok(!html.includes("data-covered-by-move") && html.includes("needed for payments"));
+assert.ok(!html.includes("data-covered-by-move") && html.includes("Payments need more money. No covering move is suggested."));
 
 // Accounts page Available: working shows the set-aside line, the destination is amber when covered, dismiss reverts.
 const acct = (o = {}) => ({ id: "hc", name: "Harbour Current", provider: "barclays", type: "BANK", subtype: "TRANSACTION", currency: "GBP", status: "connected", balance: 2000, ...o });
@@ -110,5 +110,8 @@ row = summarise(combined)[0];
 assert.equal(row.coverSuggestion.shortfall, 300);
 assert.deepEqual(statusFor(row, []), { amount: 100, label: "Short after the suggested move for plans", signal: "plan", estimated: false });
 const byAccount = renderToStaticMarkup(h(BalancesHiddenContext.Provider, { value: false }, h(UpcomingAccountsCard, { accounts: [row], periodLabel: "Payments through Wed 25 Nov", plans: [], plansStatus: "ready", onOpen() {} })));
-assert.ok(byAccount.includes("Available") && byAccount.includes("£10"), "the compact row keeps its conditional available value without the retired long caption");
+assert.ok(!byAccount.includes("Available") && !byAccount.includes("Spend from"), "By account does not promote the conditional pooled allocation");
+assert.match(byAccount, /data-g417-variant="a"/);
+assert.match(byAccount.replace(/<[^>]+>/g, ""), /−£300Short/, "the combined payment-and-plan gap leads before the £200 move");
+assert.match(byAccount.replace(/<[^>]+>/g, ""), /−£100 after the move, still short/, "the remaining plans-only gap stays explicit after payments are covered");
 console.log("G410 earmark checks passed.");

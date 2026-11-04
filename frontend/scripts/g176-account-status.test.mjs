@@ -41,7 +41,7 @@ for (const scenario of SCENARIOS) {
   assert.match(html, /data-account-status-card="b"/, "Production renders approved B");
   assert.equal((html.match(/data-account-row=/g) ?? []).length, state.accounts.length);
   assert.equal((html.match(/data-status-amount=/g) ?? []).length, state.accounts.length);
-  assert.doesNotMatch(html, /Savings challenge|Challenge pot/, "By account must contain accounts, not duplicate plan rows");
+  assert.doesNotMatch(html, /data-flow-focus="plan-|<details/, "By account has no duplicate plan row or plan drill-in even when its action note names a plan");
   if (scenario.id === "empty") assert.match(html, /No account payments are expected/);
   if (scenario.id === "error") assert.match(html, /Try again/);
   if (scenario.id === "loading" || scenario.id === "error") {
@@ -57,8 +57,8 @@ assert.equal(resultFor("moves", "hsbc").label, "Short for transfers");
 assert.equal(resultFor("unknown", "monzo").amount, null);
 assert.equal(resultFor("overlap", "monzo").label, "Calculation needs checking");
 
-// G416 keeps the established arithmetic but replaces the retired B row layout
-// with A's compact, calm availability reading and icon-only cautions.
+// G417 keeps statusFor's arithmetic as a compatibility contract, while the
+// card itself leads with the action reading before any suggested move.
 const mixed = renderCard(fixture);
 assert.match(mixed, /aria-label="Open NatWest, Bills account:/);
 assert.match(mixed, /aria-label="Open HSBC, Current account:/);
@@ -66,9 +66,17 @@ assert.match(mixed, /aria-label="Open Monzo, Everyday account:/);
 assert.equal((mixed.match(/lucide-triangle-alert/g) ?? []).length, 1, "Only payment risk uses the warning triangle");
 assert.equal((mixed.match(/lucide-info/g) ?? []).length, 1, "Optional plans use an information symbol");
 assert.match(mixed, /data-status-amount="true"[^>]*><span[^>]*>£42</);
-assert.match(mixed, /data-status-caption="true"[^>]*>Available</);
-assert.match(renderCard(fixtureFor("unknown")), />Unavailable</);
-assert.match(renderCard(fixtureFor("overlap")), /calculation needs checking/i);
+const natwestStart = mixed.indexOf('data-account-row="natwest"');
+const natwestEnd = mixed.indexOf('data-account-row="', natwestStart + 1);
+const natwestRow = mixed.slice(natwestStart, natwestEnd < 0 ? undefined : natwestEnd).replace(/<[^>]+>/g, "");
+assert.match(natwestRow, /Left after payments/);
+assert.match(mixed, /data-g417-variant="a"/);
+assert.doesNotMatch(mixed, /Available|Spend from/);
+assert.match(renderCard(fixtureFor("unknown")), /Not yet known/);
+const overlapCard = renderCard(fixtureFor("overlap"));
+assert.match(overlapCard, /data-status-signal="unknown"/);
+assert.match(overlapCard, /Payments only\. Plans need checking\./);
+assert.doesNotMatch(overlapCard, /Left after plans/, "uncertain overlap never invents a combined total");
 
 // The approved preview and live Upcoming page must use one implementation.
 const preview = readFileSync(new URL("../app/design/g176-account-status/PreviewClient.tsx", import.meta.url), "utf8");

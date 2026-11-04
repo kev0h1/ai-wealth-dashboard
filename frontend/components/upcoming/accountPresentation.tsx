@@ -7,7 +7,7 @@ import styles from "./UpcomingAccounts.module.css";
 
 export function AccountMoney({ pence, exact = false, positive = false }: { pence: number | null; exact?: boolean; positive?: boolean }) {
   const hidden = useBalancesHidden();
-  if (pence === null || !Number.isFinite(pence)) return <span className={styles.unavailable}>Unavailable</span>;
+  if (pence === null || !Number.isFinite(pence)) return <span className={styles.unavailable}>Not yet known</span>;
   const prefix = pence < 0 ? "−" : positive && pence > 0 ? "+" : "";
   if (hidden) return <MaskedAmount text={`${prefix}£••••`} />;
   const text = exact ? `${prefix}£${(Math.abs(pence) / 100).toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : `${positive && pence > 0 ? "+" : ""}${accountSummaryMoney(pence)}`;
