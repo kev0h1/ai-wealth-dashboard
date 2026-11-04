@@ -1168,6 +1168,20 @@ function movePaymentCopy(destination: PlanDest, bills: readonly MovePaymentBill[
   return { clearClause, dueCopy, hasOverdueBills, tilePaymentCopy };
 }
 
+function MovePlanActions({ item }: { item: CompanionItem }) {
+  const plans = item.plan_shortfall?.plans ?? [];
+  if (!plans.length) return null;
+  return <div className="mt-3 space-y-1">
+    {plans.map(plan => <Link key={`${plan.kind}:${plan.id}`} href={plan.kind === "goal"
+      ? `/planning?goal=${encodeURIComponent(plan.id)}&edit=1`
+      : `/upcoming?plan=${encodeURIComponent(`allocation:${plan.id}`)}&edit=1`}
+      aria-label={`Edit plan: ${plan.name}`}
+      className="flex min-h-11 items-center justify-between gap-3 rounded-xl px-3 text-sm font-semibold text-indigo-600 hover:bg-indigo-50 active:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-indigo-400 dark:hover:bg-indigo-500/10">
+      <span className="min-w-0 break-words">{plans.length === 1 ? "Edit plan" : `Edit plan: ${plan.name}`}</span><ChevronRight size={16} aria-hidden="true" className="shrink-0" />
+    </Link>)}
+  </div>;
+}
+
 export function MoveCard({ item, hideNetWorth: hideNetWorthProp, maskAmounts, hideAttribution, dismissible, onHomeDismiss, onRefresh, previewMode = false }: MoveCardProps) {
   // B56: Penny sits under the app-level BalancesHiddenContext, so the preference applies even when a caller passes no prop.
   const ctxHidden = useBalancesHidden();
@@ -1214,6 +1228,11 @@ export function MoveCard({ item, hideNetWorth: hideNetWorthProp, maskAmounts, hi
   const paymentCopy = destination
     ? movePaymentCopy(destination, paymentBills, Boolean(item.covered))
     : null;
+  if (paymentCopy && item.plan_shortfall) {
+    paymentCopy.dueCopy = paymentBills.length ? `${paymentCopy.dueCopy} · includes plans` : "For plans this pay period";
+    paymentCopy.clearClause = item.covered ? paymentBills.length ? "Covers the payments and plans" : "Covers the plans" : null;
+    paymentCopy.tilePaymentCopy = paymentBills.length ? "needed for payments and plans" : "needed for plans this pay period";
+  }
   async function handleSkip(bill: PlanDestBill) {
     if (!bill.key || !bill.expected_date || skippingKey) return;
     const identity = `${bill.key}:${bill.expected_date}`;
@@ -1296,6 +1315,7 @@ export function MoveCard({ item, hideNetWorth: hideNetWorthProp, maskAmounts, hi
             {item.overflow_note && <p className="text-[12px] leading-snug text-slate-400 dark:text-slate-500">{item.overflow_note}</p>}
           </div>
         )}
+        <MovePlanActions item={item} />
         {item.action && (
           <footer className={ACTION_DOCK}>
             <Link href={actionHref(item.action.route)} className={`${PRIMARY_ACTION} w-full`}><ActionLabel>{item.action.label}</ActionLabel></Link>
@@ -1425,6 +1445,7 @@ export function MoveCard({ item, hideNetWorth: hideNetWorthProp, maskAmounts, hi
           </p>
         </>
       )}
+      <MovePlanActions item={item} />
       {item.action && (
         <footer className={ACTION_DOCK}>
           <Link href={actionHref(item.action.route)} className={`${PRIMARY_ACTION} w-full`}>

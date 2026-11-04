@@ -1,0 +1,145 @@
+{
+  "name": "Editing away the Monzo plan gap removes its recommendation and earmark (G414)",
+  "today": "2026-11-02",
+  "pay_period_config": {
+    "type": "last_friday"
+  },
+  "confirmed_income_streams": [],
+  "accounts": [
+    {
+      "_id": "acc-barclays",
+      "name": "Barclays Current",
+      "provider": "barclays",
+      "type": "BANK",
+      "subtype": "TRANSACTION",
+      "balance": 1500.0,
+      "currency": "GBP",
+      "status": "connected",
+      "include_in_safe_to_spend": true
+    },
+    {
+      "_id": "acc-monzo",
+      "name": "Monzo Current",
+      "provider": "monzo",
+      "type": "BANK",
+      "subtype": "TRANSACTION",
+      "balance": 50.0,
+      "currency": "GBP",
+      "status": "connected",
+      "include_in_safe_to_spend": true
+    },
+    {
+      "_id": "acc-natwest",
+      "name": "NatWest Current",
+      "provider": "natwest",
+      "type": "BANK",
+      "subtype": "TRANSACTION",
+      "balance": 100.0,
+      "currency": "GBP",
+      "status": "connected",
+      "include_in_safe_to_spend": true
+    },
+    {
+      "_id": "acc-monzo-pot",
+      "name": "Monzo Travel Pot",
+      "provider": "monzo",
+      "type": "BANK",
+      "subtype": "SAVINGS",
+      "balance": 300.0,
+      "currency": "GBP",
+      "status": "connected",
+      "include_in_safe_to_spend": true
+    }
+  ],
+  "manual_accounts": [],
+  "cashflow_cache": {
+    "recurring_spend": [
+      {
+        "key": "NATWEST RENT",
+        "avg_amount": 250.0,
+        "avg_interval": 30,
+        "next_date": "2026-11-07",
+        "account_id": "acc-natwest",
+        "account_name": "NatWest Current",
+        "account_bank": "natwest",
+        "account_balance": 100.0,
+        "is_credit_card": false,
+        "category": "Bills"
+      }
+    ],
+    "recurring_income": [],
+    "bnpl_commitments": [],
+    "avg_daily_spend": 0
+  },
+  "transactions": [],
+  "commitments": [],
+  "allocations": [],
+  "card_terms": [],
+  "expected": {
+    "left_to_spend": 1400.0,
+    "spend_from_total": 1400.0,
+    "spendable_balance": 1650.0,
+    "allocations_reserved": 0.0,
+    "not_spendable": [
+      "acc-monzo-pot"
+    ],
+    "accounts": {
+      "acc-barclays": {
+        "spend_from": 1340.0,
+        "after_payments": 1500.0,
+        "low_point": 1500.0,
+        "plans_reserved": 0.0,
+        "after_payments_and_plans": 1500.0,
+        "verdict": "covered",
+        "earmarked_total": 160.0,
+        "earmarks_out": [
+          {
+            "to": "acc-natwest",
+            "amount": 160.0
+          }
+        ]
+      },
+      "acc-monzo": {
+        "spend_from": 50.0,
+        "after_payments": 50.0,
+        "low_point": 50.0,
+        "plans_reserved": 0.0,
+        "after_payments_and_plans": 50.0,
+        "verdict": "covered",
+        "no_earmark": true
+      },
+      "acc-natwest": {
+        "spend_from": 10.0,
+        "after_payments": -150.0,
+        "low_point": -150.0,
+        "plans_reserved": 0.0,
+        "after_payments_and_plans": -150.0,
+        "verdict": "short",
+        "covered_by_move": {
+          "amount": 160.0,
+          "from": [
+            {
+              "account_id": "acc-barclays",
+              "amount": 160.0
+            }
+          ]
+        },
+        "short_after_cover": 0.0,
+        "spend_from_requires_move": true
+      }
+    },
+    "cover_plan": {
+      "moves_total": 160.0,
+      "moves": [
+        {
+          "from": "acc-barclays",
+          "to": "acc-natwest",
+          "amount": 160.0
+        }
+      ]
+    },
+    "payday_plan": null,
+    "at_risk_count": 1,
+    "notes": "Hand-derived G414 state after the Monzo set-aside is removed or paused. Current balances still total 1650. Only NatWest rent 250 is required; pooled Left to spend is 1650 - 250 = 1400. NatWest is short 150, covered by the existing 160 suggestion from Barclays. Barclays reserves only 160 and has 1340 allocated. Monzo has no plan or payment left and its original 50 is available immediately, with no earmark or cover metadata. NatWest has the 10 cushion only after the suggestion. Allocations 1340 + 50 + 10 = 1400. The former 110 Monzo recommendation and its plan id disappear automatically on this compute; recommendations move no money."
+  }
+}

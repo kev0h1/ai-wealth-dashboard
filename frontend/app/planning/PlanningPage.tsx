@@ -376,10 +376,10 @@ export default function PlanningPage() {
   const plans = cashflow ? assessPlanOverlap(plansFromApi(accountPlans ?? []), cashflow, accountEndMs, accounts) : [];
   const sourceIds = new Set(plans.filter((plan) => plan.active && hasPlanSource(plan)).map((plan) => plan.sourceId));
   const excludedAccountIds = new Set(accounts.filter((account) => account.include_in_safe_to_spend === false).map((account) => account.id));
-  const planSources = accounts.filter((account) => sourceIds.has(account.id) && isPlanSourceAccount(account) && !excludedAccountIds.has(account.id)).map((account) => ({ id: account.id, bank: account.provider, name: account.name, balance: account.balance }));
+  const accountPositions = positionsFromToday(accountEligibility, accounts) ?? {};
+  const planSources = accounts.filter((account) => (sourceIds.has(account.id) || accountPositions[account.id]?.spendFrom != null) && isPlanSourceAccount(account) && !excludedAccountIds.has(account.id)).map((account) => ({ id: account.id, bank: account.provider, name: account.name, balance: account.balance }));
   const accountWalk = cashflow ? walkUpcomingAccounts(cashflow, accountEndMs, planSources, excludedAccountIds) : null;
   const accountPeriodLabel = paymentsThroughLabel(accountEndMs);
-  const accountPositions = positionsFromToday(accountEligibility, accounts) ?? {};
   const accountSummaries = withCoverSuggestions((accountWalk?.accounts ?? []).map((account) => reconcileWithServerPosition(account, accountPositions[account.id])), todayItems);
   const plansStatus = accountPlansError ? "error" : accountPlans === null ? "loading" : "ready";
   const paymentDetails: PaymentDetail[] = [];
@@ -468,6 +468,18 @@ export default function PlanningPage() {
   // cashflow has loaded (targets don't exist in the DOM before then), then
   // strips the params so a back-navigation or refresh doesn't replay it.
   const deepLinkHandledRef = useRef(false);
+  const planLinkHandledRef = useRef<string | null>(null);
+  useEffect(() => {
+    const planId = searchParams.get("plan");
+    if (!planId || plansStatus !== "ready" || allocations === null || planLinkHandledRef.current === planId) return;
+    const plan = plans.find(item => item.id === planId);
+    const timer = window.setTimeout(() => {
+      planLinkHandledRef.current = planId;
+      if (plan) setFlowView({ kind: searchParams.get("edit") === "1" ? "edit-plan" : "plan", id: planId });
+      router.replace("/upcoming", { scroll: false });
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [searchParams, plansStatus, plans, allocations, router]);
   useEffect(() => {
     if (!cashflow) return;
     // Wait for the cashflow-backed rows to commit before resolving their DOM

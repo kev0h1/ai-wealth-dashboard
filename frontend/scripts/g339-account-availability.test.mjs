@@ -35,7 +35,7 @@ const renderHome = (extra = {}, hidden = false) => renderToStaticMarkup(
 // The server-provided Spend from limit wins over the larger payday closing number.
 const normal = accountAvailability(account(), snap());
 assert.equal(normal.kind, "ready"); assert.equal(normal.value, 8); assert.equal(normal.warning, undefined);
-assert.equal(normal.note, "Estimated limit after known payments and plans this pay period. Separate account limits, not amounts to add together.");
+assert.equal(normal.note, "Allocated from your shared Left to spend after known payments and plans this pay period.");
 assert.equal(accountAvailability(account(), snap({ positions: { barclays: position({ spend_from_headroom: 4, after_payments_and_plans: 99 }) } })).value, 4);
 assert.equal(accountAvailability(account(), snap({ positions: { barclays: position({ spend_from_headroom: 4, spend_from_capped: true, account_headroom_raw: 99 }) } })).value, 4);
 assert.equal(accountAvailability(account(), snap({ positions: { barclays: position({ spend_from_headroom: 0, low_point: -2, after_payments: -1 }) } })).warning, "payments");
@@ -60,10 +60,10 @@ assert.equal(renderRow(), renderRow({ availability: undefined }));
 const ready = renderRow({ availability: accountAvailability(account(), snap()) });
 assert.match(ready, /£108/); assert.match(textOf(ready), /Available: £8/); assert.match(ready, /available: £8/);
 assert.match(ready, /data-g339-availability/);
-// Row captions use the bank balance's existing whole-pound rounding.
-for (const [value, expected] of [[108.36, "£108"], [26.29, "£26"], [11.39, "£11"], [26.5, "£27"], [0.4, "£0"]]) {
+// Allocations preserve pence so Available figures can be added accurately.
+for (const [value, expected] of [[108.36, "£108.36"], [26.29, "£26.29"], [11.39, "£11.39"], [26.5, "£26.50"], [0.4, "£0.40"]]) {
   const rounded = renderRow({ row: row(account({ balance: value })), availability: { kind: "ready", value } });
-  assert.ok(rounded.includes(`, ${expected}, available: ${expected}`), "bank and available spoken figures round identically");
+  assert.ok(rounded.includes(`available: ${expected}`), "spoken allocation preserves pence");
   assert.ok(textOf(rounded).includes(`Available: ${expected}`));
 }
 const hidden = renderRow({ availability: accountAvailability(account(), snap()), hideAmount: true });
@@ -83,6 +83,15 @@ assert.match(overdrawn, /overdrawn/); assert.ok(!textOf(overdrawn).match(/overdr
 const paymentsRow = renderRow({ availability: accountAvailability(account(), snap({ positions: { barclays: position({ spend_from_headroom: 0, low_point: -2 }) } })) });
 const plansRow = renderRow({ availability: accountAvailability(account(), snap({ positions: { barclays: position({ spend_from_headroom: 0, low_point_and_plans: -2 }) } })) });
 assert.match(paymentsRow, /text-rose-700/); assert.match(plansRow, /text-amber-800/); assert.doesNotMatch(plansRow, /text-rose-/);
+assert.match(textOf(plansRow), /Short after plans £0/);
+
+// An allocation that only exists after the visible recommendation keeps both
+// the dependency and its pence. It cannot look like cash already in hand.
+const conditional = accountAvailability(account(), snap({ positions: { barclays: position({ spend_from_headroom: 8.25, spend_from_requires_move: true }) } }));
+assert.equal(conditional.requiresMove, true);
+assert.match(conditional.note, /available after the suggested move/);
+const conditionalRow = renderRow({ availability: conditional });
+assert.match(textOf(conditionalRow), /Available after move: £8.25/);
 
 // Home wires the same exact server value into the real row and masks it with the balance provider.
 const home = renderHome();

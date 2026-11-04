@@ -67,7 +67,7 @@ def compute_allocation_gaps(
     *,
     movement_out: dict[str, list[str | None]] | None = None,
     floor_pence: int | None = None,
-    require_allocation: bool = True,
+    require_allocation: bool | None = True,
 ) -> list[dict]:
     """One entry per account whose set-asides push it short, material only.
 
@@ -127,12 +127,12 @@ def compute_allocation_gaps(
         # whose paying account the user chose; an inferred goal slice still
         # counts in `reserved` above so the figure matches the account sheet.
         goals = sorted(
-            ((a, p) for a, p in owing if p.get("kind") == "goal" and p.get("source_basis") == "chosen"),
+            ((a, p) for a, p in owing if p.get("kind") == "goal" and (require_allocation is None or p.get("source_basis") == "chosen")),
             key=lambda t: (-t[0], str(t[1].get("name") or "").lower(), str(t[1].get("record_id") or "")),
         )
         if require_allocation and not allocations:
             continue
-        if not require_allocation and not goals:
+        if require_allocation is False and not goals:
             continue
         estimated = any(p.get("source_basis") == "recent-transfers" for _, p in owing)
         out.append({

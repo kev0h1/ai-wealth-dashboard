@@ -59,6 +59,7 @@ export type SpendFromAccount = {
   // G234: true when the backend's cap at the pooled Safe to Spend is what
   // set `headroom` (the account holds more spare than the headline allows).
   capped?: boolean;
+  requiresMove?: boolean;
   // The full account, carried through so the render layer (SafeToSpendCard,
   // the /design preview) can resolve a bank badge/name via
   // components/AccountMiniCard.tsx's accountBrand() without this plain
@@ -99,11 +100,11 @@ export type TodayRequestStatus = "loading" | "ready" | "failed";
 
 export type SpendFromResult =
   | { kind: "unavailable"; reason: SpendFromUnavailableReason }
-  | { kind: "none" }
-  | { kind: "account"; best: SpendFromAccount; alternative: SpendFromAccount | null };
+  | { kind: "none"; unallocated?: number }
+  | { kind: "account"; best: SpendFromAccount; alternative: SpendFromAccount | null; entries?: SpendFromAccount[]; unallocated?: number };
 
-function toSpendFromAccount(a: Account, headroom: number, capped = false): SpendFromAccount {
-  return { accountId: a.id, name: displayAccountName(a.name), provider: a.provider, headroom, capped, account: a };
+function toSpendFromAccount(a: Account, headroom: number, capped = false, requiresMove = false): SpendFromAccount {
+  return { accountId: a.id, name: displayAccountName(a.name), provider: a.provider, headroom, capped, requiresMove, account: a };
 }
 
 function rankByHeadroom(
@@ -124,9 +125,13 @@ function rankByHeadroom(
       // Safe to Spend by the backend (cap_spend_from_to_pool). Read it as
       // is; never re-derive or re-cap here, and never rank on
       // `account_headroom_raw`.
-      return toSpendFromAccount(a, headroom, entry?.spend_from_capped === true);
+      return toSpendFromAccount(a, headroom, entry?.spend_from_capped === true, entry?.spend_from_requires_move === true);
     })
-    .sort((a, b) => b.headroom - a.headroom);
+    .sort((a, b) => {
+      const left = eligibility[a.accountId]?.allocation_order;
+      const right = eligibility[b.accountId]?.allocation_order;
+      return typeof left === "number" && typeof right === "number" ? left - right : b.headroom - a.headroom;
+    });
 }
 
 /**
@@ -236,13 +241,16 @@ export function bestSpendAccount(
 
   const currentRanked = rankByHeadroom(candidates, accountEligibility);
 
-  const usableCurrent = currentRanked.filter((a) => a.headroom >= SPEND_FROM_HEADROOM_FLOOR);
+  // Allocations include every penny. The cover finder's £5 source floor is
+  // a different decision and must not hide part of the shared total.
+  const usableCurrent = currentRanked.filter((a) => Number.isFinite(a.headroom) && a.headroom > 0);
   if (usableCurrent.length > 0) {
     const [best, next] = usableCurrent;
-    return { kind: "account", best, alternative: next ?? null };
+    return { kind: "account", best, alternative: next ?? null, entries: usableCurrent,
+      unallocated: accountEligibility[best.accountId]?.allocation_unassigned ?? 0 };
   }
 
-  return { kind: "none" };
+  return { kind: "none", unallocated: Object.values(accountEligibility).find(entry => (entry.allocation_unassigned ?? 0) > 0)?.allocation_unassigned };
 }
 
 // G300 (Kevin 2026-10-20): every shown figure is capped at the pooled Safe to
@@ -373,14 +381,12 @@ export function spendFromHeroLine(
       return "No single account has spare cash towards this estimate right now.";
     case "account": {
       const entries = [result.best, result.alternative].filter((e): e is SpendFromAccount => e != null);
-      if (spendFromIsCombined(entries, pool)) return spendFromCombinedLine(entries, pool as number, amount);
+      if (!result.entries && spendFromIsCombined(entries, pool)) return spendFromCombinedLine(entries, pool as number, amount);
       const bank = bankLabel ? ` (${bankLabel})` : "";
       // G234: the figure is capped at the pooled Safe to Spend by the
       // backend, so it can never read higher than the headline. When the
       // cap is what set it, say so; otherwise it is the account's own spare.
-      return result.best.capped
-        ? `In ${result.best.name}${bank}: up to ${amount(result.best.headroom)} of your estimate is in this account right now.`
-        : `In ${result.best.name}${bank}: ${amount(result.best.headroom)} of your estimate is in this account right now.`;
+      return `In ${result.best.name}${bank}: ${amount(result.best.headroom)} of your estimate${result.best.requiresMove ? ", after the suggested move" : ""}.`;
     }
   }
 }
@@ -396,14 +402,12 @@ export function spendFromAlternativeLine(
   if (result.kind !== "account") return null;
   if (!result.alternative) return null;
   // G300: the hero line already carries the combined sentence.
-  if (spendFromIsCombined([result.best, result.alternative], pool)) return null;
+  if (!result.entries && spendFromIsCombined([result.best, result.alternative], pool)) return null;
   // Same scope qualifier as the hero line, in its shortest honest form:
   // this line sits inside the "How we got £X" ledger, which itemises the
   // POOLED calculation, so an unqualified "£38 spare" reads as one of that
   // ledger's own rows.
-  return result.alternative.capped
-    ? `Also in ${result.alternative.name}: up to ${amount(result.alternative.headroom)}.`
-    : `Also in ${result.alternative.name}: ${amount(result.alternative.headroom)}.`;
+  return `Also in ${result.alternative.name}: ${amount(result.alternative.headroom)}${result.alternative.requiresMove ? ", after the suggested move" : ""}.`;
 }
 
 // ── Which treatment the card renders (G148, 2026-09-23) ─────────────────────
@@ -441,6 +445,7 @@ export type SpendFromTreatmentPlan = {
   entries: SpendFromAccount[];
   /** G300: the pooled Safe to Spend the combined rule used (null when unknown). */
   pool: number | null;
+  unallocated?: number;
   /** G300: true when the per-account figures would add up to more than the
    *  pool, so the card shows badges/names only plus one combined line
    *  (`spendFromCombinedLine`) instead of per-account amounts. */
@@ -511,10 +516,10 @@ export function spendFromTreatmentPlan(
   }
 
   if (resolved.kind === "none") {
-    return { kind: "no-current", entries: [], pool: null, combined: false, message: null, retryable: false, diagnostic: null };
+    return { kind: "no-current", entries: [], pool: usablePool(pool), unallocated: resolved.unallocated, combined: false, message: null, retryable: false, diagnostic: null };
   }
 
-  const entries = [resolved.best, resolved.alternative].filter(
+  const entries = resolved.entries ?? [resolved.best, resolved.alternative].filter(
     (entry): entry is SpendFromAccount => entry != null,
   );
   const kind: SpendFromTreatmentKind = entries.every((entry) => hasBankMark(entry.account))
@@ -524,7 +529,8 @@ export function spendFromTreatmentPlan(
     kind,
     entries,
     pool: usablePool(pool),
-    combined: spendFromIsCombined(entries, pool),
+    unallocated: resolved.unallocated,
+    combined: resolved.entries ? false : spendFromIsCombined(entries, pool),
     message: null,
     retryable: false,
     diagnostic: null,

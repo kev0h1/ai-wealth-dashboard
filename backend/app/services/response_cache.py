@@ -100,7 +100,9 @@ _MAX_TIME_MS = 500
 # 6: G280 category kinds reclassified (Rent added; Cash, Charity, Other free).
 # 7: G412 optional dated card payments replace one learned occurrence and
 # expose their common statement evidence to every forecast consumer.
-SHAPE_VERSION = 7
+# 8: G414 makes account spend-from figures an additive allocation of Left to
+# spend, including any conditional surplus from an earmarked cover move.
+SHAPE_VERSION = 8
 
 # UK users; this cache pins its day boundary to Europe/London (DST-aware,
 # via app.core.timeutil) so the API and worker processes, even if their

@@ -33,9 +33,9 @@ function fmtGbp(value: number): string {
   return `£${Math.abs(value).toLocaleString("en-GB", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
 }
 
-/** Keep small cash figures honest without adding pence to every hero. */
+/** Preserve pence so the account allocations visibly add up to this figure. */
 export function formatSafeToSpendAmount(value: number): string {
-  const pence = Math.abs(value) > 0 && Math.abs(value) < 1;
+  const pence = !Number.isInteger(value);
   return `£${Math.abs(value).toLocaleString("en-GB", { minimumFractionDigits: pence ? 2 : 0, maximumFractionDigits: pence ? 2 : 0 })}`;
 }
 

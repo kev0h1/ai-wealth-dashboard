@@ -2422,17 +2422,26 @@ def trajectory_copy(plan: dict, today: date) -> dict:
     }
 
 
-def cap_spend_from_to_pool(account_eligibility: dict, pooled_safe_to_spend: float | None) -> dict:
-    """G234: THE one place a per-account "Spend from" figure is capped.
+def cap_spend_from_to_pool(
+    account_eligibility: dict, pooled_safe_to_spend: float | None, *, preferred_account_ids: list[str] | None = None,
+) -> dict:
+    """Allocate the pooled Left to spend across individual accounts.
 
     `spend_from_headroom` (seeded and corrected inside `compute_today_items`)
     deducts only that account's own bills, reserved moves and buffer. The
-    pooled Safe to Spend headline also deducts envelopes and plans, which no
-    account owns yet (G230/G232 will attribute them), so one account's figure
-    could exceed the headline (Safe to Spend 110.36, Barclays 127). Every
-    shown figure is therefore `min(account figure, pooled safe_to_spend)`,
-    floored at 0. A pool of 0 or below shows no figure for any account, so the
-    client lands on its existing "no room" line instead of an empty rail.
+    pooled Left to spend headline also deducts envelopes and plans.  The old
+    G234 implementation capped every row independently, so the rows could
+    add up to far more than the headline.  G414 makes this an allocation:
+    accounts are filled in the engine's stable preference order until the
+    pooled amount is exhausted.  Thus the displayed rows are real, additive
+    spending amounts rather than overlapping maxima.
+
+    A live earmarked move is part of that forecast.  Its source has already
+    had the move deducted from ``spend_from_headroom``; its destination can
+    receive the small cushion left after its shortfall is covered.  Including
+    that cushion is what makes the account allocation reconcile to the same
+    Left to spend figure after the recommendation, without changing the
+    cover-move safety buffer itself.
 
     The uncapped figure is kept as `account_headroom_raw` for Penny's
     explanations; `spend_from_capped` says whether the pool is what bound.
@@ -2442,12 +2451,56 @@ def cap_spend_from_to_pool(account_eligibility: dict, pooled_safe_to_spend: floa
     and is the caller's problem, not guessed here.
     """
     pool = round(max(0.0, float(pooled_safe_to_spend or 0.0)), 2)
-    for entry in account_eligibility.values():
-        raw = float(entry.get("spend_from_headroom", entry.get("headroom", 0.0)) or 0.0)
-        shown = round(max(0.0, min(raw, pool)), 2)
-        entry["account_headroom_raw"] = round(raw, 2)
+    remaining = pool
+    preferred = list(dict.fromkeys(str(a) for a in (preferred_account_ids or [])))
+    ordered_ids = [aid for aid in preferred if aid in account_eligibility]
+    ordered_ids += [aid for aid in account_eligibility if aid not in set(ordered_ids)]
+    for allocation_order, account_id in enumerate(ordered_ids):
+        entry = account_eligibility[account_id]
+        entry["allocation_order"] = allocation_order
+        # Available and Spend from are current-account figures.  Savings may
+        # be a safe source for a cover recommendation, but it is never an
+        # everyday-spending allocation.
+        if not entry.get("is_current_account", True) or entry.get("uncertain"):
+            # Savings get no spending allocation, but an explicitly requested
+            # consolidation may still read their protected move capacity.
+            entry["account_headroom_raw"] = 0.0 if entry.get("uncertain") else round(max(0.0, min(
+                float(entry.get("account_headroom_raw", entry.get("spend_from_headroom", entry.get("headroom", 0.0))) or 0.0),
+                float(entry.get("headroom", 0.0) or 0.0) - float(entry.get("earmarked_total", 0.0) or 0.0),
+            )), 2)
+            entry["spend_from_headroom"] = 0.0
+            entry["spend_from_capped"] = False
+            entry.pop("spend_from_requires_move", None)
+            continue
+        already_seeded = "account_headroom_raw" in entry
+        raw = float(entry.get("account_headroom_raw", entry.get("spend_from_headroom", entry.get("headroom", 0.0))) or 0.0)
+        # The destination's available amount is conditional on the proposed
+        # move, just as the source's earmark is.  Never manufacture surplus
+        # when the move only partly covered its actual shortfall.
+        covered = entry.get("covered_by_move") or {}
+        covered_surplus = 0.0
+        try:
+            covered_surplus = max(0.0, float(covered.get("amount") or 0.0) - float(covered.get("shortfall") or 0.0))
+            # The seed retains the signed deficit. Credit the move once,
+            # rather than adding its surplus to an already negative seed.
+            if covered.get("from") and not already_seeded:
+                raw += float(covered.get("amount") or 0.0)
+        except (TypeError, ValueError):
+            pass
+        raw = round(raw, 2)
+        shown = round(max(0.0, min(raw, remaining)), 2)
+        entry["account_headroom_raw"] = raw
         entry["spend_from_headroom"] = shown
-        entry["spend_from_capped"] = bool(raw > pool)
+        entry["spend_from_capped"] = bool(raw > shown)
+        if covered_surplus > 0 and shown > 0:
+            entry["spend_from_requires_move"] = True
+        else:
+            entry.pop("spend_from_requires_move", None)
+        remaining = round(max(0.0, remaining - shown), 2)
+    # Some legacy pooled forecasts count income that cannot yet underwrite
+    # a named account. Keep that residual explicit; never invent spendable cash.
+    for entry in account_eligibility.values():
+        entry["allocation_unassigned"] = remaining
     return account_eligibility
 
 
@@ -3019,6 +3072,7 @@ async def compute_today_items(
                 "short": not _account_usable_by_finder(_acc),
                 "headroom": _headroom,
                 "spend_from_headroom": _headroom,
+                "is_current_account": bool(_is_current(_acc) and not _is_savings(_acc)),
             }
         # G238: the ONE per-account "after payments and plans" figure (the
         # same one Upcoming's account sheet shows). `spend_from_headroom` is
@@ -4906,6 +4960,11 @@ async def compute_today_items(
     # one account without touching the other. Ordered most urgent first — `shortfalls`
     # is already sorted by (first bounce day, then largest gap).
     emitted_dests = 0
+    # A plan gap found below may belong to an account that already has a
+    # payment cover card.  Keep the emitted object by destination so G414 can
+    # extend that one recommendation instead of describing two moves to the
+    # same account.
+    emitted_move_by_dest: dict[str, dict] = {}
     # `_regular_move_gate` (built once in section 5d via `_gate_regular_move_cards`,
     # G71) already decided — in this exact `shortfalls` order — which
     # destination's regular card is dismissed, already `done`, capped out or
@@ -5231,6 +5290,7 @@ async def compute_today_items(
         if income_note is not None:
             emit["income_note"] = income_note
         items.append(emit)
+        emitted_move_by_dest[dest_acct] = emit
         emitted_dests += 1
 
     # Honest disclosure rather than a silent drop: say how many at-risk accounts
@@ -5261,13 +5321,17 @@ async def compute_today_items(
     allocation_items: list[dict] = []
     _ap_plans: list[dict] = []
     _ap_ctx: tuple | None = None
+    _plan_gap_seen = False
     if not payday_preview:
         try:
-            _ap_plans = await _load_account_plans(uid)
+            _ap_plans = await _load_account_plans(uid, goals=True)
             if _ap_plans:
-                from app.services.allocation_shortfall import compute_allocation_gaps, suggested_reduced_amount
+                from app.services.allocation_shortfall import compute_allocation_gaps
                 _ap_closing = {
-                    sid: float(running.get(sid, live_balances.get(sid, float(acc.get("balance") or 0))))
+                    sid: min(
+                        float(running.get(sid, live_balances.get(sid, float(acc.get("balance") or 0)))),
+                        float(source_walks[sid].low_point) if sid in source_walks else float(min_running.get(sid, live_balances.get(sid, 0.0))),
+                    )
                     for acc in all_uk_accounts + offline_accounts
                     for sid in [acc["_str_id"]]
                 }
@@ -5279,7 +5343,10 @@ async def compute_today_items(
                         )
                 _ap_accts = {a["_str_id"]: a for a in all_uk_accounts + offline_accounts}
                 _ap_ctx = (_ap_closing, _ap_movement, _ap_accts)
-                for _g in compute_allocation_gaps(_ap_plans, _ap_closing, movement_out=_ap_movement):
+                for _g in compute_allocation_gaps(
+                    _ap_plans, _ap_closing, movement_out=_ap_movement, require_allocation=None, floor_pence=1
+                ):
+                    _plan_gap_seen = True
                     _pay_id = _g["account_id"]
                     _pay_acc = _ap_accts.get(_pay_id)
                     if _pay_acc is None:
@@ -5289,10 +5356,10 @@ async def compute_today_items(
                         continue
                     _pay_name = _clean_name(_pay_acc.get("name"), _pay_id)
                     _gap = _g["gap"]
-                    _alloc = _g["allocations"][0]
-                    _multi = len(_g["allocations"]) > 1
+                    _primary_plan = (_g["allocations"] + _g.get("goals", []))[0]
+                    _multi = len(_g["allocations"]) + len(_g.get("goals", [])) > 1
 
-                    def _build_alloc_move_map(src_id, src_name, src_provider, src_balance, src_own_bills, leg_amount, src_reserved=0.0, _n=_alloc["name"], _pn=_pay_name, _pid=_pay_id, _pa=_pay_acc):
+                    def _build_alloc_move_map(src_id, src_name, src_provider, src_balance, src_own_bills, leg_amount, src_reserved=0.0, _n=_primary_plan["name"], _pn=_pay_name, _pid=_pay_id, _pa=_pay_acc):
                         return {
                             "from": {
                                 "account_id": src_id, "name": humanise_account_name(src_name), "provider": src_provider,
@@ -5310,50 +5377,185 @@ async def compute_today_items(
                             },
                         }
 
-                    _cap_snapshot = dict(source_capacity)
-                    _legs = _find_legs_for_destination(_pay_id, float(_ceil5(_gap)), _build_alloc_move_map)
-                    if _legs and sum(float(l["amount"]) for l in _legs) + 1e-6 < _gap:
-                        # Partial cover is not a remedy to offer: hand the
-                        # capacity back and show Reduce alone.
-                        source_capacity.clear()
-                        source_capacity.update(_cap_snapshot)
-                        _legs = []
+                    _existing_move = emitted_move_by_dest.get(_pay_id)
+                    if dest_shortfall.get(_pay_id, 0.0) > 0 and _existing_move is None:
+                        # The payment recommendation owns this destination.
+                        # A dismissal or card cap must not be bypassed by
+                        # resurfacing the same shortfall as a new plan card.
+                        continue
+                    # One destination has one rounded cover target.  A
+                    # payment card already holds its own cushion, so only
+                    # ask for the incremental amount needed to reach the
+                    # combined payment-and-plan target.  A plans-only card
+                    # gets that same £10 cover cushion as a payment card.
+                    # A new plans-only recommendation must fit the same card
+                    # allowance as payment moves before it claims any source.
+                    _plan_slots = max(0, min(_MOVE_CARD_CAP - len(items), 3 - len(items) - len(unfunded_move_items[:1])))
+                    if _existing_move is None and len(allocation_items) >= _plan_slots:
+                        continue
+                    _payment_gap = float(dest_shortfall.get(_pay_id, 0.0))
+                    _combined_target = float(_ceil5(_payment_gap + _gap) + 10)
+                    _already_covered = float(_existing_move.get("amount") or 0.0) if _existing_move else 0.0
+                    _incremental_needed = max(0.0, _combined_target - _already_covered)
+                    _legs = _find_legs_for_destination(_pay_id, _incremental_needed, _build_alloc_move_map)
+                    _covered = round(sum(float(l["amount"]) for l in _legs), 2)
+                    # G414: a plan gap gets the same useful, possibly partial
+                    # cover recommendation as a payment gap.  The plan edit
+                    # remains an alternative action, carried in ``plans``.
+                    _plans = [
+                        {**p, "kind": "allocation"} for p in _g["allocations"]
+                    ] + [
+                        {**p, "kind": "goal"} for p in _g.get("goals", [])
+                    ]
+                    _plan_shortfall = {
+                        "shortfall": _gap,
+                        "estimated": bool(_g["estimated"]),
+                        "paying_account": {
+                            "account_id": _pay_id,
+                            "name": _pay_name,
+                            "provider": _provider_of(_pay_acc),
+                        },
+                        # Stable plan ids are intentionally exposed here:
+                        # the client opens the existing G313/G317 editor,
+                        # never a new money-moving control.
+                        "plans": _plans,
+                        "moves": [{"amount": l["amount"], "move_map": l["move_map"]} for l in _legs],
+                        "covered": _covered,
+                    }
+                    _plan_dest = {
+                        "account_id": _pay_id,
+                        "name": _pay_name,
+                        "provider": _provider_of(_pay_acc),
+                        "balance": float(live_balances.get(_pay_id, float(_pay_acc.get("balance") or 0))),
+                        "needs_total": round(sum(float(p["remaining"]) for p in _plans), 2),
+                        "needs_by": "",
+                        "needs_by_last": "",
+                        "needs_by_date": None,
+                        "needs_by_last_date": None,
+                        "bills": [],
+                        "is_overdraft": False,
+                        "plans": _plans,
+                    }
+                    if account_eligibility_out is not None and (_legs or _existing_move is not None):
+                        _dest_entry = account_eligibility_out.get(_pay_id)
+                        _from_rows: list[dict] = []
+                        for _leg in _legs:
+                            _src_id = _leg["move_map"]["from"]["account_id"]
+                            _src_name = _leg["move_map"]["from"]["name"]
+                            _amt = round(float(_leg["amount"]), 2)
+                            _from_rows.append({"account_id": _src_id, "name": _src_name, "amount": _amt})
+                            _src = account_eligibility_out.get(_src_id)
+                            if _src is not None and not _src.get("uncertain"):
+                                _src["spend_from_headroom"] = round(float(_src.get("spend_from_headroom") or 0) - _amt, 2)
+                                _src.setdefault("earmarks_out", []).append(
+                                    {"to_account_id": _pay_id, "to_name": _pay_name, "amount": _amt}
+                                )
+                                _src["earmarked_total"] = round(float(_src.get("earmarked_total") or 0) + _amt, 2)
+                        if _dest_entry is not None:
+                            # There can be a payment shortfall too.  Its
+                            # earlier cover record is preserved and this plan
+                            # contribution is folded into the same account
+                            # fact, so no surface reports two separate covers.
+                            _existing = _dest_entry.get("covered_by_move") or {"amount": 0.0, "shortfall": 0.0, "from": []}
+                            _existing["amount"] = round(float(_existing.get("amount") or 0) + _covered, 2)
+                            _existing["shortfall"] = round(float(_existing.get("shortfall") or 0) + _gap, 2)
+                            _existing["from"] = list(_existing.get("from") or []) + _from_rows
+                            _dest_entry["covered_by_move"] = _existing
+                            _dest_entry["short_after_cover"] = round(max(0.0, _existing["shortfall"] - _existing["amount"]), 2)
+                    if _existing_move is not None:
+                        # Payment and plan requirements from one account have
+                        # one destination and one money move.  Extend the
+                        # earlier card's source rows, amount and disclosure;
+                        # do not add a second card that would invite the user
+                        # to make two transfers to the same account.
+                        _combined_moves = list(_existing_move.get("moves") or []) + _plan_shortfall["moves"]
+                        _by_source: dict[str, dict] = {}
+                        for _move in _combined_moves:
+                            _source_id = str((_move.get("move_map") or {}).get("from", {}).get("account_id") or "")
+                            if _source_id in _by_source:
+                                _by_source[_source_id]["amount"] = round(float(_by_source[_source_id]["amount"]) + float(_move["amount"]), 2)
+                                _by_source[_source_id]["headline"] = f"Move £{int(round(_by_source[_source_id]['amount'])):,} from {_by_source[_source_id]['move_map']['from']['name']}"
+                            else:
+                                _by_source[_source_id] = dict(_move)
+                        _existing_move["moves"] = list(_by_source.values())
+                        _existing_move["amount"] = round(float(_existing_move.get("amount") or 0) + _covered, 2)
+                        _combined_gap = round(_payment_gap + _gap, 2)
+                        _existing_move["covered"] = _existing_move["amount"] + 0.005 >= _combined_gap
+                        _existing_move["residual"] = (
+                            f"Still {_gbp(_combined_gap - _existing_move['amount'])} short for payments and plans."
+                            if not _existing_move["covered"] else None
+                        )
+                        if len(_existing_move["moves"]) == 1:
+                            _existing_move["move_map"] = _existing_move["moves"][0]["move_map"]
+                        else:
+                            _existing_move.pop("move_map", None)
+                        _existing_move["headline"] = f"Move £{int(round(_existing_move['amount'])):,} to {_pay_name}"
+                        _existing_move["brief_lead"] = {"value": _gbp(_existing_move["amount"]), "companion": f"to {_pay_name}"}
+                        _existing_move["plan_shortfall"] = _plan_shortfall
+                        _existing_move["plan_dest"] = {**dict(_existing_move.get("plan_dest") or {}), "plans": _plans}
+                        _existing_move["body"] = f"{_gbp(_combined_gap)} needed for payments and plans this period."
+                        _existing_move["summary"] = _existing_move["body"]
+                        if persist:
+                            await companion_items_col.update_one(
+                                {"_id": _existing_move["id"], "uid": uid},
+                                {"$set": {
+                                    "moves": _existing_move["moves"], "amount": _existing_move["amount"],
+                                    "headline": _existing_move["headline"], "brief_lead": _existing_move["brief_lead"],
+                                    "body": _existing_move["body"], "plan_shortfall": _plan_shortfall,
+                                    "plan_dest": _existing_move["plan_dest"],
+                                    "covered": _existing_move["covered"], "residual": _existing_move["residual"],
+                                }},
+                            )
+                        continue
                     allocation_items.append({
                         "id": _item_id,
-                        "type": "allocation_shortfall",
+                        "type": "move",
                         "headline": (
-                            f"Your {_alloc['name']} set-aside is short" if not _multi
-                            else f"Your set-asides at {humanise_account_name(_pay_name)} are short"
+                            f"Your {_primary_plan['name']} plan is short" if not _multi
+                            else f"Your plans at {humanise_account_name(_pay_name)} are short"
                         ),
                         "body": f"{_gbp(_gap)} short this period.",
                         # The app never moves money: the card phrases the move
                         # as a recommendation from `moves`, so no action route.
                         "action": None,
                         "estimated": bool(_g["estimated"]),
-                        "amount": _gap,
-                        "allocation_shortfall": {
-                            "shortfall": _gap,
-                            "estimated": bool(_g["estimated"]),
-                            "paying_account": {
-                                "account_id": _pay_id,
-                                "name": _pay_name,
-                                "provider": _provider_of(_pay_acc),
-                            },
-                            "allocation": {
-                                "id": _alloc["id"],
-                                "name": _alloc["name"],
-                                "period_amount": _alloc["period_amount"],
-                                "suggested_amount": suggested_reduced_amount(_alloc, _gap),
-                            },
-                            "other_allocation_count": len(_g["allocations"]) - 1,
-                            "moves": [
-                                {"amount": l["amount"], "move_map": l["move_map"]} for l in _legs
-                            ],
-                        },
+                        "amount": _covered,
+                        "plan_shortfall": _plan_shortfall,
+                        "plan_dest": _plan_dest,
+                        "moves": _plan_shortfall["moves"],
+                        "covered": bool(_covered + 1e-6 >= _gap),
+                        "sources_safe": bool(_legs),
+                        "residual": (
+                            f"These moves cover {_gbp(_covered)}, but {_pay_name} is still {_gbp(_gap - _covered)} short."
+                            if _covered + 0.5 < _gap else None
+                        ),
                     })
         except Exception:
             log.warning("allocation shortfall failed for %s", uid, exc_info=True)
             allocation_items = []
+
+    # Payment and plan coverage is one move per source/destination, including
+    # its account facts. Never show two earmark deductions for the same move.
+    for _entry in (account_eligibility_out or {}).values():
+        _merged_out: dict[str, dict] = {}
+        for _row in _entry.get("earmarks_out") or []:
+            _key = _row["to_account_id"]
+            if _key in _merged_out:
+                _merged_out[_key]["amount"] = round(_merged_out[_key]["amount"] + _row["amount"], 2)
+            else:
+                _merged_out[_key] = dict(_row)
+        if _merged_out:
+            _entry["earmarks_out"] = list(_merged_out.values())
+        _cov = _entry.get("covered_by_move")
+        if _cov:
+            _merged_from: dict[str, dict] = {}
+            for _row in _cov.get("from") or []:
+                _key = _row["account_id"]
+                if _key in _merged_from:
+                    _merged_from[_key]["amount"] = round(_merged_from[_key]["amount"] + _row["amount"], 2)
+                else:
+                    _merged_from[_key] = dict(_row)
+            _cov["from"] = list(_merged_from.values())
 
     # ── 6c. PLAN EASING (G228) ──────────────────────────────────────────────
     # A goal plan whose paying account is short this period, with no safe move
@@ -5365,7 +5567,7 @@ async def compute_today_items(
     # window shows its deferred one-liner instead (no gap needed: the easing
     # itself is what closed it).
     plan_easing_items: list[dict] = []
-    if not payday_preview:
+    if not payday_preview and not _plan_gap_seen:
         try:
             plan_easing_items = await _build_plan_easing_items(
                 uid, window_end, dismissed,
@@ -6396,7 +6598,7 @@ async def compute_today_items(
     result = (
         items[:_MOVE_CARD_CAP]
         + unfunded_move_items[:1]
-        + allocation_items[:1]
+        + allocation_items[:_MOVE_CARD_CAP]
         + plan_easing_items[:1]
         + celebration_items[:_MOVE_CARD_CAP]
         + cliff_items[:2]
@@ -6407,6 +6609,15 @@ async def compute_today_items(
         + rhythm_items
         + intent_pace_items
     )
+    if account_eligibility_out is not None:
+        # Reuse the explicit Home pin preference already loaded by this
+        # computation, so route and worker builders share the same ordering.
+        _pins = list(dict.fromkeys(str(a) for a in prefs.get("home_pinned_accounts") or []))
+        _ids = [aid for aid in _pins if aid in account_eligibility_out]
+        _ids += [aid for aid in account_eligibility_out if aid not in set(_ids)]
+        _ordered = {aid: account_eligibility_out[aid] for aid in _ids}
+        account_eligibility_out.clear()
+        account_eligibility_out.update(_ordered)
     return result[:3]
 
 

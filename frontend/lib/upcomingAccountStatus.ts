@@ -18,8 +18,13 @@ export function statusFor(account: UpcomingAccountSummary, plans: Plan[]): Accou
     // whatever it would not cover stays a genuine short. A dismissed move leaves no earmark, so the row is plain short again.
     const suggestion = account.coverSuggestion;
     if (suggestion && account.status === "short") {
-      if (suggestion.shortAfterCover > 0) return { amount: suggestion.shortAfterCover, label: "Short after the suggested move", signal: "risk", estimated: false };
-      return { amount: gap, label: "Short, a move would cover it", signal: "move", estimated: false };
+      const combinedGap = Math.max(gap, suggestion.shortfall ?? 0);
+      const includesPlans = combinedGap > gap + 0.005;
+      // The move pays the payment gap first. Any residue once that is covered
+      // belongs to plans, so it is a watch state rather than a bill-risk red.
+      const billsStillShort = suggestion.amount + 0.005 < gap;
+      if (suggestion.shortAfterCover > 0) return { amount: suggestion.shortAfterCover, label: billsStillShort ? "Short after the suggested move" : "Short after the suggested move for plans", signal: billsStillShort ? "risk" : "plan", estimated: false };
+      return { amount: combinedGap, label: includesPlans ? "Short for payments and plans, a move would cover it" : "Short, a move would cover it", signal: "move", estimated: false };
     }
     return { amount: gap, label: "Short for payments", signal: "risk", estimated: false };
   }
@@ -30,8 +35,12 @@ export function statusFor(account: UpcomingAccountSummary, plans: Plan[]): Accou
   if (result.uncertain) {
     return { amount: null, label: "Calculation needs checking", signal: "unknown", estimated: false };
   }
-  if (result.assigned.length && result.afterPlans !== null) {
+  if (result.afterPlans !== null && (result.assigned.length > 0 || (account.position?.plansReserved ?? 0) > 0)) {
     const short = (result.planGap ?? 0) > 0;
+    if (short && account.coverSuggestion) {
+      if (account.coverSuggestion.shortAfterCover > 0) return { amount: account.coverSuggestion.shortAfterCover, label: "Short after the suggested move", signal: "plan", estimated: result.estimated };
+      return { amount: result.planGap! / 100, label: "Short for plans, a move would cover it", signal: "move", estimated: result.estimated };
+    }
     return {
       amount: (short ? result.planGap! : result.afterPlans) / 100,
       label: short ? "Short for plans" : "Left after plans",

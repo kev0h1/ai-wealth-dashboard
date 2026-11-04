@@ -32,22 +32,28 @@ function AccountRow({ account, result, onOpen }: { account: UpcomingAccountSumma
   const hidden = useBalancesHidden();
   const money = (value: number) => maskMoneyText(moneyRaw(value), hidden);
   const meta = BANK_META[bankKey({ provider: account.bank })];
+  const allocation = account.position?.spendFrom ?? null;
+  const allocationAfterMove = account.position?.spendFromRequiresMove === true;
+  const healthyAllocation = result.signal === null && allocation !== null;
+  const primaryAmount = healthyAllocation ? allocation : result.amount;
+  const primaryLabel = healthyAllocation ? (allocationAfterMove ? "Available after suggested move" : "Available") : result.label;
   return <button
     type="button"
     data-account-row={account.id}
     onClick={() => onOpen(account)}
-    aria-label={`Open ${account.bank}, ${displayAccountName(account.name)}: ${result.amount === null ? result.label : `${money(result.amount)}, ${result.label.toLowerCase()}`}${result.estimated ? ", estimated" : ""}`}
+    aria-label={`Open ${account.bank}, ${displayAccountName(account.name)}: ${primaryAmount === null ? primaryLabel : `${money(primaryAmount)}, ${primaryLabel.toLowerCase()}`}${!healthyAllocation && allocation !== null ? `, ${money(allocation)} available${allocationAfterMove ? " after the suggested move" : ""}` : ""}${result.estimated ? ", estimated" : ""}`}
     className={`grid min-h-16 w-full grid-cols-[2rem_minmax(0,1fr)_1rem_minmax(0,8rem)] items-start gap-x-2 px-3 py-3 text-left hover:bg-slate-50 active:opacity-70 min-[360px]:px-4 dark:hover:bg-slate-700/50 ${focus}`}
   >
-    <span data-bank-badge className="col-start-1 row-span-3 row-start-1 w-8 pt-0.5"><BankBadge logoSrc={bankLogoSrc(meta)} initials={meta?.initials ?? account.bank.slice(0, 2).toUpperCase()} initialsSize={meta?.initialsSize} altText="" brandBg={meta?.bg} size={32} /></span>
-    <span className="col-start-2 row-span-3 row-start-1 min-w-0 pr-1">
+    <span data-bank-badge className="col-start-1 row-span-4 row-start-1 w-8 pt-0.5"><BankBadge logoSrc={bankLogoSrc(meta)} initials={meta?.initials ?? account.bank.slice(0, 2).toUpperCase()} initialsSize={meta?.initialsSize} altText="" brandBg={meta?.bg} size={32} /></span>
+    <span className="col-start-2 row-span-4 row-start-1 min-w-0 pr-1">
       <span className="block break-words text-sm font-semibold leading-5 text-slate-800 dark:text-slate-100">{account.bank}</span>
       <span className="mt-0.5 block break-words text-xs leading-4 text-slate-600 dark:text-slate-400">{displayAccountName(account.name)}</span>
     </span>
     <Signal signal={result.signal} />
-    <span data-status-amount className={`col-start-4 row-start-1 whitespace-nowrap text-right text-sm font-bold leading-5 text-slate-900 dark:text-slate-100 ${result.amount === null ? "font-sans" : "font-mono tabular-nums"}`}>{result.amount === null ? "Unavailable" : money(result.amount)}</span>
-    <span data-status-caption className="col-span-2 col-start-3 row-start-2 mt-0.5 text-right font-sans text-xs leading-4 text-slate-600 dark:text-slate-300">{result.label}</span>
-    {result.estimated && <span data-status-estimate className="col-span-2 col-start-3 row-start-3 text-right font-sans text-xs leading-4 text-slate-600 dark:text-slate-400">Estimated</span>}
+    <span data-status-amount className={`col-start-4 row-start-1 whitespace-nowrap text-right text-sm font-bold leading-5 text-slate-900 dark:text-slate-100 ${primaryAmount === null ? "font-sans" : "font-mono tabular-nums"}`}>{primaryAmount === null ? "Unavailable" : money(primaryAmount)}</span>
+    <span data-status-caption className="col-span-2 col-start-3 row-start-2 mt-0.5 break-words text-right font-sans text-xs leading-4 text-slate-600 dark:text-slate-300">{primaryLabel}</span>
+    {!healthyAllocation && allocation !== null && <span data-account-available className="col-span-2 col-start-3 row-start-3 mt-0.5 text-right font-sans text-xs leading-4 text-slate-600 dark:text-slate-400">{allocationAfterMove ? "Available after move" : "Available"} <span className="font-mono tabular-nums">{money(allocation)}</span></span>}
+    {result.estimated && <span data-status-estimate className={`col-span-2 col-start-3 ${allocation !== null && !healthyAllocation ? "row-start-4" : "row-start-3"} text-right font-sans text-xs leading-4 text-slate-600 dark:text-slate-400`}>Estimated</span>}
   </button>;
 }
 

@@ -1684,6 +1684,14 @@ export type AllocationShortfallData = {
   moves: { amount: number; move_map: MoveMap }[];
 };
 
+/** G414: the plans covered by the account's combined suggested move. */
+export type PlanShortfallData = {
+  shortfall: number;
+  estimated: boolean;
+  paying_account: { account_id: string; name: string; provider: string };
+  plans: { id: string; name: string; remaining: number; period_amount: number; kind: "goal" | "allocation" }[];
+};
+
 /**
  * G228: payload of a `plan_easing` item (backend/app/services/companion.py
  * section 6c). A goal plan whose paying account is short this period with no
@@ -1758,6 +1766,7 @@ export type CompanionItem = {
   move_map?: MoveMap;
   /** Present when type === "allocation_shortfall". */
   allocation_shortfall?: AllocationShortfallData;
+  plan_shortfall?: PlanShortfallData;
   /** Present when type === "plan_easing". */
   plan_easing?: PlanEasingData;
   // `PlanMove[]` when type === "move" (MoveCard's leg list). When type ===
@@ -1892,6 +1901,12 @@ export type AccountEligibility = {
   short: boolean;
   headroom: number;
   spend_from_headroom?: number;
+  /** G414: this allocation is spendable after completing the suggested move. */
+  spend_from_requires_move?: boolean;
+  /** Forecast money that cannot yet be safely allocated to a named account. */
+  allocation_unassigned?: number;
+  allocation_order?: number;
+  is_current_account?: boolean;
   account_headroom_raw?: number;
   spend_from_capped?: boolean;
   // G238: the ONE per-account position (backend services/account_position.py),
@@ -1915,7 +1930,7 @@ export type AccountEligibility = {
   // above are untouched; display only.
   earmarks_out?: { to_account_id: string; to_name: string; amount: number }[];
   earmarked_total?: number;
-  covered_by_move?: { amount: number; from: { account_id: string; name: string; amount: number }[] };
+  covered_by_move?: { amount: number; shortfall?: number; from: { account_id: string; name: string; amount: number }[] };
   short_after_cover?: number;
 };
 

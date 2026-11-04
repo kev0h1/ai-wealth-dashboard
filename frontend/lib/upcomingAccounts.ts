@@ -28,9 +28,11 @@ export type UpcomingAccountPosition = {
   lowPointAndPlans: number | null;
   /** The Spend from figure Home shows: min(after payments and plans, low point and plans), live-move reserve and pool cap applied. Null when uncertain or not shown. */
   spendFrom: number | null;
+  /** This allocation becomes spendable only if the shown cover recommendation is completed. */
+  spendFromRequiresMove?: boolean;
   uncertain: boolean;
   /** G410: what a live suggested move would cover here, and what would still be short after it. Absent when no move is live. */
-  coveredByMove?: { amount: number; from: { accountId: string; name: string; amount: number }[] } | null;
+  coveredByMove?: { amount: number; shortfall?: number; from: { accountId: string; name: string; amount: number }[] } | null;
   shortAfterCover?: number | null;
   /** G410: set aside in this account for a suggested move out of it (already excluded from `spendFrom`). */
   earmarkedTotal?: number | null;
@@ -52,7 +54,7 @@ export type UpcomingAccountSummary = {
   /** G266: the payment that sets the peak shortfall, named so the sheet can say what is at risk. Null unless status is "short". */
   shortFor?: { label: string; date: string; cardRepayment: boolean } | null;
   /** G266: a recommendation (never a button) from the cover-plan engine, when an account has room. */
-  coverSuggestion?: { amount: number; fromName: string; fromCount: number; shortAfterCover: number } | null;
+  coverSuggestion?: { amount: number; shortfall?: number; fromName: string; fromCount: number; shortAfterCover: number } | null;
   hasUnassignedIncome: boolean;
   events: UpcomingAccountEvent[];
   /** G238: server position for this account, when the API supplied it. */
@@ -137,9 +139,10 @@ export function positionsFromToday(
       // Same predicate here, so a savings pot or ISA (or an account not yet
       // loaded) never gets a Spend from line on the sheet.
       spendFrom: isCurrent(id) && !entry.uncertain && typeof entry.spend_from_headroom === "number" ? entry.spend_from_headroom : null,
+      spendFromRequiresMove: entry.spend_from_requires_move === true,
       uncertain: entry.uncertain,
       coveredByMove: entry.covered_by_move
-        ? { amount: entry.covered_by_move.amount, from: entry.covered_by_move.from.map((f) => ({ accountId: f.account_id, name: f.name, amount: f.amount })) }
+        ? { amount: entry.covered_by_move.amount, shortfall: typeof entry.covered_by_move.shortfall === "number" ? entry.covered_by_move.shortfall : undefined, from: entry.covered_by_move.from.map((f) => ({ accountId: f.account_id, name: f.name, amount: f.amount })) }
         : null,
       shortAfterCover: typeof entry.short_after_cover === "number" ? entry.short_after_cover : null,
       earmarkedTotal: typeof entry.earmarked_total === "number" ? entry.earmarked_total : null,

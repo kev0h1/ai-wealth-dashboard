@@ -1,4 +1,4 @@
-"""G234: a per-account "Spend from" figure never exceeds the pooled Safe to Spend.
+"""G414: Spend from is an additive allocation of Left to spend.
 
 `cap_spend_from_to_pool` (app/services/companion.py) is the one place the cap
 lives; `build_today_payload` (app/routers/companion.py) applies it once the
@@ -36,17 +36,55 @@ def test_cap_does_not_bind_when_account_is_below_the_pool():
     assert elig["a"]["spend_from_capped"] is False
 
 
-def test_several_accounts_are_capped_independently():
+def test_several_accounts_are_allocated_once_and_add_to_the_pool():
     elig = {
         "a": {"short": False, "headroom": 127.0, "spend_from_headroom": 127.0},
         "b": {"short": False, "headroom": 60.0, "spend_from_headroom": 60.0},
         "c": {"short": False, "headroom": 300.0, "spend_from_headroom": 120.0},
     }
     cap_spend_from_to_pool(elig, 110.36)
-    assert [elig[k]["spend_from_headroom"] for k in "abc"] == [110.36, 60.0, 110.36]
-    assert [elig[k]["spend_from_capped"] for k in "abc"] == [True, False, True]
-    # the cap uses the G114-corrected figure as the raw value, not the standing one
+    assert [elig[k]["spend_from_headroom"] for k in "abc"] == [110.36, 0.0, 0.0]
+    assert sum(e["spend_from_headroom"] for e in elig.values()) == 110.36
+    assert [elig[k]["spend_from_capped"] for k in "abc"] == [True, True, True]
     assert elig["c"]["account_headroom_raw"] == 120.0
+
+
+def test_preferred_accounts_fill_first_once_even_when_the_list_repeats_an_id():
+    elig = {
+        "barclays": {"is_current_account": True, "spend_from_headroom": 100.0},
+        "hsbc": {"is_current_account": True, "spend_from_headroom": 100.0},
+    }
+    cap_spend_from_to_pool(elig, 150.0, preferred_account_ids=["hsbc", "hsbc", "barclays"])
+    assert elig["hsbc"]["spend_from_headroom"] == 100.0
+    assert elig["barclays"]["spend_from_headroom"] == 50.0
+    assert sum(e["spend_from_headroom"] for e in elig.values()) == 150.0
+
+
+def test_only_current_non_uncertain_rows_receive_the_additive_allocation():
+    elig = {
+        "current": {"is_current_account": True, "spend_from_headroom": 70.0},
+        "savings": {"is_current_account": False, "spend_from_headroom": 900.0},
+        "uncertain": {"is_current_account": True, "uncertain": True, "spend_from_headroom": 800.0},
+    }
+    cap_spend_from_to_pool(elig, 70.0)
+    assert elig["current"]["spend_from_headroom"] == 70.0
+    assert elig["savings"]["spend_from_headroom"] == 0.0
+    assert elig["uncertain"]["spend_from_headroom"] == 0.0
+
+
+def test_covered_move_surplus_is_conditional_and_reconciles_to_the_pool():
+    elig = {
+        "source": {"is_current_account": True, "spend_from_headroom": 1800.0},
+        "destination": {
+            "is_current_account": True, "spend_from_headroom": -190.0,
+            "covered_by_move": {"amount": 200.0, "shortfall": 190.0, "from": [{"account_id": "source", "amount": 200.0}]},
+        },
+    }
+    cap_spend_from_to_pool(elig, 1810.0)
+    assert elig["source"]["spend_from_headroom"] == 1800.0
+    assert elig["destination"]["spend_from_headroom"] == 10.0
+    assert elig["destination"]["spend_from_requires_move"] is True
+    assert sum(e["spend_from_headroom"] for e in elig.values()) == 1810.0
 
 
 def test_every_shown_figure_is_within_the_pool():
@@ -54,6 +92,22 @@ def test_every_shown_figure_is_within_the_pool():
             for i, h in enumerate([5.0, 20.0, 110.36, 110.37, 999.0, -4.0])}
     cap_spend_from_to_pool(elig, 110.36)
     assert all(0 <= e["spend_from_headroom"] <= 110.36 for e in elig.values())
+
+
+def test_uncredited_forecast_money_stays_unallocated_and_reapplying_does_not_credit_a_move_twice():
+    elig = {
+        "source": {"spend_from_headroom": 1700.0},
+        "destination": {"spend_from_headroom": -288.65, "covered_by_move": {
+            "amount": 300.0, "shortfall": 288.65, "from": [{"account_id": "source", "amount": 300.0}],
+        }},
+    }
+    cap_spend_from_to_pool(elig, 2195.56)
+    assert elig["destination"]["spend_from_headroom"] == 11.35
+    assert elig["source"]["allocation_unassigned"] == 484.21
+    assert elig["destination"]["allocation_unassigned"] == 484.21
+    first = {aid: dict(entry) for aid, entry in elig.items()}
+    cap_spend_from_to_pool(elig, 2195.56)
+    assert elig == first
 
 
 def test_zero_pool_shows_no_figures():

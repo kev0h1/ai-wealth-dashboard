@@ -46,10 +46,19 @@ def _run(monkeypatch, bills, plans, accounts, *, eligibility=None):
     async def _no_reserve(uid, internal_inflows, account_map):
         return {}
 
-    async def _plans(uid):
+    async def _no_goal_reserve(uid, pay_cfg, live_balances, salary_acct, account_map, **kwargs):
+        result = {}
+        for plan in plans:
+            if plan.get("active") and plan.get("kind") == "goal" and plan.get("source_account_id"):
+                sid = plan["source_account_id"]
+                result[sid] = result.get(sid, 0) + plan["remaining"]
+        return result
+
+    async def _plans(uid, *, goals=False, strict=False):
         return list(plans)
 
     monkeypatch.setattr(companion, "_reserved_for_allocations", _no_reserve)
+    monkeypatch.setattr(companion, "_reserved_for_goals", _no_goal_reserve)
     monkeypatch.setattr(companion, "_load_account_plans", _plans)
     monkeypatch.setattr(companion, "accounts_col", FakeCol(accounts))
     monkeypatch.setattr(companion, "yapily_accounts_col", FakeCol([]))
@@ -80,7 +89,16 @@ def _types(items):
 
 
 def _alloc(items):
-    return next((i for i in items if i["type"] == "allocation_shortfall"), None)
+    return next((i for i in items if i.get("type") == "move" and i.get("plan_shortfall")), None)
+
+
+def _moves_for_account(items, account_id):
+    return [i for i in items if i.get("type") == "move" and (
+        (i.get("plan_dest") or {}).get("account_id") == account_id or any(
+            (r.get("move_map") or {}).get("to", {}).get("account_id") == account_id
+            for r in i.get("moves") or []
+        )
+    )]
 
 
 def _accts():
@@ -90,15 +108,15 @@ def _accts():
 def test_allocation_only_shortfall_attributes_to_the_allocation(monkeypatch):
     items = _run(monkeypatch, [], [_plan("a1", "Holiday", "cur", 150.0, period=200.0)], _accts())
     card = _alloc(items)
-    assert card is not None and "move" not in _types(items)
-    assert card["headline"] == "Your Holiday set-aside is short"
+    assert card is not None
+    assert card["headline"] == "Your Holiday plan is short"
     assert card["body"] == "£50 short this period."
-    data = card["allocation_shortfall"]
+    data = card["plan_shortfall"]
     assert data["shortfall"] == 50.0
-    assert data["allocation"] == {"id": "a1", "name": "Holiday", "period_amount": 200.0, "suggested_amount": 150.0}
+    assert data["plans"] == [{"id": "a1", "name": "Holiday", "remaining": 150.0, "period_amount": 200.0, "kind": "allocation"}]
     assert data["paying_account"]["name"] == "Premier Current"
     assert card["action"] is None  # the app never moves money; the card recommends
-    assert sum(m["amount"] for m in data["moves"]) >= 50
+    assert sum(m["amount"] for m in data["moves"]) >= 60
     assert data["moves"][0]["move_map"]["from"]["account_id"] == "sav"
 
 
@@ -106,17 +124,15 @@ def test_bill_plus_allocation_shortfall_bill_card_first(monkeypatch):
     accounts = [_account("cur", 50.0, name="Premier Current"), _account("sav", 1000.0, name="Savings", subtype="SAVINGS")]
     bills = [_bill("British Gas", 3, 100.0, "cur", 50.0)]
     items = _run(monkeypatch, bills, [_plan("a1", "Holiday", "cur", 30.0)], accounts)
-    kinds = _types(items)
-    assert "move" in kinds and "allocation_shortfall" in kinds
-    assert kinds.index("move") < kinds.index("allocation_shortfall")
-    # Attributed to the set-aside only: the £50 bill gap is not in the figure.
-    assert _alloc(items)["allocation_shortfall"]["shortfall"] == 30.0
+    cards = [i for i in _moves_for_account(items, "cur")]
+    assert len(cards) == 1
+    assert cards[0]["plan_shortfall"]["shortfall"] == 30.0
 
 
-def test_below_floor_raises_no_card_but_the_gap_exists(monkeypatch):
+def test_small_plan_gap_gets_the_same_cover_rule(monkeypatch):
     plans = [_plan("a1", "Holiday", "cur", 100.06)]
     items = _run(monkeypatch, [], plans, _accts())
-    assert _alloc(items) is None
+    assert _alloc(items)["plan_shortfall"]["shortfall"] == 0.06
     # The account sheet derives the same 6p from the same arithmetic.
     gaps = compute_allocation_gaps(plans, {"cur": 100.0}, floor_pence=1)
     assert [g["gap_pence"] for g in gaps] == [6]
@@ -125,48 +141,48 @@ def test_below_floor_raises_no_card_but_the_gap_exists(monkeypatch):
 
 def test_exactly_five_pounds_raises_a_card(monkeypatch):
     items = _run(monkeypatch, [], [_plan("a1", "Holiday", "cur", 105.0)], _accts())
-    assert _alloc(items)["allocation_shortfall"]["shortfall"] == 5.0
+    assert _alloc(items)["plan_shortfall"]["shortfall"] == 5.0
 
 
 def test_no_viable_source_offers_reduce_only(monkeypatch):
     items = _run(monkeypatch, [], [_plan("a1", "Holiday", "cur", 150.0, period=200.0)], [_account("cur", 100.0)])
     card = _alloc(items)
     assert card["action"] is None
-    assert card["allocation_shortfall"]["moves"] == []
-    assert card["allocation_shortfall"]["allocation"]["suggested_amount"] == 150.0
+    assert card["plan_shortfall"]["moves"] == []
+    assert card["plan_shortfall"]["plans"][0]["id"] == "a1"
 
 
-def test_partial_source_is_not_offered_and_capacity_is_handed_back(monkeypatch):
+def test_partial_source_is_offered_as_a_plan_cover(monkeypatch):
     accounts = [_account("cur", 100.0), _account("sav", 30.0, name="Savings", subtype="SAVINGS")]
     items = _run(monkeypatch, [], [_plan("a1", "Holiday", "cur", 150.0)], accounts)
     card = _alloc(items)
-    assert card["action"] is None and card["allocation_shortfall"]["moves"] == []
+    assert card["action"] is None and card["plan_shortfall"]["moves"]
 
 
 def test_estimated_paying_account_is_flagged(monkeypatch):
     est = _alloc(_run(monkeypatch, [], [_plan("a1", "Holiday", "cur", 150.0, basis="recent-transfers")], _accts()))
     known = _alloc(_run(monkeypatch, [], [_plan("a1", "Holiday", "cur", 150.0, basis="chosen")], _accts()))
-    assert est["estimated"] is True and est["allocation_shortfall"]["estimated"] is True
-    assert known["estimated"] is False and known["allocation_shortfall"]["estimated"] is False
+    assert est["estimated"] is True and est["plan_shortfall"]["estimated"] is True
+    assert known["estimated"] is False and known["plan_shortfall"]["estimated"] is False
 
 
-def test_goal_only_gap_raises_nothing(monkeypatch):
+def test_goal_only_gap_gets_a_cover_card(monkeypatch):
     plans = [_plan("g1", "House", "cur", 500.0, kind="goal")]
-    assert _alloc(_run(monkeypatch, [], plans, _accts())) is None
+    assert _alloc(_run(monkeypatch, [], plans, _accts()))["plan_shortfall"]["plans"][0]["kind"] == "goal"
 
 
 def test_goal_counts_towards_the_gap_when_an_allocation_is_also_assigned(monkeypatch):
     plans = [_plan("a1", "Holiday", "cur", 40.0), _plan("g1", "House", "cur", 100.0, kind="goal", dest=("house",))]
-    assert _alloc(_run(monkeypatch, [], plans, _accts()))["allocation_shortfall"]["shortfall"] == 40.0
+    assert _alloc(_run(monkeypatch, [], plans, _accts()))["plan_shortfall"]["shortfall"] == 40.0
 
 
 def test_two_allocations_one_card_targets_the_largest(monkeypatch):
     plans = [_plan("a1", "Holiday", "cur", 80.0, dest=("p1",)), _plan("a2", "Car", "cur", 120.0, dest=("p2",))]
     card = _alloc(_run(monkeypatch, [], plans, _accts()))
-    assert card["headline"] == "Your set-asides at Premier Current are short"
-    assert card["allocation_shortfall"]["allocation"]["id"] == "a2"
-    assert card["allocation_shortfall"]["other_allocation_count"] == 1
-    assert card["allocation_shortfall"]["shortfall"] == 100.0
+    assert card["headline"] == "Your plans at Premier Current are short"
+    assert card["plan_shortfall"]["plans"][0]["id"] == "a2"
+    assert len(card["plan_shortfall"]["plans"]) == 2
+    assert card["plan_shortfall"]["shortfall"] == 100.0
 
 
 def test_shared_pot_and_forecast_transfer_stay_quiet():
@@ -210,10 +226,9 @@ def test_lockstep_bill_outputs_are_byte_identical_with_and_without_set_asides(mo
     elig_without, elig_with = {}, {}
     without = _run(monkeypatch, bills, [], accounts, eligibility=elig_without)
     with_plans = _run(monkeypatch, bills, [_plan("a1", "Holiday", "cur", 30.0)], accounts, eligibility=elig_with)
-    pick = lambda items: json.dumps([i for i in items if i["type"] != "allocation_shortfall"], sort_keys=True, default=str)
-    assert pick(without) == pick(with_plans)
-    assert elig_without == elig_with
+    assert len(_moves_for_account(with_plans, "cur")) == 1
     assert _alloc(without) is None and _alloc(with_plans) is not None
+    assert elig_with["cur"]["covered_by_move"]["shortfall"] == 80.0
 
 
 def test_source_is_the_bill_engines_finder_not_a_second_ranking(monkeypatch):
@@ -224,9 +239,9 @@ def test_source_is_the_bill_engines_finder_not_a_second_ranking(monkeypatch):
         _account("sav", 5000.0, name="Savings", subtype="SAVINGS"),
     ]
     card = _alloc(_run(monkeypatch, [], [_plan("a1", "Holiday", "cur", 150.0)], accounts))
-    assert card["allocation_shortfall"]["moves"][0]["move_map"]["from"]["account_id"] == "cur2"
+    assert card["plan_shortfall"]["moves"][0]["move_map"]["from"]["account_id"] == "cur2"
     assert card["action"] is None
-    assert card["allocation_shortfall"]["moves"][0]["move_map"]["from"]["name"] == "Everyday"
+    assert card["plan_shortfall"]["moves"][0]["move_map"]["from"]["name"] == "Everyday"
 
 
 def test_unreadable_period_or_filled_amount_raises_nothing():
@@ -268,7 +283,7 @@ def test_merged_items_place_the_allocation_card_after_the_unfunded_move(monkeypa
     import pytest
     from tests import test_unfunded_move as um
 
-    async def _plans(uid):
+    async def _plans(uid, *, goals=False, strict=False):
         return [_plan("a1", "Holiday", "cur2", 150.0)]
 
     async def _no_reserve(uid, internal_inflows, account_map):
@@ -284,6 +299,5 @@ def test_merged_items_place_the_allocation_card_after_the_unfunded_move(monkeypa
     finally:
         mp.undo()
     kinds = _types(items)
-    assert "unfunded_move" in kinds and "allocation_shortfall" in kinds
-    assert kinds.index("unfunded_move") < kinds.index("allocation_shortfall")
-    assert all(k != "move" or kinds.index(k) < kinds.index("allocation_shortfall") for k in kinds)
+    assert "unfunded_move" in kinds and _alloc(items) is not None
+    assert kinds.index("unfunded_move") < kinds.index("move")
