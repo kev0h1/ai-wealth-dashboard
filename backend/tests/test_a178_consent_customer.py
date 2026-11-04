@@ -120,6 +120,8 @@ def test_unknown_customer_recreates_and_retries_once(monkeypatch, env):
     assert [u for u, _ in client.sent] == ["/consents", "/customers", "/consents"]
     assert client.sent[2][1]["customer"] == "cus_new"
     assert customers.docs[0]["customer_id"] == "cus_new"
+    # A191: the consent reports the customer it was actually created under.
+    assert out.customer_id_used == "cus_new"
     # three upstream POSTs, each counted
     assert sum(b.get("requests", 0) for b in bumps) == 3
 
@@ -303,3 +305,11 @@ def test_bank_accounts_failure_stamps_error_without_expiring(monkeypatch, env):
     assert consents.docs[0]["last_sync_error"] == "bank_accounts_http_503"
     assert "last_sync_error_at" in consents.docs[0]
     assert expired == []
+
+
+def test_consent_without_retry_reports_the_passed_customer(monkeypatch, env):
+    """A191: no unknown-customer retry, so the consent is stamped with the id passed in."""
+    client = Client({"/consents": [Resp(200, {"id": "cst_1"})]})
+    _install(monkeypatch, client)
+    out = _run(fs.create_consent(EMAIL, "cus_ok", "amex", "st"))
+    assert out.customer_id_used == "cus_ok"
