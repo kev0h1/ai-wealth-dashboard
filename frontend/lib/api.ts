@@ -553,9 +553,20 @@ export type PaceChoice = {
   suggested_aim?: number | null;
 };
 
+/** G418: how a committed (fixed) category compares with its expected payments. Never a pace multiple. */
+export type CommittedFinding = {
+  status: "as_expected" | "higher" | "new";
+  paid_count: number;
+  payments: Array<
+    | { kind: "higher"; name: string; paid: number; expected: number }
+    | { kind: "new"; name: string; paid: number }
+  >;
+};
+
 export type CategorySignal = {
   usual_rate_per_day: number | null;
   multiple: number | null;
+  committed?: CommittedFinding;
   suggested_aim: number | null;
   checkpoint: Checkpoint | null;
   intent: "one_off" | "new_normal" | null;
@@ -640,6 +651,8 @@ export type SpendVerdictMajorityRow = {
   payments_count: number;
   has_baseline: boolean;
   elevated: boolean;
+  /** G418: committed categories carry this instead of any pace reading. */
+  committed?: CommittedFinding;
 };
 
 export type SpendVerdictUnresolved = {

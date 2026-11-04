@@ -477,6 +477,9 @@ def build_notables_and_majority(
             "payments_count": row["payments_count"],
             "has_baseline":   has_baseline,
             "elevated":       elevated,
+            # G418: a committed category's comparison with its expected
+            # payments (paid as expected / higher / new), never a pace multiple.
+            **({"committed": sig["committed"]} if sig.get("committed") else {}),
         })
     majority.sort(key=lambda r: r["spent"], reverse=True)
 

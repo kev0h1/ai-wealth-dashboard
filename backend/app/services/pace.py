@@ -32,7 +32,7 @@ from app.db.collections import (
 )
 from app.services.pay_period import get_pay_period_for_date, prev_pay_period
 from app.services.categorisation import series_key
-from app.services.categories import CategoryKinds, get_category_kinds, is_non_spend
+from app.services.categories import CategoryKinds, get_category_kinds, is_commitment, is_non_spend
 from app.services.spending import REFUND, SPEND, build_spending_context, classify_flow, try_build_spending_context, txn_flow
 
 logger = logging.getLogger(__name__)
@@ -274,6 +274,7 @@ async def load_spend_txns(
         if include_evidence:
             record.update({
                 "id": str(doc.get("_id") or ""),
+                "key": series_key(doc),
                 "name": str(doc.get("merchant_name") or doc.get("description") or doc.get("name") or cat)[:160],
             })
         result.append(record)
@@ -903,7 +904,8 @@ async def compute_pace_detail(uid: str, sts: dict | None = None, offset: int = 0
             multiple = None
         else:
             usual_rate_per_day = round(usual_30d / 30, 2)
-            multiple = None if suppress_multiple else round(rate_per_day / (usual_30d / 30), 1)
+            # G418: a committed category is never judged by day-N pace.
+            multiple = None if suppress_multiple or is_commitment(kind_map, cat) else round(rate_per_day / (usual_30d / 30), 1)
 
         share = (
             round(spent / discretionary_so_far, 4)
@@ -1448,13 +1450,16 @@ async def compute_category_signals(
 
     if cached_baseline is not None:
         baseline, baseline_months = cached_baseline
-        txns = await load_spend_txns(uid, period_start, period_end, kind_map=kind_map)
+        txns = await load_spend_txns(
+            uid, period_start, period_end, kind_map=kind_map, include_evidence=True,
+        )
     else:
         txns = await load_spend_txns(
             uid,
             period_start - timedelta(days=_BASELINE_DAYS),
             period_end,
             kind_map=kind_map,
+            include_evidence=True,
         )
         baseline, baseline_months = _total_baseline(txns, period_start)
         await _write_cached_baseline(
@@ -1524,6 +1529,24 @@ async def compute_category_signals(
                 "compute_category_signals: derive_aim import failed for closed period %s", uid
             )
 
+    # ── G418: committed categories are never judged by day-N pace ─────────────
+    # Fixed bills sit on fixed calendar dates while pay periods start on
+    # different dates, so the same bill lands on a different period day each
+    # time. They are compared with their expected recurring payments instead.
+    committed: dict[str, dict] = {}
+    if any(is_commitment(kind_map, c) for c in cat_spent):
+        try:
+            from app.services.committed_spend import committed_findings
+            from app.services.spend_verdict import _unresolved_display_name
+            cache_doc = await cashflow_cache_col.find_one({"_id": uid}, {"recurring_spend": 1}) or {}
+            committed = committed_findings(
+                txns, cache_doc.get("recurring_spend") or [], kind_map,
+                period_start, period_end,
+                name_fn=lambda n: _unresolved_display_name(n, ""),
+            )
+        except Exception:
+            logger.exception("compute_category_signals: committed comparison failed for %s", uid)
+
     # ── Build per-category signals ────────────────────────────────────────────
     signals: dict[str, dict] = {}
     for cat, spent in cat_spent.items():
@@ -1544,7 +1567,7 @@ async def compute_category_signals(
             cat_shape_fn = cat_shape_fns.get(cat)
             shaped_frac = cat_shape_fn(f_now) if cat_shape_fn is not None else f_now
             usual_by_now = round(usual_total_for_period * shaped_frac, 2)
-            if suppress_multiple or usual_by_now <= 0.01:
+            if suppress_multiple or usual_by_now <= 0.01 or is_commitment(kind_map, cat):
                 multiple = None
             else:
                 multiple = round(spent / usual_by_now, 1)
@@ -1584,6 +1607,12 @@ async def compute_category_signals(
                 "intent":             None,
                 "door_engaged":       False,
             }
+
+    # G418: the comparison is attached only where it exists, so a discretionary
+    # signal keeps exactly its previous shape.
+    for cat, finding in committed.items():
+        if cat in signals:
+            signals[cat]["committed"] = finding
 
     return {
         "period": {

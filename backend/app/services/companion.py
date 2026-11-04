@@ -6332,6 +6332,7 @@ async def compute_today_items(
         )
         from app.services.categories import (
             get_category_kinds as _get_category_kinds,
+            is_commitment as _is_commitment,
             is_non_spend as _is_non_spend,
         )
         from app.services.checkpoints import engaged_categories as _engaged_categories
@@ -6383,6 +6384,9 @@ async def compute_today_items(
         _rc_candidates: list[tuple[float, float, str]] = []  # (multiple, spent, category)
         for _cat, _spent in _rc_cat_spent.items():
             if _is_non_spend(_rc_kinds, _cat):
+                continue
+            # G418: committed categories are never judged by day-N pace.
+            if _is_commitment(_rc_kinds, _cat):
                 continue
             if _cat in _rc_engaged:
                 continue
