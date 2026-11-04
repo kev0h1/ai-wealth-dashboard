@@ -1837,7 +1837,7 @@ def _context_sentence(user_context: Optional[dict]) -> Optional[str]:
         if v and str(v).strip().lower() not in ("rolling", "not sure"):
             val = re.sub(r"[^A-Za-z0-9 /,\-]", "", str(v)).strip()[:30]
             if val:
-                return f"You noted your {_DEADLINE_PHRASE[k]} {val}."
+                return f"{tip_facts.CONTRACT_PREFIX}{_DEADLINE_PHRASE[k]} {val}."
     return None
 
 
@@ -1899,7 +1899,7 @@ def _compose_tip_content(
             period = datetime.strptime(reg["period_start"], "%Y-%m-%d")
             annual = float(reg["figure_annual"])
             sentences.append(
-                f"Typical: {tip_facts.money(tip_regulators.monthly_for(annual))} a month "
+                f"{tip_facts.TYPICAL_PREFIX}{tip_facts.money(tip_regulators.monthly_for(annual))} a month "
                 f"({reg['source_name']} price cap {tip_facts.money(annual)} a year from "
                 f"{period.day} {tip_regulators.MONTHS[period.month - 1]} {period.year}, "
                 f"read {read.day} {read.strftime('%b')} {read.year})."
@@ -1923,7 +1923,7 @@ def _compose_tip_content(
             if nm and nm not in market_names:
                 market_names.append(nm)
         if parts:
-            sentences.append("Also listed: " + ", ".join(parts) + ".")
+            sentences.append(tip_facts.ALSO_LISTED_PREFIX + ", ".join(parts) + ".")
             market_used = True
 
         deal = f.get("deal")
@@ -1943,7 +1943,7 @@ def _compose_tip_content(
             if until is None or until.date() >= today:  # never show a deal past its deadline
                 text = deal["text"].rstrip(".") + "."
                 if until is not None:
-                    text += f" Offer listed until {until.day} {until.strftime('%b')}."
+                    text += f" {tip_facts.DEAL_DATED_MARKER}{until.day} {until.strftime('%b')}."
                 sentences.append(text)
                 claim_dt = until
                 market_used = True
@@ -2539,7 +2539,14 @@ def _has_researched_content(d: dict) -> bool:
     it doesn't have. Used by both branches of `_derive_insight_state` below,
     so "does this doc have anything to say" is asked exactly one way,
     whether the category is push or pull."""
-    return bool((d.get("title") or "").strip()) and bool((d.get("body") or "").strip())
+    # G418: and the body must carry something beyond the user's own figure (a
+    # regulator Typical line, an Also listed line, a dated price change or a
+    # contract-ending fact). A tip that only restates their spend is not a tip:
+    # it is not fresh, not stale, not on Spend, Search or Home, and not counted.
+    return (
+        bool((d.get("title") or "").strip()) and bool((d.get("body") or "").strip())
+        and tip_facts.carries_beyond_own_figure(d.get("body"))
+    )
 
 
 def _derive_insight_state(d: dict) -> str:
