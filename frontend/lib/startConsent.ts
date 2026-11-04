@@ -73,8 +73,20 @@ async function appDeps(): Promise<ConsentDeps> {
   };
 }
 
-export async function startConsent(opts: StartConsentOptions): Promise<StartConsentResult> {
-  return runConsent(opts, await appDeps());
+export async function startConsent(
+  opts: StartConsentOptions,
+  loadDeps: () => Promise<ConsentDeps> = appDeps,
+): Promise<StartConsentResult> {
+  let deps: ConsentDeps;
+  try {
+    deps = await loadDeps();
+  } catch (err) {
+    // A failed dynamic import resolves to the generic error, never a rejection,
+    // so callers (the picker) still clear their connecting state.
+    const { message, rejected } = consentErrorMessage(err);
+    return { ok: false, message, rejected };
+  }
+  return runConsent(opts, deps);
 }
 
 /** The launch logic with injected dependencies (tested directly). */

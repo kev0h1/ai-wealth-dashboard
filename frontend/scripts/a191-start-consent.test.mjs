@@ -2,7 +2,7 @@
 // Run: npm run -s check:a191-start-consent
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { runConsent, consentErrorMessage } from "../lib/startConsent.ts";
+import { runConsent, startConsent, consentErrorMessage } from "../lib/startConsent.ts";
 
 const read = (p) => readFileSync(new URL(`../${p}`, import.meta.url), "utf8");
 class ApiError extends Error {
@@ -74,6 +74,13 @@ for (const [err, message, rejected] of [
   assert.deepEqual(r, { ok: false, message, rejected });
   assert.deepEqual(log, [["link", false, "chase", true]]);
   assert.deepEqual(consentErrorMessage(err), { message, rejected });
+  checks++;
+}
+
+// A failed dependency load (dynamic import) resolves to the generic error, never rejects.
+{
+  const r = await startConsent({ providerId: "chase" }, async () => { throw new Error("chunk load failed"); });
+  assert.deepEqual(r, { ok: false, message: "Failed to connect. Please try again.", rejected: false });
   checks++;
 }
 
