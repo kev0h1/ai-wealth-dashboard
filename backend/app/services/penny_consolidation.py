@@ -74,7 +74,8 @@ PLAN_CONSOLIDATION_SCHEMA = {
 
 
 SAFE_TO_SPEND_NOTE = (
-    " spend_from lists how much each current account can give without going short (held_back is what the left-to-spend cap kept back); "
+    " spend_from lists account allocations of the shared left to spend, which add together; "
+    "requires_move means that allocation is available only after the suggested move, which has not happened; "
     "a move between the user's own accounts never changes safe_to_spend."
 )
 UNCHANGED_SENTENCE = "Moving money between your own accounts does not change your left to spend."
@@ -154,6 +155,7 @@ def _headroom_of(entry: dict) -> float:
 def classify_sources(
     *, target_id: str | None, eligibility: dict, accounts: list[dict], include_savings: bool,
     pot_ids: set[str], name_tokens: list[str], excluded_ids: set[str] | frozenset = frozenset(),
+    spending: bool = False,
 ) -> tuple[list[dict], list[dict]]:
     """PURE. THE one place an account is judged a possible source or skipped
     (shared by the planner and get_safe_to_spend's `spend_from`)."""
@@ -188,12 +190,16 @@ def classify_sources(
             skip("no_data")
             continue
         head = _headroom_of(entry)
-        if head < SPEND_FROM_FLOOR:
+        if entry.get("spend_from_requires_move") and not spending:
+            skip("requires_suggested_move")
+            continue
+        if head <= 0 or (not spending and head < SPEND_FROM_FLOOR):
             skip("nothing_spare")
             continue
         sources.append({"account_id": aid, "name": name, "bank": bank,
                         "provider": acc.get("provider"), "headroom": head,
-                        "raw_headroom": entry.get("account_headroom_raw")})
+                        "raw_headroom": entry.get("account_headroom_raw"),
+                        "requires_move": bool(entry.get("spend_from_requires_move"))})
     return sources, skipped
 
 
@@ -526,12 +532,15 @@ async def spend_from_extras(uid: str) -> dict:
         sources, skipped = classify_sources(
             target_id=None, eligibility=eligibility, accounts=accounts,
             include_savings=False, pot_ids=pots, name_tokens=tokens,
+            spending=True,
         )
     except Exception:
         logger.warning("get_safe_to_spend: per-account block failed for %s", uid, exc_info=True)
         return out
+    out["unallocated_forecast"] = _money(max((float(e.get("allocation_unassigned") or 0) for e in eligibility.values()), default=0))
     out["spend_from"] = [
         {"name": s["name"], "bank": s["bank"], "amount": _money(s["headroom"]),
+         "requires_move": s["requires_move"],
          "held_back": _money(max(0.0, float(s["raw_headroom"] or 0.0) - s["headroom"])
                          if s.get("raw_headroom") is not None else 0.0)}
         for s in sorted(sources, key=lambda x: -x["headroom"])

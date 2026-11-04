@@ -203,6 +203,7 @@ export function approvedSpendFromTreatment(
             <p>
               No cash is available to spend from your current accounts right now.
               {coverMoveVisible ? " Use the move above first." : " Checked account by account."}
+              {(plan.unallocated ?? 0) > 0 && <> <MoneyText text={amount(plan.unallocated!)} /> of the forecast cannot yet be safely allocated to an account.</>}
             </p>
           </div>
         ),
@@ -212,7 +213,7 @@ export function approvedSpendFromTreatment(
     case "bank-rail":
     default:
       return {
-        body: <SpendFromAccountList entries={plan.entries} pool={plan.pool} amount={amount} coverMoveVisible={coverMoveVisible} reserveByAccount={reserveByAccount} destinationsByAccount={destinationsByAccount} onLogoError={onLogoError} kind={plan.kind === "name-fallback" ? "name-fallback" : "bank-rail"} />,
+        body: <SpendFromAccountList entries={plan.entries} pool={plan.pool} unallocated={plan.unallocated} amount={amount} coverMoveVisible={coverMoveVisible} reserveByAccount={reserveByAccount} destinationsByAccount={destinationsByAccount} onLogoError={onLogoError} kind={plan.kind === "name-fallback" ? "name-fallback" : "bank-rail"} />,
       };
   }
 }

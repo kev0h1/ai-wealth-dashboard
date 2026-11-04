@@ -306,10 +306,14 @@ def _run_brief(monkeypatch, plans, accounts, commitment_docs, bills=None):
     async def _no_reserve(uid, internal_inflows, account_map):
         return {}
 
+    async def _no_goal_reserve(uid, pay_cfg, live_balances, salary_acct, account_map, **kwargs):
+        return {}
+
     async def _plans(uid, **kw):
         return list(plans)
 
     monkeypatch.setattr(companion, "_reserved_for_allocations", _no_reserve)
+    monkeypatch.setattr(companion, "_reserved_for_goals", _no_goal_reserve)
     monkeypatch.setattr(companion, "_load_account_plans", _plans)
     for name in ("yapily_accounts_col", "manual_accounts_col", "companion_items_col", "behaviour_portrait_col", "transactions_col"):
         monkeypatch.setattr(companion, name, CompanionCol([]))
@@ -348,17 +352,19 @@ def _card(items):
     return next((i for i in items if i["type"] == "plan_easing"), None)
 
 
-def test_short_account_with_no_safe_source_offers_the_easing_card(monkeypatch):
+def _cover(items):
+    return next((i for i in items if i.get("type") == "move" and i.get("plan_shortfall")), None)
+
+
+def test_short_account_with_no_safe_source_offers_the_plan_cover_card(monkeypatch):
     doc = _goal()
     items = _run_brief(monkeypatch, [_gplan(doc)], [_account("cur", 50.0, name="Premier Current")], [doc])
-    card = _card(items)
+    card = _cover(items)
     assert card is not None and card["action"] is None
-    p = card["plan_easing"]
-    assert p["state"] == "eligible" and p["plan"] == {"id": str(doc["_id"]), "name": "Japan"}
-    assert p["gap"] == 30.0 and p["usual_slice"] == p["max_easing"] and p["cap_reason"] is None
-    assert p["periods_left"] >= 1 and p["target_date"] == doc["target_date"]
-    assert card["id"].startswith(f"plan_easing:{doc['_id']}:")
-    assert card["headline"] == "Cash looks short this period"
+    p = card["plan_shortfall"]
+    assert p["shortfall"] == 30.0
+    assert p["plans"] == [{"id": str(doc["_id"]), "name": "Japan", "remaining": 80.0, "period_amount": 80.0, "kind": "goal"}]
+    assert card["moves"] == []
 
 
 def test_gap_under_five_pounds_gives_no_card(monkeypatch):
@@ -371,40 +377,41 @@ def test_a_viable_source_means_no_easing_card(monkeypatch):
     doc = _goal()
     accounts = [_account("cur", 50.0), _account("sav", 1000.0, name="Savings", subtype="SAVINGS")]
     items = _run_brief(monkeypatch, [_gplan(doc)], accounts, [doc])
-    assert _card(items) is None
+    assert _card(items) is None and _cover(items) is not None
 
 
-def test_a_goal_only_account_never_raises_a_set_aside_card(monkeypatch):
+def test_a_goal_only_account_uses_the_same_plan_cover_card(monkeypatch):
     doc = _goal()
     items = _run_brief(monkeypatch, [_gplan(doc)], [_account("cur", 50.0)], [doc])
-    assert all(i["type"] != "allocation_shortfall" for i in items) and _card(items)
+    assert _cover(items) is not None and _card(items) is None
 
 
-def test_ranks_after_the_set_aside_card(monkeypatch):
+def test_goal_and_set_aside_are_one_cover_card(monkeypatch):
     doc = _goal()
     plans = [_plan("a1", "Holiday", "cur", 20.0, dest=("potA",)), _gplan(doc, dest="potG")]
     items = _run_brief(monkeypatch, plans, [_account("cur", 50.0)], [doc])
-    kinds = [i["type"] for i in items]
-    assert kinds.index("allocation_shortfall") < kinds.index("plan_easing")
+    card = _cover(items)
+    assert card is not None and _card(items) is None
+    assert {p["kind"] for p in card["plan_shortfall"]["plans"]} == {"allocation", "goal"}
 
 
-def test_capped_plan_shows_the_reason(monkeypatch):
+def test_capped_plan_keeps_edit_metadata_on_its_cover_card(monkeypatch):
     today = date.today()
     start, end = commitments.get_pay_period_for_date(today, {"type": "calendar_month"})
     prev = (start - timedelta(days=1)).isoformat()
     doc = _goal(period_eased={prev: {"contribution_pence": 0, "usual_pence": 8000}})
     items = _run_brief(monkeypatch, [_gplan(doc)], [_account("cur", 50.0)], [doc])
-    p = _card(items)["plan_easing"]
-    assert p["state"] == "capped" and p["cap_reason"] == plan_easing.MSG_CONSECUTIVE
+    p = _cover(items)["plan_shortfall"]
+    assert p["plans"][0]["id"] == str(doc["_id"])
 
 
-def test_largest_slice_first_and_only_one_card(monkeypatch):
+def test_multiple_goal_slices_are_one_plan_cover_card(monkeypatch):
     big = _goal()
     small = _doc("Car", amount=500.0, target_date=(date.today() + timedelta(days=800)).isoformat(), user_id=CUID)
     plans = [_gplan(big, remaining=80.0, dest="p1"), _plan(str(small["_id"]), "Car", "cur", 20.0, kind="goal", dest=("p2",))]
     items = _run_brief(monkeypatch, plans, [_account("cur", 40.0)], [big, small])
-    assert len([i for i in items if i["type"] == "plan_easing"]) == 1
-    assert _card(items)["plan_easing"]["plan"]["name"] == "Japan"
+    assert len([i for i in items if i.get("plan_shortfall")]) == 1
+    assert _card(items) is None
 
 
 def test_eased_plan_shows_the_deferred_line(monkeypatch):

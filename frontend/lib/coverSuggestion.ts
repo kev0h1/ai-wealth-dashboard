@@ -12,7 +12,6 @@ export function withCoverSuggestions(
 ): UpcomingAccountSummary[] {
   if (!items?.length && !accounts.some((a) => a.position?.coveredByMove)) return accounts;
   return accounts.map((account) => {
-    if (account.status !== "short") return account;
     // G410: the engine's own earmark on the account position is THE source
     // (same legs and gate as the move card, so a dismissed move has none).
     // The items fallback below only serves a payload from an older API.
@@ -22,6 +21,7 @@ export function withCoverSuggestions(
         ...account,
         coverSuggestion: {
           amount: covered.amount,
+          shortfall: covered.shortfall,
           fromName: covered.from[0].name,
           fromCount: new Set(covered.from.map((f) => f.accountId)).size,
           shortAfterCover: account.position?.shortAfterCover ?? 0,
@@ -32,7 +32,7 @@ export function withCoverSuggestions(
       .filter((item) => item.type === "move")
       .flatMap((item) => item.moves ?? [])
       .filter((move) => move.move_map?.to?.account_id === account.id && typeof move.amount === "number" && move.amount > 0);
-    if (!legs.length) return account;
+    if (!legs.length || account.status !== "short") return account;
     const total = legs.reduce((sum, move) => sum + (move.amount ?? 0), 0);
     return { ...account, coverSuggestion: { amount: total, fromName: legs[0].move_map.from.name, fromCount: new Set(legs.map((move) => move.move_map.from.account_id)).size, shortAfterCover: 0 } };
   });

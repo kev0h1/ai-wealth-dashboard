@@ -1,0 +1,96 @@
+{
+  "name": "Plan and payment shortfalls use one cover plan and one spendable allocation (G414)",
+  "today": "2026-11-02",
+  "pay_period_config": { "type": "last_friday" },
+  "confirmed_income_streams": [],
+  "accounts": [
+    {
+      "_id": "acc-barclays", "name": "Barclays Current", "provider": "barclays",
+      "type": "BANK", "subtype": "TRANSACTION", "balance": 1500.0,
+      "currency": "GBP", "status": "connected", "include_in_safe_to_spend": true
+    },
+    {
+      "_id": "acc-monzo", "name": "Monzo Current", "provider": "monzo",
+      "type": "BANK", "subtype": "TRANSACTION", "balance": 50.0,
+      "currency": "GBP", "status": "connected", "include_in_safe_to_spend": true
+    },
+    {
+      "_id": "acc-natwest", "name": "NatWest Current", "provider": "natwest",
+      "type": "BANK", "subtype": "TRANSACTION", "balance": 100.0,
+      "currency": "GBP", "status": "connected", "include_in_safe_to_spend": true
+    },
+    {
+      "_id": "acc-monzo-pot", "name": "Monzo Travel Pot", "provider": "monzo",
+      "type": "BANK", "subtype": "SAVINGS", "balance": 300.0,
+      "currency": "GBP", "status": "connected", "include_in_safe_to_spend": true
+    }
+  ],
+  "manual_accounts": [],
+  "cashflow_cache": {
+    "recurring_spend": [
+      {
+        "key": "MONZO INSURANCE", "avg_amount": 100.0, "avg_interval": 30,
+        "next_date": "2026-11-05", "account_id": "acc-monzo",
+        "account_name": "Monzo Current", "account_bank": "monzo",
+        "account_balance": 50.0, "is_credit_card": false, "category": "Bills"
+      },
+      {
+        "key": "NATWEST RENT", "avg_amount": 250.0, "avg_interval": 30,
+        "next_date": "2026-11-07", "account_id": "acc-natwest",
+        "account_name": "NatWest Current", "account_bank": "natwest",
+        "account_balance": 100.0, "is_credit_card": false, "category": "Bills"
+      }
+    ],
+    "recurring_income": [], "bnpl_commitments": [], "avg_daily_spend": 0
+  },
+  "transactions": [],
+  "commitments": [],
+  "allocations": [
+    {
+      "_id": "alloc-monzo-travel", "name": "Monzo travel set-aside",
+      "amount_per_period": 150.0, "fill_account_id": "acc-monzo-pot",
+      "fill_display_name": "Monzo Travel Pot", "source_account_id": "acc-monzo",
+      "match_type": "description_contains", "match_value": "MONZO TRAVEL",
+      "effective_from": "2026-10-30", "recurrence": "every_period",
+      "active": true, "created_at": "2026-10-01"
+    }
+  ],
+  "card_terms": [],
+  "expected": {
+    "left_to_spend": 1150.0,
+    "spend_from_total": 1150.0,
+    "spendable_balance": 1650.0,
+    "allocations_reserved": 150.0,
+    "not_spendable": ["acc-monzo-pot"],
+    "accounts": {
+      "acc-barclays": {
+        "spend_from": 1130.0, "after_payments": 1500.0, "low_point": 1500.0,
+        "plans_reserved": 0.0, "after_payments_and_plans": 1500.0,
+        "verdict": "covered", "earmarked_total": 370.0,
+        "earmarks_out": [{"to": "acc-monzo", "amount": 210.0}, {"to": "acc-natwest", "amount": 160.0}]
+      },
+      "acc-monzo": {
+        "spend_from": 10.0, "after_payments": -50.0, "low_point": -50.0,
+        "plans_reserved": 150.0, "after_payments_and_plans": -200.0,
+        "verdict": "short", "covered_by_move": {"amount": 210.0, "from": [{"account_id": "acc-barclays", "amount": 210.0}]},
+        "short_after_cover": 0.0, "spend_from_requires_move": true
+      },
+      "acc-natwest": {
+        "spend_from": 10.0, "after_payments": -150.0, "low_point": -150.0,
+        "plans_reserved": 0.0, "after_payments_and_plans": -150.0,
+        "verdict": "short", "covered_by_move": {"amount": 160.0, "from": [{"account_id": "acc-barclays", "amount": 160.0}]},
+        "short_after_cover": 0.0, "spend_from_requires_move": true
+      }
+    },
+    "cover_plan": {
+      "moves_total": 370.0,
+      "moves": [
+        {"from": "acc-barclays", "to": "acc-monzo", "amount": 210.0, "plan_ids": ["alloc-monzo-travel"]},
+        {"from": "acc-barclays", "to": "acc-natwest", "amount": 160.0}
+      ]
+    },
+    "payday_plan": null,
+    "at_risk_count": 2,
+    "notes": "Synthetic G414 case, Mon 2 Nov 2026. Last-Friday payday makes Fri 27 Nov the next payday, so both bills are in this period. The three counted current balances total 1,650.00: Barclays 1,500.00, Monzo 50.00 and NatWest 100.00; the Monzo Travel Pot is savings and never enters the pool. Payments total 350.00: Monzo insurance 100.00 gives Monzo after payments and its low point of -50.00; NatWest rent 250.00 gives NatWest after payments and low point of -150.00. Monzo also has an active, chosen-source set-aside of 150.00 for its travel pot, with no matching fill this period, so its after-payments-and-plans position is -50.00 - 150.00 = -200.00. The pool takes both payments and the plan once: 1,650.00 - 350.00 - 150.00 = 1,150.00 Left to spend. G414 makes every requirement part of the same cover plan. Monzo's combined 200.00 gap receives one 210.00 suggested move: the 200.00 shortfall rounded to the 5-pound move unit plus the existing 10.00 source cushion. NatWest's payment-only 150.00 gap receives one 160.00 move by the same rule. Barclays earmarks 370.00 in total and has 1,500.00 - 370.00 = 1,130.00 immediately spendable. Each suggested move leaves its destination with its 10.00 cushion, so Monzo and NatWest each have 10.00 spendable after that suggested move. The allocation is therefore 1,130.00 + 10.00 + 10.00 = 1,150.00 exactly: it reconciles to Left to spend, while the two destination amounts are conditional on their respective suggestions. Monzo deliberately combines a payment and its set-aside in one move, so it must offer the set-aside's Edit plan action rather than a second card or move. If the set-aside is removed or its move is no longer live, the Monzo earmark and conditional 10.00 disappear on the next compute; no cash is moved by the recommendation. The payment walk verdicts remain short: suggestions disclose coverage but never rewrite the observed forecast." 
+  }
+}

@@ -6,6 +6,7 @@ import type { SpendFromAccount } from "@/lib/spendFromAccount";
 type SpendFromAccountListProps = {
   entries: SpendFromAccount[];
   pool: number | null;
+  unallocated?: number;
   amount: (value: number) => string;
   /** Legacy display context. Limits already include cover-move reserves. */
   coverMoveVisible: boolean;
@@ -16,21 +17,19 @@ type SpendFromAccountListProps = {
 };
 
 /**
- * The approved G320 B treatment. Account limits are independent ceilings on
- * one forecast, rather than amounts that can be added together.
+ * G414: the engine allocates one shared Left to spend across these accounts.
  */
 export default function SpendFromAccountList({
   entries,
   pool,
+  unallocated = 0,
   amount,
   onLogoError,
   kind,
 }: SpendFromAccountListProps) {
   const brands = entries.map((entry) => accountBrand(entry.account).label);
-  const hasKnownPool = pool !== null;
-  const hasLowerLimit = entries.some((entry) =>
-    !hasKnownPool || Math.round(entry.headroom) < Math.round(pool),
-  );
+  const allocated = entries.reduce((sum, entry) => sum + Math.round(entry.headroom * 100), 0);
+  const reconciles = pool !== null && allocated === Math.round(Math.max(0, pool) * 100);
 
   return (
     <section
@@ -65,18 +64,18 @@ export default function SpendFromAccountList({
                 {sameBank && <span className="block break-words text-[12px] leading-5 text-slate-600 dark:text-slate-300">{displayAccountName(entry.name)}</span>}
               </span>
               <span className="shrink-0 text-right text-[12px] leading-5 text-slate-600 dark:text-slate-300">
-                up to <span data-spend-from-limit><MoneyText text={amount(entry.headroom)} /></span>
+                <span data-spend-from-limit><MoneyText text={amount(entry.headroom)} /></span>
+                {entry.requiresMove && <span className="block text-[11px]">after suggested move</span>}
               </span>
             </li>
           );
         })}
       </ul>
+      {unallocated > 0 && <p data-spend-from-unallocated className="mt-3 text-[12px] leading-5 text-slate-600 dark:text-slate-300"><MoneyText text={amount(unallocated)} /> of the forecast cannot yet be safely allocated to an account.</p>}
       {entries.length > 0 && (
         <p className={`${entries.length > 1 ? "mt-3" : "mt-2"} text-[12px] leading-5 text-slate-600 dark:text-slate-300`}>
-          {entries.length > 1
-            ? `Showing your top ${entries.length} accounts. Each amount is the most that account could cover. Don't add them together. `
-            : `Showing your top account. ${!hasLowerLimit ? "Within the estimate above." : "This is the most that account could cover."} `}
-          See all in Your accounts.
+          {reconciles ? "These amounts add up to your Left to spend. " : "These amounts are your account shares of Left to spend. "}
+          See the working in Your accounts.
         </p>
       )}
     </section>

@@ -4,6 +4,8 @@
       "account_headroom_raw": 1700.0,
       "after_payments": 2000.0,
       "after_payments_and_plans": 2000.0,
+      "allocation_order": 1,
+      "allocation_unassigned": 484.21,
       "earmarked_total": 300.0,
       "earmarks_out": [
         {
@@ -14,6 +16,7 @@
       ],
       "estimated": false,
       "headroom": 1990.0,
+      "is_current_account": true,
       "low_point": 2000.0,
       "low_point_and_plans": 2000.0,
       "plans_reserved": 0.0,
@@ -23,9 +26,11 @@
       "uncertain": false
     },
     "acc-nw": {
-      "account_headroom_raw": -288.65,
+      "account_headroom_raw": 11.35,
       "after_payments": -288.65,
       "after_payments_and_plans": -288.65,
+      "allocation_order": 0,
+      "allocation_unassigned": 484.21,
       "covered_by_move": {
         "amount": 300.0,
         "from": [
@@ -39,13 +44,15 @@
       },
       "estimated": false,
       "headroom": -298.65,
+      "is_current_account": true,
       "low_point": -288.65,
       "low_point_and_plans": -288.65,
       "plans_reserved": 0.0,
       "short": true,
       "short_after_cover": 0.0,
       "spend_from_capped": false,
-      "spend_from_headroom": 0.0,
+      "spend_from_headroom": 11.35,
+      "spend_from_requires_move": true,
       "uncertain": false
     }
   },
@@ -509,6 +516,61 @@
           }
         }
       ],
+      "plan_dest": {
+        "account_id": "acc-nw",
+        "balance": 667.66,
+        "bills": [
+          {
+            "amount": 160,
+            "expected_date": "2026-11-02",
+            "label": "British Gas"
+          },
+          {
+            "amount": 133,
+            "expected_date": "2026-11-03",
+            "label": "Solihull Council"
+          },
+          {
+            "amount": 117,
+            "expected_date": "2026-11-05",
+            "label": "David Lloyd"
+          },
+          {
+            "amount": 62,
+            "expected_date": "2026-11-06",
+            "label": "Severn Trent"
+          },
+          {
+            "amount": 48,
+            "expected_date": "2026-11-09",
+            "label": "EE"
+          },
+          {
+            "amount": 60,
+            "expected_date": "2026-11-11",
+            "label": "Sky"
+          },
+          {
+            "amount": 14,
+            "expected_date": "2026-11-16",
+            "label": "TV Licence"
+          },
+          {
+            "amount": 362,
+            "expected_date": "2026-11-18",
+            "label": "Car Finance"
+          }
+        ],
+        "display_label": "NatWest The Number One",
+        "is_overdraft": false,
+        "name": "NatWest The Number One",
+        "needs_by": "today",
+        "needs_by_date": "2026-11-02",
+        "needs_by_last": "Wed 18 Nov",
+        "needs_by_last_date": "2026-11-18",
+        "needs_total": 956,
+        "provider": "natwest"
+      },
       "type": "move"
     }
   ],

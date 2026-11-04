@@ -3,6 +3,7 @@ import { createElement as h } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { BalancesHiddenContext } from "../lib/balancesHidden.tsx";
 import UpcomingAccountDetails from "../components/upcoming/UpcomingAccountDetails.tsx";
+import UpcomingAccountsCard from "../components/upcoming/UpcomingAccountsCard.tsx";
 import AccountAvailabilityDetail from "../components/AccountAvailabilityDetail.tsx";
 import { buildUpcomingAccountSummaries, positionsFromToday, reconcileWithServerPosition } from "../lib/upcomingAccounts.ts";
 import { statusFor } from "../lib/upcomingAccountStatus.ts";
@@ -77,4 +78,35 @@ assert.ok(html.includes("would cover this. Nothing has been moved.") && html.inc
 const plain = accountAvailability(acct({ id: "mc", name: "Meadow Current", balance: 600 }), { status: "ready", positions: { mc: { ...base, spend_from_headroom: 0 } } });
 assert.equal(plain.coveredByMove, undefined);
 assert.match(plain.note, /^Payments look short this pay period\. Open the account/);
+
+// G414: the same move contract covers a plans-only gap. The payment forecast
+// remains positive; only the server's plan position is short.
+const plansOnly = {
+  short: false, headroom: 20, spend_from_headroom: 10, spend_from_requires_move: true,
+  after_payments: 40, low_point: 40, plans_reserved: 80,
+  after_payments_and_plans: -40, low_point_and_plans: -40, uncertain: false,
+  covered_by_move: { amount: 50, from: [{ account_id: "hc", name: "Harbour Current", amount: 50 }], shortfall: 40 },
+  short_after_cover: 0,
+};
+row = withCoverSuggestions([{ ...walk, status: "covered", shortfall: 0, position: positionsFromToday({ mc: plansOnly }, accounts).mc }], [])[0];
+assert.equal(row.coverSuggestion.amount, 50);
+assert.deepEqual(statusFor(row, []), { amount: 40, label: "Short for plans, a move would cover it", signal: "move", estimated: false });
+const planReading = accountAvailability(acct({ id: "mc", name: "Meadow Current", balance: 600 }), { status: "ready", positions: { mc: plansOnly } });
+assert.equal(planReading.warning, "plans");
+assert.deepEqual(planReading.coveredByMove, { fromLabel: "Harbour Current", shortAfterCover: 0 });
+assert.match(planReading.note, /^Plans look short this pay period, covered by the suggested move/);
+html = working(planReading, plansOnly);
+assert.ok(html.includes("Available after suggested move") && html.includes("would cover this. Nothing has been moved."));
+
+// A combined shortfall remains honest: the £200 recommendation first clears
+// the £190 bill gap, leaving £100 of plans short. By account retains both the
+// plans warning and the conditional £10 allocation.
+const combined = { ...covered, spend_from_headroom: 10, spend_from_requires_move: true,
+  after_payments_and_plans: -300, low_point_and_plans: -300,
+  covered_by_move: { ...covered.covered_by_move, shortfall: 300 }, short_after_cover: 100 };
+row = summarise(combined)[0];
+assert.equal(row.coverSuggestion.shortfall, 300);
+assert.deepEqual(statusFor(row, []), { amount: 100, label: "Short after the suggested move for plans", signal: "plan", estimated: false });
+const byAccount = renderToStaticMarkup(h(BalancesHiddenContext.Provider, { value: false }, h(UpcomingAccountsCard, { accounts: [row], periodLabel: "Payments through Wed 25 Nov", plans: [], plansStatus: "ready", onOpen() {} })));
+assert.ok(byAccount.includes("Short after the suggested move for plans") && byAccount.includes("Available after move") && byAccount.includes("£10.00"));
 console.log("G410 earmark checks passed.");

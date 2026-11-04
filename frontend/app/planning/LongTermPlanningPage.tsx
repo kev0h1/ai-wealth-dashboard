@@ -149,6 +149,7 @@ export default function LongTermPlanningPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const goalFromQuery = searchParams.get("goal");
+  const editFromQuery = searchParams.get("edit") === "1";
   const { hideNetWorth } = usePreferences();
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [goals, setGoals] = useState<Loadable<Commitment[]>>(undefined);
@@ -236,7 +237,7 @@ export default function LongTermPlanningPage() {
         <p className="px-1 text-xs leading-relaxed text-slate-500 dark:text-slate-400">One-off payments and this pay period&apos;s set-asides live in <button type="button" onClick={() => router.push("/upcoming")} className="font-semibold text-indigo-600 underline-offset-2 hover:underline focus-visible:rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-indigo-400">Upcoming</button>.</p>
       </main>
 
-      {editingGoal !== undefined && <CommitmentSheet accounts={accounts} commitment={editingGoal} initialMode={editingGoal ? "view" : "edit"} onClose={() => setEditingGoal(undefined)} onSaved={async item => { setEditingGoal(item); await refreshGoals(); }} onCancelled={refreshGoals} />}
+      {editingGoal !== undefined && <CommitmentSheet accounts={accounts} commitment={editingGoal} initialMode={editingGoal && !(editFromQuery && editingGoal.id === goalFromQuery) ? "view" : "edit"} onClose={() => { setEditingGoal(undefined); if (goalFromQuery) router.replace("/planning", { scroll: false }); }} onSaved={async item => { setEditingGoal(item); if (goalFromQuery) router.replace("/planning", { scroll: false }); await refreshGoals(); }} onCancelled={refreshGoals} />}
     </div>
   );
 }

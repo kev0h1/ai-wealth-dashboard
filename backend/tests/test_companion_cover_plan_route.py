@@ -138,9 +138,11 @@ def test_today_route_now_returns_the_same_account_eligibility_snapshot(monkeypat
         "items": [{"id": "move-1", "type": "move", "headline": "Move £20"}],
         "account_eligibility": {
             "acc-1": {"short": True, "headroom": -2.5, "account_headroom_raw": -2.5,
-                      "spend_from_headroom": 0.0, "spend_from_capped": False},
+                      "spend_from_headroom": 0.0, "spend_from_capped": False,
+                      "allocation_order": 0, "allocation_unassigned": 99960.0},
             "acc-2": {"short": False, "headroom": 40.0, "account_headroom_raw": 40.0,
-                      "spend_from_headroom": 40.0, "spend_from_capped": False},
+                      "spend_from_headroom": 40.0, "spend_from_capped": False,
+                      "allocation_order": 1, "allocation_unassigned": 99960.0},
         },
     }
     # The enriched payload is what actually gets cached, not a stripped copy.
@@ -174,6 +176,7 @@ def test_today_route_payday_preview_still_skips_the_response_cache(monkeypatch):
         "account_eligibility": {"acc-1": {
             "short": False, "headroom": 12.0, "account_headroom_raw": 12.0,
             "spend_from_headroom": 12.0, "spend_from_capped": False,
+            "allocation_order": 0, "allocation_unassigned": 99988.0,
         }},
     }
 

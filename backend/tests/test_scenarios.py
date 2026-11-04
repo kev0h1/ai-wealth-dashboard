@@ -295,7 +295,7 @@ async def _compute(spec: dict, uid: str) -> dict:
         "account_eligibility": elig,
         "account_plans": plans,
         "items": [
-            {k: i.get(k) for k in ("id", "type", "amount", "total", "moves", "dests", "salary", "covered", "income_note", "habitual_note")
+            {k: i.get(k) for k in ("id", "type", "amount", "total", "moves", "dests", "salary", "covered", "income_note", "habitual_note", "plan_dest", "plan_shortfall")
              if k in i}
             for i in items
         ],
@@ -410,6 +410,14 @@ def _check_expected(snap: dict, spec: dict) -> None:
     if "allocations_reserved" in exp:
         chk.check("allocations_reserved", _r2(snap["safe_to_spend"].get("allocations_reserved") or 0), _r2(exp["allocations_reserved"]))
     elig = snap["account_eligibility"]
+    if "spend_from_total" in exp:
+        # G414: this fixture names every eligible current account. Unlike the
+        # former independent ceilings, the amounts are a real allocation and
+        # must reconcile to the pooled verdict exactly, including any small
+        # conditional surplus left by a live suggested move.
+        ids = set((exp.get("accounts") or {}).keys())
+        got_total = sum(float(elig[acct_id].get("spend_from_headroom") or 0) for acct_id in ids)
+        chk.check("spend_from total", _r2(got_total), _r2(exp["spend_from_total"]))
     for acct_id, want in (exp.get("accounts") or {}).items():
         got = elig.get(acct_id)
         assert got is not None, f"{where} no account position for {acct_id}"
@@ -440,6 +448,8 @@ def _check_expected(snap: dict, spec: dict) -> None:
             )
         if "short_after_cover" in want:
             chk.check(f"{acct_id} short_after_cover", _r2(got.get("short_after_cover")), _r2(want["short_after_cover"]))
+        if "spend_from_requires_move" in want:
+            chk.check(f"{acct_id} spend_from_requires_move", bool(got.get("spend_from_requires_move")), bool(want["spend_from_requires_move"]))
         if want.get("no_earmark"):
             for key in ("earmarks_out", "earmarked_total", "covered_by_move", "short_after_cover"):
                 assert key not in got, f"{where} {acct_id} must carry no {key} when nothing is earmarked"
@@ -468,6 +478,23 @@ def _check_expected(snap: dict, spec: dict) -> None:
         got_moves = sorted((m["from"], m["to"], _r2(m["amount"])) for m in moves)
         want_moves = sorted((m["from"], m["to"], _r2(m["amount"])) for m in cover["moves"])
         chk.check("cover moves", got_moves, want_moves)
+        for move in cover["moves"]:
+            if "plan_ids" not in move:
+                continue
+            matching_cards = [
+                item for item in snap["items"] if item["type"] == "move"
+                and any(m["move_map"]["to"]["account_id"] == move["to"] for m in item.get("moves") or [])
+            ]
+            # G414: one account gets one combined recommendation. Its payment
+            # and plan needs can share the amount, but the plan metadata must
+            # remain on that one card so the client can offer Edit plan.
+            chk.check(f"cover {move['to']} one combined card", len(matching_cards), 1)
+            plans = (matching_cards[0].get("plan_dest") or {}).get("plans") or []
+            chk.check(
+                f"cover {move['to']} plan actions",
+                sorted(str(p.get("id")) for p in plans),
+                sorted(str(plan_id) for plan_id in move["plan_ids"]),
+            )
     plan = next((i for i in snap["items"] if i["type"] == "payday_plan"), None)
     want_plan = exp.get("payday_plan")
     chk.check("payday_plan present", plan is not None, want_plan is not None)

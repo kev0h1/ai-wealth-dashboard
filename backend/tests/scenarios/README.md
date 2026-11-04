@@ -66,9 +66,13 @@ is fixed. Assertion keys are of the form `<check name>: <account id>` (for examp
 run (stale gap). No scenario currently carries one (the G363 client income gap was closed by G372).
 
 `spend_from` is the figure Home shows (`spend_from_headroom` after the pool
-cap, as the router applies it); `available` is accepted as an alias for older
-wording. `verdict` is "short" exactly when `after_payments < 0` or
-`low_point < 0`, otherwise "covered".
+allocation, as the router applies it); `available` is accepted as an alias for
+older wording. A G414 fixture may set `spend_from_total` when it names every
+eligible current account: those figures must add exactly to `left_to_spend`.
+An amount flagged by the snapshot as requiring a suggested move is spendable
+only after that recommendation, and is still part of the allocation. `verdict`
+is "short" exactly when `after_payments < 0` or `low_point < 0`, otherwise
+"covered".
 
 ## Snapshots (`out/<slug>.json`)
 

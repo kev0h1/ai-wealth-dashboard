@@ -15,7 +15,7 @@ import type { EstateRow } from "@/lib/accountsEstate";
 import type { Account } from "@wealth/shared";
 import { MaskedAmount } from "@/lib/balancesHidden";
 import { availableWithOverdraftText, overdraftAvailable } from "@/lib/accountOverdraft";
-import type { AccountAvailabilityReading } from "@/lib/accountAvailability";
+import { formatAvailabilityAmount, type AccountAvailabilityReading } from "@/lib/accountAvailability";
 import { SyncGlyph, asOfLabel, syncBank, syncPhase, type SyncingInfo } from "./SyncNote";
 import ActionLabel from "@/components/ActionLabel";
 
@@ -217,13 +217,21 @@ export default function AccountLedgerRow({
     row.source === "bank" && !sync && !balancePending && !availabilityReading ? overdraftAvailable(row.raw as Account) : null;
   const availabilityAria = availabilityReading
     ? availabilityReading.kind === "ready"
-      ? `, available: ${hideAmount ? "amount hidden" : moneyStr(availabilityReading.value)}${
+      ? `, available: ${hideAmount ? "amount hidden" : formatAvailabilityAmount(availabilityReading.value)}${
           availabilityReading.note ? `, ${availabilityReading.note}` : ""
         }`
       : availabilityReading.kind === "checking"
         ? ", availability checking"
         : ", availability unavailable"
     : "";
+  const availabilityCaption = availabilityReading?.kind === "ready"
+    ? availabilityReading.warning && availabilityReading.value === 0
+      ? availabilityReading.coveredByMove && availabilityReading.coveredByMove.shortAfterCover <= 0
+        ? `${availabilityReading.warning === "payments" ? "Payment" : "Plan"} move covers it`
+        : `Short after ${availabilityReading.warning === "payments" ? "payments" : "plans"}`
+      : availabilityReading.requiresMove ? "Available after move:"
+      : "Available:"
+    : null;
 
   return (
     <div
@@ -301,7 +309,7 @@ export default function AccountLedgerRow({
             {availabilityReading.kind === "ready" ? (
               <>
                 {availabilityReading.warning === "payments" && availabilityReading.coveredByMove && availabilityReading.coveredByMove.shortAfterCover <= 0 ? <Info size={10} aria-hidden="true" className="shrink-0 text-amber-800 dark:text-amber-200" /> : availabilityReading.warning === "payments" ? <AlertTriangle size={10} aria-hidden="true" className="shrink-0 text-rose-700 dark:text-rose-300" /> : availabilityReading.warning === "plans" ? <Info size={10} aria-hidden="true" className="shrink-0 text-amber-800 dark:text-amber-200" /> : null}
-                Available: {hideAmount ? <MaskedAmount /> : <span className="money">{moneyStr(availabilityReading.value)}</span>}
+                {availabilityCaption} {hideAmount ? <MaskedAmount /> : <span className="money">{formatAvailabilityAmount(availabilityReading.value)}</span>}
               </>
             ) : availabilityReading.kind === "checking" ? (
               "Checking…"

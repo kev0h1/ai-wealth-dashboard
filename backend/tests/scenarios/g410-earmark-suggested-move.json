@@ -106,7 +106,7 @@
         ]
       },
       "acc-mc": {
-        "spend_from": 0.0,
+        "spend_from": 10.0,
         "after_payments": -190.0,
         "low_point": -190.0,
         "verdict": "short",
@@ -119,7 +119,8 @@
             }
           ]
         },
-        "short_after_cover": 0.0
+        "short_after_cover": 0.0,
+        "spend_from_requires_move": true
       }
     },
     "cover_plan": {
@@ -134,6 +135,6 @@
     },
     "payday_plan": null,
     "at_risk_count": 1,
-    "notes": "Synthetic, invented names and figures (G410). Today is Mon 2 Nov 2026; pay is the last Friday so payday is Fri 27 Nov and the window runs to Thu 26 Nov (25 days). Harbour Current holds 2,000.00 with no bills. Meadow Current holds 600.00 and has four payments in the window: rent share 450.00 (4 Nov), broadband 40.00 (8 Nov), gym 35.00 (10 Nov), home insurance 265.00 (20 Nov); 450 + 40 = 490, + 35 = 525, + 265 = 790.00. No income is predicted. Meadow walk: 600.00 - 790.00 = -190.00, so after payments -190.00 and low point -190.00 (the balance only falls), verdict short, which the earmark never changes. Harbour: after payments 2,000.00, low point 2,000.00, covered. Cover plan (S3.1): shortfall 190.00 rounds up to the next 5 (190) plus 10 = 200, taken from Harbour (headroom 2,000 - 10 = 1,990, so one leg of 200): one move of 200.00. Earmark (G410): Harbour has 200.00 set aside for the move to Meadow Current (earmarked_total 200.00), and Meadow is covered_by_move 200.00 from Harbour with shortfall 190.00; short_after_cover = max(0, 190.00 shortfall - 200.00 covered) = 0. Spend from: Harbour 2,000.00 - 200.00 reserved = 1,800.00, under the pool; Meadow is negative so shown as 0. Left to spend is pooled and own-account moves never change it (G336): opening 600 + 2,000 = 2,600.00; pooled walk debit-first: -450 = 2,150.00, -40 = 2,110.00, -35 = 2,075.00, -265 = 1,810.00 (the lowest point), no buffer, no plans, no set-asides: 1,810.00, the same with or without the earmark. At risk count 1: the badge walks Meadow alone and it is short."
+    "notes": "Synthetic, invented names and figures (G410). Today is Mon 2 Nov 2026; pay is the last Friday so payday is Fri 27 Nov and the window runs to Thu 26 Nov (25 days). Harbour Current holds 2,000.00 with no bills. Meadow Current holds 600.00 and has four payments in the window: rent share 450.00 (4 Nov), broadband 40.00 (8 Nov), gym 35.00 (10 Nov), home insurance 265.00 (20 Nov); 450 + 40 = 490, + 35 = 525, + 265 = 790.00. No income is predicted. Meadow walk: 600.00 - 790.00 = -190.00, so after payments -190.00 and low point -190.00 (the balance only falls), verdict short, which the earmark never changes. Harbour: after payments 2,000.00, low point 2,000.00, covered. Cover plan (S3.1): shortfall 190.00 rounds up to the next 5 (190) plus 10 = 200, taken from Harbour (headroom 2,000 - 10 = 1,990, so one leg of 200): one move of 200.00. Earmark (G410): Harbour has 200.00 set aside for the move to Meadow Current (earmarked_total 200.00), and Meadow is covered_by_move 200.00 from Harbour with shortfall 190.00; short_after_cover = max(0, 190.00 shortfall - 200.00 covered) = 0. Spend from: Harbour 2,000.00 - 200.00 reserved = 1,800.00, under the pool; Meadow is negative so shown as 0. Left to spend is pooled and own-account moves never change it (G336): opening 600 + 2,000 = 2,600.00; pooled walk debit-first: -450 = 2,150.00, -40 = 2,110.00, -35 = 2,075.00, -265 = 1,810.00 (the lowest point), no buffer, no plans, no set-asides: 1,810.00, the same with or without the earmark. At risk count 1: the badge walks Meadow alone and it is short. G414 allocation: Meadow has 200.00 suggested in minus its 190.00 deficit = 10.00 available only after the move; Harbour 1,800.00 plus Meadow 10.00 equals pooled 1,810.00."
   }
 }

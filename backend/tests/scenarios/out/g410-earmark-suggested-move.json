@@ -4,6 +4,8 @@
       "account_headroom_raw": 1800.0,
       "after_payments": 2000.0,
       "after_payments_and_plans": 2000.0,
+      "allocation_order": 0,
+      "allocation_unassigned": 0.0,
       "earmarked_total": 200.0,
       "earmarks_out": [
         {
@@ -14,6 +16,7 @@
       ],
       "estimated": false,
       "headroom": 1990.0,
+      "is_current_account": true,
       "low_point": 2000.0,
       "low_point_and_plans": 2000.0,
       "plans_reserved": 0.0,
@@ -23,9 +26,11 @@
       "uncertain": false
     },
     "acc-mc": {
-      "account_headroom_raw": -190.0,
+      "account_headroom_raw": 10.0,
       "after_payments": -190.0,
       "after_payments_and_plans": -190.0,
+      "allocation_order": 1,
+      "allocation_unassigned": 0.0,
       "covered_by_move": {
         "amount": 200.0,
         "from": [
@@ -39,13 +44,15 @@
       },
       "estimated": false,
       "headroom": -200.0,
+      "is_current_account": true,
       "low_point": -190.0,
       "low_point_and_plans": -190.0,
       "plans_reserved": 0.0,
       "short": true,
       "short_after_cover": 0.0,
       "spend_from_capped": false,
-      "spend_from_headroom": 0.0,
+      "spend_from_headroom": 10.0,
+      "spend_from_requires_move": true,
       "uncertain": false
     }
   },
@@ -265,6 +272,41 @@
           }
         }
       ],
+      "plan_dest": {
+        "account_id": "acc-mc",
+        "balance": 600.0,
+        "bills": [
+          {
+            "amount": 450,
+            "expected_date": "2026-11-04",
+            "label": "Rent Share"
+          },
+          {
+            "amount": 40,
+            "expected_date": "2026-11-09",
+            "label": "Broadband"
+          },
+          {
+            "amount": 35,
+            "expected_date": "2026-11-10",
+            "label": "Gym"
+          },
+          {
+            "amount": 265,
+            "expected_date": "2026-11-20",
+            "label": "Home Insurance"
+          }
+        ],
+        "display_label": "NatWest Meadow Current",
+        "is_overdraft": false,
+        "name": "Meadow Current",
+        "needs_by": "Wednesday",
+        "needs_by_date": "2026-11-04",
+        "needs_by_last": "Fri 20 Nov",
+        "needs_by_last_date": "2026-11-20",
+        "needs_total": 790,
+        "provider": "natwest"
+      },
       "type": "move"
     }
   ],

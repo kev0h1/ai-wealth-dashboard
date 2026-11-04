@@ -1,0 +1,283 @@
+{
+  "account_eligibility": {
+    "acc-barclays": {
+      "account_headroom_raw": 1340.0,
+      "after_payments": 1500.0,
+      "after_payments_and_plans": 1500.0,
+      "allocation_order": 0,
+      "allocation_unassigned": 0.0,
+      "earmarked_total": 160.0,
+      "earmarks_out": [
+        {
+          "amount": 160.0,
+          "to_account_id": "acc-natwest",
+          "to_name": "NatWest Current"
+        }
+      ],
+      "estimated": false,
+      "headroom": 1490.0,
+      "is_current_account": true,
+      "low_point": 1500.0,
+      "low_point_and_plans": 1500.0,
+      "plans_reserved": 0.0,
+      "short": false,
+      "spend_from_capped": false,
+      "spend_from_headroom": 1340.0,
+      "uncertain": false
+    },
+    "acc-monzo": {
+      "account_headroom_raw": 50.0,
+      "after_payments": 50.0,
+      "after_payments_and_plans": 50.0,
+      "allocation_order": 1,
+      "allocation_unassigned": 0.0,
+      "estimated": false,
+      "headroom": 40.0,
+      "is_current_account": true,
+      "low_point": 50.0,
+      "low_point_and_plans": 50.0,
+      "plans_reserved": 0.0,
+      "short": false,
+      "spend_from_capped": false,
+      "spend_from_headroom": 50.0,
+      "uncertain": false
+    },
+    "acc-monzo-pot": {
+      "account_headroom_raw": 0.0,
+      "after_payments": 300.0,
+      "after_payments_and_plans": 300.0,
+      "allocation_order": 3,
+      "allocation_unassigned": 0.0,
+      "estimated": false,
+      "headroom": 290.0,
+      "is_current_account": false,
+      "low_point": 300.0,
+      "low_point_and_plans": 300.0,
+      "plans_reserved": 0.0,
+      "short": false,
+      "spend_from_capped": false,
+      "spend_from_headroom": 0.0,
+      "uncertain": false
+    },
+    "acc-natwest": {
+      "account_headroom_raw": 10.0,
+      "after_payments": -150.0,
+      "after_payments_and_plans": -150.0,
+      "allocation_order": 2,
+      "allocation_unassigned": 0.0,
+      "covered_by_move": {
+        "amount": 160.0,
+        "from": [
+          {
+            "account_id": "acc-barclays",
+            "amount": 160.0,
+            "name": "Barclays Current"
+          }
+        ],
+        "shortfall": 150.0
+      },
+      "estimated": false,
+      "headroom": -160.0,
+      "is_current_account": true,
+      "low_point": -150.0,
+      "low_point_and_plans": -150.0,
+      "plans_reserved": 0.0,
+      "short": true,
+      "short_after_cover": 0.0,
+      "spend_from_capped": false,
+      "spend_from_headroom": 10.0,
+      "spend_from_requires_move": true,
+      "uncertain": false
+    }
+  },
+  "account_plans": [],
+  "accounts": [
+    {
+      "balance": 1500.0,
+      "currency": "GBP",
+      "id": "acc-barclays",
+      "include_in_safe_to_spend": true,
+      "name": "Barclays Current",
+      "provider": "barclays",
+      "status": "connected",
+      "subtype": "TRANSACTION",
+      "type": "BANK"
+    },
+    {
+      "balance": 50.0,
+      "currency": "GBP",
+      "id": "acc-monzo",
+      "include_in_safe_to_spend": true,
+      "name": "Monzo Current",
+      "provider": "monzo",
+      "status": "connected",
+      "subtype": "TRANSACTION",
+      "type": "BANK"
+    },
+    {
+      "balance": 300.0,
+      "currency": "GBP",
+      "id": "acc-monzo-pot",
+      "include_in_safe_to_spend": true,
+      "name": "Monzo Travel Pot",
+      "provider": "monzo",
+      "status": "connected",
+      "subtype": "SAVINGS",
+      "type": "BANK"
+    },
+    {
+      "balance": 100.0,
+      "currency": "GBP",
+      "id": "acc-natwest",
+      "include_in_safe_to_spend": true,
+      "name": "NatWest Current",
+      "provider": "natwest",
+      "status": "connected",
+      "subtype": "TRANSACTION",
+      "type": "BANK"
+    }
+  ],
+  "at_risk_count": 1,
+  "cashflow": {
+    "internal_inflows": [],
+    "next_payday": "2026-11-27",
+    "observed_pending_bills": [],
+    "period": {
+      "day_number": 4,
+      "end": "2026-11-26",
+      "label": "30 Oct to 26 Nov",
+      "length_days": 28,
+      "payday": "2026-11-27",
+      "payday_observed": null,
+      "start": "2026-10-30",
+      "type": "last_friday"
+    },
+    "spendable_balance": 1650.0,
+    "upcoming_bills": [
+      {
+        "account_balance": 100.0,
+        "account_bank": "NatWest",
+        "account_id": "acc-natwest",
+        "account_name": "NatWest Current",
+        "amount": 250.0,
+        "amount_basis": null,
+        "card_dest_account_bank": null,
+        "card_dest_account_id": null,
+        "card_dest_account_name": null,
+        "category": "Bills",
+        "days_away": 7,
+        "days_past_due": 0,
+        "dest_account_bank": null,
+        "dest_account_id": null,
+        "dest_account_name": null,
+        "dest_account_spendable": null,
+        "edited": false,
+        "expected_date": "2026-11-09",
+        "is_card_repayment": false,
+        "is_credit_card": false,
+        "kind": "commitment",
+        "name": "NATWEST RENT",
+        "observed_pending": false,
+        "original_date": "2026-11-07",
+        "pending": false,
+        "rule_label": null
+      },
+      {
+        "account_balance": 100.0,
+        "account_bank": "NatWest",
+        "account_id": "acc-natwest",
+        "account_name": "NatWest Current",
+        "amount": 250.0,
+        "amount_basis": null,
+        "card_dest_account_bank": null,
+        "card_dest_account_id": null,
+        "card_dest_account_name": null,
+        "category": "Bills",
+        "days_away": 35,
+        "days_past_due": 0,
+        "dest_account_bank": null,
+        "dest_account_id": null,
+        "dest_account_name": null,
+        "dest_account_spendable": null,
+        "edited": false,
+        "expected_date": "2026-12-07",
+        "is_card_repayment": false,
+        "is_credit_card": false,
+        "kind": "commitment",
+        "name": "NATWEST RENT",
+        "observed_pending": false,
+        "original_date": null,
+        "pending": false,
+        "rule_label": null
+      }
+    ],
+    "upcoming_income": []
+  },
+  "days_to_payday": 25,
+  "items": [
+    {
+      "amount": 160,
+      "covered": true,
+      "id": "plan:2026-11-27:f2e921d5ab",
+      "moves": [
+        {
+          "amount": 160,
+          "headline": "Move \u00a3160 from Barclays Current",
+          "move_map": {
+            "from": {
+              "account_id": "acc-barclays",
+              "balance": 1500.0,
+              "display_label": "Barclays Current",
+              "name": "Barclays Current",
+              "provider": "barclays",
+              "reserved_for_allocations": 0.0,
+              "safe_note": "Nothing due from this account before Mon 9 Nov"
+            },
+            "to": {
+              "account_id": "acc-natwest",
+              "balance": 100.0,
+              "display_label": "NatWest Current",
+              "incoming": "\u00a3250 Natwest Rent expected Mon 9 Nov",
+              "name": "NatWest Current",
+              "provider": "natwest"
+            }
+          }
+        }
+      ],
+      "plan_dest": {
+        "account_id": "acc-natwest",
+        "balance": 100.0,
+        "bills": [
+          {
+            "amount": 250,
+            "expected_date": "2026-11-09",
+            "label": "Natwest Rent"
+          }
+        ],
+        "display_label": "NatWest Current",
+        "is_overdraft": false,
+        "name": "NatWest Current",
+        "needs_by": "Mon 9 Nov",
+        "needs_by_date": "2026-11-09",
+        "needs_by_last": "Mon 9 Nov",
+        "needs_by_last_date": "2026-11-09",
+        "needs_total": 250,
+        "provider": "natwest"
+      },
+      "type": "move"
+    }
+  ],
+  "name": "Editing away the Monzo plan gap removes its recommendation and earmark (G414)",
+  "period": {
+    "end": "2026-11-26",
+    "start": "2026-10-30"
+  },
+  "safe_to_spend": {
+    "allocations_reserved": 0.0,
+    "calculation_status": "complete",
+    "commitments_reserved": 0,
+    "safe_to_spend": 1400.0,
+    "safe_to_spend_cash": 1400.0
+  },
+  "today": "2026-11-02"
+}
