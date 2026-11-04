@@ -192,6 +192,7 @@ async def load_spend_txns(
     kind_map: _KindMap | None = None,
     *,
     include_evidence: bool = False,
+    include_series: bool = False,
     require_complete: bool = False,
 ) -> list[dict]:
     """Every spend-category transaction in [start, end], signed.
@@ -234,7 +235,7 @@ async def load_spend_txns(
                     "date": date_filter,
                 },
                 {**_SPEND_PROJ, "merchant_name": 1, "description": 1, "name": 1}
-                if include_evidence else _SPEND_PROJ,
+                if (include_evidence or include_series) else _SPEND_PROJ,
             ):
                 raw_docs.append(doc)
         except Exception as exc:
@@ -274,6 +275,12 @@ async def load_spend_txns(
         if include_evidence:
             record.update({
                 "id": str(doc.get("_id") or ""),
+                "name": str(doc.get("merchant_name") or doc.get("description") or doc.get("name") or cat)[:160],
+            })
+        if include_series:
+            # G418: the recurrence-series key and a label, for comparing a
+            # committed payment with its expected series. Additive and opt-in.
+            record.update({
                 "key": series_key(doc),
                 "name": str(doc.get("merchant_name") or doc.get("description") or doc.get("name") or cat)[:160],
             })
@@ -1451,7 +1458,7 @@ async def compute_category_signals(
     if cached_baseline is not None:
         baseline, baseline_months = cached_baseline
         txns = await load_spend_txns(
-            uid, period_start, period_end, kind_map=kind_map, include_evidence=True,
+            uid, period_start, period_end, kind_map=kind_map, include_series=True,
         )
     else:
         txns = await load_spend_txns(
@@ -1459,7 +1466,7 @@ async def compute_category_signals(
             period_start - timedelta(days=_BASELINE_DAYS),
             period_end,
             kind_map=kind_map,
-            include_evidence=True,
+            include_series=True,
         )
         baseline, baseline_months = _total_baseline(txns, period_start)
         await _write_cached_baseline(

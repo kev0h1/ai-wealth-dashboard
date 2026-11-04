@@ -129,3 +129,46 @@ def test_discretionary_pace_unchanged(monkeypatch):
     sig = result["signals"]["Eating Out"]
     assert sig["multiple"] is not None and sig["multiple"] > 1.0
     assert "committed" not in sig
+
+
+def test_include_series_adds_key_and_name_without_changing_default_or_evidence(monkeypatch):
+    from bson import ObjectId
+    from datetime import datetime
+    from app.services.spending import SpendingContext
+    docs = [{"_id": ObjectId("000000000000000000000001"), "date": datetime(2026, 11, 2), "amount": 1124,
+             "category": "Mortgage", "transaction_type": "debit", "merchant_name": "ACME MORTGAGE"}]
+
+    class _Cur:
+        def __init__(self, d):
+            self.d = d
+
+        def __aiter__(self):
+            async def gen():
+                for x in self.d:
+                    yield x
+            return gen()
+
+    class _C:
+        def __init__(self, d):
+            self.d, self.name = d, "c"
+
+        def find(self, q, projection):
+            return _Cur(self.d)
+
+    async def kinds(uid):
+        return {"Mortgage": "commitment"}
+
+    async def ctx(*a, **k):
+        return SpendingContext(kinds={"Mortgage": "commitment"})
+
+    monkeypatch.setattr(pace, "transactions_col", _C(docs))
+    monkeypatch.setattr(pace, "yapily_transactions_col", _C([]))
+    monkeypatch.setattr(pace, "get_category_kinds", kinds)
+    monkeypatch.setattr(pace, "build_spending_context", ctx)
+    d1, d2 = date(2026, 11, 1), date(2026, 11, 5)
+    default = asyncio.run(pace.load_spend_txns("u", d1, d2))
+    series = asyncio.run(pace.load_spend_txns("u", d1, d2, include_series=True))
+    evidence = asyncio.run(pace.load_spend_txns("u", d1, d2, include_evidence=True))
+    assert "key" not in default[0] and "key" not in evidence[0]
+    assert series[0]["key"] == "ACME MORTGAGE" and series[0]["name"] == "ACME MORTGAGE"
+    assert {k: v for k, v in series[0].items() if k not in ("key", "name")} == default[0]
