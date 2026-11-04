@@ -235,7 +235,7 @@ export default function AccountLedgerRow({
         data-account-row-id={focusKey}
         disabled={!onClick}
         onClick={(event) => onClick?.(row, event.currentTarget)}
-        aria-label={`${row.name}, ${balancePending ? "balance not available yet" : hideAmount ? "balance hidden" : moneyStr(row.balance)}${stateCaption ? ` ${stateCaption}` : ""}${row.attention ? ", connection needs attention" : ""}${isBusiness ? ", business account" : ""}${overdraftReading !== null ? `, ${availableWithOverdraftText(hideAmount ? "amount hidden" : moneyStr(overdraftReading))}` : ""}${notCounted ? ", not counted towards Left to spend" : ""}${sync ? `, ${syncRowLine}${syncAsOf ? `, balance as of ${syncAsOf}` : ""}` : ""}${availabilityAria}`}
+        aria-label={`${row.name}, ${balancePending ? "balance not available yet" : hideAmount ? "balance hidden" : moneyStr(row.balance)}${stateCaption ? ` ${stateCaption}` : ""}${row.attention ? ", connection needs attention" : ""}${isBusiness ? ", business account" : ""}${overdraftReading !== null ? `, ${availableWithOverdraftText(hideAmount ? "amount hidden" : formatAvailabilityAmount(overdraftReading))}` : ""}${notCounted ? ", not counted towards Left to spend" : ""}${sync ? `, ${syncRowLine}${syncAsOf ? `, balance as of ${syncAsOf}` : ""}` : ""}${availabilityAria}`}
         className="absolute inset-0 z-10 rounded-[inherit] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500"
       />
       <BankIcon identity={brandAccountFor(row)} altText={brand.label} />
@@ -313,7 +313,7 @@ export default function AccountLedgerRow({
         ) : null}
         {overdraftReading !== null ? (
           <p data-a181-overdraft className="max-w-[10rem] text-right text-[10px] leading-4 text-slate-500 dark:text-slate-400">
-            {availableWithOverdraftText(hideAmount ? "£••••" : moneyStr(overdraftReading))}
+            {availableWithOverdraftText(hideAmount ? "£••••" : formatAvailabilityAmount(overdraftReading))}
           </p>
         ) : null}
         {/* Visual "owed"/"in credit" caption is gone on credit rows per

@@ -6371,12 +6371,13 @@ async def compute_today_items(
         try:
             from app.db.collections import cashflow_cache_col as _rc_cache_col
             from app.services.committed_spend import committed_findings as _committed_findings
+            from app.services.own_account_transfers import IssuerFallbackSet as _IssuerFallbackSet
             _rc_cache = await _rc_cache_col.find_one({"_id": uid}, {"recurring_spend": 1}) or {}
             _rc_prefs = await preferences_col.find_one({"user_id": uid}) or {}
             _rc_committed = _committed_findings(
                 _rc_txns, _rc_cache.get("recurring_spend") or [], _rc_kinds,
                 _rc_period_start, _rc_period_end,
-                dismissed=set(_rc_prefs.get("dismissed_recurring") or []),
+                dismissed=_IssuerFallbackSet(_rc_prefs.get("dismissed_recurring") or []),
             )
         except Exception:
             log.exception("companion rhythm: committed comparison failed for %s", uid)

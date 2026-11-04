@@ -31,7 +31,7 @@ from app.db.collections import (
     yapily_transactions_col,
 )
 from app.services.pay_period import get_pay_period_for_date, prev_pay_period
-from app.services.categorisation import series_key
+from app.services.own_account_transfers import IssuerFallbackSet, series_key
 from app.services.categories import CategoryKinds, get_category_kinds, is_non_spend
 from app.services.spending import REFUND, SPEND, build_spending_context, classify_flow, try_build_spending_context, txn_flow
 
@@ -234,7 +234,8 @@ async def load_spend_txns(
                     "transaction_type": {"$in": ["debit", "credit"]},
                     "date": date_filter,
                 },
-                {**_SPEND_PROJ, "merchant_name": 1, "description": 1, "name": 1}
+                {**_SPEND_PROJ, "merchant_name": 1, "description": 1, "name": 1,
+                 **({"own_transfer_match": 1, "account_id": 1} if include_series else {})}
                 if (include_evidence or include_series) else _SPEND_PROJ,
             ):
                 raw_docs.append(doc)
@@ -1549,7 +1550,7 @@ async def compute_category_signals(
                 txns, cache_doc.get("recurring_spend") or [], kind_map,
                 period_start, period_end,
                 name_fn=lambda n: _unresolved_display_name(n, ""),
-                dismissed=set(prefs.get("dismissed_recurring") or []),
+                dismissed=IssuerFallbackSet(prefs.get("dismissed_recurring") or []),
             )
         except Exception:
             logger.exception("compute_category_signals: committed comparison failed for %s", uid)

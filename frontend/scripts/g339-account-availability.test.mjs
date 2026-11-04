@@ -55,8 +55,8 @@ for (const extra of [{ paused: true }, { status: "expired" }]) assert.equal(acco
 // G418: summary Available figures are whole pounds (half away from zero, as the hero); only a non-zero amount under £1 keeps pence.
 assert.equal(formatAvailabilityAmount(8.25), "£8");
 assert.equal(formatAvailabilityAmount(-8.25), "−£8");
-assert.equal(formatAvailabilityAmount(312.29), "£312");
-assert.equal(formatAvailabilityAmount(115.65), "£116");
+assert.equal(formatAvailabilityAmount(287.29), "£287");
+assert.equal(formatAvailabilityAmount(142.65), "£143");
 assert.equal(formatAvailabilityAmount(0.5), "£0.50");
 assert.equal(formatAvailabilityAmount(0), "£0");
 

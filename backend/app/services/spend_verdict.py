@@ -465,12 +465,15 @@ def build_notables_and_majority(
             continue
         sig = signals.get(cat) or {}
         m = sig.get("multiple")
-        has_baseline = m is not None and sig.get("usual_rate_per_day") is not None
+        # G418: a judged (committed) category is compared with its expected
+        # payments, so it is never "still building a usual".
+        committed_row = bool(sig.get("committed"))
+        has_baseline = committed_row or (m is not None and sig.get("usual_rate_per_day") is not None)
         # A majority category can still have a materially high multiple if it
         # only missed the pound-threshold gate (small category, big swing) —
         # "close to usual" would be false for it, so it's flagged here rather
         # than silently swept into a blanket reassurance downstream.
-        elevated = has_baseline and m >= _QUALIFY_LOW_MULTIPLE
+        elevated = has_baseline and not committed_row and m >= _QUALIFY_LOW_MULTIPLE
         majority.append({
             "category":       cat,
             "spent":          round(row["spent"], 2),

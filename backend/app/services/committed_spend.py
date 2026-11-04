@@ -18,14 +18,37 @@ Pure functions only; the caller supplies the transactions and the series.
 """
 from __future__ import annotations
 
-from app.services.categories import is_commitment, normalise_name
+import re
+
+from app.services.categories import is_commitment
 
 #: A matched payment is "higher" when it is above its usual amount by more than
 #: this fraction and by at least HIGHER_MIN_POUNDS.
 HIGHER_FRACTION = 0.10
 HIGHER_MIN_POUNDS = 1.0
+#: A commitment category is judged against its series only when matched series
+#: payments are at least this share of its spend this period, by amount.
+JUDGED_MATCHED_SHARE = 0.8
 #: A payment under this is never flagged as new (rounding dust, small fees).
 NEW_MIN_POUNDS = 5.0
+
+
+_DIGIT_RUN = re.compile(r"\d{6,}")
+
+
+def _visible_name(raw, name_fn, category: str) -> str:
+    """A label safe to show: cleaned by the engine's display helper, and never
+    raw bank narrative. None from the cleaner, or six or more consecutive
+    digits left in the result, falls back to "a payment in <category>"."""
+    cleaned = None
+    if raw and name_fn is not None:
+        try:
+            cleaned = name_fn(str(raw))
+        except Exception:
+            cleaned = None
+    if not cleaned or _DIGIT_RUN.search(cleaned):
+        return f"a payment in {category}"
+    return cleaned
 
 
 def _closest(series: list[dict], amount: float) -> dict:
@@ -43,12 +66,13 @@ def committed_findings(
 ) -> dict[str, dict]:
     """Per judged category, how this period compares with its expected payments.
 
-    A category is judged this way (and so never by day-N pace) when EITHER it is
-    commitment kind AND has at least one recurring series, OR every payment in it
-    this period matches a recurring series (this is what covers subscriptions,
-    which are discretionary by kind but recurring). Anything else, Groceries and
-    Transport without a series for instance, is absent from the result and keeps
-    day-N pace.
+    A category is judged this way (and so never by day-N pace) when EITHER every
+    debit in it this period matches a recurring series (this covers subscriptions,
+    which are discretionary by kind but recurring), OR it is commitment kind and
+    matched series payments are at least 80% of its spend by amount. Anything
+    else, Groceries or Transport with a single rail pass or milk delivery for
+    instance, is absent from the result, keeps day-N pace and gets no line. A
+    payment is only ever called new inside a judged category.
 
     ``txns`` are spend records carrying ``date``, ``category``, ``amount``
     (debits positive), ``key`` (categorisation.series_key) and ``name``.
@@ -59,13 +83,10 @@ def committed_findings(
     """
     dismissed = dismissed or frozenset()
     by_key: dict[str, list[dict]] = {}
-    cats_with_series: set[str] = set()
     for p in patterns or []:
         key = p.get("key")
         if key:
             by_key.setdefault(key, []).append(p)
-        if p.get("category"):
-            cats_with_series.add(normalise_name(p["category"]))
 
     by_cat: dict[str, list[dict]] = {}
     for t in txns:
@@ -79,8 +100,10 @@ def committed_findings(
     out: dict[str, dict] = {}
     for cat, rows in by_cat.items():
         matched_flags = [bool(by_key.get(r.get("key") or "")) for r in rows]
-        has_series = normalise_name(cat) in cats_with_series or any(matched_flags)
-        judged = (is_commitment(kind_map, cat) and has_series) or all(matched_flags)
+        total = sum(float(r["amount"]) for r in rows)
+        matched_total = sum(float(r["amount"]) for r, m in zip(rows, matched_flags) if m)
+        share_ok = total > 0 and matched_total / total >= JUDGED_MATCHED_SHARE
+        judged = all(matched_flags) or (is_commitment(kind_map, cat) and any(matched_flags) and share_ok)
         if not judged:
             continue
         entry = {"status": "as_expected", "paid_count": 0, "payments": []}
@@ -92,15 +115,14 @@ def committed_findings(
                 if amount > expected * (1 + HIGHER_FRACTION) and amount - expected >= HIGHER_MIN_POUNDS:
                     entry["payments"].append({
                         "kind": "higher",
-                        "name": series.get("display_name") or series.get("key"),
+                        "name": _visible_name(series.get("display_name") or series.get("key"), name_fn, cat),
                         "paid": round(amount, 2),
                         "expected": round(expected, 2),
                     })
                 else:
                     entry["paid_count"] += 1
             elif amount >= NEW_MIN_POUNDS and (t.get("key") or "") not in dismissed:
-                label = (name_fn(t.get("name") or "") if name_fn else None) or t.get("name") or "A new payment"
-                entry["payments"].append({"kind": "new", "name": label, "paid": round(amount, 2)})
+                entry["payments"].append({"kind": "new", "name": _visible_name(t.get("name"), name_fn, cat), "paid": round(amount, 2)})
             else:
                 entry["paid_count"] += 1
         kinds = {p["kind"] for p in entry["payments"]}

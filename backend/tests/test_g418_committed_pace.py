@@ -17,7 +17,7 @@ KINDS = CategoryKinds(dict(BUILTIN_CATEGORY_KINDS))
 START, END = date(2026, 11, 1), date(2026, 11, 30)
 
 SERIES = [
-    {"key": "ACME MORTGAGE", "display_name": "Acme Mortgage", "avg_amount": 1124.0, "category": "Mortgage"},
+    {"key": "ACME MORTGAGE", "display_name": "Acme Mortgage", "avg_amount": 1060.0, "category": "Mortgage"},
     {"key": "NORTHERN POWER", "display_name": "Northern Power", "avg_amount": 90.0, "category": "Bills"},
 ]
 
@@ -26,28 +26,59 @@ def t(cat, amount, key, d=date(2026, 11, 3), name=None):
     return {"date": d, "category": cat, "amount": amount, "key": key, "name": name or key}
 
 
-def run(txns):
-    return committed_findings(txns, SERIES, KINDS, START, END)
+def clean(raw):
+    return raw.title()
+
+
+def run(txns, **kw):
+    return committed_findings(txns, SERIES, KINDS, START, END, name_fn=clean, **kw)
 
 
 def test_paid_as_expected():
-    out = run([t("Mortgage", 1124.0, "ACME MORTGAGE"), t("Bills", 91.5, "NORTHERN POWER")])
+    out = run([t("Mortgage", 1060.0, "ACME MORTGAGE"), t("Bills", 91.5, "NORTHERN POWER")])
     assert out["Mortgage"]["status"] == "as_expected" and out["Mortgage"]["payments"] == []
     assert out["Bills"]["status"] == "as_expected"
 
 
 def test_higher_names_the_payment_and_both_amounts():
-    out = run([t("Mortgage", 1300.0, "ACME MORTGAGE")])
+    out = run([t("Mortgage", 1195.0, "ACME MORTGAGE")])
     assert out["Mortgage"]["status"] == "higher"
     assert out["Mortgage"]["payments"] == [
-        {"kind": "higher", "name": "Acme Mortgage", "paid": 1300.0, "expected": 1124.0}
+        {"kind": "higher", "name": "Acme Mortgage", "paid": 1195.0, "expected": 1060.0}
     ]
 
 
-def test_new_committed_payment_is_flagged_new():
-    out = run([t("Bills", 240.0, "BRIGHT BROADBAND")])
+def test_one_new_direct_debit_among_series_payments_is_still_new():
+    out = run([t("Bills", 90.0, "NORTHERN POWER"), t("Bills", 10.0, "BRIGHT BROADBAND")])
     assert out["Bills"]["status"] == "new"
-    assert out["Bills"]["payments"][0]["kind"] == "new" and out["Bills"]["payments"][0]["paid"] == 240.0
+    assert out["Bills"]["payments"] == [{"kind": "new", "name": "Bright Broadband", "paid": 10.0}]
+
+
+def test_bills_with_nearly_all_series_payments_is_judged_and_all_series_is_judged():
+    assert "Bills" in run([t("Bills", 90.0, "NORTHERN POWER"), t("Bills", 10.0, "BRIGHT BROADBAND")])
+    assert run([t("Bills", 90.0, "NORTHERN POWER")])["Bills"]["status"] == "as_expected"
+
+
+def test_transport_with_a_rail_series_and_an_unmatched_taxi_is_not_judged_and_has_no_new():
+    pats = SERIES + [{"key": "RAIL PASS", "display_name": "Rail Pass", "avg_amount": 120.0, "category": "Transport"}]
+    out = committed_findings([t("Transport", 120.0, "RAIL PASS"), t("Transport", 85.0, "SOME TAXI")],
+                             pats, KINDS, START, END, name_fn=clean)
+    assert out == {}
+
+
+def test_visible_names_never_carry_raw_narrative_or_long_digit_runs():
+    key = "PAYMENT REF 123456789012 TO SOMEONE"
+    pats = SERIES + [{"key": key, "avg_amount": 50.0, "category": "Bills"}]
+    out = committed_findings(
+        [t("Bills", 90.0, "NORTHERN POWER"), t("Bills", 90.0, key), t("Bills", 9.0, "ANOTHER 998877665544 THING")],
+        pats, KINDS, START, END, name_fn=lambda raw: raw.title())
+    names = [p["name"] for p in out["Bills"]["payments"]]
+    assert names and all(n == "a payment in Bills" for n in names)
+    assert all(__import__("re").search(r"\d{6,}", n) is None for n in names)
+    # no cleaner at all: never the raw key or name either
+    out = committed_findings([t("Bills", 90.0, "NORTHERN POWER"), t("Bills", 9.0, "SOME NEW THING")],
+                             SERIES, KINDS, START, END)
+    assert out["Bills"]["payments"][0]["name"] == "a payment in Bills"
 
 
 def test_groceries_and_transport_without_a_series_are_not_judged():
@@ -71,8 +102,8 @@ def test_subscriptions_with_one_unmatched_payment_keep_pace():
 
 
 def test_payment_matching_a_dismissed_series_is_not_new():
-    out = committed_findings([t("Bills", 240.0, "BRIGHT BROADBAND")], SERIES, KINDS, START, END,
-                             dismissed={"BRIGHT BROADBAND"})
+    out = committed_findings([t("Bills", 90.0, "NORTHERN POWER"), t("Bills", 10.0, "BRIGHT BROADBAND")],
+                             SERIES, KINDS, START, END, dismissed={"BRIGHT BROADBAND"}, name_fn=clean)
     assert out["Bills"]["status"] == "as_expected" and out["Bills"]["payments"] == []
 
 
@@ -81,7 +112,7 @@ def test_discretionary_and_refunds_never_judged():
 
 
 def test_tiny_unmatched_payment_is_not_new():
-    out = run([t("Bills", 2.0, "SOME FEE")])
+    out = run([t("Bills", 90.0, "NORTHERN POWER"), t("Bills", 2.0, "SOME FEE")])
     assert out["Bills"]["status"] == "as_expected"
 
 
@@ -130,10 +161,10 @@ async def _signals(monkeypatch, today, period_txns, baseline, patterns):
 @pytest.mark.parametrize("today,bill_date", [(date(2026, 10, 3), date(2026, 10, 1)), (date(2026, 11, 6), date(2026, 11, 1))])
 def test_fixed_bill_never_produces_a_multiple_wherever_it_falls(monkeypatch, today, bill_date):
     txns = [
-        {"date": bill_date, "category": "Mortgage", "amount": 1124.0, "key": "ACME MORTGAGE", "name": "ACME MORTGAGE"},
-        {"date": bill_date, "category": "Bills", "amount": 1217.0, "key": "NORTHERN POWER", "name": "NORTHERN POWER"},
+        {"date": bill_date, "category": "Mortgage", "amount": 1060.0, "key": "ACME MORTGAGE", "name": "ACME MORTGAGE"},
+        {"date": bill_date, "category": "Bills", "amount": 1180.0, "key": "NORTHERN POWER", "name": "NORTHERN POWER"},
     ]
-    result = asyncio.run(_signals(monkeypatch, today, txns, {"Mortgage": 1124.0, "Bills": 300.0}, SERIES))
+    result = asyncio.run(_signals(monkeypatch, today, txns, {"Mortgage": 1060.0, "Bills": 300.0}, SERIES))
     sig = result["signals"]
     assert sig["Mortgage"]["multiple"] is None and sig["Bills"]["multiple"] is None
     assert sig["Mortgage"]["committed"]["status"] == "as_expected"
@@ -160,6 +191,18 @@ def test_subscriptions_matching_series_get_the_comparison_not_a_multiple(monkeyp
     assert sig["multiple"] is None and sig["committed"]["status"] == "as_expected"
 
 
+def test_committed_only_majority_reading_never_says_building_a_usual():
+    from app.services.spend_verdict import build_reading
+    sig = {"Bills": {"usual_rate_per_day": 40.0, "multiple": None, "committed": {"status": "as_expected", "paid_count": 1, "payments": []}},
+           "Mortgage": {"usual_rate_per_day": 36.0, "multiple": None, "committed": {"status": "as_expected", "paid_count": 1, "payments": []}}}
+    agg = {c: {"spent": 1000.0, "payments_count": 1, "debit_txns": []} for c in sig}
+    _n, _q, majority = build_notables_and_majority(agg, sig, 12)
+    assert all(m["has_baseline"] and not m["elevated"] for m in majority)
+    for state in ("nothing", "normal"):
+        text = build_reading(state, days_elapsed=12, qualifying=[], majority=majority, total_excess=0.0)
+        assert "don't have a usual" not in text and "building a usual" not in text, text
+
+
 def test_discretionary_pace_unchanged(monkeypatch):
     txns = [{"date": date(2026, 11, 3), "category": "Eating Out", "amount": 300.0, "key": "SOME CAFE", "name": "SOME CAFE"}]
     result = asyncio.run(_signals(monkeypatch, date(2026, 11, 8), txns, {"Eating Out": 300.0}, SERIES))
@@ -172,7 +215,7 @@ def test_include_series_adds_key_and_name_without_changing_default_or_evidence(m
     from bson import ObjectId
     from datetime import datetime
     from app.services.spending import SpendingContext
-    docs = [{"_id": ObjectId("000000000000000000000001"), "date": datetime(2026, 11, 2), "amount": 1124,
+    docs = [{"_id": ObjectId("000000000000000000000001"), "date": datetime(2026, 11, 2), "amount": 1060,
              "category": "Mortgage", "transaction_type": "debit", "merchant_name": "ACME MORTGAGE"}]
 
     class _Cur:
