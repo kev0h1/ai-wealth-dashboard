@@ -32,14 +32,6 @@ type PreviewRoute = {
 
 const ROUTES: PreviewRoute[] = [
   {
-    slug: "nav-bar",
-    name: "Bottom navigation · G423",
-    description: "Phosphor icons sourced through Better Icons in three navigation proposals: A Quiet rail, B Soft dock, C Open rail. Each follows Original, Outline or Ink, with regular, filled and duotone tab icons. Try every tab, Penny open, attention dots and appearance loading in both themes. Synthetic examples only.",
-    variants: [{ label: "A · Quiet rail", value: "a" }, { label: "B · Soft dock", value: "b" }, { label: "C · Open rail", value: "c" }],
-    states: [{ label: "Payment attention", value: "attention" }, { label: "No dots", value: "quiet" }, { label: "Payday plan", value: "payday" }, { label: "Appearance loading", value: "pending" }, { label: "Account detail", value: "off-tab" }],
-    group: "current",
-  },
-  {
     slug: "spend-patterns-charts",
     name: "Clearer Spend patterns · G380",
     description: "G380 · impeccable · A separates larger payments alongside daily spending. B explores one question at a time with a reversible chart-only filter. Even scales, payment counts, missing history and hidden figures. Synthetic examples; production charts await a choice.",

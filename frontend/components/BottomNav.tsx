@@ -1,11 +1,10 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
-import { Home, PieChart, CalendarClock, Target } from "lucide-react";
 import { api } from "@/lib/api";
-import PennyLauncherButton from "@/components/PennyLauncherButton";
+import BottomNavRail from "@/components/navigation/BottomNavRail";
+import { BOTTOM_NAV_TABS as TABS } from "@/lib/navigation/bottomNav";
 import { usePreferences } from "@/components/PreferencesContext";
 import { PAYDAY_DOT_CACHE_KEY } from "@/lib/paydayWindow";
 import { usePennySheet, type PennyAskContext } from "@/components/PennySheetProvider";
@@ -115,17 +114,6 @@ export function screenForPathname(pathname: string | null): PennyAskContext["scr
   }
 }
 
-// Four route tabs leave the centre slot for the Penny sheet launcher.
-type TabId = "home" | "spend" | "upcoming" | "planning";
-const TABS: { id: TabId; href: string; label: string; Icon: typeof Home; slot: number }[] = [
-  { id: "home", href: "/", label: "Home", Icon: Home, slot: 0 },
-  // A primary-nav tap is an explicit return to the transaction/category
-  // breakdown, never a restoration of the optional Patterns view.
-  { id: "spend", href: "/spend?view=period", label: "Spend", Icon: PieChart, slot: 1 },
-  { id: "upcoming", href: "/upcoming", label: "Upcoming", Icon: CalendarClock, slot: 3 },
-  { id: "planning", href: "/planning", label: "Planning", Icon: Target, slot: 4 },
-];
-
 export default function BottomNav() {
   const { pennyAppearance, pennyAppearanceResolved } = usePreferences();
   const pathname = usePathname();
@@ -134,7 +122,7 @@ export default function BottomNav() {
   const paydayActive = usePaydayWindowActive();
 
   const activeTab = TABS.find((t) => t.id === "spend" ? pathname === "/spend" : t.href === pathname);
-  // Halo state: lit either on the /penny hub route itself, or while the
+  // Active either on the /penny hub route itself, or while the
   // floating chat window (PennySheetProvider.tsx) is open — the button
   // is what the window visually "came out of" (PennySheet.tsx's header
   // comment), so it should read as pressed/active for as long as that's
@@ -151,124 +139,15 @@ export default function BottomNav() {
   // in that one file, not scattered through this component.
   if (isNavExemptPath(pathname)) return null;
 
-  return (
-    <>
-      {/* Nav scrim — sits behind the rail (z-40 vs the rail's z-50) so
-          scrolling content fades into the canvas colour before it reaches
-          the floating rail/Penny, instead of visibly colliding with them.
-          Non-interactive: purely a backdrop fade. */}
-      <div
-        data-penny-navigation
-        aria-hidden="true"
-        className="nav-scrim lg:hidden fixed inset-x-0 bottom-0 z-40 pointer-events-none"
-        // 64px rail plus a 16px fade above it, measured from its safe-area offset.
-        // G396: the launcher now stays inside the rail, so its former raised
-        // footprint must not fade a full-width action label above the rail.
-        style={{ height: "calc(80px + max(env(safe-area-inset-bottom, 0px), 10px))" }}
-      />
-
-      {/* Floating cockpit rail (Nav A) — ported from the approved
-          app/design/_nav/NavPrototype.tsx (mode="full") preview. Settings
-          left the bar (relocated to a top-right gear on Home). The raised
-          center Penny button WAS a plain `router.push("/penny")` navigation
-          for a while (moving Penny's conversation to a full-page
-          destination); it is a sheet launcher again, opening
-          PennySheetProvider's bottom sheet over whatever screen the user is
-          already on, per the 2026-08 decision that a full-page destination
-          made the conversation feel like a chore to reach. `/penny` itself
-          survives, now reached only from a link inside the sheet (brief,
-          Payday Plan, Mirror entry, and the "cleared from Home" archive
-          still live there — non-conversational content the sheet doesn't
-          try to replace). If you're reading this because the button looks
-          like it's navigating again: it isn't meant to, check
-          PennySheetProvider.tsx first. */}
-      <nav
-        data-penny-navigation
-        data-tutorial-id="tutorial-bottom-nav"
-        aria-label="Primary"
-        className="lg:hidden fixed inset-x-0 z-50 flex justify-center"
-        // Where the OS reports a real gesture-bar inset, that inset is
-        // already clearance — a flat "+16px" on top of it double-pads the
-        // bottom. max() picks whichever is larger: the raw inset itself
-        // (rail sits directly above it) or a modest 10px float on devices
-        // with no inset. CSS max() is baseline-supported (all evergreen
-        // mobile browsers this app targets), so no calc() fallback needed.
-        style={{ bottom: "max(env(safe-area-inset-bottom, 0px), 10px)" }}
-      >
-        <div className="relative w-[calc(100%-28px)] max-w-[402px]">
-          <PennyLauncherButton
-            appearance={pennyAppearance}
-            resolved={pennyAppearanceResolved}
-            active={pennyActive}
-            open={pennySheetOpen}
-            current={pathname === "/penny"}
-            paydayActive={paydayActive}
-            onClick={() => (pennySheetOpen ? closePennySheet() : openPennySheet({ screen: screenForPathname(pathname) }))}
-          />
-
-          {/* Matte rail surface */}
-          <div className="glass-rail relative rounded-[22px]">
-            <div className="relative grid grid-cols-5 h-[64px] px-1.5">
-              {/* Sliding active indicator — soft indigo pill, transform-based.
-                  Hidden off-rail (no matching tab) rather than defaulting to
-                  slot 0, so non-tab routes don't falsely highlight Home.
-                  Inset 6px from both rail edges (matches the container's
-                  px-1.5) so the pill never sits flush against the rounded
-                  rail edge when the first/last tab (Home/Insights) is
-                  active — width/step are computed against that padded
-                  content box, not the full rail. */}
-              <span
-                aria-hidden="true"
-                className="absolute top-1.5 bottom-1.5 rounded-2xl transition-transform duration-200 motion-reduce:transition-none"
-                style={{
-                  width: "calc((100% - 12px) / 5)",
-                  left: "6px",
-                  transform: `translateX(${(activeTab?.slot ?? -2) * 100}%)`,
-                  transitionTimingFunction: "var(--ease-out)",
-                  background: "rgba(79, 70, 229, 0.18)",
-                }}
-              />
-
-              {TABS.map((tab) => {
-                const isActive = tab.id === activeTab?.id;
-                return (
-                  <Link
-                    key={tab.id}
-                    href={tab.href}
-                    aria-current={isActive ? "page" : undefined}
-                    style={{ gridColumnStart: tab.slot + 1 }}
-                    className="relative z-10 flex flex-col items-center justify-center gap-0.5 active:scale-95 transition-transform motion-reduce:transition-none"
-                  >
-                    <span className="relative flex items-center justify-center">
-                      <tab.Icon
-                        size={22}
-                        strokeWidth={isActive ? 2.5 : 1.8}
-                        className={isActive ? "text-indigo-600 dark:text-indigo-400" : "text-slate-500 dark:text-slate-400"}
-                      />
-                      {/* Bills-at-risk belongs to the near-term Upcoming
-                          surface, not the long-term plan. */}
-                      {tab.id === "upcoming" && atRisk > 0 && (
-                        <span
-                          aria-hidden="true"
-                          className="absolute -top-0.5 -right-1 w-2 h-2 rounded-full"
-                          style={{ background: "#f59e0b" }}
-                        />
-                      )}
-                    </span>
-                    <span
-                      className={`text-[11px] leading-none font-medium ${
-                        isActive ? "text-indigo-600 dark:text-indigo-400" : "text-slate-500 dark:text-slate-400"
-                      }`}
-                    >
-                      {tab.label}
-                    </span>
-                  </Link>
-                );
-              })}
-            </div>
-          </div>
-        </div>
-      </nav>
-    </>
-  );
+  return <BottomNavRail
+    appearance={pennyAppearance}
+    resolved={pennyAppearanceResolved}
+    activeTab={activeTab?.id}
+    pennyActive={pennyActive}
+    pennyOpen={pennySheetOpen}
+    pennyCurrent={pathname === "/penny"}
+    paydayActive={paydayActive}
+    atRiskCount={atRisk}
+    onPennyClick={() => (pennySheetOpen ? closePennySheet() : openPennySheet({ screen: screenForPathname(pathname) }))}
+  />;
 }

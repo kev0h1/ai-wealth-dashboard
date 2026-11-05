@@ -159,7 +159,7 @@ assert.doesNotMatch(touchHandler, /setFocused|setDidFocus|setNativeKeyboard|setC
 assert.match(frame, /pennyTypingActive\(\{[^}]*engaged: composerEngaged, keyboardVisible: Boolean\(viewport\?\.keyboardVisible\)/, "The panel decides typing only through the tested pure rule");
 assert.match(frame, /!event.currentTarget.contains\(next\)/, "Tab within the dialog cannot collapse the typing layout under an open keyboard");
 assert.doesNotMatch(frame, /setNativeKeyboard/, "Native show events cannot expand the panel before the viewport resizes");
-assert.match(source("../components/BottomNav.tsx"), /data-penny-navigation/);
+assert.match(source("../components/navigation/BottomNavRail.tsx"), /data-penny-navigation/);
 assert.doesNotMatch(source("../app/layout.tsx").replace(/\/\/[^\n]*/g, ""), /maximumScale|userScalable/, "Pinch zoom remains enabled");
 // Touch sequence: a simulated device driving the same pure rules the panel uses.
 const device = { isOpen: true, proposed: true, mobile: true, engaged: false, keyboardVisible: false };

@@ -1,0 +1,117 @@
+.scrim {
+  position: fixed;
+  inset-inline: 0;
+  bottom: 0;
+  z-index: 40;
+  height: calc(80px + max(env(safe-area-inset-bottom, 0px), 10px));
+  pointer-events: none;
+}
+.navigation {
+  position: fixed;
+  inset-inline: 0;
+  bottom: max(env(safe-area-inset-bottom, 0px), 10px);
+  z-index: 50;
+  display: flex;
+  justify-content: center;
+}
+.container { width: calc(100% - 28px); max-width: 402px; }
+.rail {
+  --nav-ink: #0f172a;
+  --nav-muted: #526176;
+  --nav-line: #d4dbe6;
+  --nav-hover: #e3e8f0;
+  --nav-accent: #4f46e5;
+  --nav-accent-soft: #e6e5fb;
+  --nav-penny-ink: #4338ca;
+  --nav-focus: #4f46e5;
+  --nav-selected: var(--nav-ink);
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  align-items: center;
+  height: 64px;
+  padding-inline: 6px;
+  border: 1px solid var(--nav-line);
+  border-radius: 22px;
+  background: var(--nav-rail-surface);
+  box-shadow: 0 1px 2px rgb(15 23 42 / .05);
+}
+:global(.dark) .rail {
+  --nav-ink: #f1f5f9;
+  --nav-muted: #a2afc2;
+  --nav-line: #3e4c62;
+  --nav-hover: #2c384d;
+  --nav-accent: #b2b9ff;
+  --nav-accent-soft: #303358;
+  --nav-penny-ink: #c7d2fe;
+  --nav-focus: #a5b4fc;
+  box-shadow: none;
+}
+.rail[data-appearance="original"] { --nav-selected: var(--nav-accent); }
+.tab, .penny { touch-action: manipulation; -webkit-tap-highlight-color: rgb(79 70 229 / .12); }
+.tab {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-width: 0;
+  min-height: 56px;
+  border-radius: 14px;
+  color: var(--nav-muted);
+}
+.tab:hover { background: var(--nav-hover); }
+.tab[aria-current="page"] { color: var(--nav-selected); }
+.tab[aria-current="page"]::after {
+  content: "";
+  position: absolute;
+  bottom: 2px;
+  width: 16px;
+  height: 2px;
+  border-radius: 2px;
+  background: currentColor;
+}
+.tabGlyph { position: relative; display: grid; place-items: center; width: 32px; height: 28px; }
+.tabLabel { font-size: 11px; line-height: 1.2; font-weight: 500; }
+.tab[aria-current="page"] .tabLabel { font-weight: 650; }
+.rail[data-appearance="outline"] .tab[aria-current="page"] { box-shadow: inset 0 0 0 1px var(--nav-selected); }
+.rail[data-appearance="outline"] .tab[aria-current="page"]::after { display: none; }
+.rail[data-appearance="original"] .tab[aria-current="page"] .tabGlyph { border-radius: 8px; background: var(--nav-accent-soft); }
+.attentionDot { position: absolute; top: 0; right: -1px; width: 7px; height: 7px; border-radius: 50%; background: #f59e0b; box-shadow: 0 0 0 2px var(--nav-rail-surface); }
+.penny {
+  position: absolute;
+  display: grid;
+  place-items: center;
+  top: 3px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 56px;
+  height: 56px;
+  border: 1px solid var(--nav-line);
+  border-radius: 16px;
+  background: var(--nav-rail-surface);
+  box-shadow: 0 1px 2px rgb(15 23 42 / .05);
+}
+:global(.dark) .penny { box-shadow: none; }
+.pennyGlyph { color: var(--nav-penny-ink); }
+.originalMark { color: #fff; }
+.penny:hover { border-color: var(--nav-muted); }
+.penny[data-active="true"] { outline: 2px solid var(--nav-selected); outline-offset: -4px; }
+.penny[data-penny-appearance="original"] { border-color: transparent; }
+.penny[data-penny-appearance="original"][data-active="true"] { outline-color: #fff; }
+.penny[data-penny-appearance="ink"] { border-color: transparent; box-shadow: none; }
+.penny[data-penny-appearance="ink"]:hover,
+.penny[data-penny-appearance="ink"][data-active="true"] { background: var(--nav-hover); }
+.paydayDot { position: absolute; top: 9px; right: 9px; width: 7px; height: 7px; border-radius: 50%; background: #f59e0b; box-shadow: 0 0 0 2px var(--nav-rail-surface); }
+.penny[data-penny-appearance="original"] .paydayDot { box-shadow: 0 0 0 2px #5d42e7; }
+.tab:focus-visible, .penny:focus-visible { outline: 2px solid var(--nav-focus); outline-offset: 4px; }
+.tab:active, .pennyPress:active { opacity: .72; }
+@media (min-width: 1024px) {
+  .scrim, .navigation { display: none; }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .tab, .pennyPress { transition: transform 150ms ease-out; }
+  .tab:active { transform: scale(.95); }
+  .pennyPress:active { transform: translateX(-50%) scale(.95); }
+}
