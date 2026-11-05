@@ -21,7 +21,7 @@ assert.ok(confirm.indexOf("invalidateVerdictCache()") < confirm.indexOf("await a
 assert.doesNotMatch(planning, /api\.deletePlanned\([^)]*\)\.catch/, "no fire-and-forget planned delete");
 const timer = body(planning, "function deletePlannedWithUndo(", 1400);
 assert.match(timer, /void confirmPlannedDelete\(id\)/);
-assert.match(body(planning, "function flushPlannedDelete()", 400), /confirmPlannedDelete\(p\.id\)/);
+assert.match(body(planning, "function flushPlannedDelete()", 400), /confirmPlannedDelete\(p\.id, false\)/);
 
 // Plan, set-aside and goal edits all refresh through these two helpers.
 assert.match(body(planning, "function refreshAllocations()", 200), /invalidateVerdictCache\(\)/);
@@ -36,5 +36,15 @@ assert.match(allocationEditor, /if \(action === "delete"\) await services\.delet
 const cancel = body(commitmentSheet, "async function handleCancelCommitment(", 500);
 assert.ok(cancel.indexOf("await operations.cancelCommitment(") < cancel.indexOf("invalidateVerdictCache()"));
 assert.ok(cancel.indexOf("invalidateVerdictCache()") < cancel.indexOf("onCancelled"));
+
+// Cancel A then B inside the undo window: flushing A must not refetch over B.
+const flush = body(planning, "function flushPlannedDelete()", 700);
+assert.match(flush, /confirmPlannedDelete\(p\.id, false\)/, "flush skips the refetch");
+assert.match(confirm, /if \(!refetch\) return;/);
+assert.ok(confirm.indexOf("if (!refetch) return;") < confirm.indexOf("await api.cashflowWithForecast()"));
+assert.match(confirm, /lastPlannedDeleteRef\.current === null && lastDismissRef\.current === null\) setCashflow\(fresh\)/, "refetch applies only when nothing else is pending");
+const undo = body(planning, "function undoPlannedDelete()", 700);
+assert.match(undo, /lastPlannedDeleteRef\.current = null/, "undo restores the one pending delete once");
+assert.match(planning, /setTimeout\(\(\) => \{ setUndoBar\(null\); lastDismissRef\.current = null; \}, 6000\)/);
 
 console.log("g421-cancel-refresh: ok");

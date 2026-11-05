@@ -539,20 +539,24 @@ export default function PlanningPage() {
     if (!p) return;
     clearTimeout(p.timer);
     lastPlannedDeleteRef.current = null;
-    void confirmPlannedDelete(p.id);
+    // Another optimistic action is starting (or the page is leaving): send the
+    // delete but skip the refetch, which would overwrite that action.
+    void confirmPlannedDelete(p.id, false);
   }
 
   // G421: the delete is awaited before anything is re-read, so the refetch can
   // never race it and bring the cancelled payment back. A failed delete puts
   // the server's truth back on screen instead of leaving it hidden.
-  async function confirmPlannedDelete(id: string) {
+  async function confirmPlannedDelete(id: string, refetch = true) {
     try {
       await api.deletePlanned(id);
       invalidateVerdictCache();
     } catch {}
+    if (!refetch) return;
     try {
       const fresh = await api.cashflowWithForecast();
-      setCashflow(fresh);
+      // Only apply when no other optimistic delete or dismiss is pending.
+      if (lastPlannedDeleteRef.current === null && lastDismissRef.current === null) setCashflow(fresh);
     } catch {}
     reloadAccountPositions();
     api.listAccountPlans().then((items) => { setAccountPlans(items); setAccountPlansError(false); }).catch(() => {});
@@ -612,7 +616,7 @@ export default function PlanningPage() {
     setUndoBar({ kind: "recurring", name });
     setUndoNonce(n => n + 1);
     if (undoTimer.current) clearTimeout(undoTimer.current);
-    undoTimer.current = setTimeout(() => setUndoBar(null), 6000);
+    undoTimer.current = setTimeout(() => { setUndoBar(null); lastDismissRef.current = null; }, 6000);
   }
 
   function skipOccurrence(item: CashflowData["upcoming_bills"][0]) {
