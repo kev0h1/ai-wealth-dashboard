@@ -2,19 +2,10 @@
 
 import { useEffect, useState, useRef, useLayoutEffect } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import {
-  ChevronLeft, ChevronRight, X,
-  Sparkles, Wallet, Building2, Compass, Layers, Plus, Upload, TrendingUp, PiggyBank,
-  ArrowLeftRight, PieChart, ListChecks, Tag, Settings, CalendarClock, Receipt, Target,
-  Coins, Lightbulb,
-} from "lucide-react";
+import { ChevronLeft, ChevronRight, X, Lightbulb } from "lucide-react";
 import { useTutorialInternal } from "./TutorialContext";
-
-const ICONS: Record<string, React.ComponentType<{ size?: number; color?: string; className?: string }>> = {
-  Sparkles, Wallet, Building2, Compass, Layers, Plus, Upload, TrendingUp, PiggyBank,
-  ArrowLeftRight, PieChart, ListChecks, Tag, Settings, CalendarClock, Receipt, Target,
-  Coins, Lightbulb,
-};
+import { usePreferences } from "./PreferencesContext";
+import TutorialIcon from "./TutorialIcon";
 
 interface Rect { top: number; left: number; width: number; height: number }
 
@@ -47,6 +38,7 @@ function waitTwoFrames(): Promise<void> {
 export default function TutorialOverlay() {
   const router = useRouter();
   const pathname = usePathname();
+  const { pennyAppearance, pennyAppearanceResolved } = usePreferences();
   const { isActive, flow, step, currentStep, total, next, prev, goTo, end, runAction, isReadyNow } = useTutorialInternal();
   const [rect, setRect] = useState<Rect | null>(null);
   const cardRef = useRef<HTMLDivElement>(null);
@@ -260,7 +252,6 @@ export default function TutorialOverlay() {
 
   if (!isActive || !flow || !step) return null;
 
-  const Icon = ICONS[step.iconName] ?? Sparkles;
   const isFirst = currentStep === 0;
   const isLast = currentStep === total - 1;
   const hasSpotlight = !!rect;
@@ -320,11 +311,12 @@ export default function TutorialOverlay() {
   const isCenteredTooltip = usedSide === "center";
 
   return (
-    <div className="fixed inset-0 z-[60]" data-tutorial-overlay style={{ pointerEvents: "none" }}>
+    <div className="fixed inset-0 z-[60] touch-manipulation" data-tutorial-overlay style={{ pointerEvents: "none" }}>
       {/* Dark overlay with rounded spotlight cutout (visual only — never captures clicks) */}
       {hasSpotlight ? (
         <>
           <svg
+            aria-hidden="true"
             className="absolute inset-0 w-full h-full"
             style={{ pointerEvents: "none" }}
           >
@@ -378,7 +370,7 @@ export default function TutorialOverlay() {
       {/* Tooltip card */}
       <div
         ref={cardRef}
-        className="absolute bg-white dark:bg-slate-900 rounded-2xl shadow-2xl overflow-hidden"
+        className="absolute bg-white dark:bg-slate-900 rounded-2xl shadow-2xl"
         style={
           isCenteredTooltip
             ? { top: "50%", left: "50%", transform: "translate(-50%,-50%)", width: TW, pointerEvents: "auto" }
@@ -388,6 +380,8 @@ export default function TutorialOverlay() {
         {/* Arrow — only shown when tooltip is anchored to the spotlight */}
         {!isCenteredTooltip && rect && (
           <div
+            aria-hidden="true"
+            className="pointer-events-none text-white dark:text-slate-900"
             style={{
               position: "absolute",
               [arrowOnTop ? "top" : "bottom"]: -ARROW + 2,
@@ -395,7 +389,7 @@ export default function TutorialOverlay() {
               width: 0, height: 0,
               borderLeft: "7px solid transparent",
               borderRight: "7px solid transparent",
-              [arrowOnTop ? "borderBottom" : "borderTop"]: `${ARROW}px solid white`,
+              [arrowOnTop ? "borderBottom" : "borderTop"]: `${ARROW}px solid currentColor`,
             }}
           />
         )}
@@ -404,22 +398,23 @@ export default function TutorialOverlay() {
             button) wrapping the same 28px visual chip, centred where the
             chip alone used to sit. */}
         <button
+          type="button"
           onClick={end}
           aria-label="Close tour"
-          className="absolute top-1 right-1 w-11 h-11 flex items-center justify-center rounded-full z-10"
+          className="absolute top-1 right-1 w-11 h-11 flex items-center justify-center rounded-full z-10 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 dark:focus-visible:outline-indigo-300"
         >
           <span className="w-7 h-7 flex items-center justify-center rounded-full bg-slate-100 dark:bg-slate-800">
-            <X size={13} className="text-slate-500" />
+            <X size={13} aria-hidden="true" className="text-slate-500 dark:text-slate-400" />
           </span>
         </button>
 
-        <div className="p-5">
+        <div className="max-h-[calc(100dvh-32px)] overflow-y-auto overscroll-contain rounded-2xl p-5">
           {/* Icon + step */}
           <div className="flex items-center gap-3 mb-3">
-            <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style={{ backgroundColor: step.bg }}>
-              <Icon size={20} color={step.color} />
+            <div className="size-10 flex items-center justify-center shrink-0">
+              <TutorialIcon iconName={step.iconName} appearance={pennyAppearance} resolved={pennyAppearanceResolved} />
             </div>
-            <span className="text-[11px] font-bold uppercase tracking-widest" style={{ color: step.color }}>
+            <span className="text-[11px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400">
               Step {currentStep + 1} of {total}
             </span>
           </div>
@@ -432,24 +427,22 @@ export default function TutorialOverlay() {
           </p>
 
           {step.tip && (
-            <div className="mt-2.5 px-3 py-2 rounded-xl text-[12px] font-medium leading-relaxed" style={{ backgroundColor: step.bg, color: step.color }}>
-              💡 {step.tip}
+            <div className="mt-2.5 flex items-start gap-2 px-3 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-[12px] font-medium leading-relaxed text-slate-700 dark:text-slate-300">
+              <Lightbulb size={16} aria-hidden="true" className="mt-0.5 shrink-0" /><span>{step.tip}</span>
             </div>
           )}
 
           {/* Progress dots */}
-          <div className="flex items-center gap-1.5 mt-4 mb-3">
+          <div className="flex flex-wrap items-center mt-2 mb-1" aria-label="Tour steps">
             {Array.from({ length: total }).map((_, i) => (
               <button
                 key={i}
+                type="button"
                 onClick={() => goTo(i)}
-                className="rounded-full transition-all duration-200"
-                style={{
-                  width: i === currentStep ? 18 : 6,
-                  height: 6,
-                  backgroundColor: i === currentStep ? step.color : "#e2e8f0",
-                }}
-              />
+                aria-label={`Go to step ${i + 1}: ${flow.steps[i].title}`}
+                aria-current={i === currentStep ? "step" : undefined}
+                className="flex size-11 items-center justify-center rounded-xl focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 dark:focus-visible:outline-indigo-300"
+              ><span aria-hidden="true" className={`h-1.5 rounded-full ${i === currentStep ? "w-[18px] bg-indigo-600 dark:bg-indigo-400" : "w-1.5 bg-slate-200 dark:bg-slate-700"}`} /></button>
             ))}
           </div>
 
@@ -457,18 +450,19 @@ export default function TutorialOverlay() {
           <div className="flex gap-2">
             {!isFirst && (
               <button
+                type="button"
                 onClick={prev}
-                className="flex items-center gap-1 px-3.5 py-2 min-h-[44px] rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-[13px] font-medium active:scale-95 transition-transform"
+                className="flex items-center gap-1 px-3.5 py-2 min-h-[44px] rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-[13px] font-medium active:scale-95 transition-transform motion-reduce:transition-none motion-reduce:active:scale-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 dark:focus-visible:outline-indigo-300"
               >
-                <ChevronLeft size={15} /> Back
+                <ChevronLeft size={15} aria-hidden="true" /> Back
               </button>
             )}
             <button
+              type="button"
               onClick={next}
-              className="flex-1 flex items-center justify-center gap-1 py-2 min-h-[44px] rounded-xl text-white text-[13px] font-semibold active:scale-95 transition-transform"
-              style={{ backgroundColor: step.color }}
+              className="flex-1 flex items-center justify-center gap-1 py-2 min-h-[44px] rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-[13px] font-semibold active:scale-95 transition-transform motion-reduce:transition-none motion-reduce:active:scale-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 dark:focus-visible:outline-indigo-300"
             >
-              {isLast ? "Done!" : (<>Next <ChevronRight size={15} /></>)}
+              {isLast ? "Done" : (<>Next <ChevronRight size={15} aria-hidden="true" /></>)}
             </button>
           </div>
         </div>
