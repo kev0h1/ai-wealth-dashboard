@@ -1,7 +1,7 @@
 import type { Account, AccountEligibility, CashflowData } from "./api";
 import { sourceClass } from "./coverPlanSourceClass";
 import { walkUpcomingAccounts } from "./upcomingAccountWalk";
-import { hasPlanSource, type Plan } from "./upcomingPlans";
+import { hasPlanSource, remaining, type Plan } from "./upcomingPlans";
 
 export type UpcomingAccountEvent = {
   id: string;
@@ -179,7 +179,7 @@ export function paymentsThroughLabel(accountEndMs: number): string {
  */
 export function accountHasPeriodActivity(summary: UpcomingAccountSummary, position: UpcomingAccountPosition | undefined = summary.position, plans: Plan[] = []): boolean {
   if (summary.events.length > 0) return true;
-  if (plans.some((plan) => plan.active && plan.sourceId === summary.id && hasPlanSource(plan))) return true;
+  if (plans.some((plan) => plan.active && plan.sourceId === summary.id && hasPlanSource(plan) && (plan.amountUnavailable || remaining(plan) > 0))) return true;
   if ((summary.suggestedMoves?.length ?? 0) > 0 || summary.coverSuggestion) return true;
   if (summary.status === "short" || summary.status === "unfunded" || accountPaymentGap(summary) !== null) return true;
   if (position) {
@@ -190,7 +190,12 @@ export function accountHasPeriodActivity(summary: UpcomingAccountSummary, positi
   return false;
 }
 
-/** G420: the accounts By account lists, in their existing order. */
+/** G420: the accounts By account lists, in their existing order. While plans
+ * are still loading the plan clause cannot be judged, so only the server
+ * position (`plansReserved`, which already counts every plan drawing on the
+ * account) stands in for it; the list is therefore the same once plans arrive
+ * for every account the server knows a plan draws on, and never shrinks then
+ * grows for them. */
 export function accountsWithPeriodActivity(summaries: UpcomingAccountSummary[], plans: Plan[] = []): UpcomingAccountSummary[] {
   return summaries.filter((summary) => accountHasPeriodActivity(summary, summary.position, plans));
 }

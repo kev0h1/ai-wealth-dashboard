@@ -37,4 +37,15 @@ const loading = render([], "loading");
 assert.ok(loading.includes("Checking goals") && !loading.includes("By account"), "loading state kept, no heading");
 const errored = render([], "error");
 assert.ok(errored.includes("could not be checked"), "error state kept");
+// A filled plan stays active but must not keep an idle account listed.
+assert.equal(accountHasPeriodActivity(planOnly, undefined, [{ ...plan, filledPence: 5000 }]), false, "filled active plan does not list an idle account");
+assert.equal(accountHasPeriodActivity(planOnly, undefined, [{ ...plan, filledPence: 5000, amountUnavailable: true }]), true, "unreadable plan amount is listed");
+assert.equal(accountHasPeriodActivity(planOnly, undefined, [{ ...plan, remainingPence: 1200, filledPence: 5000 }]), true, "live remainder wins");
+
+// Loading: no plans yet. A server-reserved account stays through loading and ready, so it never pops out then in.
+const reserved = base("reserved", { position: { afterPayments: 40, lowPoint: 40, plansReserved: 50, afterPaymentsAndPlans: -10, lowPointAndPlans: -10, spendFrom: 0, uncertain: false } });
+const loadingList = accountsWithPeriodActivity([idle, reserved], []).map((a) => a.id);
+const readyList = accountsWithPeriodActivity([idle, reserved], [{ ...plan, sourceId: "reserved" }]).map((a) => a.id);
+assert.deepEqual(loadingList, ["reserved"]);
+assert.deepEqual(loadingList, readyList, "list is stable across plan loading");
 console.log("g420 upcoming activity: ok");

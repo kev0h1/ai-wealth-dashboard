@@ -13,7 +13,17 @@ from __future__ import annotations
 
 from typing import Any, Iterable, Mapping
 
-from app.services.allocation_shortfall import has_plan_source
+from app.services.allocation_shortfall import _remaining_pence, has_plan_source
+
+
+def plan_still_draws(plan: Mapping[str, Any]) -> bool:
+    """Same semantics as account_position._plan_remaining_pence: an inactive
+    plan or a filled one (0 pence left) draws nothing; an unreadable one
+    (None) is listed, as the UI's `amountUnavailable` is."""
+    if not plan.get("active"):
+        return False
+    remaining = _remaining_pence(plan)
+    return remaining is None or remaining > 0
 
 
 def account_has_period_activity(
@@ -31,7 +41,7 @@ def account_has_period_activity(
         return True
     for plan in plans:
         source = plan.get("source_account_id") or plan.get("sourceId")
-        if source is not None and str(source) == aid and plan.get("active", True) is not False and has_plan_source(plan):
+        if source is not None and str(source) == aid and has_plan_source(plan) and plan_still_draws(plan):
             return True
     if position:
         if (position.get("plans_reserved") or 0) > 0:
@@ -53,27 +63,47 @@ def by_account_with_activity(
     bills: list[Mapping[str, Any]],
     income: list[Mapping[str, Any]],
     *,
+    inflows: Iterable[Mapping[str, Any]] = (),
     plans: Iterable[Mapping[str, Any]] = (),
     positions: Mapping[str, Mapping[str, Any]] | None = None,
+    excluded_account_ids: Iterable[str] = (),
+    names: Mapping[str, Mapping[str, Any]] | None = None,
 ) -> list[dict]:
-    """Accounts named by the period's bills and income, plus any account the
-    positions name, kept only when `account_has_period_activity` holds."""
+    """The accounts the Upcoming By account list shows, from the same inputs
+    the UI walk uses: bills without card charges, settling items or next-period
+    items; income; own-account inflows; accounts excluded from Left to spend are
+    left out. `names` maps account id to {"name", "bank"} from the user's
+    accounts list so an account known only from a position or plan is named."""
+    excluded = {str(a) for a in excluded_account_ids}
+    counted = lambda row: row.get("account_id") is None or str(row.get("account_id")) not in excluded  # noqa: E731
+    bills = [b for b in bills if not b.get("is_credit_card") and not b.get("observed_pending") and not b.get("next_period") and counted(b)]
+    income = [i for i in income if counted(i)]
+    inflows = [i for i in inflows if counted(i)]
     plans = list(plans)
-    positions = positions or {}
+    positions = {str(k): v for k, v in (positions or {}).items() if str(k) not in excluded}
+    names = {str(k): v for k, v in (names or {}).items()}
+    events = [*bills, *income, *inflows]
     found: dict[str, dict] = {}
-    for row in [*bills, *income]:
+    for row in events:
         aid = row.get("account_id")
-        if aid is None:
-            continue
-        found.setdefault(str(aid), {"account_id": str(aid), "account_name": row.get("account_name"), "account_bank": row.get("account_bank")})
+        if aid is not None:
+            found.setdefault(str(aid), {"account_name": row.get("account_name"), "account_bank": row.get("account_bank")})
     for aid in positions:
-        found.setdefault(str(aid), {"account_id": str(aid), "account_name": None, "account_bank": None})
+        found.setdefault(aid, {})
+    for plan in plans:
+        if plan.get("source_account_id") and str(plan["source_account_id"]) not in excluded:
+            found.setdefault(str(plan["source_account_id"]), {})
     out = []
     for aid, entry in found.items():
-        if account_has_period_activity(aid, bills=bills, income=income, plans=plans, position=positions.get(aid)):
-            out.append({
-                **entry,
-                "bills": sum(1 for b in bills if str(b.get("account_id")) == aid),
-                "income": sum(1 for i in income if str(i.get("account_id")) == aid),
-            })
+        if not account_has_period_activity(aid, bills=bills, income=income + inflows, plans=plans, position=positions.get(aid)):
+            continue
+        known = names.get(aid) or {}
+        out.append({
+            "account_id": aid,
+            "account_name": known.get("name") or entry.get("account_name") or "Account",
+            "account_bank": known.get("bank") or entry.get("account_bank"),
+            "bills": sum(1 for b in bills if str(b.get("account_id")) == aid),
+            "income": sum(1 for i in income if str(i.get("account_id")) == aid),
+            "transfers_in": sum(1 for i in inflows if str(i.get("account_id")) == aid),
+        })
     return out
