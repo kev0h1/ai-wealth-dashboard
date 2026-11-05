@@ -765,7 +765,7 @@ async def save_card_payment(account_id: str, body: CardPaymentBody, user: dict =
 async def save_card_rates(account_id: str, body: CardRatesBody, user: dict = Depends(current_user)):
     uid = user["email"]
     await _owned_card_or_404(uid, account_id)
-    updates = {"status": body.status, "confirmed_at": datetime.now(timezone.utc)}
+    updates = {"status": body.status, "confirmed_at": datetime.now(timezone.utc)}  # naive-ok: persisted UTC confirmation audit timestamp, not a calendar decision.
     if body.status == "skipped":
         updates.update(apr_pct=None, promos=[], min_payment_note=None, bt_offers=[])
     else:
