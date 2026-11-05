@@ -4,6 +4,7 @@ Run against the isolated local preview, never the authenticated live product.
 Proofs are frozen before any still or film uses them. No image is invented.
 """
 import argparse
+import datetime
 import hashlib
 import io
 import json
@@ -19,9 +20,18 @@ OUT = ROOT / "frontend/public/design-media/c22/next"
 REVIEW = ROOT / ".impeccable/review/c22-next"
 DEPENDENCIES = [
     "frontend/components/SafeToSpendCard.tsx", "frontend/components/ForecastStatusBadge.tsx",
+    "frontend/components/SafeToSpendDisclosures.tsx", "frontend/components/PooledLedgerExplainer.tsx",
+    "frontend/components/SafeToSpendDisclosures.module.css",
+    "frontend/components/SpendFromAccountList.tsx", "frontend/components/AccountMiniCard.tsx",
+    "frontend/components/SyncNote.tsx", "frontend/components/MoneyText.tsx",
     "frontend/components/upcoming/UpcomingAccountsCard.tsx", "frontend/components/upcoming/UpcomingRow.tsx",
-    "frontend/components/AccountMiniCard.tsx", "frontend/lib/spendFromAccount.ts",
-    "frontend/lib/upcomingAccountStatus.ts", "frontend/lib/cashForecastStatus.ts",
+    "frontend/components/upcoming/accountPresentation.tsx", "frontend/lib/spendFromAccount.ts",
+    "frontend/components/upcoming/UpcomingAccounts.module.css",
+    "frontend/lib/upcomingAccountStatus.ts", "frontend/lib/upcomingAccountPresentation.ts",
+    "frontend/lib/upcomingAttention.ts", "frontend/lib/cashForecastStatus.ts",
+    "frontend/lib/leftToSpendEvidence.ts", "frontend/lib/pennyScreenViews.ts",
+    "frontend/lib/accountAvailability.ts", "frontend/lib/balancesHidden.ts",
+    "frontend/lib/upcomingPlans.ts", "frontend/lib/coverMoveEvidence.ts",
     "frontend/app/globals.css", "frontend/app/design/marketing-kit/fixtures.ts",
     "frontend/app/design/marketing-kit/next/ProofScene.tsx",
 ]
@@ -64,6 +74,9 @@ def main():
                 route.continue_()
         context.route("**/*", guard)
         page = context.new_page()
+        # The fixtures describe 8–30 October. Freeze only Date APIs, not
+        # timers, so transition and hydration timing remain real.
+        page.clock.set_fixed_time(datetime.datetime(2026, 10, 8, 12, tzinfo=datetime.UTC))
         page.on("pageerror", lambda e: errors.append(str(e)))
         page.on("response", lambda r: errors.append(f"HTTP {r.status}: {r.url}") if r.status >= 400 else None)
         def visit(query):
@@ -80,12 +93,18 @@ def main():
                     visit({"media-proof": kind, "mode": theme})
                     target = page.locator("[data-next-proof]")
                     if kind in {"ledger", "working"}:
-                        target.locator("summary").click()
+                        # The final hero has two disclosures. The calculation is
+                        # the one source for its proof, rather than the scope note.
+                        target.locator("[data-g324-calculation] summary").click()
                         if kind == "working":
-                            target = target.locator("details > div")
+                            target = target.locator("[data-g324-calculation] > div")
                     text = target.inner_text()
                     if kind in {"safe", "ledger", "working"}:
                         assert "312" in text, text
+                    if kind in {"safe", "ledger"}:
+                        assert "left to spend" in text.lower(), text
+                    if kind == "working":
+                        assert "cash" in text.lower(), text
                     if kind == "safe":
                         assert "Monzo" in text and "estimated" in text.lower(), text
                     if kind == "accounts":

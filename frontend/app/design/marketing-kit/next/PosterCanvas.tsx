@@ -9,7 +9,7 @@ type Props = { variant?: PosterVariant; theme?: PosterTheme; format?: PosterForm
 export default function PosterCanvas({ variant = "amount", theme = "light", format = "feed" }: Props) {
   const proof = variant === "amount" ? "safe" : variant === "account" ? "accounts" : "working";
   return <article className={`${styles.poster} ${styles[theme]} ${styles[format]} ${styles[variant]}`} data-next-artboard data-variant={variant} aria-label={`${variant} campaign image`}>
-    <header><span>Sorted</span><small>{variant === "account" ? "By account" : "Safe to Spend"}</small></header>
+    <header><span>Sorted</span><small>{variant === "account" ? "By account" : "Left to spend"}</small></header>
     {variant === "amount" ? <>
       <h2>What is yours<br />to spend?</h2>
       <div className={styles.result}>£312</div>

@@ -97,7 +97,7 @@ const ROUTES: PreviewRoute[] = [
   {
     slug: "marketing-kit",
     name: "Sorted marketing kit · C22",
-    description: "C22 extension: six new story directions (Movement, Month, Spend, Split, Penny and Aside) with 24 new PNGs and 12 new edited 15-second MP4s, preserving the earlier 12 PNGs and 4 MP4s. Uses fully loaded production leaf components with fictional fixture data, sound and captions. Creative review only; UAT approval pending.",
+    description: "Final-UI refresh: eight ordered App Store and Google Play screenshots in both themes, three iPhone sizes, Play feature graphics and download packs. Plus 36 Instagram images and 16 edited films, using current production components with fictional data, sound and captions. Review before publication.",
     states: [{ label: "Light", value: "light" }, { label: "Dark", value: "dark" }],
     variants: [
       { label: "Movement", value: "movement" },

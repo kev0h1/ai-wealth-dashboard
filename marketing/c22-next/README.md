@@ -2,6 +2,8 @@
 
 Creative review draft. No advert has been approved or published.
 
+The 5 November 2026 refresh regenerates these images and films from the final UI, updates the label to Left to spend and retains the approved calculation-panel treatment. Current delivery and store-pack evidence is in [the store refresh notes](../c22-store/README.md). The dated historical notes below describe earlier rounds.
+
 This round responds directly to the rejection of the previous campaign round: its static poster reveals were too weak to carry the idea. The new proposal uses two edited 15-second product films, one about the balance and one about the account, plus three independently designed still directions: amount, account and working. This is a campaign extension inside Sorted's established identity. PRODUCT.md and DESIGN.md remain authoritative, and production app behaviour and the existing store kit remain unchanged.
 
 ## Deliverables and evidence

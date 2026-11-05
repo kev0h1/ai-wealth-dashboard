@@ -64,7 +64,7 @@ export function AccountStory({ theme }: { theme: "light" | "dark" }) {
       <div style={{ position: "absolute", left: 72, top: move(f, 355, 369, 450, 420), fontSize: 184, fontWeight: 750, letterSpacing: "-.075em" }}>Sorted</div>
       <div style={{ position: "absolute", left: 72, top: 700, width: 800, fontSize: 76, fontWeight: 600, lineHeight: 1.02, letterSpacing: "-.05em" }}>Before the<br />next bill.</div>
       <div style={{ position: "absolute", left: 72, top: 1080, width: 810, height: 4, background: ink }} />
-      <div style={{ position: "absolute", left: 72, top: 1160, fontSize: 36, fontWeight: 600 }}>Explore Sorted <span style={{ marginLeft: 36 }}>↗</span></div>
+      <div style={{ position: "absolute", left: 72, top: 1160, fontSize: 36, fontWeight: 600 }}>Coming soon</div>
     </>)}
     <div style={{ position: "absolute", top: 1500, left: 72, color: muted, fontSize: 22 }}>Fictional example · 8–30 October 2026</div>
   </AbsoluteFill>;
