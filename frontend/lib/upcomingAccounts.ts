@@ -33,7 +33,7 @@ export type UpcomingAccountPosition = {
   spendFromRequiresMove?: boolean;
   uncertain: boolean;
   /** G410: what a live suggested move would cover here, and what would still be short after it. Absent when no move is live. */
-  coveredByMove?: { amount: number; shortfall?: number; from: { accountId: string; name: string; amount: number }[] } | null;
+  coveredByMove?: { amount: number; shortfall?: number; from: { accountId: string; name: string; amount: number; label?: string }[] } | null;
   shortAfterCover?: number | null;
   /** G410: set aside in this account for a suggested move out of it (already excluded from `spendFrom`). */
   earmarkedTotal?: number | null;
@@ -72,6 +72,8 @@ export type UpcomingSuggestedMove = {
   amount: number;
   /** A payment deadline, not a scheduled transfer date. Null when not supplied. */
   byDate: string | null;
+  /** G421: counterpartName is already the engine's G337 label; never re-derive it from raw account text. */
+  labelled?: boolean;
 };
 
 /** Shared coverage boundary: the day before payday, always. G360 removed the
@@ -155,7 +157,7 @@ export function positionsFromToday(
       spendFromRequiresMove: entry.spend_from_requires_move === true,
       uncertain: entry.uncertain,
       coveredByMove: entry.covered_by_move
-        ? { amount: entry.covered_by_move.amount, shortfall: typeof entry.covered_by_move.shortfall === "number" ? entry.covered_by_move.shortfall : undefined, from: entry.covered_by_move.from.map((f) => ({ accountId: f.account_id, name: f.name, amount: f.amount })) }
+        ? { amount: entry.covered_by_move.amount, shortfall: typeof entry.covered_by_move.shortfall === "number" ? entry.covered_by_move.shortfall : undefined, from: entry.covered_by_move.from.map((f) => ({ accountId: f.account_id, name: f.name, amount: f.amount, ...(f.display_label?.trim() ? { label: f.display_label.trim() } : {}) })) }
         : null,
       shortAfterCover: typeof entry.short_after_cover === "number" ? entry.short_after_cover : null,
       earmarkedTotal: typeof entry.earmarked_total === "number" ? entry.earmarked_total : null,

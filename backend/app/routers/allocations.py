@@ -1215,5 +1215,7 @@ async def delete_allocation(allocation_id: str, user: dict = Depends(current_use
     uid = user["email"]
     doc = await _get_owned(uid, allocation_id)
     await allocations_col.delete_one({"_id": doc["_id"]})
-    response_cache.invalidate(uid)
+    # G421 (H145): awaited invalidate and warm before returning, same as G399.
+    from app.routers.analytics import _refresh_after_override
+    await _refresh_after_override(uid)
     return {"id": str(doc["_id"]), "deleted": True}

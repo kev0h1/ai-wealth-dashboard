@@ -146,7 +146,13 @@ def test_compute_today_items_equals_the_pre_change_golden(monkeypatch):
     got = _capture(monkeypatch)
     assert got["closing_by_account"] == golden["closing_by_account"]
     assert got["low_point_by_account"] == golden["low_point_by_account"]
-    assert got["account_eligibility_out"] == golden["account_eligibility_out"]
+    # G421 added one display-only field to each covered_by_move source row (the
+    # G337 label). Everything else stays the old code's output, so strip only it.
+    elig = json.loads(json.dumps(got["account_eligibility_out"]))
+    for entry in (elig.values() if isinstance(elig, dict) else [e for _k, e in elig]):
+        for row in (entry.get("covered_by_move") or {}).get("from", []):
+            row.pop("display_label", None)
+    assert elig == golden["account_eligibility_out"]
 
 
 # ── one test per PD difference, flipping only that keyword ───────────────────

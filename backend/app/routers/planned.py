@@ -172,7 +172,9 @@ async def delete_planned_expense(planned_id: str, user: dict = Depends(current_u
     if result.deleted_count == 0:
         raise HTTPException(404, "Planned expense not found")
 
-    response_cache.invalidate(uid)
+    # G421 (H145): awaited invalidate and warm before returning, same as G399.
+    from app.routers.analytics import _refresh_after_override
+    await _refresh_after_override(uid)
     return {"ok": True}
 
 
@@ -255,7 +257,9 @@ async def update_planned_expense(planned_id: str, body: dict, user: dict = Depen
         }
 
     await planned_expenses_col.update_one({"_id": oid, "user_id": uid}, {"$set": updates})
-    response_cache.invalidate(uid)
+    # G421 (H145): awaited invalidate and warm before returning, same as G399.
+    from app.routers.analytics import _refresh_after_override
+    await _refresh_after_override(uid)
 
     # Merge updates over doc to return updated item
     merged = {**doc, **updates}

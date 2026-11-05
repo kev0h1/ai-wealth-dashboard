@@ -48,7 +48,7 @@ export function accountAvailability(
   const warning = paymentGap ? "payments" : plansGap ? "plans" : undefined;
   const covered = warning && position.covered_by_move && position.covered_by_move.amount > 0 && position.covered_by_move.from.length
     ? {
-        fromLabel: new Set(position.covered_by_move.from.map((f) => f.account_id)).size > 1 ? `${new Set(position.covered_by_move.from.map((f) => f.account_id)).size} of your other accounts` : position.covered_by_move.from[0].name,
+        fromLabel: new Set(position.covered_by_move.from.map((f) => f.account_id)).size > 1 ? `${new Set(position.covered_by_move.from.map((f) => f.account_id)).size} of your other accounts` : (position.covered_by_move.from[0].display_label?.trim() || position.covered_by_move.from[0].name),
         shortAfterCover: typeof position.short_after_cover === "number" ? position.short_after_cover : 0,
         ...(paymentGap && typeof position.covered_by_move.shortfall === "number" && position.covered_by_move.shortfall > paymentShortfall + 0.005 ? { coversPlans: true } : {}),
       }

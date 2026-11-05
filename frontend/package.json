@@ -223,7 +223,9 @@
     "check:g408-disclosures": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g408-disclosures.test.mjs",
     "check:g391-directory": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g391-directory.test.mjs",
     "check:g395-bank-coverage": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g395-bank-coverage.test.mjs",
-    "check:g399-dismiss-refresh": "node --no-warnings scripts/g399-dismiss-refresh.test.mjs"
+    "check:g399-dismiss-refresh": "node --no-warnings scripts/g399-dismiss-refresh.test.mjs",
+    "check:g421-cancel-refresh": "node --no-warnings scripts/g421-cancel-refresh.test.mjs",
+    "check:g421-cover-rows": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g421-cover-rows.test.mjs"
   },
   "dependencies": {
     "@aparajita/capacitor-biometric-auth": "^10.0.0",

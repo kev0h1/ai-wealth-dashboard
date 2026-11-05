@@ -73,17 +73,27 @@ export function accountActionReading(account: UpcomingAccountSummary, plans: Pla
   return { result, ready, combinedKnown, afterPayments, afterPlans, headline, gap, paymentGap, transferGap, earlierGap, moves, incoming, outgoing, afterMove, remainingGap, signal, hasPlans, caption, futureIncome };
 }
 
+const upFirst = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
+const exactMoney = (pence: number) => `${pence < 0 ? "−" : ""}£${(Math.abs(pence) / 100).toLocaleString("en-GB", { minimumFractionDigits: pence % 100 ? 2 : 0, maximumFractionDigits: 2 })}`;
+
+/** G421: the sources of a suggested cover as short rows (name and amount), never an and-chain.
+ * The engine uses at most two sources. An older payload with more shows its largest and one combined row. */
+export function accountMoveRows(moves: readonly UpcomingSuggestedMove[]): { name: string; amount: string }[] {
+  const incoming = moves.filter(move => move.amount > 0).map(move => ({ name: upFirst(move.counterpartName), pence: Math.round(move.amount * 100) })).sort((a, b) => b.pence - a.pence);
+  const rows = incoming.length <= 2 ? incoming : [incoming[0], { name: `${incoming.length - 1} other accounts`, pence: incoming.slice(1).reduce((sum, row) => sum + row.pence, 0) }];
+  return rows.map(row => ({ name: row.name, amount: exactMoney(row.pence) }));
+}
+
 export function accountActionNote(account: UpcomingAccountSummary, reading: ReturnType<typeof accountActionReading>) {
   const { result, ready, combinedKnown, headline, gap, paymentGap, earlierGap, moves, incoming, outgoing, afterMove, remainingGap, signal, futureIncome } = reading;
   const exact = (pence: number) => `${pence < 0 ? "−" : ""}£${(Math.abs(pence) / 100).toLocaleString("en-GB", { minimumFractionDigits: pence % 100 ? 2 : 0, maximumFractionDigits: 2 })}`;
-  const from = moves.filter(move => move.amount > 0).map(move => move.counterpartName).join(" and ");
   const to = moves.filter(move => move.amount < 0).map(move => move.counterpartName).join(" and ");
   if (headline === null) return "This account’s balance needs checking.";
   if (!ready) return "Payments only. Plans are still to be checked.";
   if (incoming || outgoing) {
-    const move = incoming && outgoing ? `${exact(incoming)} suggested in from ${from}; ${exact(outgoing)} set aside for ${to}.`
+    const move = incoming && outgoing ? `${exact(incoming)} suggested in; ${exact(outgoing)} set aside for ${to}.`
       : outgoing ? `${exact(outgoing)} set aside for ${to}.`
-      : `A ${exact(incoming)} move from ${from} ${afterMove !== null && remainingGap === 0 ? "covers it" : "would help"}.`;
+      : `A ${exact(incoming)} move ${afterMove !== null && remainingGap === 0 ? "covers it" : "would help"}.`;
     if (afterMove === null) return `${move} The full result still needs checking.`;
     return `${move} ${accountSummaryMoney(afterMove)} after the ${moves.length === 1 ? "move" : "moves"}${remainingGap > 0 && afterMove < 0 ? ", still short" : ""}.${remainingGap > 0 && afterMove >= 0 ? ` An earlier gap of ${exact(remainingGap)} still needs covering.` : ""}`;
   }

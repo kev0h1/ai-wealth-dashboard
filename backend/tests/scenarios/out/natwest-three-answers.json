@@ -37,6 +37,7 @@
           {
             "account_id": "acc-bc",
             "amount": 300.0,
+            "display_label": "Barclays Current",
             "name": "Barclays Current"
           }
         ],
