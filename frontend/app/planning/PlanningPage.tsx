@@ -1,5 +1,6 @@
 "use client";
 
+import { isCountedInLeftToSpend } from "@/lib/accountCounted";
 import { useEffect, useMemo, useState, useRef, type ReactNode } from "react";
 import dynamic from "next/dynamic";
 import { EyeOff } from "lucide-react";
@@ -377,7 +378,7 @@ export default function PlanningPage() {
   const accountEndMs = upcomingAccountWindow(periodEnd.getTime(), planningNow, upcomingPeriod.fromServer ? upcomingPeriod.daysToPayday : undefined);
   const plans = cashflow ? assessPlanOverlap(plansFromApi(accountPlans ?? []), cashflow, accountEndMs, accounts) : [];
   const sourceIds = new Set(plans.filter((plan) => plan.active && hasPlanSource(plan)).map((plan) => plan.sourceId));
-  const excludedAccountIds = new Set(accounts.filter((account) => account.include_in_safe_to_spend === false).map((account) => account.id));
+  const excludedAccountIds = new Set(accounts.filter((account) => !isCountedInLeftToSpend(account)).map((account) => account.id));
   const accountPositions = positionsFromToday(accountEligibility, accounts) ?? {};
   const planSources = accounts.filter((account) => (sourceIds.has(account.id) || accountPositions[account.id]?.spendFrom != null) && isPlanSourceAccount(account) && !excludedAccountIds.has(account.id)).map((account) => ({ id: account.id, bank: account.provider, name: account.name, balance: account.balance }));
   const accountWalk = cashflow ? walkUpcomingAccounts(cashflow, accountEndMs, planSources, excludedAccountIds) : null;

@@ -20,7 +20,7 @@ assert.match(accounts, /<CardRatesSheet/, "rates and deals has its own sheet");
 assert.match(accounts, /account\.status !== "expired"/, "only connected payment accounts can be selected");
 assert.match(accounts, /accountKind\(account\) === "Current"\)/, "savings cannot pay a card");
 assert.doesNotMatch(accounts, /\["Current", "Savings"\]/, "no savings payer is offered");
-assert.match(accounts, /account\.include_in_safe_to_spend !== false/, "excluded accounts cannot be selected");
+assert.match(accounts, /isCountedInLeftToSpend\(account\)/, "excluded accounts cannot be selected");
 assert.match(api, /export type CardStatementBill/, "the API documents server bill evidence");
 assert.match(api, /statement_bill\?: CardStatementBill \| null/, "older cached card responses remain valid");
 assert.match(api, /payment_match\?: CardPaymentMatch \| null/, "the API carries payment matching");

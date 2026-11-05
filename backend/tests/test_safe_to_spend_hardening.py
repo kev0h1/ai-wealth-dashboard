@@ -167,7 +167,7 @@ def test_safe_to_spend_includes_yapily_records_with_authorized_consent(monkeypat
         (
             {"user_id": "user@example.com", "consent": {"$in": ["active-consent"]}},
             {"balance": 1, "type": 1, "subtype": 1, "currency": 1, "name": 1,
-             "include_in_safe_to_spend": 1},  # G231
+             "include_in_safe_to_spend": 1, "status": 1},  # G231, A192
         )
     ]
 

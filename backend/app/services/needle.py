@@ -13,6 +13,7 @@ Design doctrine (BEHAVIOURS.md):
 """
 from __future__ import annotations
 
+from app.services.counted_accounts import is_excluded
 import re
 import logging
 from datetime import date, datetime, timedelta, timezone
@@ -94,7 +95,7 @@ async def _current_account_ids(uid: str) -> list[dict]:
     raw = await accounts_col.find({"user_id": uid}).to_list(None)
     result = []
     for a in raw:
-        if a.get("include_in_safe_to_spend") is False:
+        if is_excluded(a):
             continue  # G231: not counted towards Safe to Spend, so not spendable cash
         subtype = (a.get("account_subtype") or a.get("subtype") or "").upper()
         atype = (a.get("account_type") or a.get("type") or "").lower()

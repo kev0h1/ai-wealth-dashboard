@@ -49,9 +49,9 @@ for (const bad of [
 assert.equal(accountAvailability(account(), { status: "loading", positions: { barclays: position() } }).kind, "checking");
 assert.equal(accountAvailability(account(), { status: "failed", positions: { barclays: position() } }).kind, "unavailable");
 for (const extra of [
-  { include_in_safe_to_spend: false }, { manual: true }, { currency: "USD" }, { type: "Savings" },
+  { include_in_safe_to_spend: false }, { status: "expired" }, { manual: true }, { currency: "USD" }, { type: "Savings" },
 ]) assert.equal(accountAvailability(account(extra), snap()), undefined);
-for (const extra of [{ paused: true }, { status: "expired" }]) assert.equal(accountAvailability(account(extra), snap()).kind, "unavailable");
+for (const extra of [{ paused: true }]) assert.equal(accountAvailability(account(extra), snap()).kind, "unavailable");
 // G418: summary Available figures are whole pounds (half away from zero, as the hero); only a non-zero amount under £1 keeps pence.
 assert.equal(formatAvailabilityAmount(8.25), "£8");
 assert.equal(formatAvailabilityAmount(-8.25), "−£8");

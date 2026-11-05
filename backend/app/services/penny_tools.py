@@ -3290,7 +3290,7 @@ async def _exec_get_accounts(uid: str) -> dict:
             "kind": kind,
             "status": a.status,
             "dormant": _account_is_dormant(a, kind),
-            "pinned": a.id in pinned_ids, "counts_towards_safe_to_spend": a.include_in_safe_to_spend,  # G231 (one line, keeps the leak allowlist stable)
+            "pinned": a.id in pinned_ids, "counts_towards_safe_to_spend": a.counted_in_left_to_spend,  # G231 (one line, keeps the leak allowlist stable)
         }
         terms = terms_by_account.get(str(a.id))
         if kind == "Credit" and terms:

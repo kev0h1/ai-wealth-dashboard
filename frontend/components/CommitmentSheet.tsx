@@ -1,4 +1,5 @@
 "use client";
+import { isCountedInLeftToSpend } from "@/lib/accountCounted";
 import { useState, useEffect, useRef, useCallback, useMemo, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
@@ -268,7 +269,7 @@ export default function CommitmentSheet({
   const sourceOptions = accountList.filter((acc) => {
     const kind = `${acc.type} ${acc.subtype ?? ""}`.toLowerCase();
     return isPlanSourceAccount(acc)
-      && acc.include_in_safe_to_spend !== false
+      && isCountedInLeftToSpend(acc)
       && !/saving|isa/.test(kind)
       && !pots.some((p) => p.account_id === acc.id);
   });

@@ -35,7 +35,7 @@ async def load_activity_inputs(uid: str) -> dict:
         out["plans"] = await _load_account_plans(uid, goals=True)
         for acc in await get_accounts(user={"email": uid}):
             out["names"][str(acc.id)] = {"name": display_account_name(acc.name), "bank": acc.provider}
-            if acc.include_in_safe_to_spend is False:
+            if getattr(acc, "counted_in_left_to_spend", True) is False or getattr(acc, "include_in_safe_to_spend", True) is False:
                 out["excluded_account_ids"].append(str(acc.id))
     except Exception:
         logger.warning("upcoming_account_activity: inputs unavailable for %s", uid, exc_info=True)

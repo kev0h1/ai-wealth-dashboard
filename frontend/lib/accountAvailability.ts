@@ -1,4 +1,5 @@
 import type { Account, AccountEligibility } from "@/lib/api";
+import { isCountedInLeftToSpend } from "@/lib/accountCounted";
 import { accountKind } from "@/lib/accountKind";
 
 export type AccountAvailabilityReading =
@@ -32,7 +33,7 @@ export function accountAvailability(
   account: Account,
   snapshot: AccountAvailabilitySnapshot,
 ): AccountAvailabilityReading | undefined {
-  if (accountKind(account) !== "Current" || account.manual || account.currency !== "GBP" || account.include_in_safe_to_spend === false) return undefined;
+  if (accountKind(account) !== "Current" || account.manual || account.currency !== "GBP" || !isCountedInLeftToSpend(account)) return undefined;
   if (snapshot.status === "loading") return { kind: "checking" };
   if (snapshot.status !== "ready" || (account.status !== "connected" || account.paused)) return { kind: "unavailable" };
   const position = snapshot.positions?.[account.id];

@@ -60,6 +60,16 @@ class Account(BaseModel):
     overdraft_limit: Optional[float] = None
     overdraft_type: Optional[str] = None
 
+    # A192: false when the account does not count towards Left to spend for
+    # ANY reason: the user's own G231 choice above, or an ended bank
+    # connection (status expired). Derived on read through the one shared
+    # helper, never stored; the UI filters on this, never on the raw flag.
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def counted_in_left_to_spend(self) -> bool:
+        from app.services.counted_accounts import is_counted
+        return is_counted({"include_in_safe_to_spend": self.include_in_safe_to_spend, "status": self.status})
+
     # G282: the one shared display name (services/account_names.py), so every
     # client shows an account identically. `name` stays the raw stored value.
     @computed_field  # type: ignore[prop-decorator]

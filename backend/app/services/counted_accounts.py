@@ -29,9 +29,32 @@ FLAG = "include_in_safe_to_spend"
 _COLLECTIONS = (accounts_col, yapily_accounts_col, manual_accounts_col)
 
 
-def is_excluded(doc: dict | None) -> bool:
-    """True only when the flag is explicitly False (absent counts)."""
+def user_excluded(doc: dict | None) -> bool:
+    """True only when the user's flag is explicitly False (absent counts)."""
     return bool(doc) and doc.get(FLAG) is False
+
+
+def connection_ended(doc: dict | None) -> bool:
+    """A192: the account's bank connection is revoked or expired.
+
+    The ONE test is the one A189 introduced: `status == "expired"`, which the
+    sync, the consent webhooks and `expire_accounts_on_dead_consents` all set
+    when a consent is dead. Offline and manual accounts never carry that
+    status, so they are unaffected. The balance of such an account is frozen
+    at the last sync and must not be pooled or offered anywhere."""
+    return bool(doc) and doc.get("status") == "expired"
+
+
+def is_excluded(doc: dict | None) -> bool:
+    """True when the account must not count towards Left to spend: the user
+    turned it off (G231, flag explicitly False; absent counts) or its bank
+    connection has ended (A192). Every pooled or per-account calculation asks
+    this one question."""
+    return user_excluded(doc) or connection_ended(doc)
+
+
+def is_counted(doc: dict | None) -> bool:
+    return not is_excluded(doc)
 
 
 async def excluded_account_docs(uid: str) -> list[dict]:
@@ -39,12 +62,24 @@ async def excluded_account_docs(uid: str) -> list[dict]:
     out: list[dict] = []
     seen: set[str] = set()
     for col in _COLLECTIONS:
-        async for doc in col.find({"user_id": uid, FLAG: False}, {"name": 1}):
+        async for doc in col.find(
+            {"user_id": uid, "$or": [{FLAG: False}, {"status": "expired"}]}, {"name": 1}
+        ):
             sid = str(doc["_id"])
             if sid in seen:
                 continue
             seen.add(sid)
             out.append({"id": sid, "name": doc.get("name") or "Account"})
+    return out
+
+
+async def ended_account_ids(uid: str) -> set[str]:
+    """A192: ids of provider accounts whose bank connection has ended. A failed
+    read RAISES, like `excluded_account_ids`."""
+    out: set[str] = set()
+    for col in _COLLECTIONS:
+        async for doc in col.find({"user_id": uid, "status": "expired"}, {"_id": 1}):
+            out.add(str(doc["_id"]))
     return out
 
 

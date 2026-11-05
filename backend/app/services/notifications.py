@@ -330,6 +330,15 @@ async def _maybe_bill_shortfall(user_id: str, covered_dest_accts: set[str] | Non
     upcoming_bills = resp.get("upcoming_bills") or []
 
     covered = covered_dest_accts or set()
+    # A192: a bill on an account whose bank connection has ended is judged
+    # against a frozen balance, so it never raises a shortfall alert.
+    try:
+        from app.services.counted_accounts import ended_account_ids
+        _ended = await ended_account_ids(user_id)
+    except Exception:
+        log.warning("ended-account lookup failed in bill shortfall for %s", user_id)
+        _ended = set()
+    covered = covered | _ended
     at_risk = [
         b for b in upcoming_bills
         if b["days_away"] <= 7

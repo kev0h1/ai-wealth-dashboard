@@ -37,7 +37,7 @@ const sheetSrc = readFileSync(new URL("../components/CommitmentSheet.tsx", impor
 assert.match(sheetSrc, /label="Pay from"/, "Pay from field");
 assert.doesNotMatch(sheetSrc, /unsetLabel="Not set"/, "G267 requires a real source on confirmation");
 assert.match(sheetSrc, /Based on recent transfers\./, "inferred hedge");
-assert.match(sheetSrc, /include_in_safe_to_spend !== false/, "excluded accounts are omitted");
+assert.match(sheetSrc, /isCountedInLeftToSpend\(acc\)/, "excluded accounts are omitted");
 assert.match(sheetSrc, /saving\|isa/, "savings accounts are omitted");
 assert.match(sheetSrc, /if \(sourceTouched \|\| sourceInferred\) \{ body\.source_account_id = sourceId \|\| null;/, "final edit confirms a displayed inferred source");
 assert.match(sheetSrc, /source_account_id: sourceId,\s+source_unset: false/, "create saves the confirmed source");

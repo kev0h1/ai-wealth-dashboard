@@ -1,5 +1,6 @@
 "use client";
 
+import { isCountedInLeftToSpend } from "@/lib/accountCounted";
 import { useEffect, useId, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import { api, type Account, type Allocation, type AllocationContributionPreview } from "@/lib/api";
 import { isPlanSourceAccount } from "@/lib/upcomingPlans";
@@ -61,7 +62,7 @@ export function AllocationPlanEditor({ allocation, accounts, sourceChoices, sugg
   const request = useEditorRequest();
   const suggested = !allocation.source_account_id && source === suggestedSourceId && accounts.find(a => a.id === suggestedSourceId);
   const sourceAccounts = (sourceChoices ?? accounts).filter(account => isPlanSourceAccount(account) && (trackingMode === "manual" || account.id !== destination));
-  const eligibleSources = sourceAccounts.filter(account => account.include_in_safe_to_spend !== false && !/saving|isa|credit/.test(`${account.type} ${account.subtype ?? ""}`.toLowerCase()));
+  const eligibleSources = sourceAccounts.filter(account => isCountedInLeftToSpend(account) && !/saving|isa|credit/.test(`${account.type} ${account.subtype ?? ""}`.toLowerCase()));
   const destinations = accounts.filter(account => account.id !== source && account.currency === "GBP" && !/credit|card/i.test(`${account.type} ${account.subtype ?? ""}`));
   const parsedAmount = Number(amount);
   const savedSourceAccount = accounts.find(account => account.id === allocation.source_account_id);

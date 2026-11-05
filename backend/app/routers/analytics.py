@@ -1,4 +1,5 @@
 """KPI, insights, and budget pace-profile endpoints."""
+from app.services.counted_accounts import connection_ended, is_excluded
 import asyncio
 import hashlib
 import json
@@ -2033,7 +2034,7 @@ def _account_pool_kind(acc: dict) -> str | None:
     concern specific to `_split_balances`'s totals, not a question of which
     pool the account is structurally a member of.
     """
-    if acc.get("include_in_safe_to_spend") is False:
+    if is_excluded(acc):
         # G231: the user chose not to count this account towards Safe to Spend.
         return None
     if str(acc.get("currency", "GBP")).upper() not in {"GBP", ""}:
@@ -2200,7 +2201,7 @@ async def _safe_to_spend_accounts(uid: str) -> list[dict]:
     still AUTHORIZED; a different active consent must not revive stale cash.
     """
     projection = {"balance": 1, "type": 1, "subtype": 1, "currency": 1, "name": 1,
-                  "include_in_safe_to_spend": 1}
+                  "include_in_safe_to_spend": 1, "status": 1}
     native_task = accounts_col.find({"user_id": uid}, projection).to_list(None)
     active_consents_task = yapily_consents_col.find(
         {"user_id": uid, "status": "AUTHORIZED"}, {"_id": 1}
@@ -2821,7 +2822,7 @@ async def _compute_cashflow_patterns(uid: str) -> dict:
     # needle.py) in case a future writer uses the longer key names.
     acct_proj_map = {"name": 1, "balance": 1, "currency": 1, "provider": 1,
                       "type": 1, "subtype": 1, "account_type": 1, "account_subtype": 1,
-                      "include_in_safe_to_spend": 1}
+                      "include_in_safe_to_spend": 1, "status": 1}
     acct_docs = (
         await accounts_col.find({"user_id": uid}, acct_proj_map).to_list(None)
         + await yapily_accounts_col.find({"user_id": uid}, acct_proj_map).to_list(None)
@@ -3071,7 +3072,7 @@ async def _compute_cashflow_patterns(uid: str) -> dict:
     ]
     avg_daily_spend = (sum(abs(float(t.get("amount", 0))) for t in non_recurring_debits) / 90) if non_recurring_debits else 0
 
-    acct_proj = {"balance": 1, "currency": 1, "type": 1, "subtype": 1, "include_in_safe_to_spend": 1}
+    acct_proj = {"balance": 1, "currency": 1, "type": 1, "subtype": 1, "include_in_safe_to_spend": 1, "status": 1}
     all_accounts = (
         await accounts_col.find({"user_id": uid}, acct_proj).to_list(None)
         + await yapily_accounts_col.find({"user_id": uid}, acct_proj).to_list(None)
@@ -3081,6 +3082,7 @@ async def _compute_cashflow_patterns(uid: str) -> dict:
         for a in all_accounts
         if str(a.get("currency", "GBP")).upper() in {"GBP", ""}
         and float(a.get("balance", 0)) > 0
+        and not connection_ended(a)  # A192: a frozen balance is not available cash
     ), 2)
     # Same pool as the Home Safe-to-Spend hero, split spendable vs savings so
     # the Planning runway can use exactly the hero's "spendable cash" figure
@@ -5246,13 +5248,13 @@ async def compute_safe_to_spend(uid: str) -> dict:
     _excluded_accounts = [
         {"id": str(a["_id"]), "name": a.get("name") or "Account"}
         for a in all_accs_raw
-        if a.get("include_in_safe_to_spend") is False and a.get("_id") is not None
+        if is_excluded(a) and a.get("_id") is not None
         and "credit" not in f"{a.get('type') or ''} {a.get('subtype') or ''}".lower()
     ]
 
     card_debt_total = 0.0
     for acc in all_accs_raw:
-        if acc.get("include_in_safe_to_spend") is False:
+        if is_excluded(acc):
             continue
         # GBP only
         if str(acc.get("currency", "GBP")).upper() not in {"GBP", ""}:

@@ -1,5 +1,6 @@
 "use client";
 
+import { isCountedInLeftToSpend } from "@/lib/accountCounted";
 import { useEffect, useState } from "react";
 import { Target, Wallet, Receipt } from "lucide-react";
 import { api, Account, Allocation } from "@/lib/api";
@@ -38,7 +39,7 @@ export default function SetAsideSheet({ accounts, periodStart, onClose, onSelect
   const [effectiveFrom, setEffectiveFrom] = useState<string | null>(null);
   const [returnToReview, setReturnToReview] = useState(false);
   const [saving, setSaving] = useState(false); const [error, setError] = useState<string | null>(null);
-  const sourceAccounts = accounts.filter(a => isPlanSourceAccount(a) && a.include_in_safe_to_spend !== false && !/saving|isa|credit/.test(`${a.type} ${a.subtype ?? ""}`.toLowerCase()));
+  const sourceAccounts = accounts.filter(a => isPlanSourceAccount(a) && isCountedInLeftToSpend(a) && !/saving|isa|credit/.test(`${a.type} ${a.subtype ?? ""}`.toLowerCase()));
   useEffect(() => {
     if (!sourceId && sourceAccounts.length === 1) queueMicrotask(() => setSourceId(sourceAccounts[0].id));
   }, [sourceId, sourceAccounts]);
