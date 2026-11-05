@@ -32,14 +32,6 @@ type PreviewRoute = {
 
 const ROUTES: PreviewRoute[] = [
 
-  {
-    slug: "card-payment-rules",
-    name: "Card payment and matching · G419",
-    description: "G419 · impeccable · Separate Payment from Rates and deals. A keeps one payment form; B gives the match rule its own focused editor. Both reuse the offline-rule strictness pills, searchable account rows and recent-debit prefill, with live six-month sample evidence, masking and quiet unmatched states. Fictional data only; exact-description and six-month API support await the selected fold-in.",
-    variants: [{ label: "A · One payment form", value: "a" }, { label: "B · Focused rule editor", value: "b" }],
-    states: [{ label: "Matching rule", value: "matched" }, { label: "No details", value: "new" }, { label: "No matches", value: "unmatched" }, { label: "Two references", value: "broad" }, { label: "Short history", value: "history" }, { label: "Checking payments", value: "checking" }, { label: "Cannot check", value: "error" }, { label: "Save failed", value: "save-error" }, { label: "Charge card", value: "charge" }],
-    group: "current",
-  },
 
   {
     slug: "spend-patterns-charts",

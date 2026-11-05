@@ -13,12 +13,12 @@ as a list under the ``promos`` key. Legacy docs that still carry the flat
 on_promo/promo_kind/promo_end shape are mapped on read; they are fully
 migrated to the new shape on the next user-initiated save.
 """
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from math import isfinite
 from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, StrictInt, field_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictInt, field_validator
 
 from app.core.auth import current_user
 from app.core import timeutil
@@ -58,10 +58,12 @@ class PaymentMatch(BaseModel):
     "contains" needs `text` (for example the tail of a card reference);
     "payment" needs `series_key` (a payment the user picked from that account).
     """
-    kind: Literal["contains", "payment"]
+    kind: Literal["contains", "payment", "exact"]
     text: Optional[str] = None
     series_key: Optional[str] = None
     label: Optional[str] = None
+    fingerprint: Optional[str] = None
+    salt: Optional[str] = None
 
 
 class CardPromo(BaseModel):
@@ -288,6 +290,54 @@ class CardTermsBody(BaseModel):
         if isinstance(value, bool):
             raise ValueError("fixed_payment_amount must be a number")
         return value
+
+
+class CardPaymentBody(BaseModel):
+    """A scoped payment mutation cannot name or erase any rates fields."""
+    model_config = ConfigDict(extra="forbid")
+    statement_close_day: Optional[StrictInt] = None
+    payment_due_day: Optional[StrictInt] = None
+    payment_due_days_after_close: Optional[StrictInt] = None
+    payment_method: Optional[Literal["full", "minimum", "fixed", "manual"]] = None
+    payment_account_id: Optional[str] = None
+    fixed_payment_amount: Optional[float] = None
+    payment_match: Optional[PaymentMatch] = None
+
+    @field_validator("fixed_payment_amount", mode="before")
+    @classmethod
+    def _not_bool(cls, value):
+        if isinstance(value, bool):
+            raise ValueError("fixed_payment_amount must be a number")
+        return value
+
+
+class CardRatesBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    status: Literal["confirmed", "skipped"] = "confirmed"
+    apr_pct: Optional[float] = None
+    promos: list[CardPromo] = []
+    min_payment_note: Optional[str] = None
+    bt_offers: list[BtOffer] = []
+    product_key: Optional[str] = None
+    # Retain the rates-only legacy aliases understood by the shared normalisers.
+    on_promo: bool = False
+    promo_kind: Optional[Literal["purchases", "balance_transfer", "both"]] = None
+    promo_end: Optional[str] = None
+    bt_offer_available: Optional[bool] = None
+    bt_offer_note: Optional[str] = None
+
+
+class CardPaymentHistoryBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    payer_id: str
+    query: str = Field(default="", max_length=240)
+    offset: StrictInt = Field(default=0, ge=0)
+
+
+class CardPaymentPreviewBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    payer_id: str
+    rule: Optional[PaymentMatch] = None
 
 
 _PAYMENT_FIELDS = (
@@ -613,6 +663,127 @@ async def save_card_terms(
     from app.routers.analytics import _refresh_after_override
     await _refresh_after_override(uid)
     return {"status": "ok", "terms": _serialize_terms(doc)}
+
+
+async def _rival_payment_rules(uid: str, account_id: str, payer_id: str) -> list[dict]:
+    cards = {str(row["_id"]) for row in await accounts_col.find({"user_id": uid}).to_list(None)
+             if is_credit_card_account(row)}
+    rules = []
+    async for doc in card_terms_col.find({"user_id": uid}):
+        other_id = str(doc.get("account_id") or "")
+        if other_id == account_id or other_id not in cards or str(doc.get("payment_account_id") or "") != payer_id:
+            continue
+        rule = _normalise_match_rule(doc.get("payment_match"))
+        if rule:
+            rules.append(rule)
+    return rules
+
+
+async def _payment_match_evidence(uid: str, account_id: str, payer_id: str, rule: dict | None) -> dict:
+    from app.services import card_payment_matching as matching
+    payer = await matching.owned_payment_account(uid, payer_id)
+    rows, meta = await matching.load_payment_history(uid, payer)
+    rivals = await _rival_payment_rules(uid, account_id, str(payer["_id"]))
+    return matching.matching_evidence(rows, rule, meta, rival_rules=rivals)
+
+
+@router.get("/card-terms/{account_id}/payment-accounts")
+async def list_payment_accounts(account_id: str, user: dict = Depends(current_user)):
+    uid = user["email"]
+    await _owned_card_or_404(uid, account_id)
+    from app.services.card_payment_matching import payment_accounts
+    return {"status": "ok", "accounts": await payment_accounts(uid)}
+
+
+@router.post("/card-terms/{account_id}/payment-history")
+async def payment_history(account_id: str, body: CardPaymentHistoryBody, user: dict = Depends(current_user)):
+    uid = user["email"]
+    await _owned_card_or_404(uid, account_id)
+    from app.services import card_payment_matching as matching
+    payer = await matching.owned_payment_account(uid, body.payer_id)
+    rows, meta = await matching.load_payment_history(uid, payer)
+    return matching.debit_choices(rows, body.query, body.offset, meta)
+
+
+@router.post("/card-terms/{account_id}/payment-match-preview")
+async def preview_payment_match(account_id: str, body: CardPaymentPreviewBody, user: dict = Depends(current_user)):
+    uid = user["email"]
+    await _owned_card_or_404(uid, account_id)
+    rule = _normalise_match_rule(body.rule.model_dump(exclude_none=True)) if body.rule else None
+    if body.rule and not rule:
+        raise HTTPException(400, "Enter a valid payment description, or choose a recent payment for an exact match")
+    return await _payment_match_evidence(uid, account_id, body.payer_id, rule)
+
+
+async def _update_scoped_terms(uid: str, account_id: str, updates: dict, defaults: dict) -> dict:
+    # No read/replace race: another domain's most recent edits cannot be lost
+    # while this request validates or refreshes the money model.
+    insert = {"user_id": uid, "account_id": account_id, **defaults}
+    insert = {key: value for key, value in insert.items() if key not in updates}
+    await card_terms_col.update_one({"_id": f"{uid}:{account_id}"}, {"$set": updates, "$setOnInsert": insert}, upsert=True)
+    from app.routers.analytics import _refresh_after_override
+    await _refresh_after_override(uid)
+    fresh = await card_terms_col.find_one({"_id": f"{uid}:{account_id}"})
+    return {"status": "ok", "terms": _serialize_terms(fresh or {**insert, **updates})}
+
+
+@router.post("/card-terms/{account_id}/payment")
+async def save_card_payment(account_id: str, body: CardPaymentBody, user: dict = Depends(current_user)):
+    uid = user["email"]
+    card = await _owned_card_or_404(uid, account_id)
+    existing = await card_terms_col.find_one({"_id": f"{uid}:{account_id}"}) or {}
+    payment = normalise_payment_settings(existing, body)
+    # Choosing another payer never carries a rule tied to the old account.
+    if _submitted(body, "payment_account_id") and str(payment.get("payment_account_id") or "") != str(existing.get("payment_account_id") or "") and not _submitted(body, "payment_match"):
+        payment["payment_match"] = None
+    payment = await _validate_payment_settings(uid, payment, validate_source=_submitted(body, "payment_account_id"))
+    payer_id = payment["payment_account_id"]
+    if payer_id and _submitted(body, "payment_account_id"):
+        from app.services.card_payment_matching import owned_payment_account
+        await owned_payment_account(uid, payer_id)
+    if payer_id and payment["payment_method"] in ("full", "fixed") and str(card.get("currency") or "GBP").upper() != "GBP":
+        raise HTTPException(422, "Card payments need a GBP card and GBP current account")
+    if payment.get("payment_match"):
+        evidence = await _payment_match_evidence(uid, account_id, payer_id, payment["payment_match"])
+        if evidence["ambiguous"]:
+            raise HTTPException(422, evidence["reason"])
+        payment["payment_match"] = evidence["rule"]
+    usage = existing.get("usage")
+    if payment["payment_method"] == "full":
+        usage = "clear_monthly"
+    elif payment["payment_method"] in ("minimum", "fixed"):
+        usage = "carry"
+    elif payment["payment_method"] == "manual":
+        usage = None
+    return await _update_scoped_terms(uid, account_id, {**payment, "usage": usage}, {
+        "apr_pct": None, "promos": [], "min_payment_note": None, "bt_offers": [],
+        "product_key": None, "status": None, "confirmed_at": None,
+    })
+
+
+@router.post("/card-terms/{account_id}/rates")
+async def save_card_rates(account_id: str, body: CardRatesBody, user: dict = Depends(current_user)):
+    uid = user["email"]
+    await _owned_card_or_404(uid, account_id)
+    updates = {"status": body.status, "confirmed_at": datetime.now(timezone.utc)}
+    if body.status == "skipped":
+        updates.update(apr_pct=None, promos=[], min_payment_note=None, bt_offers=[])
+    else:
+        if _submitted(body, "apr_pct"):
+            if body.apr_pct is not None and (not isfinite(body.apr_pct) or not 0 <= body.apr_pct <= 100):
+                raise HTTPException(400, "apr_pct must be between 0 and 100")
+            updates["apr_pct"] = round(body.apr_pct, 2) if body.apr_pct is not None else None
+        if any(_submitted(body, key) for key in ("promos", "on_promo", "promo_kind", "promo_end")):
+            updates["promos"] = _normalise_promos(body)
+        if any(_submitted(body, key) for key in ("bt_offers", "bt_offer_available", "bt_offer_note")):
+            updates["bt_offers"] = _normalise_bt_offers(body)
+        if _submitted(body, "min_payment_note"):
+            updates["min_payment_note"] = _clip_note(body.min_payment_note)
+    if _submitted(body, "product_key"):
+        updates["product_key"] = body.product_key
+    defaults = {field: None for field in _PAYMENT_FIELDS}
+    defaults.update(apr_pct=None, promos=[], min_payment_note=None, bt_offers=[], product_key=None, usage=None)
+    return await _update_scoped_terms(uid, account_id, updates, defaults)
 
 
 @router.delete("/card-terms/{account_id}")

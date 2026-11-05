@@ -102,7 +102,9 @@ _MAX_TIME_MS = 500
 # expose their common statement evidence to every forecast consumer.
 # 8: G414 makes account spend-from figures an additive allocation of Left to
 # spend, including any conditional surplus from an earmarked cover move.
-SHAPE_VERSION = 8
+# 9: G419 exact-description attribution and settled GBP-only repayment
+# evidence; discard older bill/forecast responses that could claim a paid bill.
+SHAPE_VERSION = 9
 
 # UK users; this cache pins its day boundary to Europe/London (DST-aware,
 # via app.core.timeutil) so the API and worker processes, even if their

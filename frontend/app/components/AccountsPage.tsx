@@ -24,6 +24,8 @@ import { MINUS } from "@/lib/currency";
 import { buildEstate, type EstateLens, type EstateRow } from "@/lib/accountsEstate";
 import { accountKind, accountKindLabel, isBusinessAccount, type AccountKind } from "@/lib/accountKind";
 import CardTermsSheet from "@/components/CardTermsSheet";
+import CardPaymentSheet from "@/components/card-settings/PaymentSheet";
+import CardRatesSheet from "@/components/card-settings/RatesSheet";
 import CardDetailsSections from "@/components/CardDetailsSections";
 import { RadioDot } from "@/components/PlanOneOffSheet";
 import { DateField } from "@/components/DatePicker";
@@ -369,6 +371,7 @@ export default function AccountsPage() {
   const [cardTermsCards, setCardTermsCards] = useState<CardTermsCard[]>([]);
   const [cardTermsReady, setCardTermsReady] = useState(false);
   const [cardTermsOpen, setCardTermsOpen] = useState(false);
+  const [cardPaymentId, setCardPaymentId] = useState<string | null>(null);
   const [cardTermsStartId, setCardTermsStartId] = useState<string | null>(null);
 
   const loadCardTerms = useCallback(() => {
@@ -1837,7 +1840,25 @@ export default function AccountsPage() {
         <BankPickerSheet provider={showBankPicker} onClose={() => setShowBankPicker(null)} />
       )}
       {cardTermsOpen && (
-        <CardTermsSheet
+        cardTermsFromDetails.current && cardTermsStartId && cardTermsByAccount[cardTermsStartId] ? <CardRatesSheet
+          card={cardTermsByAccount[cardTermsStartId]}
+          onClose={() => {
+            const back = cardTermsStartId;
+            cardTermsFromDetails.current = false;
+            setCardTermsOpen(false); setCardTermsStartId(null);
+            setAccountDetailsFor(back);
+          }}
+          onSaved={async () => {
+            const mark = ++availabilityRequestRef.current;
+            setAvailabilitySnapshot({ status: "loading" });
+            try {
+              const [terms, freshAccounts, today] = await Promise.all([api.getCardTerms(), getAccountsCached(true), api.getToday()]);
+              if (mark !== availabilityRequestRef.current) return;
+              setCardTermsCards(terms.cards); setCardTermsReady(true); setAccounts(freshAccounts);
+              setAvailabilitySnapshot({ status: "ready", positions: today.account_eligibility });
+            } catch (error) { if (mark === availabilityRequestRef.current) setAvailabilitySnapshot({ status: "failed" }); throw error; }
+          }}
+        /> : <CardTermsSheet
           cards={cardTermsCards}
           ready={cardTermsReady}
           startAccountId={cardTermsStartId}
@@ -1848,9 +1869,22 @@ export default function AccountsPage() {
             if (back) setAccountDetailsFor(back);
           }}
           onSaved={loadCardTerms}
-          paymentAccounts={cardPaymentAccounts}
         />
       )}
+      {cardPaymentId && cardTermsByAccount[cardPaymentId] && <CardPaymentSheet
+        card={cardTermsByAccount[cardPaymentId]}
+        onClose={() => { const back = cardPaymentId; setCardPaymentId(null); setAccountDetailsFor(back); }}
+        onSaved={async () => {
+          const mark = ++availabilityRequestRef.current;
+          setAvailabilitySnapshot({ status: "loading" });
+          try {
+            const [terms, freshAccounts, today] = await Promise.all([api.getCardTerms(), getAccountsCached(true), api.getToday()]);
+            if (mark !== availabilityRequestRef.current) return;
+            setCardTermsCards(terms.cards); setCardTermsReady(true); setAccounts(freshAccounts);
+            setAvailabilitySnapshot({ status: "ready", positions: today.account_eligibility });
+          } catch (error) { if (mark === availabilityRequestRef.current) setAvailabilitySnapshot({ status: "failed" }); throw error; }
+        }}
+      />}
       {confirmDialog?.open && modalsMounted && createPortal(
         <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60 px-6">
           <div className="bg-slate-900 border border-slate-700 w-full max-w-xs rounded-2xl p-6 shadow-2xl">
@@ -2639,7 +2673,7 @@ export default function AccountsPage() {
               {isCredit && termsCard && <CardDetailsSections
                 card={termsCard}
                 paymentAccounts={cardPaymentAccounts}
-                onEditPayment={() => closeThen(() => openCardTermsAt(selectedAccount.id, true))}
+                onEditPayment={() => closeThen(() => setCardPaymentId(selectedAccount.id))}
                 onEditRates={() => closeThen(() => openCardTermsAt(selectedAccount.id, true))}
               />}
               {!isManual && !isStatement && !isCredit && !isDebt && detailBalanceReady && (
