@@ -6,10 +6,11 @@ import PennyAppearanceIcon from "@/components/PennyAppearanceIcon";
 import PennyMark from "@/components/PennyMark";
 import { BRAND_GRADIENT } from "@/lib/brand";
 import { PENNY_APPEARANCES, type PennyAppearance } from "@/lib/pennyAppearance";
+import PhosphorNavIcon, { type NavTab } from "./PhosphorNavIcon";
 import styles from "./preview.module.css";
 
 type Variant = "a" | "b" | "c";
-type Tab = "home" | "spend" | "upcoming" | "planning";
+type Tab = NavTab;
 type PageName = Tab | "other" | "penny";
 type Example = "attention" | "quiet" | "payday" | "pending" | "off-tab";
 type Options = {
@@ -42,31 +43,6 @@ const EXAMPLES: { value: Example; label: string }[] = [
 ];
 const appearanceLabel = (appearance: PennyAppearance) => appearance[0].toUpperCase() + appearance.slice(1);
 
-/** One 24px optical grid and one stroke weight across the four new tab symbols. */
-function TabIcon({ tab, selected }: { tab: Tab; selected: boolean }) {
-  return <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-    {tab === "home" && <>
-      {selected && <path d="M5 10.2 12 4l7 6.2v8.1a1.7 1.7 0 0 1-1.7 1.7H6.7A1.7 1.7 0 0 1 5 18.3Z" fill="currentColor" opacity=".12" stroke="none" />}
-      <path d="m3.5 10.8 7.2-6.3a2 2 0 0 1 2.6 0l7.2 6.3M5.5 9.3v9.2A1.5 1.5 0 0 0 7 20h10a1.5 1.5 0 0 0 1.5-1.5V9.3M9.5 20v-6h5v6" />
-    </>}
-    {tab === "spend" && <>
-      {selected && <rect x="3.5" y="7.5" width="17" height="12" rx="3" fill="currentColor" opacity=".12" stroke="none" />}
-      <path d="M19.5 8H6a2.5 2.5 0 0 1-.4-5l10.2-1" transform="translate(0 3)" />
-      <path d="M3.5 8.5v9A2.5 2.5 0 0 0 6 20h12a2.5 2.5 0 0 0 2.5-2.5v-7A2.5 2.5 0 0 0 18 8H6M20.5 12h-4a2 2 0 0 0 0 4h4" />
-      <circle cx="16.5" cy="14" r=".65" fill="currentColor" stroke="none" />
-    </>}
-    {tab === "upcoming" && <>
-      {selected && <path d="M4 10h16v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2Z" fill="currentColor" opacity=".12" stroke="none" />}
-      <rect x="4" y="5.5" width="16" height="15" rx="3" />
-      <path d="M8 3.5v4M16 3.5v4M4 10.5h16M8.5 14.5h2M8.5 17h5M15 14.5h.5" />
-    </>}
-    {tab === "planning" && <>
-      {selected && <path d="M4 20v-5h5v-5h5V5h5v15Z" fill="currentColor" opacity=".12" stroke="none" />}
-      <path d="M4 20v-5h5v-5h5V5h5M9 15v5M14 10v10M3 20h18M16 3h5v5" />
-    </>}
-  </svg>;
-}
-
 function Rail({ options, appearance = options.appearance, label, onTab, onPenny }: {
   options: Options;
   appearance?: PennyAppearance;
@@ -96,7 +72,7 @@ function Rail({ options, appearance = options.appearance, label, onTab, onPenny 
       onClick={() => onTab(tab.id)}
     >
       <span className={styles.tabGlyph}>
-        <TabIcon tab={tab.id} selected={options.tab === tab.id} />
+        <PhosphorNavIcon tab={tab.id} selected={options.tab === tab.id} appearance={pending ? "pending" : appearance} />
         {tab.id === "upcoming" && attention && <span className={styles.attentionDot} aria-hidden="true" />}
       </span>
       <span className={styles.tabLabel}>{tab.label}</span>
@@ -240,10 +216,14 @@ export default function NavBarPreview({ initial }: { initial: Record<string, str
         <section className={styles.details} aria-label="About this proposal">
           <h2>{options.variant.toUpperCase()} · {current.name}</h2>
           <p className={styles.directionCopy}>{current.description}</p>
+          <div className={styles.iconSource}>
+            <a href="https://phosphoricons.com/" target="_blank" rel="noreferrer">Phosphor icon family<ArrowUpRight size={15} aria-hidden="true" /><span className="sr-only"> (opens a new tab)</span></a>
+            <p>Filled for Ink, outlined for Outline, duotone for Original. Penny keeps its own mark.</p>
+          </div>
           <div className={styles.comparisons}>
             <h3>The same bar, your Penny</h3>
             {(["ink", "outline", "original"] as const).map(appearance => <section key={appearance} className={styles.comparison} aria-label={`${appearanceLabel(appearance)} comparison`}>
-              <div className={styles.comparisonHeading}><h4>{appearanceLabel(appearance)}{appearance === "ink" && <span>Default</span>}</h4><p>{appearance === "ink" ? "Ink and a small marker" : appearance === "outline" ? "A fine outline around the current tab" : "An indigo accent, with Penny’s gradient"}</p></div>
+              <div className={styles.comparisonHeading}><h4>{appearanceLabel(appearance)}{appearance === "ink" && <span>Default</span>}</h4><p>{appearance === "ink" ? "A filled icon and a small marker" : appearance === "outline" ? "A fine outline around the current tab" : "An indigo duotone icon, with Penny’s gradient"}</p></div>
               <Rail options={options} appearance={appearance} label={`${appearanceLabel(appearance)} example navigation`} onTab={selectTab} onPenny={togglePenny} />
             </section>)}
           </div>

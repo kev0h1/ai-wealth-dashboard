@@ -34,7 +34,7 @@ const ROUTES: PreviewRoute[] = [
   {
     slug: "nav-bar",
     name: "Bottom navigation · G423",
-    description: "Three directions for the tab icons, active highlight and Penny launcher. A Quiet rail, B Soft dock, C Open rail. Each follows Original, Outline or Ink, with no separate saved setting. Try every tab, Penny open, attention dots and appearance loading in both themes. Synthetic examples only.",
+    description: "Phosphor icons sourced through Better Icons in three navigation proposals: A Quiet rail, B Soft dock, C Open rail. Each follows Original, Outline or Ink, with regular, filled and duotone tab icons. Try every tab, Penny open, attention dots and appearance loading in both themes. Synthetic examples only.",
     variants: [{ label: "A · Quiet rail", value: "a" }, { label: "B · Soft dock", value: "b" }, { label: "C · Open rail", value: "c" }],
     states: [{ label: "Payment attention", value: "attention" }, { label: "No dots", value: "quiet" }, { label: "Payday plan", value: "payday" }, { label: "Appearance loading", value: "pending" }, { label: "Account detail", value: "off-tab" }],
     group: "current",

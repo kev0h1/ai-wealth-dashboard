@@ -136,6 +136,10 @@
 .pennySample p { color: var(--muted); font-size: 13px; line-height: 1.5; }
 .details h2 { font-size: 20px; line-height: 1.3; font-weight: 700; }
 .directionCopy { margin-top: 8px; max-width: 50ch; font-size: 14px; line-height: 1.6; color: var(--muted); }
+.iconSource { margin-top: 12px; max-width: 50ch; }
+.iconSource a { display: inline-flex; align-items: center; gap: 6px; min-height: 44px; color: var(--accent); font-size: 13px; font-weight: 600; }
+.iconSource a:hover { text-decoration: underline; text-underline-offset: 3px; }
+.iconSource p { color: var(--muted); font-size: 12px; line-height: 1.5; }
 .comparisons { margin-top: 28px; }
 .comparisons > h3 { font-size: 14px; font-weight: 600; }
 .comparison { margin-top: 20px; }
