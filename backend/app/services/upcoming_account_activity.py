@@ -11,9 +11,35 @@ server already computes (`account_eligibility`).
 """
 from __future__ import annotations
 
+import logging
 from typing import Any, Iterable, Mapping
 
 from app.services.allocation_shortfall import _remaining_pence, has_plan_source
+
+logger = logging.getLogger(__name__)
+
+
+async def load_activity_inputs(uid: str) -> dict:
+    """Cached today positions, the stored /account-plans rows and the accounts
+    list (names, Left-to-spend exclusions). Reads only; any failure degrades to
+    events-only rather than failing the tool (H145)."""
+    out: dict = {"plans": [], "positions": {}, "excluded_account_ids": [], "names": {}}
+    try:
+        from app.routers.accounts import get_accounts
+        from app.services.account_names import display_account_name
+        from app.services.companion import _load_account_plans
+        from app.services.penny_consolidation import _load_today
+
+        eligibility = (await _load_today(uid)).get("account_eligibility")
+        out["positions"] = eligibility if isinstance(eligibility, dict) else {}
+        out["plans"] = await _load_account_plans(uid, goals=True)
+        for acc in await get_accounts(user={"email": uid}):
+            out["names"][str(acc.id)] = {"name": display_account_name(acc.name), "bank": acc.provider}
+            if acc.include_in_safe_to_spend is False:
+                out["excluded_account_ids"].append(str(acc.id))
+    except Exception:
+        logger.warning("upcoming_account_activity: inputs unavailable for %s", uid, exc_info=True)
+    return out
 
 
 def plan_still_draws(plan: Mapping[str, Any]) -> bool:

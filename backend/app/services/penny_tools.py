@@ -102,7 +102,7 @@ from app.services.categories import (
     EXCLUDED, get_category_kinds, is_non_spend, kind_of, normalise_name, resolve_category_name,
 )
 from app.services.account_names import display_account_name
-from app.services.upcoming_account_activity import by_account_with_activity
+from app.services.upcoming_account_activity import by_account_with_activity, load_activity_inputs
 from app.services.companion import compute_today_items, humanise_account_name
 from app.services.behaviour import compute_portrait as _compute_portrait
 from app.services.checkpoints import list_active as _list_active_checkpoints
@@ -2233,30 +2233,12 @@ async def _exec_get_upcoming_bills(uid: str) -> dict:
         return _tool_error("upcoming bills lookup failed")
     bills = resp.get("upcoming_bills") or []
     income = resp.get("upcoming_income") or []
-    # G420: cached positions, the stored /account-plans rows and the accounts
-    # list only (same readers as the other Penny tools, no live computation),
-    # fed through the same filters as the UI walk.
-    positions_for_activity: dict = {}
-    plans_for_activity: list = []
-    names_for_activity: dict = {}
-    excluded_for_activity: list = []
-    try:
-        from app.services.penny_consolidation import _load_today
-        from app.services.companion import _load_account_plans
-        from app.routers.accounts import get_accounts as _route_get_accounts
-        eligibility = (await _load_today(uid)).get("account_eligibility")
-        positions_for_activity = eligibility if isinstance(eligibility, dict) else {}
-        plans_for_activity = await _load_account_plans(uid, goals=True)
-        for acc in await _route_get_accounts(user={"email": uid}):
-            names_for_activity[str(acc.id)] = {"name": display_account_name(acc.name), "bank": acc.provider}
-            if acc.include_in_safe_to_spend is False:
-                excluded_for_activity.append(str(acc.id))
-    except Exception:
-        logger.warning("penny_tools: get_upcoming_bills activity inputs unavailable for %s", uid, exc_info=True)
+    # G420: cached/stored reads only, same filters as the UI walk (see the helper).
+    activity_inputs = await load_activity_inputs(uid)
     return {
         # G420: only accounts with something in the window (same rule as the
         # Upcoming By account list); an idle account is omitted, not listed.
-        "by_account": by_account_with_activity(bills, income, inflows=resp.get("internal_inflows") or [], plans=plans_for_activity, positions=positions_for_activity, excluded_account_ids=excluded_for_activity, names=names_for_activity),
+        "by_account": by_account_with_activity(bills, income, inflows=resp.get("internal_inflows") or [], **activity_inputs),
         "upcoming_bills": [
             {
                 "name": b.get("display_name") or b.get("name"), "key": b.get("name"),
