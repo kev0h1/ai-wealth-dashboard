@@ -1,0 +1,8 @@
+"use client";
+import { useEffect, useId, type ReactNode } from "react";
+import { BANK_META, BankBadge, bankKey, bankLogoSrc } from "@/components/AccountMiniCard";
+import styles from "./CardSettings.module.css";
+export function BankMark({ bank }: { bank: string }) { const meta = BANK_META[bankKey({ provider: bank })]; return <BankBadge logoSrc={bankLogoSrc(meta)} initials={meta?.initials ?? bank.slice(0, 2)} altText="" initialsSize={meta?.initialsSize} brandBg={meta?.bg} size={32} />; }
+export function CloseOnRequest({ requested, close }: { requested: boolean; close: () => void }) { useEffect(() => { if (requested) close(); }, [requested, close]); return null; }
+export function Choices<T extends string>({ label, value, options, onChange, pills = false }: { label: string; value: T; options: readonly { id: T; label: string; detail?: string }[]; onChange: (v: T) => void; pills?: boolean }) { const id = useId(); return <fieldset className={styles.group}><legend className={styles.fieldLabel}>{label}</legend><div className={`${styles.two} ${pills ? styles.pills : ""}`}>{options.map(o => <label className={styles.choice} key={o.id}><input type="radio" name={id} value={o.id} checked={value === o.id} onChange={() => onChange(o.id)} /><span className={styles.radio} aria-hidden="true" /><span><strong>{o.label}</strong>{o.detail && <small>{o.detail}</small>}</span></label>)}</div></fieldset>; }
+export function TextField({ label, children }: { label: string; children: ReactNode }) { return <label className={styles.field}><span className={styles.fieldLabel}>{label}</span>{children}</label>; }
