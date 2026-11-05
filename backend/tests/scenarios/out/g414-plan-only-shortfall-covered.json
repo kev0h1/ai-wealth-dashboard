@@ -42,6 +42,7 @@
           {
             "account_id": "acc-barclays",
             "amount": 110.0,
+            "display_label": "Barclays Current",
             "name": "Barclays Current"
           }
         ],
@@ -89,6 +90,7 @@
           {
             "account_id": "acc-barclays",
             "amount": 160.0,
+            "display_label": "Barclays Current",
             "name": "Barclays Current"
           }
         ],
@@ -341,6 +343,7 @@
             "from": {
               "account_id": "acc-barclays",
               "balance": 1500.0,
+              "display_label": "Barclays Current",
               "name": "Barclays Current",
               "provider": "barclays",
               "reserved_for_allocations": 0.0,
@@ -388,6 +391,7 @@
               "from": {
                 "account_id": "acc-barclays",
                 "balance": 1500.0,
+                "display_label": "Barclays Current",
                 "name": "Barclays Current",
                 "provider": "barclays",
                 "reserved_for_allocations": 0.0,

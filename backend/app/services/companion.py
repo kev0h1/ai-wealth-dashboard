@@ -2602,7 +2602,7 @@ async def compute_today_items(
     _acct_proj = {"name": 1, "balance": 1, "current_balance": 1, "available_balance": 1,
                   "subtype": 1, "account_subtype": 1, "type": 1, "provider": 1, "currency": 1,
                   "nickname": 1, "display_name": 1, "include_in_safe_to_spend": 1,
-                  "status": 1}
+                  "status": 1, "account_number": 1, "sort_code": 1}
     wi = await build_window_inputs(
         uid, resp, prefs,
         load_balances=user_accounts_loader(
@@ -3156,9 +3156,42 @@ async def compute_today_items(
     # equal-headroom accounts still resolve the same way every run) and it
     # leaves the healthiest remaining balance in the source(s) used, since
     # spare headroom is what's left over.
-    def _find_legs_for_destination(dest_acct: str, amount_needed: float, build_move_map) -> list[dict]:
+    def _same_bank_account(a: dict | None, b: dict | None) -> bool:
+        """G421: True when two account docs are the same real account under two
+        ids (a Finexer and a TrueLayer link, or a stale duplicate): the same
+        sort code and account number, or the same bank, the same name and the
+        same trailing digits. Never a guess from the name alone."""
+        if not a or not b:
+            return False
+        if a.get("_str_id") and a.get("_str_id") == b.get("_str_id"):
+            return True
+        from app.services.own_account_transfers import counterparty_key
+        ka = counterparty_key(a.get("sort_code"), a.get("account_number"))
+        if ka is not None and ka == counterparty_key(b.get("sort_code"), b.get("account_number")):
+            return True
+        from app.services.card_names import last_four
+        la, lb = last_four(a.get("account_number")), last_four(b.get("account_number"))
+        name_a = " ".join(str(a.get("name") or "").lower().split())
+        name_b = " ".join(str(b.get("name") or "").lower().split())
+        return bool(
+            la and la == lb and name_a and name_a == name_b
+            and _bank_name_of(a.get("provider")) == _bank_name_of(b.get("provider"))
+        )
+
+    # G421 (Kevin 2026-11-05): a suggested cover uses at most two sources. One
+    # account with room covers it alone (largest headroom first); otherwise the
+    # two largest, and if even those cannot cover the amount the move covers
+    # what it can and the rest stays as short_after_cover. A move never has
+    # the destination as a source, under any of its ids.
+    _MAX_COVER_SOURCES = 2
+
+    def _find_legs_for_destination(dest_acct: str, amount_needed: float, build_move_map, existing_sources: frozenset = frozenset()) -> list[dict]:
         legs: list[dict] = []
         used_sources: set[str] = set()   # belt-and-braces: one source per destination
+        _dest_doc = _account_map.get(dest_acct)
+        # A source already on the destination's card (payment legs, then a plan
+        # top-up) does not take a new slot.
+        slots = max(0, _MAX_COVER_SOURCES - len(existing_sources))
 
         def _live_class(accounts, predicate):
             # Account-intrinsic usability (the £5 headroom floor and the
@@ -3172,6 +3205,8 @@ async def compute_today_items(
             for acc in accounts:
                 sid = acc["_str_id"]
                 if sid == dest_acct or sid in excluded_sources or sid in used_sources:
+                    continue
+                if _same_bank_account(acc, _dest_doc):
                     continue
                 if not predicate(acc):
                     continue
@@ -3227,45 +3262,30 @@ async def compute_today_items(
         for accounts, predicate in class_specs:
             if remaining <= 0:
                 break
-            # Re-read live capacity each class — headroom shrinks and
+            # Re-read live capacity each class: headroom shrinks and
             # `used_sources` grows as earlier classes/legs commit.
             live = _live_class(accounts, predicate)
             if not live:
                 continue
-
-            class_total = sum(headroom for _sid, _acc, headroom in live)
-            if class_total < remaining:
-                # This class, even combined, falls short — take all of it and
-                # carry the residual into the next class down the ranking.
-                for sid, acc, headroom in live:
-                    if remaining <= 0:
-                        break
-                    leg_amount = min(remaining, headroom)
-                    if leg_amount < remaining:
-                        leg_amount = math.floor(leg_amount / 5) * 5
-                    if leg_amount < 5:
-                        continue
-                    legs.append(_make_leg(sid, acc, leg_amount))
-                    source_capacity[sid] = source_capacity.get(sid, 0.0) - leg_amount
-                    used_sources.add(sid)
-                    remaining -= leg_amount
-                continue
-
-            # This class alone can cover what's left — use the fewest
-            # sources that do it: the smallest headroom-descending prefix
-            # whose combined headroom reaches `remaining` (size 1 whenever a
-            # single source has the capacity, since that's always the first
-            # prefix checked).
+            # Fewest sources: the smallest headroom-descending prefix that
+            # covers `remaining` (one whenever a single source can), never more
+            # than the free slots. A source already on this card is free.
             cum = 0.0
             chosen = []
+            new_used = 0
             for cand in live:
+                is_new = cand[0] not in existing_sources
+                if is_new and new_used >= slots:
+                    continue
                 chosen.append(cand)
+                new_used += 1 if is_new else 0
                 cum += cand[2]
                 if cum >= remaining:
                     break
+            covers = cum >= remaining
             leg_remaining = remaining
             for i, (sid, acc, headroom) in enumerate(chosen):
-                is_final = i == len(chosen) - 1
+                is_final = covers and i == len(chosen) - 1
                 leg_amount = min(leg_remaining, headroom)
                 if not is_final and leg_amount < leg_remaining:
                     leg_amount = math.floor(leg_amount / 5) * 5
@@ -3275,8 +3295,10 @@ async def compute_today_items(
                 source_capacity[sid] = source_capacity.get(sid, 0.0) - leg_amount
                 used_sources.add(sid)
                 leg_remaining -= leg_amount
+            slots = max(0, slots - new_used)
             remaining = leg_remaining
-            break
+            if covers or slots <= 0:
+                break
         return legs
 
     # Step 3: For every shortfall, find a source (split across multiple if needed)
@@ -4550,7 +4572,7 @@ async def compute_today_items(
                 _src_id = _l["move_map"]["from"]["account_id"]
                 _src_name = _l["move_map"]["from"]["name"]
                 _amt = round(float(_l["amount"]), 2)
-                _from_rows.append({"account_id": _src_id, "name": _src_name, "amount": _amt})
+                _from_rows.append({"account_id": _src_id, "name": _src_name, "amount": _amt, "display_label": _l["move_map"]["from"].get("display_label")})
                 _src_entry = account_eligibility_out.get(_src_id)
                 # Same guard as the `spend_from_headroom` reserve above: an uncertain
                 # source shows no deduction against an unchanged Available.
@@ -4668,6 +4690,7 @@ async def compute_today_items(
                         "from": {
                             "account_id": src_id, "name": src_name, "provider": src_provider,
                             "balance": float(src_balance), "safe_note": safe_note,
+                            "display_label": _dl(src_id),
                             "reserved_for_allocations": round(src_reserved, 2),
                         },
                         "to": {
@@ -5364,6 +5387,7 @@ async def compute_today_items(
                             "from": {
                                 "account_id": src_id, "name": humanise_account_name(src_name), "provider": src_provider,
                                 "balance": float(src_balance),
+                                "display_label": _dl(src_id),
                                 "safe_note": (
                                     f"Covers its own £{int(round(src_own_bills)):,} of bills with room to spare"
                                     if src_own_bills > 0 else "Nothing due from this account right now"
@@ -5397,7 +5421,13 @@ async def compute_today_items(
                     _combined_target = float(_ceil5(_payment_gap + _gap) + 10)
                     _already_covered = float(_existing_move.get("amount") or 0.0) if _existing_move else 0.0
                     _incremental_needed = max(0.0, _combined_target - _already_covered)
-                    _legs = _find_legs_for_destination(_pay_id, _incremental_needed, _build_alloc_move_map)
+                    _legs = _find_legs_for_destination(
+                        _pay_id, _incremental_needed, _build_alloc_move_map,
+                        existing_sources=frozenset(
+                            str(((_m.get("move_map") or {}).get("from") or {}).get("account_id") or "")
+                            for _m in ((_existing_move or {}).get("moves") or [])
+                        ),
+                    )
                     _covered = round(sum(float(l["amount"]) for l in _legs), 2)
                     # G414: a plan gap gets the same useful, possibly partial
                     # cover recommendation as a payment gap.  The plan edit
@@ -5443,7 +5473,7 @@ async def compute_today_items(
                             _src_id = _leg["move_map"]["from"]["account_id"]
                             _src_name = _leg["move_map"]["from"]["name"]
                             _amt = round(float(_leg["amount"]), 2)
-                            _from_rows.append({"account_id": _src_id, "name": _src_name, "amount": _amt})
+                            _from_rows.append({"account_id": _src_id, "name": _src_name, "amount": _amt, "display_label": _leg["move_map"]["from"].get("display_label")})
                             _src = account_eligibility_out.get(_src_id)
                             if _src is not None and not _src.get("uncertain"):
                                 _src["spend_from_headroom"] = round(float(_src.get("spend_from_headroom") or 0) - _amt, 2)

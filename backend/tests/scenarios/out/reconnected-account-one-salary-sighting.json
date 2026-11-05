@@ -12,6 +12,7 @@
           {
             "account_id": "acc-st",
             "amount": 910.0,
+            "display_label": "Starling Personal",
             "name": "Starling Personal"
           }
         ],

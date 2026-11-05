@@ -1183,11 +1183,11 @@ def test_single_source_suggestion_carries_one_leg_summing_to_the_total(monkeypat
     assert sum(s["amount"] for s in sources) == move["suggested_amount"] == 70
 
 
-def test_three_source_suggestion_carries_three_legs_summing_to_the_total(monkeypatch):
+def test_three_small_sources_are_capped_at_two_legs_summing_to_the_total(monkeypatch):
     """Three current accounts with £25 headroom each (£35 balance - £10
-    buffer): no pair reaches the £70 need (25+25=50), so the fewest-legs
-    picker must take all three. Kevin's own real shape (2026-09-11): £70
-    suggested across 3 accounts to cover £100 to American Express."""
+    buffer) against a £70 need: no pair reaches it (25+25=50). G421 (Kevin
+    2026-11-05): a suggestion uses at most two sources, so the move covers what
+    two can (£50) and says so, never a three-account and-chain."""
     accounts = [
         _account("premier", 44.68, name="Premier Current Account"),
         _account("accta", 35.0, name="Acct A", provider="natwest"),   # headroom 25
@@ -1198,14 +1198,11 @@ def test_three_source_suggestion_carries_three_legs_summing_to_the_total(monkeyp
                        pending=True, days_past_due=2, original_date="2026-09-09")]
     items, _ = _run(monkeypatch, bills, accounts=accounts)
     move = _find(items, "unfunded_move")["moves"][0]
-    assert move["suggested_from_count"] == 3
+    assert move["suggested_from_count"] == 2
     sources = move["suggested_sources"]
-    assert len(sources) == 3
-    assert {s["name"] for s in sources} == {"Acct A", "Acct B", "Acct C"}
-    assert {s["provider"] for s in sources} == {"natwest", "monzo", "hsbc"}
-    # Sanity-check the legs sum: a breakdown that doesn't match its own
-    # total is worse than no breakdown.
-    assert sum(s["amount"] for s in sources) == move["suggested_amount"] == 70
+    assert len(sources) == 2
+    # A breakdown that doesn't match its own total is worse than no breakdown.
+    assert sum(s["amount"] for s in sources) == move["suggested_amount"] == 50
 
 
 def test_no_viable_source_suggestion_carries_no_sources(monkeypatch):

@@ -37,6 +37,7 @@
           {
             "account_id": "acc-hc",
             "amount": 200.0,
+            "display_label": "Barclays Harbour Current",
             "name": "Harbour Current"
           }
         ],

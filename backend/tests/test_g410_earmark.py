@@ -49,7 +49,8 @@ def test_earmark_applied_to_source_and_destination(monkeypatch):
     assert src["spend_from_headroom"] == round(src["after_payments_and_plans"] - 290.0, 2)
     assert dest["covered_by_move"] == {
         "amount": 290.0,
-        "from": [{"account_id": "src", "name": "Harbour Current", "amount": 290.0}],
+        "from": [{"account_id": "src", "name": "Harbour Current", "amount": 290.0,
+                  "display_label": "Barclays Harbour Current"}],  # G421: the G337 label
         "shortfall": 276.0,  # the S3.1 figure the move was sized from
     }
 

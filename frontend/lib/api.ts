@@ -1943,7 +1943,7 @@ export type AccountEligibility = {
   // above are untouched; display only.
   earmarks_out?: { to_account_id: string; to_name: string; amount: number }[];
   earmarked_total?: number;
-  covered_by_move?: { amount: number; shortfall?: number; from: { account_id: string; name: string; amount: number }[] };
+  covered_by_move?: { amount: number; shortfall?: number; from: { account_id: string; name: string; amount: number; display_label?: string | null }[] };
   short_after_cover?: number;
 };
 

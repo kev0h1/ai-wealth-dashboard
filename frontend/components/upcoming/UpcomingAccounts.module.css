@@ -16,6 +16,9 @@
 .rowFigure { text-align:right; max-width:130px; }
 .rowFigure > strong { font-size:18px; line-height:1.4; font-weight:700; white-space:nowrap; }
 .rowCaption { display:flex; align-items:center; justify-content:flex-end; gap:4px; font-size:11px; line-height:1.5; color:var(--sheet-muted); margin-top:3px; }
+.moveRows { grid-column:2/-1; margin-top:2px; display:grid; gap:2px; font-size:12px; line-height:1.5; color:var(--sheet-muted); }
+.moveRow { display:flex; justify-content:space-between; gap:12px; }
+.moveRow strong { font-weight:600; font-variant-numeric:tabular-nums; }
 .rowNote { grid-column:2/-1; font-size:12px; line-height:1.6; color:var(--sheet-muted); overflow-wrap:anywhere; }
 .watch { color:#b45309; flex-shrink:0; }
 .risk { color:#be123c; flex-shrink:0; }
@@ -93,4 +96,4 @@
 .card :is(.accountRow,.fineToggle):focus-visible { outline-offset:-2px; border-radius:8px; }
 .card :is(button,summary),.sheetBody :is(button,summary),.done { touch-action:manipulation; -webkit-tap-highlight-color:transparent; }
 .card ::selection,.sheetBody ::selection { color:#fff; background:#4f46e5; }
-@media(max-width:359px) { .accountRow { column-gap:8px; padding-inline:12px; } .rowFigure > strong { font-size:16px; } .rowCaption { max-width:100px; } .rowNote { grid-column:1/-1; } .eventRow,.planRow { gap:8px; } .eventAmount { font-size:12px; } }
+@media(max-width:359px) { .moveRows { grid-column:1/-1; } .accountRow { column-gap:8px; padding-inline:12px; } .rowFigure > strong { font-size:16px; } .rowCaption { max-width:100px; } .rowNote { grid-column:1/-1; } .eventRow,.planRow { gap:8px; } .eventAmount { font-size:12px; } }

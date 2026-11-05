@@ -44,7 +44,7 @@ export function suggestedMovesFor(account: UpcomingAccountSummary): UpcomingSugg
   }
   for (const move of liveCover(account)?.from ?? []) {
     const id = `suggested:${move.accountId}:${account.id}`;
-    moves.push({ id, counterpartId: move.accountId, counterpartName: cachedName(id, move.name), amount: move.amount, byDate: validDay(account.firstShortDate) ?? cachedDate(id) });
+    moves.push({ id, counterpartId: move.accountId, counterpartName: move.label ?? cachedName(id, move.name), amount: move.amount, byDate: validDay(account.firstShortDate) ?? cachedDate(id), ...(move.label ? { labelled: true } : {}) });
   }
   // The engine normally coalesces these, but cached older responses may not.
   const grouped = new Map<string, UpcomingSuggestedMove>();
@@ -78,7 +78,7 @@ function withSuggestedMoves(accounts: UpcomingAccountSummary[], items: readonly 
   }
   return accounts.map(account => ({ ...account, suggestedMoves: suggestedMovesFor({ ...account, suggestedMoves: undefined }).map(move => ({
     ...move, byDate: deadline(move.amount < 0 ? account.id : move.counterpartId, move.amount < 0 ? move.counterpartId : account.id, move.amount),
-    counterpartName: counterpartName(accounts, move.counterpartId, move.counterpartName),
+    counterpartName: move.labelled ? move.counterpartName : counterpartName(accounts, move.counterpartId, move.counterpartName),
   })) }));
 }
 
@@ -113,7 +113,7 @@ export function withCoverSuggestions(
         coverSuggestion: {
           amount: covered.amount,
           shortfall: Math.max(covered.shortfall ?? 0, paymentGap),
-          fromName: counterpartName(accounts, covered.from[0].accountId, covered.from[0].name),
+          fromName: covered.from[0].label ?? counterpartName(accounts, covered.from[0].accountId, covered.from[0].name),
           fromCount: new Set(covered.from.map((f) => f.accountId)).size,
           shortAfterCover: Math.max(after, paymentResidual),
         },

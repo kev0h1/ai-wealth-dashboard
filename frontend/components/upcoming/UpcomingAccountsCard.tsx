@@ -8,7 +8,7 @@ import type { UpcomingAccountSummary } from "@/lib/upcomingAccounts";
 import type { Plan } from "@/lib/upcomingPlans";
 import { useBalancesHidden, maskMoneyText } from "@/lib/balancesHidden";
 import { FINE_FOLD_KEY } from "@/lib/upcomingAccountStatus";
-import { accountActionNote, accountActionReading, accountSummaryMoney } from "@/lib/upcomingAccountPresentation";
+import { accountActionNote, accountActionReading, accountMoveRows, accountSummaryMoney } from "@/lib/upcomingAccountPresentation";
 import { AccountMoney, AccountSignal } from "./accountPresentation";
 import MoneyText from "@/components/MoneyText";
 import styles from "./UpcomingAccounts.module.css";
@@ -29,13 +29,16 @@ function AccountRow({ account, reading, onOpen }: { account: UpcomingAccountSumm
   const meta = BANK_META[bankKey({ provider: account.bank })];
   const note = accountActionNote(account, reading);
   const detail = gap > 0 ? earlierGap ? "short before payday" : paymentGap > 0 ? "short for payments" : transferGap > 0 ? "short for transfers" : "short for plans" : caption.toLowerCase();
-  const label = `Open ${account.bank}, ${displayAccountName(account.name)}: ${headline === null ? "Not yet known" : accountSummaryMoney(headline)}, ${detail}. ${note}${reading.result.estimated ? " Estimated paying account." : ""}`;
+  const moveRows = accountMoveRows(reading.moves);
+  const moveText = moveRows.length ? ` Move in: ${moveRows.map(row => `${row.name} ${row.amount}`).join(", ")}.` : "";
+  const label = `Open ${account.bank}, ${displayAccountName(account.name)}: ${headline === null ? "Not yet known" : accountSummaryMoney(headline)}, ${detail}. ${note}${moveText}${reading.result.estimated ? " Estimated paying account." : ""}`;
   return <button type="button" data-account-row={account.id} onClick={() => onOpen(account)} aria-label={maskMoneyText(label, hidden)} className={styles.accountRow}>
     <span data-bank-badge><BankBadge logoSrc={bankLogoSrc(meta)} initials={meta?.initials ?? account.bank.slice(0, 2).toUpperCase()} initialsSize={meta?.initialsSize} altText="" brandBg={meta?.bg} size={32} /></span>
     <span className={styles.identity}><strong>{account.bank}</strong><span>{displayAccountName(account.name)}</span></span>
     <span className={styles.rowFigure}><strong data-status-amount><AccountMoney pence={headline} /></strong><span data-status-caption className={styles.rowCaption}><AccountSignal signal={signal} />{caption}</span></span>
     <ChevronRight size={14} className={styles.muted} aria-hidden="true" />
     {(signal || reading.result.estimated) && <span className={styles.rowNote}><MoneyText text={maskMoneyText(note, hidden)} /></span>}
+    {moveRows.length > 0 && <span data-move-rows className={styles.moveRows}>{moveRows.map(row => <span key={row.name} className={styles.moveRow}><span>{row.name}</span><strong><MoneyText text={maskMoneyText(row.amount, hidden)} /></strong></span>)}</span>}
   </button>;
 }
 

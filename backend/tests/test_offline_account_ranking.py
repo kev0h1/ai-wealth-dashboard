@@ -322,27 +322,37 @@ def test_connected_account_preferred_over_offline_at_equal_headroom(monkeypatch)
 # ── The case that drove the old behaviour still holds ───────────────────────
 
 def test_offline_savings_only_reached_once_current_accounts_are_exhausted(monkeypatch):
-    """TWO connected current accounts, neither alone big enough to cover
-    the gap (£100 and £50 headroom against a £220 need, `_ceil5(shortfall)
-    + 10` per `compute_today_items`, from a £210 bill), so the current
-    class's combined headroom (£150) still falls £70 short. An offline
-    SAVINGS pot with ample headroom (£4,990) also exists. The engine must
-    drain BOTH connected current accounts in full before carrying the £70
-    residual into the savings class, where the offline pot picks it up.
+    """ONE connected current account, not big enough alone (£100 headroom
+    against a £220 need, `_ceil5(shortfall) + 10` per `compute_today_items`,
+    from a £210 bill). An offline SAVINGS pot with ample headroom (£4,990)
+    also exists. The engine drains the current account in full before carrying
+    the £120 residual into the savings class (G421: two sources at most, so
+    current account plus the pot). Savings is never first."""
+    accounts = [
+        _account("premier", 0.0, name="Premier Current"),
+        _account("conn_a", 110.0, name="Connected Current A", provider="hsbc"),
+    ]
+    manual_accounts = [_manual("piggy", 5000.0, account_type="savings", name="Offline Savings")]
+    bills = [_bill("Rent", 2, 210.0, "premier", 0.0, kind="commitment")]
 
-    This is the case the previous version of this test claimed to cover
-    but did not: with only one connected current account (which alone
-    covered the whole bill), the current class was never actually
-    exhausted, so the test proved nothing about what happens once it is.
-    Here the current class is only exhausted in combination, and the
-    offline savings pot is only reached after that combination is spent.
+    items = _run(monkeypatch, bills, accounts=accounts, manual_accounts=manual_accounts)
 
-    Proof this discriminates: temporarily restricting `_live_class`'s
-    "class alone can't cover it" branch (around companion.py's
-    `_find_legs_for_destination`) to spend only the single highest-headroom
-    account instead of the whole class makes this test fail (`conn_b`
-    never appears; the residual the engine then hands to the offline pot
-    is wrong), which is what "exhausted in combination" is checking for."""
+    move = _find(items, "move")
+    assert move is not None
+    leg_ids = _leg_source_ids(move)
+    assert leg_ids == {"conn_a", "piggy"}
+
+    amount_by_source = {
+        m["move_map"]["from"]["account_id"]: m["amount"] for m in move["moves"]
+    }
+    assert amount_by_source["conn_a"] == 100
+    assert amount_by_source["piggy"] == 120
+
+
+def test_two_current_accounts_fill_both_slots_so_savings_is_not_reached(monkeypatch):
+    """G421: two current accounts that cannot cover the gap together use both
+    source slots; the move covers what they can and never adds a third source,
+    even an offline savings pot with room."""
     accounts = [
         _account("premier", 0.0, name="Premier Current"),
         _account("conn_a", 110.0, name="Connected Current A", provider="hsbc"),
@@ -355,14 +365,6 @@ def test_offline_savings_only_reached_once_current_accounts_are_exhausted(monkey
 
     move = _find(items, "move")
     assert move is not None
-    leg_ids = _leg_source_ids(move)
-    assert leg_ids == {"conn_a", "conn_b", "piggy"}
-
-    amount_by_source = {
-        m["move_map"]["from"]["account_id"]: m["amount"] for m in move["moves"]
-    }
-    # Both connected current accounts drained to their full headroom...
-    assert amount_by_source["conn_a"] == 100
-    assert amount_by_source["conn_b"] == 50
-    # ...and the offline pot picks up exactly the residual, not before.
-    assert amount_by_source["piggy"] == 70
+    assert _leg_source_ids(move) == {"conn_a", "conn_b"}
+    amount_by_source = {m["move_map"]["from"]["account_id"]: m["amount"] for m in move["moves"]}
+    assert amount_by_source == {"conn_a": 100, "conn_b": 50}
