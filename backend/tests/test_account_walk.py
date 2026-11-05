@@ -453,6 +453,13 @@ def test_caller_output_equals_pre_extraction_golden(monkeypatch, name):
             golden["events_unsorted"], key=lambda e: (e[0], 0 if e[3] else 1)
         )
         got["events_unsorted"] = sorted(got["events_unsorted"], key=lambda e: (e[0], 0 if e[3] else 1))
+    if name == "companion":
+        # G421 added one display-only field to each covered_by_move source row
+        # (the G337 label); strip only it, everything else is the old output.
+        got = json.loads(json.dumps(got))
+        for entry in (got.get("eligibility") or {}).values():
+            for row in (entry.get("covered_by_move") or {}).get("from", []):
+                row.pop("display_label", None)
     assert got == golden
 
 
