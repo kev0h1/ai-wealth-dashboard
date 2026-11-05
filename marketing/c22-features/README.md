@@ -2,6 +2,8 @@
 
 Creative review draft. UAT approval is pending. No advert has been approved or published.
 
+The 5 November 2026 refresh regenerates all six stories in the agreed style from final production components, with Coming soon film endings. The original stories are also refreshed in this round. Current store formats and combined delivery evidence are in [the store refresh notes](../c22-store/README.md); earlier preservation claims below refer to the October extension only.
+
 This approved extension adds six story directions to the existing C22 campaign kit: Movement, Month, Spend, Split, Penny and Aside. Each direction has a light and dark feed still and a light and dark story still, producing 24 new PNGs. Each direction also has a light and dark edited 15-second MP4, producing 12 new films. The original 12 PNGs and 4 MP4s remain available, for 36 PNGs and 16 MP4s across the preserved and new rounds.
 
 ## Source, meaning and motion

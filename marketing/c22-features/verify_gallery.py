@@ -21,7 +21,7 @@ PLAY = """async v => {
  const pixels=drawing.getImageData(0,0,108,192).data;let low=255,high=0;
  for(let i=0;i<pixels.length;i+=4){const value=(pixels[i]+pixels[i+1]+pixels[i+2])/3;low=Math.min(low,value);high=Math.max(high,value);}
  for(const t of v.textTracks)t.mode='hidden';
- return {width:v.videoWidth,height:v.videoHeight,duration:v.duration,elapsed,seek:v.currentTime,tracks:v.textTracks.length,cues:v.textTracks[0]?.cues?.length,frameContrast:high-low};
+ return {width:v.videoWidth,height:v.videoHeight,duration:v.duration,elapsed,seek:v.currentTime,tracks:v.textTracks.length,cues:v.textTracks[0]?.cues?.length,frameContrast:high-low,lastCaption:[...(v.textTracks[0]?.cues??[])].at(-1)?.text};
 }"""
 
 def main():
@@ -66,6 +66,7 @@ def main():
     assert (result["width"],result["height"],result["tracks"],result["cues"])==(1080,1920,1,5),result
     assert abs(result["duration"]-15)<.06 and result["elapsed"]>0 and result["seek"]==9,result
     assert result["frameContrast"]>80,result
+    assert "Coming soon" in result["lastCaption"],result
     playback.append({"story":feature,"theme":theme,**result})
     layout(390);page.screenshot(path=str(REVIEW/f"feature-{feature}-{theme}-phone.png"),full_page=True)
     print("Played",feature,theme,flush=True)
@@ -75,6 +76,7 @@ def main():
     page.locator("video").nth(index).scroll_into_view_if_needed()
     result=page.locator("video").nth(index).evaluate(PLAY)
     assert result["elapsed"]>0 and result["cues"]==5 and result["frameContrast"]>80,result
+    assert "Coming soon" in result["lastCaption"],result
     playback.append({"story":story,"theme":theme,**result})
   # Rapid sequential controls must preserve all three URL parameters.
   page.get_by_role("button",name="Light",exact=True).click()

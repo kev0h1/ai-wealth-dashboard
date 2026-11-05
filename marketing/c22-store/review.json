@@ -1,0 +1,84 @@
+{
+  "item": "C22",
+  "round": "store",
+  "date": "2026-11-05",
+  "status": "creative-review-only",
+  "scope": "Ordinary campaign extension; DESIGN.md and .impeccable/design.json remain governing.",
+  "deliverables": {
+    "newStorePngs": 66,
+    "storeZipArchives": 10,
+    "refreshedInstagramStills": 36,
+    "films": 16,
+    "themes": [
+      "light",
+      "dark"
+    ],
+    "phoneFormats": [
+      {
+        "platform": "Apple",
+        "width": 1206,
+        "height": 2622
+      },
+      {
+        "platform": "Apple",
+        "width": 1320,
+        "height": 2868
+      },
+      {
+        "platform": "Apple",
+        "width": 1242,
+        "height": 2688
+      },
+      {
+        "platform": "Google Play",
+        "width": 1080,
+        "height": 1920
+      }
+    ],
+    "featureGraphics": [
+      {
+        "width": 1024,
+        "height": 500
+      },
+      {
+        "width": 1024,
+        "height": 500
+      }
+    ]
+  },
+  "creativeReview": {
+    "reviewer": "store_creative_review",
+    "verdict": "ship",
+    "fixesApplied": [
+      "Replaced the saved short aside row with the full actual review form.",
+      "Fixed feature-graphic text overlap."
+    ],
+    "findingClarified": "The alleged missing Save label was a media-viewer artefact; identical 817-white-pixel crops in both themes proved it visible.",
+    "scope": "Store image sequence, the two resolved material fixes, current-UI film held frames and responsive gallery evidence; not a whole-app or continuous-viewing audit."
+  },
+  "checks": {
+    "localStoreValidator": "pass: 66 exact-size RGB PNGs, source hashes, proof manifests and ZIP integrity",
+    "originalFilmDecode": "pass: 4 films, 450 frames, H.264/AAC full decode",
+    "scopedESLint": "pass",
+    "typescript": "pass",
+    "designIndex": "pass: 63",
+    "designStale": "pass",
+    "devBrowserGallery": "pass: 8 actual ZIPs at 320, 390 and 1440px in both themes",
+    "productionSourceFreshness": "pass: 58 tracked proof dependencies match current shared app source",
+    "impeccableDetector": "pass: no findings",
+    "featureFilmDecode": "pass: 12 films, 450 frames each, H.264/AAC, full decode and measured non-silent audio",
+    "productionBuild": "pass: Next.js 16.4.2 build and TypeScript",
+    "productionStoreBrowser": "pass: both themes, four sizes, eight actual ZIP downloads, decoded images and 320/390/1440 layouts",
+    "productionFilmBrowser": "pass: all 16 MP4s play, pause, seek and decode non-blank pictures, five caption cues each, Coming soon endings, filters and archive routes",
+    "repositoryHandoff": "scripts/session.sh finish C22 --uat-review runs the required backend, TypeScript and frontend gates; its result is recorded on the C22 board"
+  },
+  "pending": [
+    "C5 native-build parity and store-console submission review",
+    "Final placement and publication approval"
+  ],
+  "boundaries": [
+    "Store screenshots are preview/media evidence, not native simulator captures.",
+    "Fictional data is pinned to 8 October 2026; no bank writes and no image generation.",
+    "Do not describe this as a whole-app review."
+  ]
+}

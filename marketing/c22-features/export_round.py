@@ -1,5 +1,6 @@
 """Freeze real fixture-only UI states, then export the six new image stories."""
 import argparse
+import datetime
 import hashlib
 import io
 import json
@@ -17,14 +18,22 @@ KINDS = ("movement", "penny-request", "penny-proposal", "penny-done", "aside-for
 SHELL = {"/api/cashflow/at-risk-count": {"count": 0}, "/api/categories": [], "/api/preferences": {"hide_net_worth": False}}
 DEPENDENCIES = [
  "frontend/app/month/story/StoryPlayer.tsx", "frontend/components/HomeBrief.tsx",
+ "frontend/components/MoveRoute.tsx", "frontend/components/AccountMiniCard.tsx",
  "frontend/components/PennyConversation.tsx", "frontend/components/SetAsideSheet.tsx",
  "frontend/components/upcoming/SetAsideList.tsx", "frontend/components/SheetFrame.tsx",
  "frontend/components/AccountRadioPicker.tsx", "frontend/components/SpendPaceHero.tsx",
  "frontend/components/SpendHeader.tsx", "frontend/components/SpendShapeCard.tsx",
  "frontend/components/PaySplitComparison.tsx", "frontend/components/PaySplitComparison.module.css",
  "frontend/components/PaySplitBeyond.tsx", "frontend/lib/paySplitReference.ts",
- "frontend/lib/setAsideDisplay.ts", "frontend/app/spend/shape/MoneyShapeHero.tsx",
- "frontend/app/globals.css", "frontend/components/MoneyText.tsx",
+ "frontend/lib/setAsideDisplay.ts", "frontend/lib/upcomingPlans.ts",
+ "frontend/lib/companionItems.ts", "frontend/lib/coverPlanDue.ts",
+ "frontend/lib/spendHero.ts", "frontend/lib/spendPeriod.ts",
+ "frontend/lib/balancesHidden.ts", "frontend/lib/categories.ts",
+ "frontend/lib/categoryIcons.ts", "frontend/lib/useCountUp.ts",
+ "frontend/app/spend/shape/MoneyShapeHero.tsx", "frontend/app/globals.css",
+ "frontend/components/MoneyText.tsx", "frontend/components/AllocationFields.tsx",
+ "frontend/components/plans/PlanEditorSummary.tsx", "frontend/components/plans/PlanTrackingMethod.tsx",
+ "frontend/components/plans/PlanCategoryTracking.tsx",
  "frontend/app/design/marketing-kit/features/ActionProof.tsx",
  "frontend/app/design/marketing-kit/features/action-fixtures.ts",
  "frontend/app/design/marketing-kit/features/InsightProof.tsx",
@@ -67,6 +76,8 @@ def main():
    else: route.continue_()
   context.route("**/*", guard)
   page = context.new_page()
+  # Keep the fixture period current without pausing timers needed by the UI.
+  page.clock.set_fixed_time(datetime.datetime(2026, 10, 8, 12, tzinfo=datetime.UTC))
   page.on("pageerror", lambda e: errors.append(str(e)))
   page.on("response", lambda r: errors.append(f"HTTP {r.status}: {r.url}") if r.status >= 400 else None)
   def visit(query):
@@ -85,7 +96,9 @@ def main():
      visit({"feature-proof": kind, "mode": theme})
      target = page.locator("[data-feature-proof]").first
      if kind == "aside-form":
-      page.get_by_role("button", name="An envelope", exact=False).click()
+      # The final sheet calls this plan type "A set-aside". Selecting the
+      # shipped control keeps the subsequent fixture flow inside real UI.
+      page.get_by_role("button", name="A set-aside", exact=False).click()
       page.get_by_label("What are you setting money aside for?").fill("Annual costs")
       page.get_by_role("button", name="Continue", exact=True).click()
       page.get_by_label("Amount", exact=True).fill("200")
@@ -99,8 +112,14 @@ def main():
      path = "ActionProof.tsx" if kind in {"movement", "penny-request", "penny-proposal", "aside-form"} else "InsightProof.tsx"
      item_origin = {**origin, "kind": "proof", "feature": kind, "theme": theme, "source": "frontend/app/design/marketing-kit/features/" + path}
      if kind == "spend-detail":
-      target = target.get_by_role("button").first
-      item_origin["excerpt"] = "The actual SpendShapeCard main instrument"
+      instrument = target.get_by_role("button", name="View your pay split", exact=True)
+      instrument_box = instrument.bounding_box()
+      assert instrument_box and instrument_box["width"] >= 300, instrument_box
+      assert "50%" in instrument.inner_text(), instrument.inner_text()
+      # Keep the card header and real comparison together so this proof carries
+      # the completed-period amount as well as the interaction instrument.
+      assert "£2,400" in target.inner_text(), target.inner_text()
+      item_origin["excerpt"] = "SpendShapeCard with its completed-period 50/30/20 comparison"
      proofs.append(save(target.screenshot(), f"proof-{kind}-{theme}.png", item_origin))
      print("PROOF", kind, theme, target.bounding_box(), flush=True)
      if kind == "penny-proposal":

@@ -18,7 +18,7 @@ export function BalanceStory({ theme }: { theme: "light" | "dark" }) {
   const title: CSSProperties = { position: "absolute", left: 72, top: 320, width: 810, fontSize: 80, fontWeight: 650, lineHeight: 1.02, letterSpacing: "-.055em" };
 
   return <AbsoluteFill style={{ background: bg, color: ink, fontFamily: "var(--font-figtree), sans-serif", overflow: "hidden" }}>
-    <div style={{ position: "absolute", top: 148, left: 72, fontSize: 32, fontWeight: 750, letterSpacing: "-.05em" }}>Sorted<span style={{ marginLeft: 20, color: muted, fontSize: 20, fontWeight: 500, letterSpacing: 0 }}>Safe to Spend</span></div>
+    <div style={{ position: "absolute", top: 148, left: 72, fontSize: 32, fontWeight: 750, letterSpacing: "-.05em" }}>Sorted<span style={{ marginLeft: 20, color: muted, fontSize: 20, fontWeight: 500, letterSpacing: 0 }}>Left to spend</span></div>
     {shot(0, 65, <>
       <div style={title}>In the bank.</div>
       <div style={{ position: "absolute", left: 64, top: move(f, 0, 18, 650, 610), ...mono, fontSize: 226, fontWeight: 700 }}>£610</div>
@@ -36,14 +36,14 @@ export function BalanceStory({ theme }: { theme: "light" | "dark" }) {
       <div style={{ ...title, fontSize: 72 }}>The working.<br />In plain view.</div>
       <div style={{ position: "absolute", left: 72, top: 625, width: 810, borderTop: `1px solid ${line}`, paddingTop: 35, transform: `translateY(${move(f, 140, 152, 35, 0)}px)` }}>
         {/* Match the frozen production capture matte so its edge disappears into the padding. */}
-        <div style={{ padding: 36, borderRadius: 32, overflow: "hidden", background: dark ? "#1c2537" : "#ffffff", border: `1px solid ${line}` }}>
+        <div style={{ padding: 36, borderRadius: 32, overflow: "hidden", background: dark ? "#1e293b" : "#ffffff", border: `1px solid ${line}` }}>
           <Img src={file("working")} style={{ width: "100%", display: "block" }} />
         </div>
       </div>
     </>)}
     {shot(225, 355, <>
-      <div style={{ ...title, fontSize: 64, top: 290 }}>Your Safe to Spend.</div>
-      <Img src={file("safe")} style={{ position: "absolute", left: 72, top: move(f, 225, 237, 515, 475), width: 810, borderRadius: 30 }} />
+      <div style={{ ...title, fontSize: 64, top: 290 }}>Your left to spend.</div>
+      <Img src={file("safe")} style={{ position: "absolute", left: 102, top: move(f, 225, 237, 515, 475), width: 750, borderRadius: 30 }} />
       <div style={{ position: "absolute", left: 72, top: 1360, color: muted, fontSize: 28 }}>An estimate from your bank data.</div>
     </>)}
     {shot(355, 450, <>

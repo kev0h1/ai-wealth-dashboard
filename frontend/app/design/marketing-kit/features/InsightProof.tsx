@@ -5,7 +5,7 @@ import SpendPaceHero from "@/components/SpendPaceHero";
 import SpendShapeCard from "@/components/SpendShapeCard";
 import MoneyShapeHero from "@/app/spend/shape/MoneyShapeHero";
 import PaySplitComparison from "@/components/PaySplitComparison";
-import { INSIGHT_STORY, MONEY_SHAPE, OCT_SHAPE, SPEND_VERDICT } from "./insight-fixtures";
+import { INSIGHT_STORY, MONEY_SHAPE, SPEND_VERDICT } from "./insight-fixtures";
 
 export type InsightProofKind = "month-title" | "month-spending" | "month-categories" | "spend" | "spend-detail" | "shape" | "split" | "split-card";
 
@@ -30,7 +30,9 @@ export default function InsightProof({ kind, theme: _theme }: { kind: InsightPro
     return <section data-feature-proof="spend" className="p-4"><SpendPaceHero verdict={SPEND_VERDICT} incomeTxns={[]} onTransactionClick={() => {}} onOutTap={() => {}} onMovedTap={() => {}} /></section>;
   }
   if (kind === "spend-detail") {
-    return <section data-feature-proof="spend-detail" className="p-4"><SpendShapeCard shape={OCT_SHAPE} hideValues={false} onOpen={() => {}} reference="50-30-20" onReferenceChange={() => {}} /></section>;
+    // Spend's closing card is explicitly a completed pay-period view. Keep
+    // this separate from the current October pace proof above.
+    return <section data-feature-proof="spend-detail" className="p-4"><SpendShapeCard shape={MONEY_SHAPE} hideValues={false} onOpen={() => {}} reference="50-30-20" onReferenceChange={() => {}} /></section>;
   }
   if (kind === "shape") {
     return <section data-feature-proof="shape" className="p-4"><MoneyShapeHero shape={MONEY_SHAPE} hideValues={false} /></section>;

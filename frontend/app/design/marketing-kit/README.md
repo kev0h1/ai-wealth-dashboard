@@ -1,6 +1,8 @@
 # C22 marketing kit
 
-The current round (22 October 2026) is the crafted campaign at `/design/marketing-kit`: an original Blender receipt, Friday typography and an October payment calendar, each with light/dark feed and story stills and a 12-second film. Source, research, reproduction commands and review boundaries are in [`marketing/c22-crafted/README.md`](../../../../marketing/c22-crafted/README.md). The gallery, assets and film entry point live in `crafted/`, `public/design-media/c22/crafted/` and `remotion/c22-crafted/` respectively.
+The current round (5 November 2026) refreshes the approved typography-led product campaign from final production components and adds App Store and Google Play image sets. Open `/design/marketing-kit#stores` for the store sequence, then review the Instagram images and 15-second films below. Source, platform specifications, reproduction and review boundaries are in [`marketing/c22-store/README.md`](../../../../marketing/c22-store/README.md). The current campaign sources live in `next/`, `features/` and `store/`; their public exports use the matching `public/design-media/c22/` subdirectories. Generated scenery belongs to archived rounds only.
+
+The earlier Blender receipt, Friday typography and payment calendar are archived at `?round=crafted`. Their recorded verification remains scoped to that older round.
 
 The following documents the earlier C/D/E round, now archived at `/design/marketing-kit?round=worlds`. Its claims and verification refer to that round only.
 

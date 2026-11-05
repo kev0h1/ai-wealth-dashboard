@@ -1,0 +1,2101 @@
+{
+  "assets": [
+    {
+      "file": "amount-light-apple-medium.png",
+      "width": 1206,
+      "height": 2622,
+      "bytes": 210466,
+      "sha256": "868593f4a3964b5e16fb87a89aadbd4a02c7b274a1ff26e77f9f22d8cb646f9f",
+      "data": "fictional",
+      "status": "creative-review-only",
+      "id": "amount",
+      "theme": "light",
+      "platform": "apple-medium",
+      "size": [
+        1206,
+        2622
+      ],
+      "alt": "Left to spend estimate in the Sorted app with its account context.",
+      "source": "frontend/app/design/marketing-kit/store/StoreCanvas.tsx",
+      "dependencies": {
+        "frontend/app/design/marketing-kit/store/StoreCanvas.tsx": "e72248b345f5d98afd457c2d896815746905589de22e4eb17da3275d8a2679f1",
+        "frontend/app/design/marketing-kit/store/catalog.ts": "d5c4cfd695fc0774683a69a979a4687e1c3b0df65e2298db6c603c27e5f27810",
+        "frontend/app/design/marketing-kit/store/store.module.css": "e7cbcce3c0b4952061a00d1947c0d03f3b70abd881f9b095d982ea2f8b305b85"
+      },
+      "proof": "frontend/public/design-media/c22/next/proof-safe-light.png",
+      "proofHash": "26414ed1c3c9ce49ef8bd47a3c46a646fd477adf780ab3d6e8f8f173dc425cd7",
+      "proofManifests": {
+        "frontend/public/design-media/c22/next/proof-assets.json": "7ce9d6774812e4d6e3a78a30b6ed66011f6472a8f2a9ef6129e1dd3503f7b456",
+        "frontend/public/design-media/c22/features/proof-assets.json": "aefe2c6de11dd854ac5252e73344944b888d78736ad9bfff3b1f4bbc9c849317"
+      }
+    },
+    {
+      "file": "account-light-apple-medium.png",
+      "width": 1206,
+      "height": 2622,
+      "bytes": 149945,
+      "sha256": "e4587a6ad6b25d2a6339dbb5ed65996b071418e18c8c51dac1b1c2296b7cffb1",
+      "data": "fictional",
+      "status": "creative-review-only",
+      "id": "account",
+      "theme": "light",
+      "platform": "apple-medium",
+      "size": [
+        1206,
+        2622
+      ],
+      "alt": "Upcoming payment in the Sorted app showing an account shortfall.",
+      "source": "frontend/app/design/marketing-kit/store/StoreCanvas.tsx",
+      "dependencies": {
+        "frontend/app/design/marketing-kit/store/StoreCanvas.tsx": "e72248b345f5d98afd457c2d896815746905589de22e4eb17da3275d8a2679f1",
+        "frontend/app/design/marketing-kit/store/catalog.ts": "d5c4cfd695fc0774683a69a979a4687e1c3b0df65e2298db6c603c27e5f27810",
+        "frontend/app/design/marketing-kit/store/store.module.css": "e7cbcce3c0b4952061a00d1947c0d03f3b70abd881f9b095d982ea2f8b305b85"
+      },
+      "proof": "frontend/public/design-media/c22/next/proof-accounts-light.png",
+      "proofHash": "233043c363b63b85f6e943dc4f1f99a5de547ca66f9bd8fd1907b1257e8151f0",
+      "proofManifests": {
+        "frontend/public/design-media/c22/next/proof-assets.json": "7ce9d6774812e4d6e3a78a30b6ed66011f6472a8f2a9ef6129e1dd3503f7b456",
+        "frontend/public/design-media/c22/features/proof-assets.json": "aefe2c6de11dd854ac5252e73344944b888d78736ad9bfff3b1f4bbc9c849317"
+      }
+    },
+    {
+      "file": "spend-light-apple-medium.png",
+      "width": 1206,
+      "height": 2622,
+      "bytes": 159243,
+      "sha256": "c9958a74ff2809b7e2a76004783c770a440eeed6599d37c2c6c594842139d74a",
+      "data": "fictional",
+      "status": "creative-review-only",
+      "id": "spend",
+      "theme": "light",
+      "platform": "apple-medium",
+      "size": [
+        1206,
+        2622
+      ],
+      "alt": "Pay-period spending pace in the Sorted app.",
+      "source": "frontend/app/design/marketing-kit/store/StoreCanvas.tsx",
+      "dependencies": {
+        "frontend/app/design/marketing-kit/store/StoreCanvas.tsx": "e72248b345f5d98afd457c2d896815746905589de22e4eb17da3275d8a2679f1",
+        "frontend/app/design/marketing-kit/store/catalog.ts": "d5c4cfd695fc0774683a69a979a4687e1c3b0df65e2298db6c603c27e5f27810",
+        "frontend/app/design/marketing-kit/store/store.module.css": "e7cbcce3c0b4952061a00d1947c0d03f3b70abd881f9b095d982ea2f8b305b85"
+      },
+      "proof": "frontend/public/design-media/c22/features/proof-spend-light.png",
+      "proofHash": "dc49602359a0e4cb8318386da61c29d0235e6ecfc704925cdb182ecc19e1ae78",
+      "proofManifests": {
+        "frontend/public/design-media/c22/next/proof-assets.json": "7ce9d6774812e4d6e3a78a30b6ed66011f6472a8f2a9ef6129e1dd3503f7b456",
+        "frontend/public/design-media/c22/features/proof-assets.json": "aefe2c6de11dd854ac5252e73344944b888d78736ad9bfff3b1f4bbc9c849317"
+      }
+    },
+    {
+      "file": "month-light-apple-medium.png",
+      "width": 1206,
+      "height": 2622,
+      "bytes": 114218,
+      "sha256": "ac05f82fc90c92365c8b2a499d32b6c4b16b2e5afb5ffd7e0b9c93e6f6af8dc2",
+      "data": "fictional",
+      "status": "creative-review-only",
+      "id": "month",
+      "theme": "light",
+      "platform": "apple-medium",
+      "size": [
+        1206,
+        2622
+      ],
+      "alt": "Month in review in the Sorted app showing income and spending.",
+      "source": "frontend/app/design/marketing-kit/store/StoreCanvas.tsx",
+      "dependencies": {
+        "frontend/app/design/marketing-kit/store/StoreCanvas.tsx": "e72248b345f5d98afd457c2d896815746905589de22e4eb17da3275d8a2679f1",
+        "frontend/app/design/marketing-kit/store/catalog.ts": "d5c4cfd695fc0774683a69a979a4687e1c3b0df65e2298db6c603c27e5f27810",
+        "frontend/app/design/marketing-kit/store/store.module.css": "e7cbcce3c0b4952061a00d1947c0d03f3b70abd881f9b095d982ea2f8b305b85"
+      },
+      "proof": "frontend/public/design-media/c22/features/proof-month-spending-light.png",
+      "proofHash": "bd7dd6ffe4e01275999e68bbc5ea51f5e46093a1827c0bcafb0f61a9319d9cee",
+      "proofManifests": {
+        "frontend/public/design-media/c22/next/proof-assets.json": "7ce9d6774812e4d6e3a78a30b6ed66011f6472a8f2a9ef6129e1dd3503f7b456",
+        "frontend/public/design-media/c22/features/proof-assets.json": "aefe2c6de11dd854ac5252e73344944b888d78736ad9bfff3b1f4bbc9c849317"
+      }
+    },
+    {
+      "file": "split-light-apple-medium.png",
+      "width": 1206,
+      "height": 2622,
+      "bytes": 181644,
+      "sha256": "318a01f775cf0b510a8207fef868f9bcd48513d88b7195c797f422e6027846b2",
+      "data": "fictional",
+      "status": "creative-review-only",
+      "id": "split",
+      "theme": "light",
+      "platform": "apple-medium",
+      "size": [
+        1206,
+        2622
+      ],
+      "alt": "A spending split comparison in the Sorted app.",
+      "source": "frontend/app/design/marketing-kit/store/StoreCanvas.tsx",
+      "dependencies": {
+        "frontend/app/design/marketing-kit/store/StoreCanvas.tsx": "e72248b345f5d98afd457c2d896815746905589de22e4eb17da3275d8a2679f1",
+        "frontend/app/design/marketing-kit/store/catalog.ts": "d5c4cfd695fc0774683a69a979a4687e1c3b0df65e2298db6c603c27e5f27810",
+        "frontend/app/design/marketing-kit/store/store.module.css": "e7cbcce3c0b4952061a00d1947c0d03f3b70abd881f9b095d982ea2f8b305b85"
+      },
+      "proof": "frontend/public/design-media/c22/features/proof-split-card-light.png",
+      "proofHash": "586fc4a9756e16aa6332587a1a257f6bfdc5efcd80fa7ed9f7914db6eb7bcef9",
+      "proofManifests": {
+        "frontend/public/design-media/c22/next/proof-assets.json": "7ce9d6774812e4d6e3a78a30b6ed66011f6472a8f2a9ef6129e1dd3503f7b456",
+        "frontend/public/design-media/c22/features/proof-assets.json": "aefe2c6de11dd854ac5252e73344944b888d78736ad9bfff3b1f4bbc9c849317"
+      }
+    },
+    {
+      "file": "movement-light-apple-medium.png",
+      "width": 1206,
+      "height": 2622,
+      "bytes": 201238,
+      "sha256": "8f9530baac81c960c13c83f7eebc302237858f5e09f68dde404126057e60eb79",
+      "data": "fictional",
+      "status": "creative-review-only",
+      "id": "movement",
+      "theme": "light",
+      "platform": "apple-medium",
+      "size": [
+        1206,
+        2622
+      ],
+      "alt": "Suggested movement in the Sorted app explaining a payment gap.",
+      "source": "frontend/app/design/marketing-kit/store/StoreCanvas.tsx",
+      "dependencies": {
+        "frontend/app/design/marketing-kit/store/StoreCanvas.tsx": "e72248b345f5d98afd457c2d896815746905589de22e4eb17da3275d8a2679f1",
+        "frontend/app/design/marketing-kit/store/catalog.ts": "d5c4cfd695fc0774683a69a979a4687e1c3b0df65e2298db6c603c27e5f27810",
+        "frontend/app/design/marketing-kit/store/store.module.css": "e7cbcce3c0b4952061a00d1947c0d03f3b70abd881f9b095d982ea2f8b305b85"
+      },
+      "proof": "frontend/public/design-media/c22/features/proof-movement-light.png",
+      "proofHash": "d6ad6ea948415e573f6ac3bafc2ea10622a19aa052fc2caa05535a83bac10c8b",
+      "proofManifests": {
+        "frontend/public/design-media/c22/next/proof-assets.json": "7ce9d6774812e4d6e3a78a30b6ed66011f6472a8f2a9ef6129e1dd3503f7b456",
+        "frontend/public/design-media/c22/features/proof-assets.json": "aefe2c6de11dd854ac5252e73344944b888d78736ad9bfff3b1f4bbc9c849317"
+      }
+    },
+    {
+      "file": "penny-light-apple-medium.png",
+      "width": 1206,
+      "height": 2622,
+      "bytes": 136140,
+      "sha256": "5826ae71b4b13379cab614860c219ee96da298dc12ec3dae8e3122987f292e8c",
+      "data": "fictional",
+      "status": "creative-review-only",
+      "id": "penny",
+      "theme": "light",
+      "platform": "apple-medium",
+      "size": [
+        1206,
+        2622
+      ],
+      "alt": "Penny proposal in the Sorted app awaiting the user confirmation.",
+      "source": "frontend/app/design/marketing-kit/store/StoreCanvas.tsx",
+      "dependencies": {
+        "frontend/app/design/marketing-kit/store/StoreCanvas.tsx": "e72248b345f5d98afd457c2d896815746905589de22e4eb17da3275d8a2679f1",
+        "frontend/app/design/marketing-kit/store/catalog.ts": "d5c4cfd695fc0774683a69a979a4687e1c3b0df65e2298db6c603c27e5f27810",
+        "frontend/app/design/marketing-kit/store/store.module.css": "e7cbcce3c0b4952061a00d1947c0d03f3b70abd881f9b095d982ea2f8b305b85"
+      },
+      "proof": "frontend/public/design-media/c22/features/proof-penny-proposal-light.png",
+      "proofHash": "d53a26bff14c2de299ae5cbabb4cd8dba1b4d488e9fa9b74241e05196166a6fb",
+      "proofManifests": {
+        "frontend/public/design-media/c22/next/proof-assets.json": "7ce9d6774812e4d6e3a78a30b6ed66011f6472a8f2a9ef6129e1dd3503f7b456",
+        "frontend/public/design-media/c22/features/proof-assets.json": "aefe2c6de11dd854ac5252e73344944b888d78736ad9bfff3b1f4bbc9c849317"
+      }
+    },
+    {
+      "file": "aside-light-apple-medium.png",
+      "width": 1206,
+      "height": 2622,
+      "bytes": 148845,
+      "sha256": "0fc2872684d4e9380ee2ec25d4ab697b0b556117c08758d49c9dcad4bc164d32",
+      "data": "fictional",
+      "status": "creative-review-only",
+      "id": "aside",
+      "theme": "light",
+      "platform": "apple-medium",
+      "size": [
+        1206,
+        2622
+      ],
+      "alt": "Annual-costs set-aside review in Sorted, showing its amount and paying account before saving.",
+      "source": "frontend/app/design/marketing-kit/store/StoreCanvas.tsx",
+      "dependencies": {
+        "frontend/app/design/marketing-kit/store/StoreCanvas.tsx": "e72248b345f5d98afd457c2d896815746905589de22e4eb17da3275d8a2679f1",
+        "frontend/app/design/marketing-kit/store/catalog.ts": "d5c4cfd695fc0774683a69a979a4687e1c3b0df65e2298db6c603c27e5f27810",
+        "frontend/app/design/marketing-kit/store/store.module.css": "e7cbcce3c0b4952061a00d1947c0d03f3b70abd881f9b095d982ea2f8b305b85"
+      },
+      "proof": "frontend/public/design-media/c22/features/proof-aside-form-light.png",
+      "proofHash": "40049bf3fcdc1749e83e27e50984112899cf3594111a6c049af7b5fd63aedfcb",
+      "proofManifests": {
+        "frontend/public/design-media/c22/next/proof-assets.json": "7ce9d6774812e4d6e3a78a30b6ed66011f6472a8f2a9ef6129e1dd3503f7b456",
+        "frontend/public/design-media/c22/features/proof-assets.json": "aefe2c6de11dd854ac5252e73344944b888d78736ad9bfff3b1f4bbc9c849317"
+      }
+    },
+    {
+      "file": "amount-light-apple-large.png",
+      "width": 1320,
+      "height": 2868,
+      "bytes": 234628,
+      "sha256": "9d7bfbf35c35fc94d20db8263975fc20a0fa849023670fa69ad9678b7ef0de0b",
+      "data": "fictional",
+      "status": "creative-review-only",
+      "id": "amount",
+      "theme": "light",
+      "platform": "apple-large",
+      "size": [
+        1320,
+        2868
+      ],
+      "alt": "Left to spend estimate in the Sorted app with its account context.",
+      "source": "frontend/app/design/marketing-kit/store/StoreCanvas.tsx",
+      "dependencies": {
+        "frontend/app/design/marketing-kit/store/StoreCanvas.tsx": "e72248b345f5d98afd457c2d896815746905589de22e4eb17da3275d8a2679f1",
+        "frontend/app/design/marketing-kit/store/catalog.ts": "d5c4cfd695fc0774683a69a979a4687e1c3b0df65e2298db6c603c27e5f27810",
+        "frontend/app/design/marketing-kit/store/store.module.css": "e7cbcce3c0b4952061a00d1947c0d03f3b70abd881f9b095d982ea2f8b305b85"
+      },
+      "proof": "frontend/public/design-media/c22/next/proof-safe-light.png",
+      "proofHash": "26414ed1c3c9ce49ef8bd47a3c46a646fd477adf780ab3d6e8f8f173dc425cd7",
+      "proofManifests": {
+        "frontend/public/design-media/c22/next/proof-assets.json": "7ce9d6774812e4d6e3a78a30b6ed66011f6472a8f2a9ef6129e1dd3503f7b456",
+        "frontend/public/design-media/c22/features/proof-assets.json": "aefe2c6de11dd854ac5252e73344944b888d78736ad9bfff3b1f4bbc9c849317"
+      }
+    },
+    {
+      "file": "account-light-apple-large.png",
+      "width": 1320,
+      "height": 2868,
+      "bytes": 162938,
+      "sha256": "c8ad4f84755b2e04327abd10112079b37d10acb352a9603d5539aeace06756b9",
+      "data": "fictional",
+      "status": "creative-review-only",
+      "id": "account",
+      "theme": "light",
+      "platform": "apple-large",
+      "size": [
+        1320,
+        2868
+      ],
+      "alt": "Upcoming payment in the Sorted app showing an account shortfall.",
+      "source": "frontend/app/design/marketing-kit/store/StoreCanvas.tsx",
+      "dependencies": {
+        "frontend/app/design/marketing-kit/store/StoreCanvas.tsx": "e72248b345f5d98afd457c2d896815746905589de22e4eb17da3275d8a2679f1",
+        "frontend/app/design/marketing-kit/store/catalog.ts": "d5c4cfd695fc0774683a69a979a4687e1c3b0df65e2298db6c603c27e5f27810",
+        "frontend/app/design/marketing-kit/store/store.module.css": "e7cbcce3c0b4952061a00d1947c0d03f3b70abd881f9b095d982ea2f8b305b85"
+      },
+      "proof": "frontend/public/design-media/c22/next/proof-accounts-light.png",
+      "proofHash": "233043c363b63b85f6e943dc4f1f99a5de547ca66f9bd8fd1907b1257e8151f0",
+      "proofManifests": {
+        "frontend/public/design-media/c22/next/proof-assets.json": "7ce9d6774812e4d6e3a78a30b6ed66011f6472a8f2a9ef6129e1dd3503f7b456",
+        "frontend/public/design-media/c22/features/proof-assets.json": "aefe2c6de11dd854ac5252e73344944b888d78736ad9bfff3b1f4bbc9c849317"
+      }
+    },
+    {
+      "file": "spend-light-apple-large.png",
+      "width": 1320,
+      "height": 2868,
+      "bytes": 175642,
+      "sha256": "4fe539b520d34d84f0a7ad2a4e3d2b978f2e40978d4e7a3d3b628a4b8f02f7ca",
+      "data": "fictional",
+      "status": "creative-review-only",
+      "id": "spend",
+      "theme": "light",
+      "platform": "apple-large",
+      "size": [
+        1320,
+        2868
+      ],
+      "alt": "Pay-period spending pace in the Sorted app.",
+      "source": "frontend/app/design/marketing-kit/store/StoreCanvas.tsx",
+      "dependencies": {
+        "frontend/app/design/marketing-kit/store/StoreCanvas.tsx": "e72248b345f5d98afd457c2d896815746905589de22e4eb17da3275d8a2679f1",
+        "frontend/app/design/marketing-kit/store/catalog.ts": "d5c4cfd695fc0774683a69a979a4687e1c3b0df65e2298db6c603c27e5f27810",
+        "frontend/app/design/marketing-kit/store/store.module.css": "e7cbcce3c0b4952061a00d1947c0d03f3b70abd881f9b095d982ea2f8b305b85"
+      },
+      "proof": "frontend/public/design-media/c22/features/proof-spend-light.png",
+      "proofHash": "dc49602359a0e4cb8318386da61c29d0235e6ecfc704925cdb182ecc19e1ae78",
+      "proofManifests": {
+        "frontend/public/design-media/c22/next/proof-assets.json": "7ce9d6774812e4d6e3a78a30b6ed66011f6472a8f2a9ef6129e1dd3503f7b456",
+        "frontend/public/design-media/c22/features/proof-assets.json": "aefe2c6de11dd854ac5252e73344944b888d78736ad9bfff3b1f4bbc9c849317"
+      }
+    },
+    {
+      "file": "month-light-apple-large.png",
+      "width": 1320,
+      "height": 2868,
+      "bytes": 123748,
+      "sha256": "7b81f8350eb35e3f17bbc440c7d1c4e77c23b50ac3b1f992c4c69ba7cb24876c",
+      "data": "fictional",
+      "status": "creative-review-only",
+      "id": "month",
+      "theme": "light",
+      "platform": "apple-large",
+      "size": [
+        1320,
+        2868
+      ],
+      "alt": "Month in review in the Sorted app showing income and spending.",
+      "source": "frontend/app/design/marketing-kit/store/StoreCanvas.tsx",
+      "dependencies": {
+        "frontend/app/design/marketing-kit/store/StoreCanvas.tsx": "e72248b345f5d98afd457c2d896815746905589de22e4eb17da3275d8a2679f1",
+        "frontend/app/design/marketing-kit/store/catalog.ts": "d5c4cfd695fc0774683a69a979a4687e1c3b0df65e2298db6c603c27e5f27810",
+        "frontend/app/design/marketing-kit/store/store.module.css": "e7cbcce3c0b4952061a00d1947c0d03f3b70abd881f9b095d982ea2f8b305b85"
+      },
+      "proof": "frontend/public/design-media/c22/features/proof-month-spending-light.png",
+      "proofHash": "bd7dd6ffe4e01275999e68bbc5ea51f5e46093a1827c0bcafb0f61a9319d9cee",
+      "proofManifests": {
+        "frontend/public/design-media/c22/next/proof-assets.json": "7ce9d6774812e4d6e3a78a30b6ed66011f6472a8f2a9ef6129e1dd3503f7b456",
+        "frontend/public/design-media/c22/features/proof-assets.json": "aefe2c6de11dd854ac5252e73344944b888d78736ad9bfff3b1f4bbc9c849317"
+      }
+    },
+    {
+      "file": "split-light-apple-large.png",
+      "width": 1320,
+      "height": 2868,
+      "bytes": 200176,
+      "sha256": "a1448334ec2cf873c9a5cf8bb79a2b4590c615e09f3067a11ba600abde60cff7",
+      "data": "fictional",
+      "status": "creative-review-only",
+      "id": "split",
+      "theme": "light",
+      "platform": "apple-large",
+      "size": [
+        1320,
+        2868
+      ],
+      "alt": "A spending split comparison in the Sorted app.",
+      "source": "frontend/app/design/marketing-kit/store/StoreCanvas.tsx",
+      "dependencies": {
+        "frontend/app/design/marketing-kit/store/StoreCanvas.tsx": "e72248b345f5d98afd457c2d896815746905589de22e4eb17da3275d8a2679f1",
+        "frontend/app/design/marketing-kit/store/catalog.ts": "d5c4cfd695fc0774683a69a979a4687e1c3b0df65e2298db6c603c27e5f27810",
+        "frontend/app/design/marketing-kit/store/store.module.css": "e7cbcce3c0b4952061a00d1947c0d03f3b70abd881f9b095d982ea2f8b305b85"
+      },
+      "proof": "frontend/public/design-media/c22/features/proof-split-card-light.png",
+      "proofHash": "586fc4a9756e16aa6332587a1a257f6bfdc5efcd80fa7ed9f7914db6eb7bcef9",
+      "proofManifests": {
+        "frontend/public/design-media/c22/next/proof-assets.json": "7ce9d6774812e4d6e3a78a30b6ed66011f6472a8f2a9ef6129e1dd3503f7b456",
+        "frontend/public/design-media/c22/features/proof-assets.json": "aefe2c6de11dd854ac5252e73344944b888d78736ad9bfff3b1f4bbc9c849317"
+      }
+    },
+    {
+      "file": "movement-light-apple-large.png",
+      "width": 1320,
+      "height": 2868,
+      "bytes": 222805,
+      "sha256": "986b6b95a789fa499953a242c4804292d54e3455b11b97b38e5e6e2480f4ed52",
+      "data": "fictional",
+      "status": "creative-review-only",
+      "id": "movement",
+      "theme": "light",
+      "platform": "apple-large",
+      "size": [
+        1320,
+        2868
+      ],
+      "alt": "Suggested movement in the Sorted app explaining a payment gap.",
+      "source": "frontend/app/design/marketing-kit/store/StoreCanvas.tsx",
+      "dependencies": {
+        "frontend/app/design/marketing-kit/store/StoreCanvas.tsx": "e72248b345f5d98afd457c2d896815746905589de22e4eb17da3275d8a2679f1",
+        "frontend/app/design/marketing-kit/store/catalog.ts": "d5c4cfd695fc0774683a69a979a4687e1c3b0df65e2298db6c603c27e5f27810",
+        "frontend/app/design/marketing-kit/store/store.module.css": "e7cbcce3c0b4952061a00d1947c0d03f3b70abd881f9b095d982ea2f8b305b85"
+      },
+      "proof": "frontend/public/design-media/c22/features/proof-movement-light.png",
+      "proofHash": "d6ad6ea948415e573f6ac3bafc2ea10622a19aa052fc2caa05535a83bac10c8b",
+      "proofManifests": {
+        "frontend/public/design-media/c22/next/proof-assets.json": "7ce9d6774812e4d6e3a78a30b6ed66011f6472a8f2a9ef6129e1dd3503f7b456",
+        "frontend/public/design-media/c22/features/proof-assets.json": "aefe2c6de11dd854ac5252e73344944b888d78736ad9bfff3b1f4bbc9c849317"
+      }
+    },
+    {
+      "file": "penny-light-apple-large.png",
+      "width": 1320,
+      "height": 2868,
+      "bytes": 148724,
+      "sha256": "b45e15ca1cb5c35c43f71b1fa7b599772ad173e84475331e7e9c89cf931c25c2",
+      "data": "fictional",
+      "status": "creative-review-only",
+      "id": "penny",
+      "theme": "light",
+      "platform": "apple-large",
+      "size": [
+        1320,
+        2868
+      ],
+      "alt": "Penny proposal in the Sorted app awaiting the user confirmation.",
+      "source": "frontend/app/design/marketing-kit/store/StoreCanvas.tsx",
+      "dependencies": {
+        "frontend/app/design/marketing-kit/store/StoreCanvas.tsx": "e72248b345f5d98afd457c2d896815746905589de22e4eb17da3275d8a2679f1",
+        "frontend/app/design/marketing-kit/store/catalog.ts": "d5c4cfd695fc0774683a69a979a4687e1c3b0df65e2298db6c603c27e5f27810",
+        "frontend/app/design/marketing-kit/store/store.module.css": "e7cbcce3c0b4952061a00d1947c0d03f3b70abd881f9b095d982ea2f8b305b85"
+      },
+      "proof": "frontend/public/design-media/c22/features/proof-penny-proposal-light.png",
+      "proofHash": "d53a26bff14c2de299ae5cbabb4cd8dba1b4d488e9fa9b74241e05196166a6fb",
+      "proofManifests": {
+        "frontend/public/design-media/c22/next/proof-assets.json": "7ce9d6774812e4d6e3a78a30b6ed66011f6472a8f2a9ef6129e1dd3503f7b456",
+        "frontend/public/design-media/c22/features/proof-assets.json": "aefe2c6de11dd854ac5252e73344944b888d78736ad9bfff3b1f4bbc9c849317"
+      }
+    },
+    {
+      "file": "aside-light-apple-large.png",
+      "width": 1320,
+      "height": 2868,
+      "bytes": 165299,
+      "sha256": "2931adc1021e728ea57136e988d2728e1ce49bc11155b91caf4f3a16568c0522",
+      "data": "fictional",
+      "status": "creative-review-only",
+      "id": "aside",
+      "theme": "light",
+      "platform": "apple-large",
+      "size": [
+        1320,
+        2868
+      ],
+      "alt": "Annual-costs set-aside review in Sorted, showing its amount and paying account before saving.",
+      "source": "frontend/app/design/marketing-kit/store/StoreCanvas.tsx",
+      "dependencies": {
+        "frontend/app/design/marketing-kit/store/StoreCanvas.tsx": "e72248b345f5d98afd457c2d896815746905589de22e4eb17da3275d8a2679f1",
+        "frontend/app/design/marketing-kit/store/catalog.ts": "d5c4cfd695fc0774683a69a979a4687e1c3b0df65e2298db6c603c27e5f27810",
+        "frontend/app/design/marketing-kit/store/store.module.css": "e7cbcce3c0b4952061a00d1947c0d03f3b70abd881f9b095d982ea2f8b305b85"
+      },
+      "proof": "frontend/public/design-media/c22/features/proof-aside-form-light.png",
+      "proofHash": "40049bf3fcdc1749e83e27e50984112899cf3594111a6c049af7b5fd63aedfcb",
+      "proofManifests": {
+        "frontend/public/design-media/c22/next/proof-assets.json": "7ce9d6774812e4d6e3a78a30b6ed66011f6472a8f2a9ef6129e1dd3503f7b456",
+        "frontend/public/design-media/c22/features/proof-assets.json": "aefe2c6de11dd854ac5252e73344944b888d78736ad9bfff3b1f4bbc9c849317"
+      }
+    },
+    {
+      "file": "amount-light-apple-classic.png",
+      "width": 1242,
+      "height": 2688,
+      "bytes": 215338,
+      "sha256": "d8501e3c152cd60bfa1bc67d8718cc10bdfea0c29859042e7c5f39fe54ac75d4",
+      "data": "fictional",
+      "status": "creative-review-only",
+      "id": "amount",
+      "theme": "light",
+      "platform": "apple-classic",
+      "size": [
+        1242,
+        2688
+      ],
+      "alt": "Left to spend estimate in the Sorted app with its account context.",
+      "source": "frontend/app/design/marketing-kit/store/StoreCanvas.tsx",
+      "dependencies": {
+        "frontend/app/design/marketing-kit/store/StoreCanvas.tsx": "e72248b345f5d98afd457c2d896815746905589de22e4eb17da3275d8a2679f1",
+        "frontend/app/design/marketing-kit/store/catalog.ts": "d5c4cfd695fc0774683a69a979a4687e1c3b0df65e2298db6c603c27e5f27810",
+        "frontend/app/design/marketing-kit/store/store.module.css": "e7cbcce3c0b4952061a00d1947c0d03f3b70abd881f9b095d982ea2f8b305b85"
+      },
+      "proof": "frontend/public/design-media/c22/next/proof-safe-light.png",
+      "proofHash": "26414ed1c3c9ce49ef8bd47a3c46a646fd477adf780ab3d6e8f8f173dc425cd7",
+      "proofManifests": {
+        "frontend/public/design-media/c22/next/proof-assets.json": "7ce9d6774812e4d6e3a78a30b6ed66011f6472a8f2a9ef6129e1dd3503f7b456",
+        "frontend/public/design-media/c22/features/proof-assets.json": "aefe2c6de11dd854ac5252e73344944b888d78736ad9bfff3b1f4bbc9c849317"
+      }
+    },
+    {
+      "file": "account-light-apple-classic.png",
+      "width": 1242,
+      "height": 2688,
+      "bytes": 151928,
+      "sha256": "2183c426a03e8f0907b6780e5f99821b34a2a8abb08b3d46af537cefa6866795",
+      "data": "fictional",
+      "status": "creative-review-only",
+      "id": "account",
+      "theme": "light",
+      "platform": "apple-classic",
+      "size": [
+        1242,
+        2688
+      ],
+      "alt": "Upcoming payment in the Sorted app showing an account shortfall.",
+      "source": "frontend/app/design/marketing-kit/store/StoreCanvas.tsx",
+      "dependencies": {
+        "frontend/app/design/marketing-kit/store/StoreCanvas.tsx": "e72248b345f5d98afd457c2d896815746905589de22e4eb17da3275d8a2679f1",
+        "frontend/app/design/marketing-kit/store/catalog.ts": "d5c4cfd695fc0774683a69a979a4687e1c3b0df65e2298db6c603c27e5f27810",
+        "frontend/app/design/marketing-kit/store/store.module.css": "e7cbcce3c0b4952061a00d1947c0d03f3b70abd881f9b095d982ea2f8b305b85"
+      },
+      "proof": "frontend/public/design-media/c22/next/proof-accounts-light.png",
+      "proofHash": "233043c363b63b85f6e943dc4f1f99a5de547ca66f9bd8fd1907b1257e8151f0",
+      "proofManifests": {
+        "frontend/public/design-media/c22/next/proof-assets.json": "7ce9d6774812e4d6e3a78a30b6ed66011f6472a8f2a9ef6129e1dd3503f7b456",
+        "frontend/public/design-media/c22/features/proof-assets.json": "aefe2c6de11dd854ac5252e73344944b888d78736ad9bfff3b1f4bbc9c849317"
+      }
+    },
+    {
+      "file": "spend-light-apple-classic.png",
+      "width": 1242,
+      "height": 2688,
+      "bytes": 165401,
+      "sha256": "a9c1b0bcd47846697ad2e6cea9583bf71f6ff1498b2d1dfd48a7f53f492951ed",
+      "data": "fictional",
+      "status": "creative-review-only",
+      "id": "spend",
+      "theme": "light",
+      "platform": "apple-classic",
+      "size": [
+        1242,
+        2688
+      ],
+      "alt": "Pay-period spending pace in the Sorted app.",
+      "source": "frontend/app/design/marketing-kit/store/StoreCanvas.tsx",
+      "dependencies": {
+        "frontend/app/design/marketing-kit/store/StoreCanvas.tsx": "e72248b345f5d98afd457c2d896815746905589de22e4eb17da3275d8a2679f1",
+        "frontend/app/design/marketing-kit/store/catalog.ts": "d5c4cfd695fc0774683a69a979a4687e1c3b0df65e2298db6c603c27e5f27810",
+        "frontend/app/design/marketing-kit/store/store.module.css": "e7cbcce3c0b4952061a00d1947c0d03f3b70abd881f9b095d982ea2f8b305b85"
+      },
+      "proof": "frontend/public/design-media/c22/features/proof-spend-light.png",
+      "proofHash": "dc49602359a0e4cb8318386da61c29d0235e6ecfc704925cdb182ecc19e1ae78",
+      "proofManifests": {
+        "frontend/public/design-media/c22/next/proof-assets.json": "7ce9d6774812e4d6e3a78a30b6ed66011f6472a8f2a9ef6129e1dd3503f7b456",
+        "frontend/public/design-media/c22/features/proof-assets.json": "aefe2c6de11dd854ac5252e73344944b888d78736ad9bfff3b1f4bbc9c849317"
+      }
+    },
+    {
+      "file": "month-light-apple-classic.png",
+      "width": 1242,
+      "height": 2688,
+      "bytes": 116736,
+      "sha256": "b44e6b4914f3d60d7958c0e830eaa74d140ed9438b01c1be40d84a22ccbd6dda",
+      "data": "fictional",
+      "status": "creative-review-only",
+      "id": "month",
+      "theme": "light",
+      "platform": "apple-classic",
+      "size": [
+        1242,
+        2688
+      ],
+      "alt": "Month in review in the Sorted app showing income and spending.",
+      "source": "frontend/app/design/marketing-kit/store/StoreCanvas.tsx",
+      "dependencies": {
+        "frontend/app/design/marketing-kit/store/StoreCanvas.tsx": "e72248b345f5d98afd457c2d896815746905589de22e4eb17da3275d8a2679f1",
+        "frontend/app/design/marketing-kit/store/catalog.ts": "d5c4cfd695fc0774683a69a979a4687e1c3b0df65e2298db6c603c27e5f27810",
+        "frontend/app/design/marketing-kit/store/store.module.css": "e7cbcce3c0b4952061a00d1947c0d03f3b70abd881f9b095d982ea2f8b305b85"
+      },
+      "proof": "frontend/public/design-media/c22/features/proof-month-spending-light.png",
+      "proofHash": "bd7dd6ffe4e01275999e68bbc5ea51f5e46093a1827c0bcafb0f61a9319d9cee",
+      "proofManifests": {
+        "frontend/public/design-media/c22/next/proof-assets.json": "7ce9d6774812e4d6e3a78a30b6ed66011f6472a8f2a9ef6129e1dd3503f7b456",
+        "frontend/public/design-media/c22/features/proof-assets.json": "aefe2c6de11dd854ac5252e73344944b888d78736ad9bfff3b1f4bbc9c849317"
+      }
+    },
+    {
+      "file": "split-light-apple-classic.png",
+      "width": 1242,
+      "height": 2688,
+      "bytes": 185210,
+      "sha256": "4a3d3509301f6414bd30b219f780474aa1d7a5151bc061270e2a5578c43d1580",
+      "data": "fictional",
+      "status": "creative-review-only",
+      "id": "split",
+      "theme": "light",
+      "platform": "apple-classic",
+      "size": [
+        1242,
+        2688
+      ],
+      "alt": "A spending split comparison in the Sorted app.",
+      "source": "frontend/app/design/marketing-kit/store/StoreCanvas.tsx",
+      "dependencies": {
+        "frontend/app/design/marketing-kit/store/StoreCanvas.tsx": "e72248b345f5d98afd457c2d896815746905589de22e4eb17da3275d8a2679f1",
+        "frontend/app/design/marketing-kit/store/catalog.ts": "d5c4cfd695fc0774683a69a979a4687e1c3b0df65e2298db6c603c27e5f27810",
+        "frontend/app/design/marketing-kit/store/store.module.css": "e7cbcce3c0b4952061a00d1947c0d03f3b70abd881f9b095d982ea2f8b305b85"
+      },
+      "proof": "frontend/public/design-media/c22/features/proof-split-card-light.png",
+      "proofHash": "586fc4a9756e16aa6332587a1a257f6bfdc5efcd80fa7ed9f7914db6eb7bcef9",
+      "proofManifests": {
+        "frontend/public/design-media/c22/next/proof-assets.json": "7ce9d6774812e4d6e3a78a30b6ed66011f6472a8f2a9ef6129e1dd3503f7b456",
+        "frontend/public/design-media/c22/features/proof-assets.json": "aefe2c6de11dd854ac5252e73344944b888d78736ad9bfff3b1f4bbc9c849317"
+      }
+    },
+    {
+      "file": "movement-light-apple-classic.png",
+      "width": 1242,
+      "height": 2688,
+      "bytes": 205988,
+      "sha256": "484adcf474d9968ac98a9be87017d3a9dad5ad898a5aae3ceab38875052db6f2",
+      "data": "fictional",
+      "status": "creative-review-only",
+      "id": "movement",
+      "theme": "light",
+      "platform": "apple-classic",
+      "size": [
+        1242,
+        2688
+      ],
+      "alt": "Suggested movement in the Sorted app explaining a payment gap.",
+      "source": "frontend/app/design/marketing-kit/store/StoreCanvas.tsx",
+      "dependencies": {
+        "frontend/app/design/marketing-kit/store/StoreCanvas.tsx": "e72248b345f5d98afd457c2d896815746905589de22e4eb17da3275d8a2679f1",
+        "frontend/app/design/marketing-kit/store/catalog.ts": "d5c4cfd695fc0774683a69a979a4687e1c3b0df65e2298db6c603c27e5f27810",
+        "frontend/app/design/marketing-kit/store/store.module.css": "e7cbcce3c0b4952061a00d1947c0d03f3b70abd881f9b095d982ea2f8b305b85"
+      },
+      "proof": "frontend/public/design-media/c22/features/proof-movement-light.png",
+      "proofHash": "d6ad6ea948415e573f6ac3bafc2ea10622a19aa052fc2caa05535a83bac10c8b",
+      "proofManifests": {
+        "frontend/public/design-media/c22/next/proof-assets.json": "7ce9d6774812e4d6e3a78a30b6ed66011f6472a8f2a9ef6129e1dd3503f7b456",
+        "frontend/public/design-media/c22/features/proof-assets.json": "aefe2c6de11dd854ac5252e73344944b888d78736ad9bfff3b1f4bbc9c849317"
+      }
+    },
+    {
+      "file": "penny-light-apple-classic.png",
+      "width": 1242,
+      "height": 2688,
+      "bytes": 136655,
+      "sha256": "fa28e2d7188c7780b33fb697e97c8d15e239e47f8a6309f1d3bc83c986bdebf8",
+      "data": "fictional",
+      "status": "creative-review-only",
+      "id": "penny",
+      "theme": "light",
+      "platform": "apple-classic",
+      "size": [
+        1242,
+        2688
+      ],
+      "alt": "Penny proposal in the Sorted app awaiting the user confirmation.",
+      "source": "frontend/app/design/marketing-kit/store/StoreCanvas.tsx",
+      "dependencies": {
+        "frontend/app/design/marketing-kit/store/StoreCanvas.tsx": "e72248b345f5d98afd457c2d896815746905589de22e4eb17da3275d8a2679f1",
+        "frontend/app/design/marketing-kit/store/catalog.ts": "d5c4cfd695fc0774683a69a979a4687e1c3b0df65e2298db6c603c27e5f27810",
+        "frontend/app/design/marketing-kit/store/store.module.css": "e7cbcce3c0b4952061a00d1947c0d03f3b70abd881f9b095d982ea2f8b305b85"
+      },
+      "proof": "frontend/public/design-media/c22/features/proof-penny-proposal-light.png",
+      "proofHash": "d53a26bff14c2de299ae5cbabb4cd8dba1b4d488e9fa9b74241e05196166a6fb",
+      "proofManifests": {
+        "frontend/public/design-media/c22/next/proof-assets.json": "7ce9d6774812e4d6e3a78a30b6ed66011f6472a8f2a9ef6129e1dd3503f7b456",
+        "frontend/public/design-media/c22/features/proof-assets.json": "aefe2c6de11dd854ac5252e73344944b888d78736ad9bfff3b1f4bbc9c849317"
+      }
+    },
+    {
+      "file": "aside-light-apple-classic.png",
+      "width": 1242,
+      "height": 2688,
+      "bytes": 152395,
+      "sha256": "83fa21cc22993b0254733cc1f4396be6c13a77f5acde80117f0c6cf4c3b07a7d",
+      "data": "fictional",
+      "status": "creative-review-only",
+      "id": "aside",
+      "theme": "light",
+      "platform": "apple-classic",
+      "size": [
+        1242,
+        2688
+      ],
+      "alt": "Annual-costs set-aside review in Sorted, showing its amount and paying account before saving.",
+      "source": "frontend/app/design/marketing-kit/store/StoreCanvas.tsx",
+      "dependencies": {
+        "frontend/app/design/marketing-kit/store/StoreCanvas.tsx": "e72248b345f5d98afd457c2d896815746905589de22e4eb17da3275d8a2679f1",
+        "frontend/app/design/marketing-kit/store/catalog.ts": "d5c4cfd695fc0774683a69a979a4687e1c3b0df65e2298db6c603c27e5f27810",
+        "frontend/app/design/marketing-kit/store/store.module.css": "e7cbcce3c0b4952061a00d1947c0d03f3b70abd881f9b095d982ea2f8b305b85"
+      },
+      "proof": "frontend/public/design-media/c22/features/proof-aside-form-light.png",
+      "proofHash": "40049bf3fcdc1749e83e27e50984112899cf3594111a6c049af7b5fd63aedfcb",
+      "proofManifests": {
+        "frontend/public/design-media/c22/next/proof-assets.json": "7ce9d6774812e4d6e3a78a30b6ed66011f6472a8f2a9ef6129e1dd3503f7b456",
+        "frontend/public/design-media/c22/features/proof-assets.json": "aefe2c6de11dd854ac5252e73344944b888d78736ad9bfff3b1f4bbc9c849317"
+      }
+    },
+    {
+      "file": "amount-light-play.png",
+      "width": 1080,
+      "height": 1920,
+      "bytes": 175428,
+      "sha256": "5c7b651e0a3acbb0717a93385089daa306f9182f16d2f275e4c70df711d9daac",
+      "data": "fictional",
+      "status": "creative-review-only",
+      "id": "amount",
+      "theme": "light",
+      "platform": "play",
+      "size": [
+        1080,
+        1920
+      ],
+      "alt": "Left to spend estimate in the Sorted app with its account context.",
+      "source": "frontend/app/design/marketing-kit/store/StoreCanvas.tsx",
+      "dependencies": {
+        "frontend/app/design/marketing-kit/store/StoreCanvas.tsx": "e72248b345f5d98afd457c2d896815746905589de22e4eb17da3275d8a2679f1",
+        "frontend/app/design/marketing-kit/store/catalog.ts": "d5c4cfd695fc0774683a69a979a4687e1c3b0df65e2298db6c603c27e5f27810",
+        "frontend/app/design/marketing-kit/store/store.module.css": "e7cbcce3c0b4952061a00d1947c0d03f3b70abd881f9b095d982ea2f8b305b85"
+      },
+      "proof": "frontend/public/design-media/c22/next/proof-safe-light.png",
+      "proofHash": "26414ed1c3c9ce49ef8bd47a3c46a646fd477adf780ab3d6e8f8f173dc425cd7",
+      "proofManifests": {
+        "frontend/public/design-media/c22/next/proof-assets.json": "7ce9d6774812e4d6e3a78a30b6ed66011f6472a8f2a9ef6129e1dd3503f7b456",
+        "frontend/public/design-media/c22/features/proof-assets.json": "aefe2c6de11dd854ac5252e73344944b888d78736ad9bfff3b1f4bbc9c849317"
+      }
+    },
+    {
+      "file": "account-light-play.png",
+      "width": 1080,
+      "height": 1920,
+      "bytes": 120260,
+      "sha256": "587dcd432c6dbfcb363f1a193bc0e3bdcbecf834e1e32817749c834d1c6cc5b1",
+      "data": "fictional",
+      "status": "creative-review-only",
+      "id": "account",
+      "theme": "light",
+      "platform": "play",
+      "size": [
+        1080,
+        1920
+      ],
+      "alt": "Upcoming payment in the Sorted app showing an account shortfall.",
+      "source": "frontend/app/design/marketing-kit/store/StoreCanvas.tsx",
+      "dependencies": {
+        "frontend/app/design/marketing-kit/store/StoreCanvas.tsx": "e72248b345f5d98afd457c2d896815746905589de22e4eb17da3275d8a2679f1",
+        "frontend/app/design/marketing-kit/store/catalog.ts": "d5c4cfd695fc0774683a69a979a4687e1c3b0df65e2298db6c603c27e5f27810",
+        "frontend/app/design/marketing-kit/store/store.module.css": "e7cbcce3c0b4952061a00d1947c0d03f3b70abd881f9b095d982ea2f8b305b85"
+      },
+      "proof": "frontend/public/design-media/c22/next/proof-accounts-light.png",
+      "proofHash": "233043c363b63b85f6e943dc4f1f99a5de547ca66f9bd8fd1907b1257e8151f0",
+      "proofManifests": {
+        "frontend/public/design-media/c22/next/proof-assets.json": "7ce9d6774812e4d6e3a78a30b6ed66011f6472a8f2a9ef6129e1dd3503f7b456",
+        "frontend/public/design-media/c22/features/proof-assets.json": "aefe2c6de11dd854ac5252e73344944b888d78736ad9bfff3b1f4bbc9c849317"
+      }
+    },
+    {
+      "file": "spend-light-play.png",
+      "width": 1080,
+      "height": 1920,
+      "bytes": 131642,
+      "sha256": "fea3dc769b1c42ae80e66468cd781523c105b2788b4d25e45d1ca892a7edde90",
+      "data": "fictional",
+      "status": "creative-review-only",
+      "id": "spend",
+      "theme": "light",
+      "platform": "play",
+      "size": [
+        1080,
+        1920
+      ],
+      "alt": "Pay-period spending pace in the Sorted app.",
+      "source": "frontend/app/design/marketing-kit/store/StoreCanvas.tsx",
+      "dependencies": {
+        "frontend/app/design/marketing-kit/store/StoreCanvas.tsx": "e72248b345f5d98afd457c2d896815746905589de22e4eb17da3275d8a2679f1",
+        "frontend/app/design/marketing-kit/store/catalog.ts": "d5c4cfd695fc0774683a69a979a4687e1c3b0df65e2298db6c603c27e5f27810",
+        "frontend/app/design/marketing-kit/store/store.module.css": "e7cbcce3c0b4952061a00d1947c0d03f3b70abd881f9b095d982ea2f8b305b85"
+      },
+      "proof": "frontend/public/design-media/c22/features/proof-spend-light.png",
+      "proofHash": "dc49602359a0e4cb8318386da61c29d0235e6ecfc704925cdb182ecc19e1ae78",
+      "proofManifests": {
+        "frontend/public/design-media/c22/next/proof-assets.json": "7ce9d6774812e4d6e3a78a30b6ed66011f6472a8f2a9ef6129e1dd3503f7b456",
+        "frontend/public/design-media/c22/features/proof-assets.json": "aefe2c6de11dd854ac5252e73344944b888d78736ad9bfff3b1f4bbc9c849317"
+      }
+    },
+    {
+      "file": "month-light-play.png",
+      "width": 1080,
+      "height": 1920,
+      "bytes": 94100,
+      "sha256": "ba50400a65324312083743523fe4b45efc08a47aaebd83610f5c88242560695b",
+      "data": "fictional",
+      "status": "creative-review-only",
+      "id": "month",
+      "theme": "light",
+      "platform": "play",
+      "size": [
+        1080,
+        1920
+      ],
+      "alt": "Month in review in the Sorted app showing income and spending.",
+      "source": "frontend/app/design/marketing-kit/store/StoreCanvas.tsx",
+      "dependencies": {
+        "frontend/app/design/marketing-kit/store/StoreCanvas.tsx": "e72248b345f5d98afd457c2d896815746905589de22e4eb17da3275d8a2679f1",
+        "frontend/app/design/marketing-kit/store/catalog.ts": "d5c4cfd695fc0774683a69a979a4687e1c3b0df65e2298db6c603c27e5f27810",
+        "frontend/app/design/marketing-kit/store/store.module.css": "e7cbcce3c0b4952061a00d1947c0d03f3b70abd881f9b095d982ea2f8b305b85"
+      },
+      "proof": "frontend/public/design-media/c22/features/proof-month-spending-light.png",
+      "proofHash": "bd7dd6ffe4e01275999e68bbc5ea51f5e46093a1827c0bcafb0f61a9319d9cee",
+      "proofManifests": {
+        "frontend/public/design-media/c22/next/proof-assets.json": "7ce9d6774812e4d6e3a78a30b6ed66011f6472a8f2a9ef6129e1dd3503f7b456",
+        "frontend/public/design-media/c22/features/proof-assets.json": "aefe2c6de11dd854ac5252e73344944b888d78736ad9bfff3b1f4bbc9c849317"
+      }
+    },
+    {
+      "file": "split-light-play.png",
+      "width": 1080,
+      "height": 1920,
+      "bytes": 142286,
+      "sha256": "eb806815e1cfee15ac6b9fbe948b8539fd8a7a64ba23d1b7bf9c4c9e091276de",
+      "data": "fictional",
+      "status": "creative-review-only",
+      "id": "split",
+      "theme": "light",
+      "platform": "play",
+      "size": [
+        1080,
+        1920
+      ],
+      "alt": "A spending split comparison in the Sorted app.",
+      "source": "frontend/app/design/marketing-kit/store/StoreCanvas.tsx",
+      "dependencies": {
+        "frontend/app/design/marketing-kit/store/StoreCanvas.tsx": "e72248b345f5d98afd457c2d896815746905589de22e4eb17da3275d8a2679f1",
+        "frontend/app/design/marketing-kit/store/catalog.ts": "d5c4cfd695fc0774683a69a979a4687e1c3b0df65e2298db6c603c27e5f27810",
+        "frontend/app/design/marketing-kit/store/store.module.css": "e7cbcce3c0b4952061a00d1947c0d03f3b70abd881f9b095d982ea2f8b305b85"
+      },
+      "proof": "frontend/public/design-media/c22/features/proof-split-card-light.png",
+      "proofHash": "586fc4a9756e16aa6332587a1a257f6bfdc5efcd80fa7ed9f7914db6eb7bcef9",
+      "proofManifests": {
+        "frontend/public/design-media/c22/next/proof-assets.json": "7ce9d6774812e4d6e3a78a30b6ed66011f6472a8f2a9ef6129e1dd3503f7b456",
+        "frontend/public/design-media/c22/features/proof-assets.json": "aefe2c6de11dd854ac5252e73344944b888d78736ad9bfff3b1f4bbc9c849317"
+      }
+    },
+    {
+      "file": "movement-light-play.png",
+      "width": 1080,
+      "height": 1920,
+      "bytes": 136901,
+      "sha256": "48f8d58e19636be3b8e40d0bb97655ccf84ef180c92018adcfdeaf4a00167f72",
+      "data": "fictional",
+      "status": "creative-review-only",
+      "id": "movement",
+      "theme": "light",
+      "platform": "play",
+      "size": [
+        1080,
+        1920
+      ],
+      "alt": "Suggested movement in the Sorted app explaining a payment gap.",
+      "source": "frontend/app/design/marketing-kit/store/StoreCanvas.tsx",
+      "dependencies": {
+        "frontend/app/design/marketing-kit/store/StoreCanvas.tsx": "e72248b345f5d98afd457c2d896815746905589de22e4eb17da3275d8a2679f1",
+        "frontend/app/design/marketing-kit/store/catalog.ts": "d5c4cfd695fc0774683a69a979a4687e1c3b0df65e2298db6c603c27e5f27810",
+        "frontend/app/design/marketing-kit/store/store.module.css": "e7cbcce3c0b4952061a00d1947c0d03f3b70abd881f9b095d982ea2f8b305b85"
+      },
+      "proof": "frontend/public/design-media/c22/features/proof-movement-light.png",
+      "proofHash": "d6ad6ea948415e573f6ac3bafc2ea10622a19aa052fc2caa05535a83bac10c8b",
+      "proofManifests": {
+        "frontend/public/design-media/c22/next/proof-assets.json": "7ce9d6774812e4d6e3a78a30b6ed66011f6472a8f2a9ef6129e1dd3503f7b456",
+        "frontend/public/design-media/c22/features/proof-assets.json": "aefe2c6de11dd854ac5252e73344944b888d78736ad9bfff3b1f4bbc9c849317"
+      }
+    },
+    {
+      "file": "penny-light-play.png",
+      "width": 1080,
+      "height": 1920,
+      "bytes": 113061,
+      "sha256": "5d2dae8cd8435dc216b4857fb13fec61619e0db43cedc815822bb793f3464b91",
+      "data": "fictional",
+      "status": "creative-review-only",
+      "id": "penny",
+      "theme": "light",
+      "platform": "play",
+      "size": [
+        1080,
+        1920
+      ],
+      "alt": "Penny proposal in the Sorted app awaiting the user confirmation.",
+      "source": "frontend/app/design/marketing-kit/store/StoreCanvas.tsx",
+      "dependencies": {
+        "frontend/app/design/marketing-kit/store/StoreCanvas.tsx": "e72248b345f5d98afd457c2d896815746905589de22e4eb17da3275d8a2679f1",
+        "frontend/app/design/marketing-kit/store/catalog.ts": "d5c4cfd695fc0774683a69a979a4687e1c3b0df65e2298db6c603c27e5f27810",
+        "frontend/app/design/marketing-kit/store/store.module.css": "e7cbcce3c0b4952061a00d1947c0d03f3b70abd881f9b095d982ea2f8b305b85"
+      },
+      "proof": "frontend/public/design-media/c22/features/proof-penny-proposal-light.png",
+      "proofHash": "d53a26bff14c2de299ae5cbabb4cd8dba1b4d488e9fa9b74241e05196166a6fb",
+      "proofManifests": {
+        "frontend/public/design-media/c22/next/proof-assets.json": "7ce9d6774812e4d6e3a78a30b6ed66011f6472a8f2a9ef6129e1dd3503f7b456",
+        "frontend/public/design-media/c22/features/proof-assets.json": "aefe2c6de11dd854ac5252e73344944b888d78736ad9bfff3b1f4bbc9c849317"
+      }
+    },
+    {
+      "file": "aside-light-play.png",
+      "width": 1080,
+      "height": 1920,
+      "bytes": 123842,
+      "sha256": "125f637e6a316411f529544306db64d25f55e1981de709a19d7b756e79da5526",
+      "data": "fictional",
+      "status": "creative-review-only",
+      "id": "aside",
+      "theme": "light",
+      "platform": "play",
+      "size": [
+        1080,
+        1920
+      ],
+      "alt": "Annual-costs set-aside review in Sorted, showing its amount and paying account before saving.",
+      "source": "frontend/app/design/marketing-kit/store/StoreCanvas.tsx",
+      "dependencies": {
+        "frontend/app/design/marketing-kit/store/StoreCanvas.tsx": "e72248b345f5d98afd457c2d896815746905589de22e4eb17da3275d8a2679f1",
+        "frontend/app/design/marketing-kit/store/catalog.ts": "d5c4cfd695fc0774683a69a979a4687e1c3b0df65e2298db6c603c27e5f27810",
+        "frontend/app/design/marketing-kit/store/store.module.css": "e7cbcce3c0b4952061a00d1947c0d03f3b70abd881f9b095d982ea2f8b305b85"
+      },
+      "proof": "frontend/public/design-media/c22/features/proof-aside-form-light.png",
+      "proofHash": "40049bf3fcdc1749e83e27e50984112899cf3594111a6c049af7b5fd63aedfcb",
+      "proofManifests": {
+        "frontend/public/design-media/c22/next/proof-assets.json": "7ce9d6774812e4d6e3a78a30b6ed66011f6472a8f2a9ef6129e1dd3503f7b456",
+        "frontend/public/design-media/c22/features/proof-assets.json": "aefe2c6de11dd854ac5252e73344944b888d78736ad9bfff3b1f4bbc9c849317"
+      }
+    },
+    {
+      "file": "feature-amount-light.png",
+      "width": 1024,
+      "height": 500,
+      "bytes": 69021,
+      "sha256": "b3db03efe8acf20b959b57efcf96b8a7d05532b478a12e349a9f0696f71cb504",
+      "data": "fictional",
+      "status": "creative-review-only",
+      "id": "amount",
+      "theme": "light",
+      "platform": "feature",
+      "size": [
+        1024,
+        500
+      ],
+      "alt": "Left to spend estimate in the Sorted app with its account context.",
+      "source": "frontend/app/design/marketing-kit/store/StoreCanvas.tsx",
+      "dependencies": {
+        "frontend/app/design/marketing-kit/store/StoreCanvas.tsx": "e72248b345f5d98afd457c2d896815746905589de22e4eb17da3275d8a2679f1",
+        "frontend/app/design/marketing-kit/store/catalog.ts": "d5c4cfd695fc0774683a69a979a4687e1c3b0df65e2298db6c603c27e5f27810",
+        "frontend/app/design/marketing-kit/store/store.module.css": "e7cbcce3c0b4952061a00d1947c0d03f3b70abd881f9b095d982ea2f8b305b85"
+      },
+      "proof": "frontend/public/design-media/c22/next/proof-safe-light.png",
+      "proofHash": "26414ed1c3c9ce49ef8bd47a3c46a646fd477adf780ab3d6e8f8f173dc425cd7",
+      "proofManifests": {
+        "frontend/public/design-media/c22/next/proof-assets.json": "7ce9d6774812e4d6e3a78a30b6ed66011f6472a8f2a9ef6129e1dd3503f7b456",
+        "frontend/public/design-media/c22/features/proof-assets.json": "aefe2c6de11dd854ac5252e73344944b888d78736ad9bfff3b1f4bbc9c849317"
+      }
+    },
+    {
+      "file": "amount-dark-apple-medium.png",
+      "width": 1206,
+      "height": 2622,
+      "bytes": 213653,
+      "sha256": "e7a040e4c13225ddef007c420a73304a8a5d5cc65116d1b1d5ef13939b4ebc89",
+      "data": "fictional",
+      "status": "creative-review-only",
+      "id": "amount",
+      "theme": "dark",
+      "platform": "apple-medium",
+      "size": [
+        1206,
+        2622
+      ],
+      "alt": "Left to spend estimate in the Sorted app with its account context.",
+      "source": "frontend/app/design/marketing-kit/store/StoreCanvas.tsx",
+      "dependencies": {
+        "frontend/app/design/marketing-kit/store/StoreCanvas.tsx": "e72248b345f5d98afd457c2d896815746905589de22e4eb17da3275d8a2679f1",
+        "frontend/app/design/marketing-kit/store/catalog.ts": "d5c4cfd695fc0774683a69a979a4687e1c3b0df65e2298db6c603c27e5f27810",
+        "frontend/app/design/marketing-kit/store/store.module.css": "e7cbcce3c0b4952061a00d1947c0d03f3b70abd881f9b095d982ea2f8b305b85"
+      },
+      "proof": "frontend/public/design-media/c22/next/proof-safe-dark.png",
+      "proofHash": "5cafe8173e2ffef6466db1f67f0ea0dea6ebee1edd67dcb7732c713c9c5a76b7",
+      "proofManifests": {
+        "frontend/public/design-media/c22/next/proof-assets.json": "7ce9d6774812e4d6e3a78a30b6ed66011f6472a8f2a9ef6129e1dd3503f7b456",
+        "frontend/public/design-media/c22/features/proof-assets.json": "aefe2c6de11dd854ac5252e73344944b888d78736ad9bfff3b1f4bbc9c849317"
+      }
+    },
+    {
+      "file": "account-dark-apple-medium.png",
+      "width": 1206,
+      "height": 2622,
+      "bytes": 151333,
+      "sha256": "4bdbfe69bd818169298798837f231214779596319965e5509ea60608338400cd",
+      "data": "fictional",
+      "status": "creative-review-only",
+      "id": "account",
+      "theme": "dark",
+      "platform": "apple-medium",
+      "size": [
+        1206,
+        2622
+      ],
+      "alt": "Upcoming payment in the Sorted app showing an account shortfall.",
+      "source": "frontend/app/design/marketing-kit/store/StoreCanvas.tsx",
+      "dependencies": {
+        "frontend/app/design/marketing-kit/store/StoreCanvas.tsx": "e72248b345f5d98afd457c2d896815746905589de22e4eb17da3275d8a2679f1",
+        "frontend/app/design/marketing-kit/store/catalog.ts": "d5c4cfd695fc0774683a69a979a4687e1c3b0df65e2298db6c603c27e5f27810",
+        "frontend/app/design/marketing-kit/store/store.module.css": "e7cbcce3c0b4952061a00d1947c0d03f3b70abd881f9b095d982ea2f8b305b85"
+      },
+      "proof": "frontend/public/design-media/c22/next/proof-accounts-dark.png",
+      "proofHash": "d31f8151ca413989de33467e9f41db1b80ccf57dd9ce03fcc1e88365fc8529f5",
+      "proofManifests": {
+        "frontend/public/design-media/c22/next/proof-assets.json": "7ce9d6774812e4d6e3a78a30b6ed66011f6472a8f2a9ef6129e1dd3503f7b456",
+        "frontend/public/design-media/c22/features/proof-assets.json": "aefe2c6de11dd854ac5252e73344944b888d78736ad9bfff3b1f4bbc9c849317"
+      }
+    },
+    {
+      "file": "spend-dark-apple-medium.png",
+      "width": 1206,
+      "height": 2622,
+      "bytes": 166684,
+      "sha256": "3133a197c9a2d83d0f66106f7b84ac63bb5816b2c01bc9f2c5442b79395effa2",
+      "data": "fictional",
+      "status": "creative-review-only",
+      "id": "spend",
+      "theme": "dark",
+      "platform": "apple-medium",
+      "size": [
+        1206,
+        2622
+      ],
+      "alt": "Pay-period spending pace in the Sorted app.",
+      "source": "frontend/app/design/marketing-kit/store/StoreCanvas.tsx",
+      "dependencies": {
+        "frontend/app/design/marketing-kit/store/StoreCanvas.tsx": "e72248b345f5d98afd457c2d896815746905589de22e4eb17da3275d8a2679f1",
+        "frontend/app/design/marketing-kit/store/catalog.ts": "d5c4cfd695fc0774683a69a979a4687e1c3b0df65e2298db6c603c27e5f27810",
+        "frontend/app/design/marketing-kit/store/store.module.css": "e7cbcce3c0b4952061a00d1947c0d03f3b70abd881f9b095d982ea2f8b305b85"
+      },
+      "proof": "frontend/public/design-media/c22/features/proof-spend-dark.png",
+      "proofHash": "94263ae8a459fbfd9c9b1554b1e46f845257399a9da48cb9fc113bd9b8a973ab",
+      "proofManifests": {
+        "frontend/public/design-media/c22/next/proof-assets.json": "7ce9d6774812e4d6e3a78a30b6ed66011f6472a8f2a9ef6129e1dd3503f7b456",
+        "frontend/public/design-media/c22/features/proof-assets.json": "aefe2c6de11dd854ac5252e73344944b888d78736ad9bfff3b1f4bbc9c849317"
+      }
+    },
+    {
+      "file": "month-dark-apple-medium.png",
+      "width": 1206,
+      "height": 2622,
+      "bytes": 111885,
+      "sha256": "95ce61c42e4700e7c419665ba9dcbbd0b2f4f4cac76c21a7e4c8cf7c0803b3cf",
+      "data": "fictional",
+      "status": "creative-review-only",
+      "id": "month",
+      "theme": "dark",
+      "platform": "apple-medium",
+      "size": [
+        1206,
+        2622
+      ],
+      "alt": "Month in review in the Sorted app showing income and spending.",
+      "source": "frontend/app/design/marketing-kit/store/StoreCanvas.tsx",
+      "dependencies": {
+        "frontend/app/design/marketing-kit/store/StoreCanvas.tsx": "e72248b345f5d98afd457c2d896815746905589de22e4eb17da3275d8a2679f1",
+        "frontend/app/design/marketing-kit/store/catalog.ts": "d5c4cfd695fc0774683a69a979a4687e1c3b0df65e2298db6c603c27e5f27810",
+        "frontend/app/design/marketing-kit/store/store.module.css": "e7cbcce3c0b4952061a00d1947c0d03f3b70abd881f9b095d982ea2f8b305b85"
+      },
+      "proof": "frontend/public/design-media/c22/features/proof-month-spending-dark.png",
+      "proofHash": "30d5dc995dbbc0fcf830276596629e4644187c921402d73fc3bfb8a19c9e87cc",
+      "proofManifests": {
+        "frontend/public/design-media/c22/next/proof-assets.json": "7ce9d6774812e4d6e3a78a30b6ed66011f6472a8f2a9ef6129e1dd3503f7b456",
+        "frontend/public/design-media/c22/features/proof-assets.json": "aefe2c6de11dd854ac5252e73344944b888d78736ad9bfff3b1f4bbc9c849317"
+      }
+    },
+    {
+      "file": "split-dark-apple-medium.png",
+      "width": 1206,
+      "height": 2622,
+      "bytes": 182253,
+      "sha256": "cd7b8f47657aeb3b042e42b40e70a6d781b6f45933d59ee0e2b01c128d373e63",
+      "data": "fictional",
+      "status": "creative-review-only",
+      "id": "split",
+      "theme": "dark",
+      "platform": "apple-medium",
+      "size": [
+        1206,
+        2622
+      ],
+      "alt": "A spending split comparison in the Sorted app.",
+      "source": "frontend/app/design/marketing-kit/store/StoreCanvas.tsx",
+      "dependencies": {
+        "frontend/app/design/marketing-kit/store/StoreCanvas.tsx": "e72248b345f5d98afd457c2d896815746905589de22e4eb17da3275d8a2679f1",
+        "frontend/app/design/marketing-kit/store/catalog.ts": "d5c4cfd695fc0774683a69a979a4687e1c3b0df65e2298db6c603c27e5f27810",
+        "frontend/app/design/marketing-kit/store/store.module.css": "e7cbcce3c0b4952061a00d1947c0d03f3b70abd881f9b095d982ea2f8b305b85"
+      },
+      "proof": "frontend/public/design-media/c22/features/proof-split-card-dark.png",
+      "proofHash": "29472af91b8a57e8b07528a246335803308b27ae135d6ff6f910bfd80bc90d91",
+      "proofManifests": {
+        "frontend/public/design-media/c22/next/proof-assets.json": "7ce9d6774812e4d6e3a78a30b6ed66011f6472a8f2a9ef6129e1dd3503f7b456",
+        "frontend/public/design-media/c22/features/proof-assets.json": "aefe2c6de11dd854ac5252e73344944b888d78736ad9bfff3b1f4bbc9c849317"
+      }
+    },
+    {
+      "file": "movement-dark-apple-medium.png",
+      "width": 1206,
+      "height": 2622,
+      "bytes": 202866,
+      "sha256": "4daa02e8c785b3cd2483f146896b2ae3aafcedf5fdb99e791438a26b75bed3b8",
+      "data": "fictional",
+      "status": "creative-review-only",
+      "id": "movement",
+      "theme": "dark",
+      "platform": "apple-medium",
+      "size": [
+        1206,
+        2622
+      ],
+      "alt": "Suggested movement in the Sorted app explaining a payment gap.",
+      "source": "frontend/app/design/marketing-kit/store/StoreCanvas.tsx",
+      "dependencies": {
+        "frontend/app/design/marketing-kit/store/StoreCanvas.tsx": "e72248b345f5d98afd457c2d896815746905589de22e4eb17da3275d8a2679f1",
+        "frontend/app/design/marketing-kit/store/catalog.ts": "d5c4cfd695fc0774683a69a979a4687e1c3b0df65e2298db6c603c27e5f27810",
+        "frontend/app/design/marketing-kit/store/store.module.css": "e7cbcce3c0b4952061a00d1947c0d03f3b70abd881f9b095d982ea2f8b305b85"
+      },
+      "proof": "frontend/public/design-media/c22/features/proof-movement-dark.png",
+      "proofHash": "a8d3356dc265083404361d83abc74f29d1bfd6401215f95ef14f8f7f781cbf38",
+      "proofManifests": {
+        "frontend/public/design-media/c22/next/proof-assets.json": "7ce9d6774812e4d6e3a78a30b6ed66011f6472a8f2a9ef6129e1dd3503f7b456",
+        "frontend/public/design-media/c22/features/proof-assets.json": "aefe2c6de11dd854ac5252e73344944b888d78736ad9bfff3b1f4bbc9c849317"
+      }
+    },
+    {
+      "file": "penny-dark-apple-medium.png",
+      "width": 1206,
+      "height": 2622,
+      "bytes": 136927,
+      "sha256": "860ab51823a106799720cc7ba7f25658d9e3115be4f129fda8838071184f563d",
+      "data": "fictional",
+      "status": "creative-review-only",
+      "id": "penny",
+      "theme": "dark",
+      "platform": "apple-medium",
+      "size": [
+        1206,
+        2622
+      ],
+      "alt": "Penny proposal in the Sorted app awaiting the user confirmation.",
+      "source": "frontend/app/design/marketing-kit/store/StoreCanvas.tsx",
+      "dependencies": {
+        "frontend/app/design/marketing-kit/store/StoreCanvas.tsx": "e72248b345f5d98afd457c2d896815746905589de22e4eb17da3275d8a2679f1",
+        "frontend/app/design/marketing-kit/store/catalog.ts": "d5c4cfd695fc0774683a69a979a4687e1c3b0df65e2298db6c603c27e5f27810",
+        "frontend/app/design/marketing-kit/store/store.module.css": "e7cbcce3c0b4952061a00d1947c0d03f3b70abd881f9b095d982ea2f8b305b85"
+      },
+      "proof": "frontend/public/design-media/c22/features/proof-penny-proposal-dark.png",
+      "proofHash": "ab126779ee8c461b379a3f8e75bcfb6b5e616f82f7139110edd795ddc7db555e",
+      "proofManifests": {
+        "frontend/public/design-media/c22/next/proof-assets.json": "7ce9d6774812e4d6e3a78a30b6ed66011f6472a8f2a9ef6129e1dd3503f7b456",
+        "frontend/public/design-media/c22/features/proof-assets.json": "aefe2c6de11dd854ac5252e73344944b888d78736ad9bfff3b1f4bbc9c849317"
+      }
+    },
+    {
+      "file": "aside-dark-apple-medium.png",
+      "width": 1206,
+      "height": 2622,
+      "bytes": 149836,
+      "sha256": "9fd136d4f205113e303e3878935ac42b0fc40366f43e5dbcb132f3aedf9fbfdc",
+      "data": "fictional",
+      "status": "creative-review-only",
+      "id": "aside",
+      "theme": "dark",
+      "platform": "apple-medium",
+      "size": [
+        1206,
+        2622
+      ],
+      "alt": "Annual-costs set-aside review in Sorted, showing its amount and paying account before saving.",
+      "source": "frontend/app/design/marketing-kit/store/StoreCanvas.tsx",
+      "dependencies": {
+        "frontend/app/design/marketing-kit/store/StoreCanvas.tsx": "e72248b345f5d98afd457c2d896815746905589de22e4eb17da3275d8a2679f1",
+        "frontend/app/design/marketing-kit/store/catalog.ts": "d5c4cfd695fc0774683a69a979a4687e1c3b0df65e2298db6c603c27e5f27810",
+        "frontend/app/design/marketing-kit/store/store.module.css": "e7cbcce3c0b4952061a00d1947c0d03f3b70abd881f9b095d982ea2f8b305b85"
+      },
+      "proof": "frontend/public/design-media/c22/features/proof-aside-form-dark.png",
+      "proofHash": "15255174abb86437940cca5b7d1b9ffd1f1142324c84e7b0b095a3859ecac49c",
+      "proofManifests": {
+        "frontend/public/design-media/c22/next/proof-assets.json": "7ce9d6774812e4d6e3a78a30b6ed66011f6472a8f2a9ef6129e1dd3503f7b456",
+        "frontend/public/design-media/c22/features/proof-assets.json": "aefe2c6de11dd854ac5252e73344944b888d78736ad9bfff3b1f4bbc9c849317"
+      }
+    },
+    {
+      "file": "amount-dark-apple-large.png",
+      "width": 1320,
+      "height": 2868,
+      "bytes": 238818,
+      "sha256": "d34bb68b0a0cd2bde724bc4ea7f6882f9fedd493fa8df92f851d1b27c3219a52",
+      "data": "fictional",
+      "status": "creative-review-only",
+      "id": "amount",
+      "theme": "dark",
+      "platform": "apple-large",
+      "size": [
+        1320,
+        2868
+      ],
+      "alt": "Left to spend estimate in the Sorted app with its account context.",
+      "source": "frontend/app/design/marketing-kit/store/StoreCanvas.tsx",
+      "dependencies": {
+        "frontend/app/design/marketing-kit/store/StoreCanvas.tsx": "e72248b345f5d98afd457c2d896815746905589de22e4eb17da3275d8a2679f1",
+        "frontend/app/design/marketing-kit/store/catalog.ts": "d5c4cfd695fc0774683a69a979a4687e1c3b0df65e2298db6c603c27e5f27810",
+        "frontend/app/design/marketing-kit/store/store.module.css": "e7cbcce3c0b4952061a00d1947c0d03f3b70abd881f9b095d982ea2f8b305b85"
+      },
+      "proof": "frontend/public/design-media/c22/next/proof-safe-dark.png",
+      "proofHash": "5cafe8173e2ffef6466db1f67f0ea0dea6ebee1edd67dcb7732c713c9c5a76b7",
+      "proofManifests": {
+        "frontend/public/design-media/c22/next/proof-assets.json": "7ce9d6774812e4d6e3a78a30b6ed66011f6472a8f2a9ef6129e1dd3503f7b456",
+        "frontend/public/design-media/c22/features/proof-assets.json": "aefe2c6de11dd854ac5252e73344944b888d78736ad9bfff3b1f4bbc9c849317"
+      }
+    },
+    {
+      "file": "account-dark-apple-large.png",
+      "width": 1320,
+      "height": 2868,
+      "bytes": 165721,
+      "sha256": "b315e3d23269ad90b026d67ac656ea94a0c2e0ab0c1b3b4999401bcb33d0570b",
+      "data": "fictional",
+      "status": "creative-review-only",
+      "id": "account",
+      "theme": "dark",
+      "platform": "apple-large",
+      "size": [
+        1320,
+        2868
+      ],
+      "alt": "Upcoming payment in the Sorted app showing an account shortfall.",
+      "source": "frontend/app/design/marketing-kit/store/StoreCanvas.tsx",
+      "dependencies": {
+        "frontend/app/design/marketing-kit/store/StoreCanvas.tsx": "e72248b345f5d98afd457c2d896815746905589de22e4eb17da3275d8a2679f1",
+        "frontend/app/design/marketing-kit/store/catalog.ts": "d5c4cfd695fc0774683a69a979a4687e1c3b0df65e2298db6c603c27e5f27810",
+        "frontend/app/design/marketing-kit/store/store.module.css": "e7cbcce3c0b4952061a00d1947c0d03f3b70abd881f9b095d982ea2f8b305b85"
+      },
+      "proof": "frontend/public/design-media/c22/next/proof-accounts-dark.png",
+      "proofHash": "d31f8151ca413989de33467e9f41db1b80ccf57dd9ce03fcc1e88365fc8529f5",
+      "proofManifests": {
+        "frontend/public/design-media/c22/next/proof-assets.json": "7ce9d6774812e4d6e3a78a30b6ed66011f6472a8f2a9ef6129e1dd3503f7b456",
+        "frontend/public/design-media/c22/features/proof-assets.json": "aefe2c6de11dd854ac5252e73344944b888d78736ad9bfff3b1f4bbc9c849317"
+      }
+    },
+    {
+      "file": "spend-dark-apple-large.png",
+      "width": 1320,
+      "height": 2868,
+      "bytes": 181840,
+      "sha256": "8f060249c2aff82597bab67d56051f79902050e1068f33c2ab67c574181a1e48",
+      "data": "fictional",
+      "status": "creative-review-only",
+      "id": "spend",
+      "theme": "dark",
+      "platform": "apple-large",
+      "size": [
+        1320,
+        2868
+      ],
+      "alt": "Pay-period spending pace in the Sorted app.",
+      "source": "frontend/app/design/marketing-kit/store/StoreCanvas.tsx",
+      "dependencies": {
+        "frontend/app/design/marketing-kit/store/StoreCanvas.tsx": "e72248b345f5d98afd457c2d896815746905589de22e4eb17da3275d8a2679f1",
+        "frontend/app/design/marketing-kit/store/catalog.ts": "d5c4cfd695fc0774683a69a979a4687e1c3b0df65e2298db6c603c27e5f27810",
+        "frontend/app/design/marketing-kit/store/store.module.css": "e7cbcce3c0b4952061a00d1947c0d03f3b70abd881f9b095d982ea2f8b305b85"
+      },
+      "proof": "frontend/public/design-media/c22/features/proof-spend-dark.png",
+      "proofHash": "94263ae8a459fbfd9c9b1554b1e46f845257399a9da48cb9fc113bd9b8a973ab",
+      "proofManifests": {
+        "frontend/public/design-media/c22/next/proof-assets.json": "7ce9d6774812e4d6e3a78a30b6ed66011f6472a8f2a9ef6129e1dd3503f7b456",
+        "frontend/public/design-media/c22/features/proof-assets.json": "aefe2c6de11dd854ac5252e73344944b888d78736ad9bfff3b1f4bbc9c849317"
+      }
+    },
+    {
+      "file": "month-dark-apple-large.png",
+      "width": 1320,
+      "height": 2868,
+      "bytes": 121197,
+      "sha256": "36860f88b53e47b55347789e64516568a920f11d160eb9f4d0ead91c8a89bea1",
+      "data": "fictional",
+      "status": "creative-review-only",
+      "id": "month",
+      "theme": "dark",
+      "platform": "apple-large",
+      "size": [
+        1320,
+        2868
+      ],
+      "alt": "Month in review in the Sorted app showing income and spending.",
+      "source": "frontend/app/design/marketing-kit/store/StoreCanvas.tsx",
+      "dependencies": {
+        "frontend/app/design/marketing-kit/store/StoreCanvas.tsx": "e72248b345f5d98afd457c2d896815746905589de22e4eb17da3275d8a2679f1",
+        "frontend/app/design/marketing-kit/store/catalog.ts": "d5c4cfd695fc0774683a69a979a4687e1c3b0df65e2298db6c603c27e5f27810",
+        "frontend/app/design/marketing-kit/store/store.module.css": "e7cbcce3c0b4952061a00d1947c0d03f3b70abd881f9b095d982ea2f8b305b85"
+      },
+      "proof": "frontend/public/design-media/c22/features/proof-month-spending-dark.png",
+      "proofHash": "30d5dc995dbbc0fcf830276596629e4644187c921402d73fc3bfb8a19c9e87cc",
+      "proofManifests": {
+        "frontend/public/design-media/c22/next/proof-assets.json": "7ce9d6774812e4d6e3a78a30b6ed66011f6472a8f2a9ef6129e1dd3503f7b456",
+        "frontend/public/design-media/c22/features/proof-assets.json": "aefe2c6de11dd854ac5252e73344944b888d78736ad9bfff3b1f4bbc9c849317"
+      }
+    },
+    {
+      "file": "split-dark-apple-large.png",
+      "width": 1320,
+      "height": 2868,
+      "bytes": 201103,
+      "sha256": "c92cd6de263689453d5b0d2869bc068e4393691cef31c2d436c43b2f94cb3574",
+      "data": "fictional",
+      "status": "creative-review-only",
+      "id": "split",
+      "theme": "dark",
+      "platform": "apple-large",
+      "size": [
+        1320,
+        2868
+      ],
+      "alt": "A spending split comparison in the Sorted app.",
+      "source": "frontend/app/design/marketing-kit/store/StoreCanvas.tsx",
+      "dependencies": {
+        "frontend/app/design/marketing-kit/store/StoreCanvas.tsx": "e72248b345f5d98afd457c2d896815746905589de22e4eb17da3275d8a2679f1",
+        "frontend/app/design/marketing-kit/store/catalog.ts": "d5c4cfd695fc0774683a69a979a4687e1c3b0df65e2298db6c603c27e5f27810",
+        "frontend/app/design/marketing-kit/store/store.module.css": "e7cbcce3c0b4952061a00d1947c0d03f3b70abd881f9b095d982ea2f8b305b85"
+      },
+      "proof": "frontend/public/design-media/c22/features/proof-split-card-dark.png",
+      "proofHash": "29472af91b8a57e8b07528a246335803308b27ae135d6ff6f910bfd80bc90d91",
+      "proofManifests": {
+        "frontend/public/design-media/c22/next/proof-assets.json": "7ce9d6774812e4d6e3a78a30b6ed66011f6472a8f2a9ef6129e1dd3503f7b456",
+        "frontend/public/design-media/c22/features/proof-assets.json": "aefe2c6de11dd854ac5252e73344944b888d78736ad9bfff3b1f4bbc9c849317"
+      }
+    },
+    {
+      "file": "movement-dark-apple-large.png",
+      "width": 1320,
+      "height": 2868,
+      "bytes": 224866,
+      "sha256": "aa2529c17c55a03473acec3bc8071d93e4d0a8c29e76b63b26a5d23e3364b5e8",
+      "data": "fictional",
+      "status": "creative-review-only",
+      "id": "movement",
+      "theme": "dark",
+      "platform": "apple-large",
+      "size": [
+        1320,
+        2868
+      ],
+      "alt": "Suggested movement in the Sorted app explaining a payment gap.",
+      "source": "frontend/app/design/marketing-kit/store/StoreCanvas.tsx",
+      "dependencies": {
+        "frontend/app/design/marketing-kit/store/StoreCanvas.tsx": "e72248b345f5d98afd457c2d896815746905589de22e4eb17da3275d8a2679f1",
+        "frontend/app/design/marketing-kit/store/catalog.ts": "d5c4cfd695fc0774683a69a979a4687e1c3b0df65e2298db6c603c27e5f27810",
+        "frontend/app/design/marketing-kit/store/store.module.css": "e7cbcce3c0b4952061a00d1947c0d03f3b70abd881f9b095d982ea2f8b305b85"
+      },
+      "proof": "frontend/public/design-media/c22/features/proof-movement-dark.png",
+      "proofHash": "a8d3356dc265083404361d83abc74f29d1bfd6401215f95ef14f8f7f781cbf38",
+      "proofManifests": {
+        "frontend/public/design-media/c22/next/proof-assets.json": "7ce9d6774812e4d6e3a78a30b6ed66011f6472a8f2a9ef6129e1dd3503f7b456",
+        "frontend/public/design-media/c22/features/proof-assets.json": "aefe2c6de11dd854ac5252e73344944b888d78736ad9bfff3b1f4bbc9c849317"
+      }
+    },
+    {
+      "file": "penny-dark-apple-large.png",
+      "width": 1320,
+      "height": 2868,
+      "bytes": 149838,
+      "sha256": "69e7fbd6c7b120664fa3df28cc716a98d09132cf41f37247dfe0b6ff3185b853",
+      "data": "fictional",
+      "status": "creative-review-only",
+      "id": "penny",
+      "theme": "dark",
+      "platform": "apple-large",
+      "size": [
+        1320,
+        2868
+      ],
+      "alt": "Penny proposal in the Sorted app awaiting the user confirmation.",
+      "source": "frontend/app/design/marketing-kit/store/StoreCanvas.tsx",
+      "dependencies": {
+        "frontend/app/design/marketing-kit/store/StoreCanvas.tsx": "e72248b345f5d98afd457c2d896815746905589de22e4eb17da3275d8a2679f1",
+        "frontend/app/design/marketing-kit/store/catalog.ts": "d5c4cfd695fc0774683a69a979a4687e1c3b0df65e2298db6c603c27e5f27810",
+        "frontend/app/design/marketing-kit/store/store.module.css": "e7cbcce3c0b4952061a00d1947c0d03f3b70abd881f9b095d982ea2f8b305b85"
+      },
+      "proof": "frontend/public/design-media/c22/features/proof-penny-proposal-dark.png",
+      "proofHash": "ab126779ee8c461b379a3f8e75bcfb6b5e616f82f7139110edd795ddc7db555e",
+      "proofManifests": {
+        "frontend/public/design-media/c22/next/proof-assets.json": "7ce9d6774812e4d6e3a78a30b6ed66011f6472a8f2a9ef6129e1dd3503f7b456",
+        "frontend/public/design-media/c22/features/proof-assets.json": "aefe2c6de11dd854ac5252e73344944b888d78736ad9bfff3b1f4bbc9c849317"
+      }
+    },
+    {
+      "file": "aside-dark-apple-large.png",
+      "width": 1320,
+      "height": 2868,
+      "bytes": 166479,
+      "sha256": "6cb79a804c6c7e83a1b3ea2dc289546dd2546ba407f02f76fd81db8a79fe7951",
+      "data": "fictional",
+      "status": "creative-review-only",
+      "id": "aside",
+      "theme": "dark",
+      "platform": "apple-large",
+      "size": [
+        1320,
+        2868
+      ],
+      "alt": "Annual-costs set-aside review in Sorted, showing its amount and paying account before saving.",
+      "source": "frontend/app/design/marketing-kit/store/StoreCanvas.tsx",
+      "dependencies": {
+        "frontend/app/design/marketing-kit/store/StoreCanvas.tsx": "e72248b345f5d98afd457c2d896815746905589de22e4eb17da3275d8a2679f1",
+        "frontend/app/design/marketing-kit/store/catalog.ts": "d5c4cfd695fc0774683a69a979a4687e1c3b0df65e2298db6c603c27e5f27810",
+        "frontend/app/design/marketing-kit/store/store.module.css": "e7cbcce3c0b4952061a00d1947c0d03f3b70abd881f9b095d982ea2f8b305b85"
+      },
+      "proof": "frontend/public/design-media/c22/features/proof-aside-form-dark.png",
+      "proofHash": "15255174abb86437940cca5b7d1b9ffd1f1142324c84e7b0b095a3859ecac49c",
+      "proofManifests": {
+        "frontend/public/design-media/c22/next/proof-assets.json": "7ce9d6774812e4d6e3a78a30b6ed66011f6472a8f2a9ef6129e1dd3503f7b456",
+        "frontend/public/design-media/c22/features/proof-assets.json": "aefe2c6de11dd854ac5252e73344944b888d78736ad9bfff3b1f4bbc9c849317"
+      }
+    },
+    {
+      "file": "amount-dark-apple-classic.png",
+      "width": 1242,
+      "height": 2688,
+      "bytes": 219455,
+      "sha256": "993b532e5dfddd7a4dd03633f9996b871828e6967e4919dbfa5fa37b7410905e",
+      "data": "fictional",
+      "status": "creative-review-only",
+      "id": "amount",
+      "theme": "dark",
+      "platform": "apple-classic",
+      "size": [
+        1242,
+        2688
+      ],
+      "alt": "Left to spend estimate in the Sorted app with its account context.",
+      "source": "frontend/app/design/marketing-kit/store/StoreCanvas.tsx",
+      "dependencies": {
+        "frontend/app/design/marketing-kit/store/StoreCanvas.tsx": "e72248b345f5d98afd457c2d896815746905589de22e4eb17da3275d8a2679f1",
+        "frontend/app/design/marketing-kit/store/catalog.ts": "d5c4cfd695fc0774683a69a979a4687e1c3b0df65e2298db6c603c27e5f27810",
+        "frontend/app/design/marketing-kit/store/store.module.css": "e7cbcce3c0b4952061a00d1947c0d03f3b70abd881f9b095d982ea2f8b305b85"
+      },
+      "proof": "frontend/public/design-media/c22/next/proof-safe-dark.png",
+      "proofHash": "5cafe8173e2ffef6466db1f67f0ea0dea6ebee1edd67dcb7732c713c9c5a76b7",
+      "proofManifests": {
+        "frontend/public/design-media/c22/next/proof-assets.json": "7ce9d6774812e4d6e3a78a30b6ed66011f6472a8f2a9ef6129e1dd3503f7b456",
+        "frontend/public/design-media/c22/features/proof-assets.json": "aefe2c6de11dd854ac5252e73344944b888d78736ad9bfff3b1f4bbc9c849317"
+      }
+    },
+    {
+      "file": "account-dark-apple-classic.png",
+      "width": 1242,
+      "height": 2688,
+      "bytes": 153100,
+      "sha256": "b4cd98a268cd60e3cafc37c72ba4ca9e653e725b5ef7a027f18e8347cb53bf75",
+      "data": "fictional",
+      "status": "creative-review-only",
+      "id": "account",
+      "theme": "dark",
+      "platform": "apple-classic",
+      "size": [
+        1242,
+        2688
+      ],
+      "alt": "Upcoming payment in the Sorted app showing an account shortfall.",
+      "source": "frontend/app/design/marketing-kit/store/StoreCanvas.tsx",
+      "dependencies": {
+        "frontend/app/design/marketing-kit/store/StoreCanvas.tsx": "e72248b345f5d98afd457c2d896815746905589de22e4eb17da3275d8a2679f1",
+        "frontend/app/design/marketing-kit/store/catalog.ts": "d5c4cfd695fc0774683a69a979a4687e1c3b0df65e2298db6c603c27e5f27810",
+        "frontend/app/design/marketing-kit/store/store.module.css": "e7cbcce3c0b4952061a00d1947c0d03f3b70abd881f9b095d982ea2f8b305b85"
+      },
+      "proof": "frontend/public/design-media/c22/next/proof-accounts-dark.png",
+      "proofHash": "d31f8151ca413989de33467e9f41db1b80ccf57dd9ce03fcc1e88365fc8529f5",
+      "proofManifests": {
+        "frontend/public/design-media/c22/next/proof-assets.json": "7ce9d6774812e4d6e3a78a30b6ed66011f6472a8f2a9ef6129e1dd3503f7b456",
+        "frontend/public/design-media/c22/features/proof-assets.json": "aefe2c6de11dd854ac5252e73344944b888d78736ad9bfff3b1f4bbc9c849317"
+      }
+    },
+    {
+      "file": "spend-dark-apple-classic.png",
+      "width": 1242,
+      "height": 2688,
+      "bytes": 172825,
+      "sha256": "46071ae54460888f7e1555ba6c3121ff383b1fb0e944135917bcecea10c4c91b",
+      "data": "fictional",
+      "status": "creative-review-only",
+      "id": "spend",
+      "theme": "dark",
+      "platform": "apple-classic",
+      "size": [
+        1242,
+        2688
+      ],
+      "alt": "Pay-period spending pace in the Sorted app.",
+      "source": "frontend/app/design/marketing-kit/store/StoreCanvas.tsx",
+      "dependencies": {
+        "frontend/app/design/marketing-kit/store/StoreCanvas.tsx": "e72248b345f5d98afd457c2d896815746905589de22e4eb17da3275d8a2679f1",
+        "frontend/app/design/marketing-kit/store/catalog.ts": "d5c4cfd695fc0774683a69a979a4687e1c3b0df65e2298db6c603c27e5f27810",
+        "frontend/app/design/marketing-kit/store/store.module.css": "e7cbcce3c0b4952061a00d1947c0d03f3b70abd881f9b095d982ea2f8b305b85"
+      },
+      "proof": "frontend/public/design-media/c22/features/proof-spend-dark.png",
+      "proofHash": "94263ae8a459fbfd9c9b1554b1e46f845257399a9da48cb9fc113bd9b8a973ab",
+      "proofManifests": {
+        "frontend/public/design-media/c22/next/proof-assets.json": "7ce9d6774812e4d6e3a78a30b6ed66011f6472a8f2a9ef6129e1dd3503f7b456",
+        "frontend/public/design-media/c22/features/proof-assets.json": "aefe2c6de11dd854ac5252e73344944b888d78736ad9bfff3b1f4bbc9c849317"
+      }
+    },
+    {
+      "file": "month-dark-apple-classic.png",
+      "width": 1242,
+      "height": 2688,
+      "bytes": 114409,
+      "sha256": "05c77b0f2fe698a460d87b9bd135c1e980895bae41a1123c2ec6d5125d1ecdae",
+      "data": "fictional",
+      "status": "creative-review-only",
+      "id": "month",
+      "theme": "dark",
+      "platform": "apple-classic",
+      "size": [
+        1242,
+        2688
+      ],
+      "alt": "Month in review in the Sorted app showing income and spending.",
+      "source": "frontend/app/design/marketing-kit/store/StoreCanvas.tsx",
+      "dependencies": {
+        "frontend/app/design/marketing-kit/store/StoreCanvas.tsx": "e72248b345f5d98afd457c2d896815746905589de22e4eb17da3275d8a2679f1",
+        "frontend/app/design/marketing-kit/store/catalog.ts": "d5c4cfd695fc0774683a69a979a4687e1c3b0df65e2298db6c603c27e5f27810",
+        "frontend/app/design/marketing-kit/store/store.module.css": "e7cbcce3c0b4952061a00d1947c0d03f3b70abd881f9b095d982ea2f8b305b85"
+      },
+      "proof": "frontend/public/design-media/c22/features/proof-month-spending-dark.png",
+      "proofHash": "30d5dc995dbbc0fcf830276596629e4644187c921402d73fc3bfb8a19c9e87cc",
+      "proofManifests": {
+        "frontend/public/design-media/c22/next/proof-assets.json": "7ce9d6774812e4d6e3a78a30b6ed66011f6472a8f2a9ef6129e1dd3503f7b456",
+        "frontend/public/design-media/c22/features/proof-assets.json": "aefe2c6de11dd854ac5252e73344944b888d78736ad9bfff3b1f4bbc9c849317"
+      }
+    },
+    {
+      "file": "split-dark-apple-classic.png",
+      "width": 1242,
+      "height": 2688,
+      "bytes": 185852,
+      "sha256": "be4ddbb06604790d8ec3942b23e75800d23d7dd6fe311ab99fe271429106cc46",
+      "data": "fictional",
+      "status": "creative-review-only",
+      "id": "split",
+      "theme": "dark",
+      "platform": "apple-classic",
+      "size": [
+        1242,
+        2688
+      ],
+      "alt": "A spending split comparison in the Sorted app.",
+      "source": "frontend/app/design/marketing-kit/store/StoreCanvas.tsx",
+      "dependencies": {
+        "frontend/app/design/marketing-kit/store/StoreCanvas.tsx": "e72248b345f5d98afd457c2d896815746905589de22e4eb17da3275d8a2679f1",
+        "frontend/app/design/marketing-kit/store/catalog.ts": "d5c4cfd695fc0774683a69a979a4687e1c3b0df65e2298db6c603c27e5f27810",
+        "frontend/app/design/marketing-kit/store/store.module.css": "e7cbcce3c0b4952061a00d1947c0d03f3b70abd881f9b095d982ea2f8b305b85"
+      },
+      "proof": "frontend/public/design-media/c22/features/proof-split-card-dark.png",
+      "proofHash": "29472af91b8a57e8b07528a246335803308b27ae135d6ff6f910bfd80bc90d91",
+      "proofManifests": {
+        "frontend/public/design-media/c22/next/proof-assets.json": "7ce9d6774812e4d6e3a78a30b6ed66011f6472a8f2a9ef6129e1dd3503f7b456",
+        "frontend/public/design-media/c22/features/proof-assets.json": "aefe2c6de11dd854ac5252e73344944b888d78736ad9bfff3b1f4bbc9c849317"
+      }
+    },
+    {
+      "file": "movement-dark-apple-classic.png",
+      "width": 1242,
+      "height": 2688,
+      "bytes": 207658,
+      "sha256": "92d5d04b8b2d1afb4d00a68eded0dc65cc95a49721e464374dca3b1400129115",
+      "data": "fictional",
+      "status": "creative-review-only",
+      "id": "movement",
+      "theme": "dark",
+      "platform": "apple-classic",
+      "size": [
+        1242,
+        2688
+      ],
+      "alt": "Suggested movement in the Sorted app explaining a payment gap.",
+      "source": "frontend/app/design/marketing-kit/store/StoreCanvas.tsx",
+      "dependencies": {
+        "frontend/app/design/marketing-kit/store/StoreCanvas.tsx": "e72248b345f5d98afd457c2d896815746905589de22e4eb17da3275d8a2679f1",
+        "frontend/app/design/marketing-kit/store/catalog.ts": "d5c4cfd695fc0774683a69a979a4687e1c3b0df65e2298db6c603c27e5f27810",
+        "frontend/app/design/marketing-kit/store/store.module.css": "e7cbcce3c0b4952061a00d1947c0d03f3b70abd881f9b095d982ea2f8b305b85"
+      },
+      "proof": "frontend/public/design-media/c22/features/proof-movement-dark.png",
+      "proofHash": "a8d3356dc265083404361d83abc74f29d1bfd6401215f95ef14f8f7f781cbf38",
+      "proofManifests": {
+        "frontend/public/design-media/c22/next/proof-assets.json": "7ce9d6774812e4d6e3a78a30b6ed66011f6472a8f2a9ef6129e1dd3503f7b456",
+        "frontend/public/design-media/c22/features/proof-assets.json": "aefe2c6de11dd854ac5252e73344944b888d78736ad9bfff3b1f4bbc9c849317"
+      }
+    },
+    {
+      "file": "penny-dark-apple-classic.png",
+      "width": 1242,
+      "height": 2688,
+      "bytes": 137624,
+      "sha256": "ca7cd38a16c05d9cb4dcc7320f9924950a9e0e0d97a453683a067e9c3f6f26ff",
+      "data": "fictional",
+      "status": "creative-review-only",
+      "id": "penny",
+      "theme": "dark",
+      "platform": "apple-classic",
+      "size": [
+        1242,
+        2688
+      ],
+      "alt": "Penny proposal in the Sorted app awaiting the user confirmation.",
+      "source": "frontend/app/design/marketing-kit/store/StoreCanvas.tsx",
+      "dependencies": {
+        "frontend/app/design/marketing-kit/store/StoreCanvas.tsx": "e72248b345f5d98afd457c2d896815746905589de22e4eb17da3275d8a2679f1",
+        "frontend/app/design/marketing-kit/store/catalog.ts": "d5c4cfd695fc0774683a69a979a4687e1c3b0df65e2298db6c603c27e5f27810",
+        "frontend/app/design/marketing-kit/store/store.module.css": "e7cbcce3c0b4952061a00d1947c0d03f3b70abd881f9b095d982ea2f8b305b85"
+      },
+      "proof": "frontend/public/design-media/c22/features/proof-penny-proposal-dark.png",
+      "proofHash": "ab126779ee8c461b379a3f8e75bcfb6b5e616f82f7139110edd795ddc7db555e",
+      "proofManifests": {
+        "frontend/public/design-media/c22/next/proof-assets.json": "7ce9d6774812e4d6e3a78a30b6ed66011f6472a8f2a9ef6129e1dd3503f7b456",
+        "frontend/public/design-media/c22/features/proof-assets.json": "aefe2c6de11dd854ac5252e73344944b888d78736ad9bfff3b1f4bbc9c849317"
+      }
+    },
+    {
+      "file": "aside-dark-apple-classic.png",
+      "width": 1242,
+      "height": 2688,
+      "bytes": 153360,
+      "sha256": "9ef2bec319ffeb80bc6dbba7ad15d677e6a8bd43c0fed84fdb7e822596a06d33",
+      "data": "fictional",
+      "status": "creative-review-only",
+      "id": "aside",
+      "theme": "dark",
+      "platform": "apple-classic",
+      "size": [
+        1242,
+        2688
+      ],
+      "alt": "Annual-costs set-aside review in Sorted, showing its amount and paying account before saving.",
+      "source": "frontend/app/design/marketing-kit/store/StoreCanvas.tsx",
+      "dependencies": {
+        "frontend/app/design/marketing-kit/store/StoreCanvas.tsx": "e72248b345f5d98afd457c2d896815746905589de22e4eb17da3275d8a2679f1",
+        "frontend/app/design/marketing-kit/store/catalog.ts": "d5c4cfd695fc0774683a69a979a4687e1c3b0df65e2298db6c603c27e5f27810",
+        "frontend/app/design/marketing-kit/store/store.module.css": "e7cbcce3c0b4952061a00d1947c0d03f3b70abd881f9b095d982ea2f8b305b85"
+      },
+      "proof": "frontend/public/design-media/c22/features/proof-aside-form-dark.png",
+      "proofHash": "15255174abb86437940cca5b7d1b9ffd1f1142324c84e7b0b095a3859ecac49c",
+      "proofManifests": {
+        "frontend/public/design-media/c22/next/proof-assets.json": "7ce9d6774812e4d6e3a78a30b6ed66011f6472a8f2a9ef6129e1dd3503f7b456",
+        "frontend/public/design-media/c22/features/proof-assets.json": "aefe2c6de11dd854ac5252e73344944b888d78736ad9bfff3b1f4bbc9c849317"
+      }
+    },
+    {
+      "file": "amount-dark-play.png",
+      "width": 1080,
+      "height": 1920,
+      "bytes": 178605,
+      "sha256": "f2edcf1debaaa311ef2d81bd51a4974fe963da9cdfe4521214e83d3c412e637d",
+      "data": "fictional",
+      "status": "creative-review-only",
+      "id": "amount",
+      "theme": "dark",
+      "platform": "play",
+      "size": [
+        1080,
+        1920
+      ],
+      "alt": "Left to spend estimate in the Sorted app with its account context.",
+      "source": "frontend/app/design/marketing-kit/store/StoreCanvas.tsx",
+      "dependencies": {
+        "frontend/app/design/marketing-kit/store/StoreCanvas.tsx": "e72248b345f5d98afd457c2d896815746905589de22e4eb17da3275d8a2679f1",
+        "frontend/app/design/marketing-kit/store/catalog.ts": "d5c4cfd695fc0774683a69a979a4687e1c3b0df65e2298db6c603c27e5f27810",
+        "frontend/app/design/marketing-kit/store/store.module.css": "e7cbcce3c0b4952061a00d1947c0d03f3b70abd881f9b095d982ea2f8b305b85"
+      },
+      "proof": "frontend/public/design-media/c22/next/proof-safe-dark.png",
+      "proofHash": "5cafe8173e2ffef6466db1f67f0ea0dea6ebee1edd67dcb7732c713c9c5a76b7",
+      "proofManifests": {
+        "frontend/public/design-media/c22/next/proof-assets.json": "7ce9d6774812e4d6e3a78a30b6ed66011f6472a8f2a9ef6129e1dd3503f7b456",
+        "frontend/public/design-media/c22/features/proof-assets.json": "aefe2c6de11dd854ac5252e73344944b888d78736ad9bfff3b1f4bbc9c849317"
+      }
+    },
+    {
+      "file": "account-dark-play.png",
+      "width": 1080,
+      "height": 1920,
+      "bytes": 121498,
+      "sha256": "6d9106e4451c16bce128ea7bacebdef06e6cee616dffa57588cb2c2c908b64fe",
+      "data": "fictional",
+      "status": "creative-review-only",
+      "id": "account",
+      "theme": "dark",
+      "platform": "play",
+      "size": [
+        1080,
+        1920
+      ],
+      "alt": "Upcoming payment in the Sorted app showing an account shortfall.",
+      "source": "frontend/app/design/marketing-kit/store/StoreCanvas.tsx",
+      "dependencies": {
+        "frontend/app/design/marketing-kit/store/StoreCanvas.tsx": "e72248b345f5d98afd457c2d896815746905589de22e4eb17da3275d8a2679f1",
+        "frontend/app/design/marketing-kit/store/catalog.ts": "d5c4cfd695fc0774683a69a979a4687e1c3b0df65e2298db6c603c27e5f27810",
+        "frontend/app/design/marketing-kit/store/store.module.css": "e7cbcce3c0b4952061a00d1947c0d03f3b70abd881f9b095d982ea2f8b305b85"
+      },
+      "proof": "frontend/public/design-media/c22/next/proof-accounts-dark.png",
+      "proofHash": "d31f8151ca413989de33467e9f41db1b80ccf57dd9ce03fcc1e88365fc8529f5",
+      "proofManifests": {
+        "frontend/public/design-media/c22/next/proof-assets.json": "7ce9d6774812e4d6e3a78a30b6ed66011f6472a8f2a9ef6129e1dd3503f7b456",
+        "frontend/public/design-media/c22/features/proof-assets.json": "aefe2c6de11dd854ac5252e73344944b888d78736ad9bfff3b1f4bbc9c849317"
+      }
+    },
+    {
+      "file": "spend-dark-play.png",
+      "width": 1080,
+      "height": 1920,
+      "bytes": 137696,
+      "sha256": "01378d91af8993698e83098defb956859a8d4264d3c2389ecc6b32e7c3bffb93",
+      "data": "fictional",
+      "status": "creative-review-only",
+      "id": "spend",
+      "theme": "dark",
+      "platform": "play",
+      "size": [
+        1080,
+        1920
+      ],
+      "alt": "Pay-period spending pace in the Sorted app.",
+      "source": "frontend/app/design/marketing-kit/store/StoreCanvas.tsx",
+      "dependencies": {
+        "frontend/app/design/marketing-kit/store/StoreCanvas.tsx": "e72248b345f5d98afd457c2d896815746905589de22e4eb17da3275d8a2679f1",
+        "frontend/app/design/marketing-kit/store/catalog.ts": "d5c4cfd695fc0774683a69a979a4687e1c3b0df65e2298db6c603c27e5f27810",
+        "frontend/app/design/marketing-kit/store/store.module.css": "e7cbcce3c0b4952061a00d1947c0d03f3b70abd881f9b095d982ea2f8b305b85"
+      },
+      "proof": "frontend/public/design-media/c22/features/proof-spend-dark.png",
+      "proofHash": "94263ae8a459fbfd9c9b1554b1e46f845257399a9da48cb9fc113bd9b8a973ab",
+      "proofManifests": {
+        "frontend/public/design-media/c22/next/proof-assets.json": "7ce9d6774812e4d6e3a78a30b6ed66011f6472a8f2a9ef6129e1dd3503f7b456",
+        "frontend/public/design-media/c22/features/proof-assets.json": "aefe2c6de11dd854ac5252e73344944b888d78736ad9bfff3b1f4bbc9c849317"
+      }
+    },
+    {
+      "file": "month-dark-play.png",
+      "width": 1080,
+      "height": 1920,
+      "bytes": 92274,
+      "sha256": "5255005981793d1fc6c531de6ace6e65023f765ac9a09875152249c32e1c3dc2",
+      "data": "fictional",
+      "status": "creative-review-only",
+      "id": "month",
+      "theme": "dark",
+      "platform": "play",
+      "size": [
+        1080,
+        1920
+      ],
+      "alt": "Month in review in the Sorted app showing income and spending.",
+      "source": "frontend/app/design/marketing-kit/store/StoreCanvas.tsx",
+      "dependencies": {
+        "frontend/app/design/marketing-kit/store/StoreCanvas.tsx": "e72248b345f5d98afd457c2d896815746905589de22e4eb17da3275d8a2679f1",
+        "frontend/app/design/marketing-kit/store/catalog.ts": "d5c4cfd695fc0774683a69a979a4687e1c3b0df65e2298db6c603c27e5f27810",
+        "frontend/app/design/marketing-kit/store/store.module.css": "e7cbcce3c0b4952061a00d1947c0d03f3b70abd881f9b095d982ea2f8b305b85"
+      },
+      "proof": "frontend/public/design-media/c22/features/proof-month-spending-dark.png",
+      "proofHash": "30d5dc995dbbc0fcf830276596629e4644187c921402d73fc3bfb8a19c9e87cc",
+      "proofManifests": {
+        "frontend/public/design-media/c22/next/proof-assets.json": "7ce9d6774812e4d6e3a78a30b6ed66011f6472a8f2a9ef6129e1dd3503f7b456",
+        "frontend/public/design-media/c22/features/proof-assets.json": "aefe2c6de11dd854ac5252e73344944b888d78736ad9bfff3b1f4bbc9c849317"
+      }
+    },
+    {
+      "file": "split-dark-play.png",
+      "width": 1080,
+      "height": 1920,
+      "bytes": 143043,
+      "sha256": "937f41299ac39912d20db420054f9e97df84a481cc26ce710fc10318b71e8d71",
+      "data": "fictional",
+      "status": "creative-review-only",
+      "id": "split",
+      "theme": "dark",
+      "platform": "play",
+      "size": [
+        1080,
+        1920
+      ],
+      "alt": "A spending split comparison in the Sorted app.",
+      "source": "frontend/app/design/marketing-kit/store/StoreCanvas.tsx",
+      "dependencies": {
+        "frontend/app/design/marketing-kit/store/StoreCanvas.tsx": "e72248b345f5d98afd457c2d896815746905589de22e4eb17da3275d8a2679f1",
+        "frontend/app/design/marketing-kit/store/catalog.ts": "d5c4cfd695fc0774683a69a979a4687e1c3b0df65e2298db6c603c27e5f27810",
+        "frontend/app/design/marketing-kit/store/store.module.css": "e7cbcce3c0b4952061a00d1947c0d03f3b70abd881f9b095d982ea2f8b305b85"
+      },
+      "proof": "frontend/public/design-media/c22/features/proof-split-card-dark.png",
+      "proofHash": "29472af91b8a57e8b07528a246335803308b27ae135d6ff6f910bfd80bc90d91",
+      "proofManifests": {
+        "frontend/public/design-media/c22/next/proof-assets.json": "7ce9d6774812e4d6e3a78a30b6ed66011f6472a8f2a9ef6129e1dd3503f7b456",
+        "frontend/public/design-media/c22/features/proof-assets.json": "aefe2c6de11dd854ac5252e73344944b888d78736ad9bfff3b1f4bbc9c849317"
+      }
+    },
+    {
+      "file": "movement-dark-play.png",
+      "width": 1080,
+      "height": 1920,
+      "bytes": 138475,
+      "sha256": "7130523ac4bbf67185935b4f2724b03a1eab846382f5860d97c4c2bf212c34e3",
+      "data": "fictional",
+      "status": "creative-review-only",
+      "id": "movement",
+      "theme": "dark",
+      "platform": "play",
+      "size": [
+        1080,
+        1920
+      ],
+      "alt": "Suggested movement in the Sorted app explaining a payment gap.",
+      "source": "frontend/app/design/marketing-kit/store/StoreCanvas.tsx",
+      "dependencies": {
+        "frontend/app/design/marketing-kit/store/StoreCanvas.tsx": "e72248b345f5d98afd457c2d896815746905589de22e4eb17da3275d8a2679f1",
+        "frontend/app/design/marketing-kit/store/catalog.ts": "d5c4cfd695fc0774683a69a979a4687e1c3b0df65e2298db6c603c27e5f27810",
+        "frontend/app/design/marketing-kit/store/store.module.css": "e7cbcce3c0b4952061a00d1947c0d03f3b70abd881f9b095d982ea2f8b305b85"
+      },
+      "proof": "frontend/public/design-media/c22/features/proof-movement-dark.png",
+      "proofHash": "a8d3356dc265083404361d83abc74f29d1bfd6401215f95ef14f8f7f781cbf38",
+      "proofManifests": {
+        "frontend/public/design-media/c22/next/proof-assets.json": "7ce9d6774812e4d6e3a78a30b6ed66011f6472a8f2a9ef6129e1dd3503f7b456",
+        "frontend/public/design-media/c22/features/proof-assets.json": "aefe2c6de11dd854ac5252e73344944b888d78736ad9bfff3b1f4bbc9c849317"
+      }
+    },
+    {
+      "file": "penny-dark-play.png",
+      "width": 1080,
+      "height": 1920,
+      "bytes": 113653,
+      "sha256": "2578bd90032a199d8141d67c5059cdf8827e055c6690d42e0739295a4a1386ba",
+      "data": "fictional",
+      "status": "creative-review-only",
+      "id": "penny",
+      "theme": "dark",
+      "platform": "play",
+      "size": [
+        1080,
+        1920
+      ],
+      "alt": "Penny proposal in the Sorted app awaiting the user confirmation.",
+      "source": "frontend/app/design/marketing-kit/store/StoreCanvas.tsx",
+      "dependencies": {
+        "frontend/app/design/marketing-kit/store/StoreCanvas.tsx": "e72248b345f5d98afd457c2d896815746905589de22e4eb17da3275d8a2679f1",
+        "frontend/app/design/marketing-kit/store/catalog.ts": "d5c4cfd695fc0774683a69a979a4687e1c3b0df65e2298db6c603c27e5f27810",
+        "frontend/app/design/marketing-kit/store/store.module.css": "e7cbcce3c0b4952061a00d1947c0d03f3b70abd881f9b095d982ea2f8b305b85"
+      },
+      "proof": "frontend/public/design-media/c22/features/proof-penny-proposal-dark.png",
+      "proofHash": "ab126779ee8c461b379a3f8e75bcfb6b5e616f82f7139110edd795ddc7db555e",
+      "proofManifests": {
+        "frontend/public/design-media/c22/next/proof-assets.json": "7ce9d6774812e4d6e3a78a30b6ed66011f6472a8f2a9ef6129e1dd3503f7b456",
+        "frontend/public/design-media/c22/features/proof-assets.json": "aefe2c6de11dd854ac5252e73344944b888d78736ad9bfff3b1f4bbc9c849317"
+      }
+    },
+    {
+      "file": "aside-dark-play.png",
+      "width": 1080,
+      "height": 1920,
+      "bytes": 123907,
+      "sha256": "d863fe383850d2b51ebe3aad8d4ca35a9e86b1553e0d18875ce0fcb8727d7ad2",
+      "data": "fictional",
+      "status": "creative-review-only",
+      "id": "aside",
+      "theme": "dark",
+      "platform": "play",
+      "size": [
+        1080,
+        1920
+      ],
+      "alt": "Annual-costs set-aside review in Sorted, showing its amount and paying account before saving.",
+      "source": "frontend/app/design/marketing-kit/store/StoreCanvas.tsx",
+      "dependencies": {
+        "frontend/app/design/marketing-kit/store/StoreCanvas.tsx": "e72248b345f5d98afd457c2d896815746905589de22e4eb17da3275d8a2679f1",
+        "frontend/app/design/marketing-kit/store/catalog.ts": "d5c4cfd695fc0774683a69a979a4687e1c3b0df65e2298db6c603c27e5f27810",
+        "frontend/app/design/marketing-kit/store/store.module.css": "e7cbcce3c0b4952061a00d1947c0d03f3b70abd881f9b095d982ea2f8b305b85"
+      },
+      "proof": "frontend/public/design-media/c22/features/proof-aside-form-dark.png",
+      "proofHash": "15255174abb86437940cca5b7d1b9ffd1f1142324c84e7b0b095a3859ecac49c",
+      "proofManifests": {
+        "frontend/public/design-media/c22/next/proof-assets.json": "7ce9d6774812e4d6e3a78a30b6ed66011f6472a8f2a9ef6129e1dd3503f7b456",
+        "frontend/public/design-media/c22/features/proof-assets.json": "aefe2c6de11dd854ac5252e73344944b888d78736ad9bfff3b1f4bbc9c849317"
+      }
+    },
+    {
+      "file": "feature-amount-dark.png",
+      "width": 1024,
+      "height": 500,
+      "bytes": 69760,
+      "sha256": "c2a39d3ff7cb9fe4da6fb3b64234390cd20a0cfaa22efdde51dc894d0a88c5cf",
+      "data": "fictional",
+      "status": "creative-review-only",
+      "id": "amount",
+      "theme": "dark",
+      "platform": "feature",
+      "size": [
+        1024,
+        500
+      ],
+      "alt": "Left to spend estimate in the Sorted app with its account context.",
+      "source": "frontend/app/design/marketing-kit/store/StoreCanvas.tsx",
+      "dependencies": {
+        "frontend/app/design/marketing-kit/store/StoreCanvas.tsx": "e72248b345f5d98afd457c2d896815746905589de22e4eb17da3275d8a2679f1",
+        "frontend/app/design/marketing-kit/store/catalog.ts": "d5c4cfd695fc0774683a69a979a4687e1c3b0df65e2298db6c603c27e5f27810",
+        "frontend/app/design/marketing-kit/store/store.module.css": "e7cbcce3c0b4952061a00d1947c0d03f3b70abd881f9b095d982ea2f8b305b85"
+      },
+      "proof": "frontend/public/design-media/c22/next/proof-safe-dark.png",
+      "proofHash": "5cafe8173e2ffef6466db1f67f0ea0dea6ebee1edd67dcb7732c713c9c5a76b7",
+      "proofManifests": {
+        "frontend/public/design-media/c22/next/proof-assets.json": "7ce9d6774812e4d6e3a78a30b6ed66011f6472a8f2a9ef6129e1dd3503f7b456",
+        "frontend/public/design-media/c22/features/proof-assets.json": "aefe2c6de11dd854ac5252e73344944b888d78736ad9bfff3b1f4bbc9c849317"
+      }
+    }
+  ],
+  "packs": [
+    {
+      "file": "sorted-apple-medium-light-upload.zip",
+      "theme": "light",
+      "platform": "apple-medium",
+      "members": [
+        "amount-light-apple-medium.png",
+        "account-light-apple-medium.png",
+        "spend-light-apple-medium.png",
+        "month-light-apple-medium.png",
+        "split-light-apple-medium.png",
+        "movement-light-apple-medium.png",
+        "penny-light-apple-medium.png",
+        "aside-light-apple-medium.png"
+      ],
+      "bytes": 1194254,
+      "sha256": "7c5a56869a67f463fe6e33c43771df2bf380bd9fa82a336914e6fceeb5b55b37"
+    },
+    {
+      "file": "sorted-apple-large-light-upload.zip",
+      "theme": "light",
+      "platform": "apple-large",
+      "members": [
+        "amount-light-apple-large.png",
+        "account-light-apple-large.png",
+        "spend-light-apple-large.png",
+        "month-light-apple-large.png",
+        "split-light-apple-large.png",
+        "movement-light-apple-large.png",
+        "penny-light-apple-large.png",
+        "aside-light-apple-large.png"
+      ],
+      "bytes": 1307094,
+      "sha256": "db1c3306c2fd1fc31ff580a771205af5666e65dd6f7f13ce55fc0c4f79ddc2d5"
+    },
+    {
+      "file": "sorted-apple-classic-light-upload.zip",
+      "theme": "light",
+      "platform": "apple-classic",
+      "members": [
+        "amount-light-apple-classic.png",
+        "account-light-apple-classic.png",
+        "spend-light-apple-classic.png",
+        "month-light-apple-classic.png",
+        "split-light-apple-classic.png",
+        "movement-light-apple-classic.png",
+        "penny-light-apple-classic.png",
+        "aside-light-apple-classic.png"
+      ],
+      "bytes": 1218031,
+      "sha256": "aecb951505e31f0c80d4288056b3c42096ec6ad477baab876aa6a502cdce32dd"
+    },
+    {
+      "file": "sorted-play-light-upload.zip",
+      "theme": "light",
+      "platform": "play",
+      "members": [
+        "amount-light-play.png",
+        "account-light-play.png",
+        "spend-light-play.png",
+        "month-light-play.png",
+        "split-light-play.png",
+        "movement-light-play.png",
+        "penny-light-play.png",
+        "aside-light-play.png"
+      ],
+      "bytes": 962986,
+      "sha256": "debd16b808e8c533a2138be5e3c90363f052aca8e21c471a7c82f6628a275543"
+    },
+    {
+      "file": "sorted-apple-medium-dark-upload.zip",
+      "theme": "dark",
+      "platform": "apple-medium",
+      "members": [
+        "amount-dark-apple-medium.png",
+        "account-dark-apple-medium.png",
+        "spend-dark-apple-medium.png",
+        "month-dark-apple-medium.png",
+        "split-dark-apple-medium.png",
+        "movement-dark-apple-medium.png",
+        "penny-dark-apple-medium.png",
+        "aside-dark-apple-medium.png"
+      ],
+      "bytes": 1206325,
+      "sha256": "28fd7540ae51b71d5105861ff4d18cff5145a52b7798cdf1e26bb2bb41cf2952"
+    },
+    {
+      "file": "sorted-apple-large-dark-upload.zip",
+      "theme": "dark",
+      "platform": "apple-large",
+      "members": [
+        "amount-dark-apple-large.png",
+        "account-dark-apple-large.png",
+        "spend-dark-apple-large.png",
+        "month-dark-apple-large.png",
+        "split-dark-apple-large.png",
+        "movement-dark-apple-large.png",
+        "penny-dark-apple-large.png",
+        "aside-dark-apple-large.png"
+      ],
+      "bytes": 1322030,
+      "sha256": "5bbba4f72e7d04f0e4854d2b23465aae466025e2b08a3d9e617375da320d6d66"
+    },
+    {
+      "file": "sorted-apple-classic-dark-upload.zip",
+      "theme": "dark",
+      "platform": "apple-classic",
+      "members": [
+        "amount-dark-apple-classic.png",
+        "account-dark-apple-classic.png",
+        "spend-dark-apple-classic.png",
+        "month-dark-apple-classic.png",
+        "split-dark-apple-classic.png",
+        "movement-dark-apple-classic.png",
+        "penny-dark-apple-classic.png",
+        "aside-dark-apple-classic.png"
+      ],
+      "bytes": 1232635,
+      "sha256": "080de5e4f3bfa9c2d28c3034fa293624e5dc41e7f101b1b3384eaa70b4bbfb4b"
+    },
+    {
+      "file": "sorted-play-dark-upload.zip",
+      "theme": "dark",
+      "platform": "play",
+      "members": [
+        "amount-dark-play.png",
+        "account-dark-play.png",
+        "spend-dark-play.png",
+        "month-dark-play.png",
+        "split-dark-play.png",
+        "movement-dark-play.png",
+        "penny-dark-play.png",
+        "aside-dark-play.png"
+      ],
+      "bytes": 975105,
+      "sha256": "852b3b4a5ab318e906d8bcb577f2cafe93df069df1c799be52bc5cf8bcf8b4f3"
+    },
+    {
+      "file": "sorted-play-feature-light-upload.zip",
+      "theme": "light",
+      "platform": "feature",
+      "members": [
+        "feature-amount-light.png"
+      ],
+      "bytes": 67071,
+      "sha256": "76f967d26c27f6efc4ecf80baca48fa2fbd0d899deaadd025d7437312da0a36e"
+    },
+    {
+      "file": "sorted-play-feature-dark-upload.zip",
+      "theme": "dark",
+      "platform": "feature",
+      "members": [
+        "feature-amount-dark.png"
+      ],
+      "bytes": 67862,
+      "sha256": "2821479e8b3f82c85a47c142b3367312c28f97c68663667735cf2c811a9d83f7"
+    }
+  ],
+  "item": "C22",
+  "generated": "local fixture-only export",
+  "status": "creative-review-only",
+  "formats": {
+    "apple-medium": [
+      1206,
+      2622
+    ],
+    "apple-large": [
+      1320,
+      2868
+    ],
+    "apple-classic": [
+      1242,
+      2688
+    ],
+    "play": [
+      1080,
+      1920
+    ],
+    "feature": [
+      1024,
+      500
+    ]
+  }
+}

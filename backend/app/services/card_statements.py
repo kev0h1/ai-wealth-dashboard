@@ -10,6 +10,9 @@ from __future__ import annotations
 import calendar
 import re
 import math
+import hashlib
+import hmac
+import secrets
 from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal, ROUND_HALF_UP
 
@@ -41,6 +44,14 @@ def mask_long_digits(text) -> str:
     return _LONG_DIGITS.sub(lambda m: "…" + re.sub(r"\D", "", m.group(0))[-5:], str(text or ""))
 
 
+def _exact_fingerprint(text: str, salt: str) -> str:
+    # Whole description, ignoring capitals and whitespace noise only. Unlike
+    # contains, punctuation is meaningful. A random salt prevents cross-rule
+    # correlation; full card references are not copied into the terms record.
+    canonical = " ".join(str(text or "").split()).casefold()
+    return hashlib.sha256(f"card-payment-exact-v1:{salt}:{canonical}".encode()).hexdigest()
+
+
 def normalise_match_rule(rule) -> dict | None:
     """The stored shape of a match rule, or None when absent or unusable.
 
@@ -52,8 +63,26 @@ def normalise_match_rule(rule) -> dict | None:
         return None
     kind = rule.get("kind")
     if kind == "contains":
-        text = " ".join(str(rule.get("text") or "").split())[:40]
-        return {"kind": "contains", "text": text} if len(_squash(text)) >= 3 else None
+        text = " ".join(str(rule.get("text") or "").split())
+        return {"kind": "contains", "text": text} if len(_squash(text)) >= 3 and len(text) <= 240 else None
+    if kind == "exact":
+        text = " ".join(str(rule.get("text") or "").split())
+        if not 3 <= len(_squash(text)) or len(text) > 240:
+            return None
+        fingerprint, salt = rule.get("fingerprint"), rule.get("salt")
+        if fingerprint is not None or salt is not None:
+            if not isinstance(fingerprint, str) or not re.fullmatch(r"[a-f0-9]{64}", fingerprint):
+                return None
+            if not isinstance(salt, str) or not re.fullmatch(r"[a-f0-9]{32}", salt):
+                return None
+        else:
+            # A masked label is not the original description. It must retain
+            # its prepared identity or be chosen again from real history.
+            if "…" in text:
+                return None
+            salt = secrets.token_hex(16)
+            fingerprint = _exact_fingerprint(text, salt)
+        return {"kind": "exact", "text": mask_long_digits(text), "fingerprint": fingerprint, "salt": salt}
     if kind == "payment":
         key = " ".join(str(rule.get("series_key") or "").split())[:80]
         if not key:
@@ -78,6 +107,9 @@ def row_matches_rule(row: dict, rule: dict | None) -> bool:
         return False
     if rule["kind"] == "contains":
         return _squash(rule["text"]) in _squash(_narrative(row))
+    if rule["kind"] == "exact":
+        description = row.get("description") or row.get("merchant_name") or ""
+        return hmac.compare_digest(rule["fingerprint"], _exact_fingerprint(description, rule["salt"]))
     from app.services.own_account_transfers import series_key_forms
     return rule["series_key"] in series_key_forms(row)
 
@@ -88,9 +120,25 @@ def _money(value) -> float:
 
 def _finite(value) -> bool:
     try:
-        return value is not None and math.isfinite(float(value))
-    except (TypeError, ValueError):
+        return value is not None and not isinstance(value, bool) and math.isfinite(float(value))
+    except (TypeError, ValueError, OverflowError):
         return False
+
+
+UNSETTLED_STATUSES = frozenset(("pending", "cancelled", "canceled", "reversed", "failed", "declined", "rejected"))
+
+
+def is_settled_row(row: dict) -> bool:
+    """Shared booked-ledger test; zero can establish history, never payment."""
+    return (not row.get("is_pending")
+            and str(row.get("status") or "").strip().lower() not in UNSETTLED_STATUSES
+            and _finite(row.get("amount")))
+
+
+def is_settled_payment(row: dict) -> bool:
+    """Repayment evidence must be non-zero and denominated in GBP."""
+    return (is_settled_row(row) and abs(float(row["amount"])) > 0
+            and str(row.get("currency") or "GBP").upper() == "GBP")
 
 
 def _day(value) -> date | None:
@@ -175,7 +223,7 @@ def estimate_statement(
     source = accounts.get(source_id)
     method = terms.get("payment_method")
     card_rows = [r for r in rows if str(r.get("account_id")) == aid and (_day(r.get("date")) or date.max) <= today]
-    booked = [r for r in card_rows if not r.get("is_pending") and r.get("transaction_type") in ("credit", "debit") and _finite(r.get("amount"))]
+    booked = [r for r in card_rows if is_settled_row(r) and r.get("transaction_type") in ("credit", "debit") and str(r.get("currency") or card.get("currency") or "GBP").upper() == str(card.get("currency") or "GBP").upper()]
     after = [r for r in booked if _day(r["date"]) > close]
     after_debits = sum(abs(float(r["amount"])) for r in after if r["transaction_type"] == "debit")
     after_credits = sum(abs(float(r["amount"])) for r in after if r["transaction_type"] == "credit")
@@ -193,13 +241,13 @@ def estimate_statement(
     rule_hits: list[dict] = []
     if rule is not None and source_id:
         payer_debits = [r for r in rows if str(r.get("account_id")) == source_id
-                        and r.get("transaction_type") == "debit" and _finite(r.get("amount"))
+                        and r.get("transaction_type") == "debit" and is_settled_payment(r)
                         and (_day(r.get("date")) or date.max) <= today]
         matching = [r for r in payer_debits if row_matches_rule(r, rule)]
         keys = {rule["series_key"]} if rule["kind"] == "payment" else set()
         from app.services.own_account_transfers import series_key_forms, series_key as _series_key
         ambiguous = False
-        if rule["kind"] == "contains":
+        if rule["kind"] in ("contains", "exact"):
             # Distinct series the text names. More than one is ambiguous: claim
             # only a series no other card owns, and if that is still not one
             # series, claim nothing (a wrong claim would hide another card's bill).
@@ -230,14 +278,14 @@ def estimate_statement(
             result["rule_status"] = "unmatched"
         else:
             result["rule_status"] = "unknown"
-        rule_hits = [r for r in matching if not r.get("is_pending") and (_day(r["date"]) or date.min) > close]
+        rule_hits = [r for r in matching if (_day(r["date"]) or date.min) > close]
     if str(card.get("currency") or "GBP").upper() != "GBP":
         result.update(status="source_unavailable", reason="A payment estimate is not available for this card currency.")
         return result
     earliest = min((_day(r["date"]) for r in booked), default=None)
     next_close = _month_day(close, 1, terms["statement_close_day"])
     enough_history = (_finite(card.get("balance")) and earliest is not None and earliest <= start
-                      and not any(r.get("is_pending") for r in card_rows))
+                      and not any(r.get("is_pending") or str(r.get("status") or "").strip().lower() == "pending" for r in card_rows))
     if enough_history:
         result["estimated_bill"] = _money(max(0.0, -float(card["balance"]) - after_debits + after_credits))
     else:
@@ -250,7 +298,7 @@ def estimate_statement(
         return result
     if pairs is None:
         from app.services.own_account_transfers import select_unique_pairs
-        pairs = select_unique_pairs(rows, accounts, [], set())
+        pairs = select_unique_pairs([r for r in rows if is_settled_payment(r)], accounts, [], set())
     # Credit belongs to this card; its matching cash debit must be from the
     # chosen payer. Never recognise a merchant refund or a balance transfer
     # as proof that a current-account payment already left the balance.
@@ -265,7 +313,8 @@ def estimate_statement(
                and close < (_day(c.get("date")) or date.min) <= today
                and payment_floor <= (_day(d.get("date")) or date.min)
                and (_day(d.get("date")) or date.max) <= today
-               and not c.get("is_pending") and not d.get("is_pending"))
+               and c.get("transaction_type") == "credit" and d.get("transaction_type") == "debit"
+               and is_settled_payment(c) and is_settled_payment(d))
     result["paid_since_close"] = _money(paid)
     if not usable_payer(source):
         result.update(status="source_unavailable", reason="The paying account is not available in the cash estimate.")
@@ -292,7 +341,7 @@ def estimate_statement(
     left = amount - paid
     if amount > 0 and left > 0:
         for r in after:
-            if r["transaction_type"] != "credit" or id(r) in paired:
+            if r["transaction_type"] != "credit" or id(r) in paired or not is_settled_payment(r):
                 continue
             value, when = abs(float(r["amount"])), _day(r["date"])
             if when is None or abs((when - due).days) > 14 or value < left:
@@ -348,7 +397,7 @@ async def load_statement_bills(uid: str, *, cards=None, terms=None, today=None) 
     pending = await pending_transactions_col.find(query).to_list(None)
     # Payment evidence uses the established deterministic issuer/tail/pair
     # reconciler; it does not write or make an LLM call.
-    pairs = select_unique_pairs(rows, accounts, [], set())
+    pairs = select_unique_pairs([r for r in rows if is_settled_payment(r)], accounts, [], set())
     prefs = await preferences_col.find_one({"user_id": uid}) or {}
     confirmed = get_confirmed_payday(prefs, today)
     payday = confirmed[0] if confirmed else _next_payday(today, prefs.get("pay_period_config") or {"type": "calendar_month"})
@@ -372,6 +421,24 @@ async def load_statement_bills(uid: str, *, cards=None, terms=None, today=None) 
                                   series_cards=series_cards)
         if bill:
             result[aid] = bill
+    # No two defined cards may claim the same payer's learned payment. A new
+    # rule is checked on save too, but later bank evidence can expose a
+    # previously invisible collision. Fall back to learned evidence until
+    # the person distinguishes the rules; never pick an owner by item order.
+    owners: dict[tuple[str, str], set[str]] = {}
+    for aid, bill in result.items():
+        for key in bill.get("rule_series_keys") or ():
+            owners.setdefault((str(bill.get("payment_account_id") or ""), key), set()).add(aid)
+    conflicts = set().union(*(ids for ids in owners.values() if len(ids) > 1)) if owners else set()
+    for aid in conflicts:
+        card = accounts[aid]
+        baseline = estimate_statement(card, {**configured[aid], MATCH_FIELD: None}, [*rows, *pending], accounts,
+                                      today, next_payday=payday, pairs=pairs, series_cards=series_cards)
+        if baseline:
+            baseline.update(status="payment_unverified", payment_amount=None, payment_remaining=None,
+                            rule_series_keys=[], rule_status="unmatched", rule_conflict=True,
+                            reason="This payment rule also matches another card. Choose the payment for this card.")
+            result[aid] = baseline
     await response_cache.aput("card_statement_bills", uid, result, version=version)
     return result
 

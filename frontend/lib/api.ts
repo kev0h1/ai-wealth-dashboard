@@ -2843,7 +2843,27 @@ export type CardTerms = {
  * series key of a payment picked from the paying account. */
 export type CardPaymentMatch =
   | { kind: "contains"; text: string }
+  | CardExactPaymentMatch
   | { kind: "payment"; series_key: string; label?: string };
+
+/** Exact descriptions are prepared by the server. Only a masked label and
+ * salted fingerprint come back; unchanged rules retain both opaque fields. */
+export type CardExactPaymentMatch = { kind: "exact"; text: string; fingerprint?: string; salt?: string };
+export type CardPaymentAccount = { id: string; name: string; provider: string };
+export type CardPaymentDebit = {
+  id: string; description: string; amount: number; date: string;
+  contains_text: string; exact_match: CardExactPaymentMatch | null;
+};
+export type CardPaymentHistory = {
+  status: string; payments: CardPaymentDebit[]; next_offset: number | null;
+  from: string; through: string; history_from: string | null; history_complete: boolean;
+};
+export type CardPaymentMatchPreview = {
+  status: string; rule: CardPaymentMatch | null; match_count: number;
+  latest: { date: string; amount: number; description: string } | null;
+  from: string; through: string; history_from: string | null; history_complete: boolean;
+  ambiguous: boolean; reason: string | null;
+};
 
 export type CardPayerPayment = { series_key: string; label: string; last_amount: number; last_date: string | null };
 
@@ -2922,6 +2942,12 @@ export type CardTermsSaveBody = {
   fixed_payment_amount?: number | null;
   payment_match?: CardPaymentMatch | null;
 };
+
+export type CardPaymentSaveBody = Pick<CardTermsSaveBody,
+  "statement_close_day" | "payment_due_day" | "payment_due_days_after_close" |
+  "payment_method" | "payment_account_id" | "fixed_payment_amount" | "payment_match">;
+export type CardRatesSaveBody = Pick<CardTermsSaveBody,
+  "status" | "apr_pct" | "promos" | "min_payment_note" | "bt_offers" | "product_key">;
 
 export interface CycleStoryPeriod {
   start: string;
@@ -4479,6 +4505,16 @@ export const api = {
     get<{ status: string; payments: CardPayerPayment[] }>(
       `/card-terms/${encodeURIComponent(accountId)}/recent-payments?payer_id=${encodeURIComponent(payerId)}`,
     ),
+  getCardPaymentAccounts: (accountId: string) =>
+    get<{ status: string; accounts: CardPaymentAccount[] }>(`/card-terms/${encodeURIComponent(accountId)}/payment-accounts`),
+  getCardPaymentHistory: (accountId: string, body: { payer_id: string; query?: string; offset?: number }) =>
+    post<CardPaymentHistory>(`/card-terms/${encodeURIComponent(accountId)}/payment-history`, body),
+  previewCardPaymentMatch: (accountId: string, body: { payer_id: string; rule: CardPaymentMatch | null }) =>
+    post<CardPaymentMatchPreview>(`/card-terms/${encodeURIComponent(accountId)}/payment-match-preview`, body),
+  saveCardPayment: (accountId: string, body: CardPaymentSaveBody) =>
+    post<{ status: string; terms: CardTerms }>(`/card-terms/${encodeURIComponent(accountId)}/payment`, body),
+  saveCardRates: (accountId: string, body: CardRatesSaveBody) =>
+    post<{ status: string; terms: CardTerms }>(`/card-terms/${encodeURIComponent(accountId)}/rates`, body),
   saveCardTerms: (accountId: string, body: CardTermsSaveBody) =>
     post<{ status: string; terms: CardTerms }>(`/card-terms/${encodeURIComponent(accountId)}`, body),
   getCycleStory: (which: "current" | "last", preview?: boolean, persona?: string) =>
