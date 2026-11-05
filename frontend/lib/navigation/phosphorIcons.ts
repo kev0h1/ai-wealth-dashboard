@@ -1,4 +1,5 @@
-{
+// Phosphor Icons, MIT. Geometry retrieved with Better Icons; see docs/design/G423-bottom-navigation-icons.md.
+export const PHOSPHOR_NAV_ICONS = {
   "home": {
     "name": "house-simple",
     "regular": [
@@ -99,4 +100,4 @@
       }
     ]
   }
-}
+} as const;

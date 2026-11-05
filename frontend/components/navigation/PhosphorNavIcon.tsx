@@ -1,26 +1,17 @@
 import type { PennyAppearance } from "@/lib/pennyAppearance";
-import icons from "./phosphor-icons.json";
+import { PHOSPHOR_NAV_ICONS } from "@/lib/navigation/phosphorIcons";
+import type { BottomNavTab } from "@/lib/navigation/bottomNav";
 
-export type NavTab = keyof typeof icons;
-
-/** Original Phosphor geometry, retrieved through Better Icons. See SOURCES.md. */
+/** Original Phosphor geometry. MIT notice: PHOSPHOR-LICENSE.txt. */
 export default function PhosphorNavIcon({ tab, selected, appearance }: {
-  tab: NavTab;
+  tab: BottomNavTab;
   selected: boolean;
   appearance: PennyAppearance | "pending";
 }) {
   const weight = !selected || appearance === "outline" || appearance === "pending"
     ? "regular" : appearance === "ink" ? "fill" : "duotone";
-  const icon = icons[tab];
-  return <svg
-    width="24"
-    height="24"
-    viewBox="0 0 256 256"
-    fill="currentColor"
-    aria-hidden="true"
-    data-phosphor-icon={icon.name}
-    data-phosphor-weight={weight}
-  >
+  const icon = PHOSPHOR_NAV_ICONS[tab];
+  return <svg width="24" height="24" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true" data-phosphor-icon={icon.name} data-phosphor-weight={weight}>
     {icon[weight].map((path, index) => <path key={index} d={path.d} opacity={path.opacity} />)}
   </svg>;
 }
