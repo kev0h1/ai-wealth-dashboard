@@ -42,7 +42,7 @@ for (const call of ["services.editUpcoming(", "services.clearUpcomingOverride(",
 const run = body(editorSupport, "async function run(", 1400);
 assert.ok(run.indexOf("await operation()") < run.indexOf("await current.refresh()"));
 assert.match(detailFlow, /async function saved\(\) \{ await props\.onRefresh\(\); \}/);
-assert.match(planning, /onSaved=\{\(\) => \{ api\.cashflowWithForecast\(\)\.then\(setCashflow\)/);
+assert.match(planning, /onSaved=\{\(\) => \{ invalidateVerdictCache\(\); api\.cashflowWithForecast\(\)\.then\(setCashflow\)/);
 
 // The Spend verdict client cache is cleared at every site.
 assert.match(unfunded, /invalidateVerdictCache\(\)/);

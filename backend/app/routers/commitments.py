@@ -2206,5 +2206,7 @@ async def delete_commitment(commitment_id: str, user: dict = Depends(current_use
             409,
             "commitment status changed since it was read; refresh and retry",
         )
-    response_cache.invalidate(uid)
+    # G421 (H145): awaited invalidate and warm before returning, same as G399.
+    from app.routers.analytics import _refresh_after_override
+    await _refresh_after_override(uid)
     return {"id": str(doc["_id"]), "status": "cancelled"}

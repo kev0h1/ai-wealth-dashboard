@@ -330,6 +330,7 @@ export default function PlanningPage() {
   }
 
   function refreshAllocations() {
+    invalidateVerdictCache();
     reloadAccountPositions();
     api.listAllocations().then(setAllocations).catch(() => {});
     api.cashflowWithForecast().then(setCashflow).catch(() => {});
@@ -339,6 +340,7 @@ export default function PlanningPage() {
   async function refreshAccountFlow() {
     // One committed refresh updates details and the underlying page together.
     // If it fails after a write, retry only this refresh, never the mutation.
+    invalidateVerdictCache();
     reloadAccountPositions();
     try {
       const [forecast, envelopes, plans] = await Promise.all([api.cashflowWithForecast(), api.listAllocations(), api.listAccountPlans()]);
@@ -537,7 +539,23 @@ export default function PlanningPage() {
     if (!p) return;
     clearTimeout(p.timer);
     lastPlannedDeleteRef.current = null;
-    api.deletePlanned(p.id).catch(() => {});
+    void confirmPlannedDelete(p.id);
+  }
+
+  // G421: the delete is awaited before anything is re-read, so the refetch can
+  // never race it and bring the cancelled payment back. A failed delete puts
+  // the server's truth back on screen instead of leaving it hidden.
+  async function confirmPlannedDelete(id: string) {
+    try {
+      await api.deletePlanned(id);
+      invalidateVerdictCache();
+    } catch {}
+    try {
+      const fresh = await api.cashflowWithForecast();
+      setCashflow(fresh);
+    } catch {}
+    reloadAccountPositions();
+    api.listAccountPlans().then((items) => { setAccountPlans(items); setAccountPlansError(false); }).catch(() => {});
   }
 
   function deletePlannedWithUndo(id: string) {
@@ -550,10 +568,9 @@ export default function PlanningPage() {
       return { ...prev, upcoming_bills: prev.upcoming_bills.filter(b => b.planned_id !== id) };
     });
     const timer = setTimeout(() => {
-      api.deletePlanned(id).catch(() => {});
       lastPlannedDeleteRef.current = null;
       setUndoBar(null);
-      api.cashflowWithForecast().then(setCashflow).catch(() => {});
+      void confirmPlannedDelete(id);
     }, 6000);
     lastPlannedDeleteRef.current = { id, bills: stashedBills, timer };
     setUndoBar({ kind: "planned", id });
@@ -584,7 +601,7 @@ export default function PlanningPage() {
         name,
         bills: prev.upcoming_bills.filter(b => b.name === name),
         income: prev.upcoming_income.filter(b => b.name === name),
-        request: api.dismissRecurring(name).catch(() => {}),
+        request: api.dismissRecurring(name).then(() => { invalidateVerdictCache(); }).catch(() => {}),
       };
       return {
         ...prev,
@@ -1183,7 +1200,7 @@ export default function PlanningPage() {
         <PlanOneOffSheet
           accounts={accounts}
           onClose={() => setPlanSheetOpen(false)}
-          onSaved={() => { api.cashflowWithForecast().then(setCashflow).catch(() => {}); }}
+          onSaved={() => { invalidateVerdictCache(); api.cashflowWithForecast().then(setCashflow).catch(() => {}); }}
         />
       )}
 
