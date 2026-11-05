@@ -7,6 +7,7 @@ Minimum/manual methods continue to need actual repayment evidence.
 """
 from __future__ import annotations
 
+from app.services.counted_accounts import is_counted
 import calendar
 import re
 import math
@@ -195,7 +196,7 @@ def usable_payer(account: dict | None) -> bool:
         account and not is_credit_card_account(account) and not is_debt_account(account)
         and is_current_account(account) and not is_savings_account(account)
         and str(account.get("currency") or "GBP").upper() == "GBP"
-        and account.get("include_in_safe_to_spend") is not False
+        and is_counted(account)
         and _finite(account.get("balance"))
     )
 

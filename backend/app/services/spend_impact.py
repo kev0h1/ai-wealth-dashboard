@@ -99,6 +99,7 @@ or a pushed-out horizon.
 """
 from __future__ import annotations
 
+from app.services.counted_accounts import is_excluded
 import asyncio
 import logging
 import math
@@ -275,8 +276,8 @@ async def _infer_salary_account(uid: str, kind_map: dict | None = None) -> str |
 async def _live_balances_map(uid: str) -> dict[str, float]:
     out: dict[str, float] = {}
     try:
-        async for a in accounts_col.find({"user_id": uid}, {"balance": 1, "include_in_safe_to_spend": 1}):
-            if a.get("include_in_safe_to_spend") is False:
+        async for a in accounts_col.find({"user_id": uid}, {"balance": 1, "include_in_safe_to_spend": 1, "status": 1}):
+            if is_excluded(a):
                 continue  # G231: not counted towards Safe to Spend
             out[str(a["_id"])] = float(a.get("balance") or 0.0)
     except Exception:

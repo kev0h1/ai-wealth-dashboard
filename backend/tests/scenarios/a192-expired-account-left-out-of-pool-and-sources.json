@@ -1,0 +1,109 @@
+{
+  "name": "A current account on an ended bank connection holds 5,000 but is left out of every pool, source and income credit (A192, Kevin 2026-11-05)",
+  "today": "2026-10-20",
+  "pay_period_config": {
+    "type": "last_friday"
+  },
+  "confirmed_income_streams": [],
+  "accounts": [
+    {
+      "_id": "acc-live",
+      "name": "Starling Current",
+      "provider": "x",
+      "type": "BANK",
+      "subtype": "TRANSACTION",
+      "balance": 300.0,
+      "currency": "GBP",
+      "status": "connected",
+      "include_in_safe_to_spend": true
+    },
+    {
+      "_id": "acc-gone",
+      "name": "Halifax Current",
+      "provider": "x",
+      "type": "BANK",
+      "subtype": "TRANSACTION",
+      "balance": 5000.0,
+      "currency": "GBP",
+      "status": "expired",
+      "include_in_safe_to_spend": true
+    }
+  ],
+  "manual_accounts": [],
+  "cashflow_cache": {
+    "recurring_spend": [
+      {
+        "key": "ELECTRIC",
+        "avg_amount": 350.0,
+        "avg_interval": 30,
+        "next_date": "2026-10-23",
+        "account_id": "acc-live",
+        "account_name": "Starling Current",
+        "account_bank": "x",
+        "account_balance": 300.0,
+        "is_credit_card": false,
+        "category": "Bills"
+      },
+      {
+        "key": "INSURANCE",
+        "avg_amount": 120.0,
+        "avg_interval": 30,
+        "next_date": "2026-10-25",
+        "account_id": "acc-gone",
+        "account_name": "Halifax Current",
+        "account_bank": "x",
+        "account_balance": 5000.0,
+        "is_credit_card": false,
+        "category": "Bills"
+      }
+    ],
+    "recurring_income": [
+      {
+        "key": "side income::acc-gone",
+        "display_name": "Side Income",
+        "avg_amount": 1000.0,
+        "avg_interval": 30,
+        "next_date": "2026-10-26",
+        "account_id": "acc-gone",
+        "account_name": "Halifax Current",
+        "account_bank": "x",
+        "account_balance": 5000.0,
+        "category": "Income",
+        "occurrences": 3,
+        "amounts_recent": [
+          1000.0,
+          1000.0,
+          1000.0
+        ]
+      }
+    ],
+    "bnpl_commitments": [],
+    "avg_daily_spend": 0
+  },
+  "transactions": [],
+  "commitments": [],
+  "allocations": [],
+  "card_terms": [],
+  "expected": {
+    "left_to_spend": -50.0,
+    "spendable_balance": 300.0,
+    "not_spendable": [
+      "acc-gone"
+    ],
+    "accounts": {
+      "acc-live": {
+        "spend_from": 0.0,
+        "after_payments": -50.0,
+        "low_point": -50.0,
+        "verdict": "short"
+      }
+    },
+    "cover_plan": {
+      "moves_total": 0,
+      "moves": []
+    },
+    "payday_plan": null,
+    "at_risk_count": 1,
+    "notes": "A192 (Kevin 2026-11-05): an account whose bank connection is revoked or expired is left out of Left to spend entirely; its balance is frozen at the last sync. Today Tue 20 Oct 2026, pay period last Friday, so the period runs Fri 25 Sep to Thu 29 Oct and payday Fri 30 Oct is 10 days away (window days 0 to 9). Starling Current is live and holds 300; Halifax Current holds 5,000 but its status is expired (A189). Bills: electricity 350 on Starling (Fri 23 Oct, day 3); insurance 120 on Halifax (Sun 25 Oct, day 5), dropped with the account. Income: side income 1,000 expected into Halifax on Mon 26 Oct, dropped with the account, never credited. Left to spend: pool = counted current accounts only = 300 (Halifax is in no pool, so the spendable balance is 300 and not 5,300); 300 - 350 = -50 is the lowest point, so Left to spend is -50, a short verdict (only a degraded calculation clamps to 0; no buffer or reserve here). Starling: after payments -50, low point -50, short, Spend from 0. Cover plan: Halifax would have been the one source with headroom (5,000 - 10 buffer) and a 60 move (ceil5(50) + 10) to Starling; as an ended connection it is not a source, so there is no move and moves total 0. The one card that remains is the no-source shortfall card for Starling (it names the 350 bill and carries no move), so the shortfall stays visible. At risk count 1 (the electricity bill on Starling). Halifax has no walk, no Spend from and no availability. The 120 insurance bill is not at risk and the 1,000 income does not lift any figure. No payday plan: the period is on day 26 and no salary is expected."
+  }
+}

@@ -41,6 +41,7 @@
 //      `sourceClass` resolves to "current" — a savings account is excluded
 //      the same way a credit card is: never admitted to the candidate list.
 
+import { isCountedInLeftToSpend } from "@/lib/accountCounted";
 import { displayAccountName } from "./accountName";
 import type { Account, AccountEligibility } from "./api";
 import { sourceClass } from "./coverPlanSourceClass";
@@ -238,7 +239,7 @@ export function bestSpendAccount(
       a.cover_source_eligible !== false &&
       // G231: an account the user does not count towards Safe to Spend is
       // never offered to spend from, whatever its headroom.
-      a.include_in_safe_to_spend !== false &&
+      isCountedInLeftToSpend(a) &&
       accountEligibility[a.id] != null &&
       sourceClass(a) === "current",
   );

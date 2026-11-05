@@ -8,6 +8,7 @@
 //
 // Rendered across AccountsPage and HomePage.
 
+import { CONNECTION_ENDED_TAG, connectionEnded } from "@/lib/accountCounted";
 import { AlertTriangle, Info, Star } from "lucide-react";
 import { BankIcon, accountBrand, type TermsPill } from "./AccountMiniCard";
 import { accountKindLabel, isBusinessAccount } from "@/lib/accountKind";
@@ -156,6 +157,9 @@ export default function AccountLedgerRow({
   // G231: a bank account the user does not count towards Safe to Spend. The
   // balance still shows; only a quiet slate tag says it is not counted.
   const notCounted = row.source === "bank" && (row.raw as Account).include_in_safe_to_spend === false;
+  // A192: the bank connection has ended. The last balance stays visible and a
+  // quiet slate tag says it is frozen and not counted (never red).
+  const ended = row.source === "bank" && connectionEnded(row.raw as Account);
   // A181: Finexer reports business accounts; a quiet tag says so.
   const isBusiness = row.source === "bank" && isBusinessAccount(row.raw as Account);
 
@@ -210,7 +214,7 @@ export default function AccountLedgerRow({
   // current-account rows. Sync owns this compact caption slot while a bank is
   // updating, and excluded accounts never surface a spendable reading.
   const availabilityReading =
-    row.source === "bank" && row.kind === "Current" && !notCounted && !sync && !balancePending ? availability : undefined;
+    row.source === "bank" && row.kind === "Current" && !notCounted && !ended && !sync && !balancePending ? availability : undefined;
   // A181: with an arranged overdraft the current balance stays the headline and
   // the reach with the overdraft is a hedged secondary line. Never cash.
   const overdraftReading =
@@ -235,7 +239,7 @@ export default function AccountLedgerRow({
         data-account-row-id={focusKey}
         disabled={!onClick}
         onClick={(event) => onClick?.(row, event.currentTarget)}
-        aria-label={`${row.name}, ${balancePending ? "balance not available yet" : hideAmount ? "balance hidden" : moneyStr(row.balance)}${stateCaption ? ` ${stateCaption}` : ""}${row.attention ? ", connection needs attention" : ""}${isBusiness ? ", business account" : ""}${overdraftReading !== null ? `, ${availableWithOverdraftText(hideAmount ? "amount hidden" : formatAvailabilityAmount(overdraftReading))}` : ""}${notCounted ? ", not counted towards Left to spend" : ""}${sync ? `, ${syncRowLine}${syncAsOf ? `, balance as of ${syncAsOf}` : ""}` : ""}${availabilityAria}`}
+        aria-label={`${row.name}, ${balancePending ? "balance not available yet" : hideAmount ? "balance hidden" : moneyStr(row.balance)}${stateCaption ? ` ${stateCaption}` : ""}${row.attention ? ", connection needs attention" : ""}${isBusiness ? ", business account" : ""}${overdraftReading !== null ? `, ${availableWithOverdraftText(hideAmount ? "amount hidden" : formatAvailabilityAmount(overdraftReading))}` : ""}${ended ? ", connection ended, not counted in Left to spend" : notCounted ? ", not counted towards Left to spend" : ""}${sync ? `, ${syncRowLine}${syncAsOf ? `, balance as of ${syncAsOf}` : ""}` : ""}${availabilityAria}`}
         className="absolute inset-0 z-10 rounded-[inherit] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500"
       />
       <BankIcon identity={brandAccountFor(row)} altText={brand.label} />
@@ -262,7 +266,12 @@ export default function AccountLedgerRow({
               <span aria-hidden="true">· </span>Business
             </span>
           )}
-          {notCounted && (
+          {ended && (
+            <span data-a192-connection-ended className="-ml-1 shrink-0 text-[11px] font-medium text-slate-500 dark:text-slate-400">
+              <span aria-hidden="true">· </span>{CONNECTION_ENDED_TAG}
+            </span>
+          )}
+          {notCounted && !ended && (
             <span data-g231-not-counted className="-ml-1 shrink-0 text-[11px] font-medium text-slate-500 dark:text-slate-400">
               <span aria-hidden="true">· </span>Not counted
             </span>

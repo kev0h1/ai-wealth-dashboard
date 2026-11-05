@@ -16,6 +16,7 @@ gains a `schedule` argument (see exec_propose_update_schedule).
 
 Nothing here moves money.
 """
+from app.services.counted_accounts import is_counted
 import logging
 import re
 from datetime import date, timedelta
@@ -921,7 +922,7 @@ async def suggest_source(uid: str, *, source_ref=None, goal_ref=None, pot_ref=No
             return out
     currents = [
         (aid, doc) for aid, doc in account_map.items()
-        if not doc.get("_account_plan_manual") and is_current_account(doc) and doc.get("include_in_safe_to_spend") is not False
+        if not doc.get("_account_plan_manual") and is_current_account(doc) and is_counted(doc)
         and (pot is None or aid != pot.id)
     ]
     if len(currents) == 1:

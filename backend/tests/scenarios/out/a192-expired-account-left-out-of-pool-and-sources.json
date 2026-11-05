@@ -1,0 +1,162 @@
+{
+  "account_eligibility": {
+    "acc-live": {
+      "account_headroom_raw": -50.0,
+      "after_payments": -50.0,
+      "after_payments_and_plans": -50.0,
+      "allocation_order": 0,
+      "allocation_unassigned": 0.0,
+      "estimated": false,
+      "headroom": -60.0,
+      "is_current_account": true,
+      "low_point": -50.0,
+      "low_point_and_plans": -50.0,
+      "plans_reserved": 0.0,
+      "short": true,
+      "spend_from_capped": false,
+      "spend_from_headroom": 0.0,
+      "uncertain": false
+    }
+  },
+  "account_plans": [],
+  "accounts": [
+    {
+      "balance": 5000.0,
+      "currency": "GBP",
+      "id": "acc-gone",
+      "include_in_safe_to_spend": true,
+      "name": "Halifax Current",
+      "provider": "x",
+      "status": "expired",
+      "subtype": "TRANSACTION",
+      "type": "BANK"
+    },
+    {
+      "balance": 300.0,
+      "currency": "GBP",
+      "id": "acc-live",
+      "include_in_safe_to_spend": true,
+      "name": "Starling Current",
+      "provider": "x",
+      "status": "connected",
+      "subtype": "TRANSACTION",
+      "type": "BANK"
+    }
+  ],
+  "at_risk_count": 1,
+  "cashflow": {
+    "internal_inflows": [],
+    "next_payday": "2026-10-30",
+    "observed_pending_bills": [],
+    "period": {
+      "day_number": 26,
+      "end": "2026-10-29",
+      "label": "25 Sep to 29 Oct",
+      "length_days": 35,
+      "payday": "2026-10-30",
+      "payday_observed": null,
+      "start": "2026-09-25",
+      "type": "last_friday"
+    },
+    "spendable_balance": 300.0,
+    "upcoming_bills": [
+      {
+        "account_balance": 300.0,
+        "account_bank": "X",
+        "account_id": "acc-live",
+        "account_name": "Starling Current",
+        "amount": 350.0,
+        "amount_basis": null,
+        "card_dest_account_bank": null,
+        "card_dest_account_id": null,
+        "card_dest_account_name": null,
+        "category": "Bills",
+        "days_away": 3,
+        "days_past_due": 0,
+        "dest_account_bank": null,
+        "dest_account_id": null,
+        "dest_account_name": null,
+        "dest_account_spendable": null,
+        "edited": false,
+        "expected_date": "2026-10-23",
+        "is_card_repayment": false,
+        "is_credit_card": false,
+        "kind": "commitment",
+        "name": "ELECTRIC",
+        "observed_pending": false,
+        "original_date": null,
+        "pending": false,
+        "rule_label": null
+      },
+      {
+        "account_balance": 300.0,
+        "account_bank": "X",
+        "account_id": "acc-live",
+        "account_name": "Starling Current",
+        "amount": 350.0,
+        "amount_basis": null,
+        "card_dest_account_bank": null,
+        "card_dest_account_id": null,
+        "card_dest_account_name": null,
+        "category": "Bills",
+        "days_away": 34,
+        "days_past_due": 0,
+        "dest_account_bank": null,
+        "dest_account_id": null,
+        "dest_account_name": null,
+        "dest_account_spendable": null,
+        "edited": false,
+        "expected_date": "2026-11-23",
+        "is_card_repayment": false,
+        "is_credit_card": false,
+        "kind": "commitment",
+        "name": "ELECTRIC",
+        "observed_pending": false,
+        "original_date": null,
+        "pending": false,
+        "rule_label": null
+      }
+    ],
+    "upcoming_income": []
+  },
+  "days_to_payday": 10,
+  "items": [
+    {
+      "id": "move:acc-live:2026-10-30:82ba85aeff",
+      "plan_dest": {
+        "account_id": "acc-live",
+        "balance": 300.0,
+        "bills": [
+          {
+            "amount": 350,
+            "expected_date": "2026-10-23",
+            "label": "Electric"
+          }
+        ],
+        "display_label": "X Starling Current",
+        "is_overdraft": false,
+        "name": "Starling Current",
+        "needs_by": "Friday",
+        "needs_by_date": "2026-10-23",
+        "needs_by_last": "Friday",
+        "needs_by_last_date": "2026-10-23",
+        "needs_total": 350,
+        "provider": "x"
+      },
+      "type": "move"
+    }
+  ],
+  "name": "A current account on an ended bank connection holds 5,000 but is left out of every pool, source and income credit (A192, Kevin 2026-11-05)",
+  "period": {
+    "end": "2026-10-29",
+    "start": "2026-09-25"
+  },
+  "safe_to_spend": {
+    "allocations_reserved": 0.0,
+    "calculation_status": "complete",
+    "commitments_reserved": 0,
+    "safe_to_spend": -50.0,
+    "safe_to_spend_cash": -50.0
+  },
+  "today": "2026-10-20"
+}

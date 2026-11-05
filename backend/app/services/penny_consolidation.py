@@ -15,6 +15,7 @@ but not used, and the total never exceeds the left-to-spend pool. The app
 never moves money: the result is a recommendation sentence plus an optional
 card (`_move_plan`) drawing the route.
 """
+from app.services.counted_accounts import is_excluded
 import logging
 import re
 
@@ -182,7 +183,7 @@ def classify_sources(
         if is_savings_account(acc) and not include_savings:
             skip("savings")
             continue
-        if acc.get("cover_source_eligible") is False or acc.get("include_in_safe_to_spend") is False:
+        if acc.get("cover_source_eligible") is False or is_excluded(acc):
             skip("excluded")
             continue
         entry = (eligibility or {}).get(aid)

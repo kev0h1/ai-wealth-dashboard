@@ -543,7 +543,8 @@ def _check_invariants(snap: dict, spec: dict) -> None:
         ), f"{where} {acct_id} verdict rule"
     # 3. Each cover-plan card's headline total equals the sum of its moves.
     for item in snap["items"]:
-        if item["type"] == "move":
+        # A192: a "nothing can cover this" card (no source) carries no moves.
+        if item["type"] == "move" and "moves" in item:
             assert _r2(item["amount"]) == _r2(sum(m["amount"] for m in item["moves"])), (
                 f"{where} cover card {item['id']} headline total differs from its moves"
             )

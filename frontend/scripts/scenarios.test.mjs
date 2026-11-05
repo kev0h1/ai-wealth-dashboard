@@ -24,6 +24,7 @@ import AccountCountRow from "../components/AccountCountRow.tsx";
 import { COUNT_TOWARDS_LABEL } from "../components/CountTowardsSafeToSpendRow.tsx";
 import { NO_BANK_TRANSACTIONS, SAVINGS_NOT_COUNTED, bankDataTimeLine, isSavingsAccount } from "../lib/accountSheetNotes.ts";
 import { accountAvailability } from "../lib/accountAvailability.ts";
+import { isCountedInLeftToSpend } from "../lib/accountCounted.ts";
 import { accountPaymentGap, positionsFromToday, reconcileWithServerPosition, upcomingAccountWindow } from "../lib/upcomingAccounts.ts";
 import { statusFor } from "../lib/upcomingAccountStatus.ts";
 import { walkUpcomingAccounts } from "../lib/upcomingAccountWalk.ts";
@@ -73,7 +74,7 @@ for (const slug of slugs) {
   // The page's own composition (PlanningPage.tsx): plans, plan sources, excluded accounts, walk, positions.
   const plans = assessPlanOverlap(plansFromApi(snap.account_plans ?? []), cashflow, endMs, accounts);
   const sourceIds = new Set(plans.filter((p) => p.active && hasPlanSource(p)).map((p) => p.sourceId));
-  const excluded = new Set(accounts.filter((a) => a.include_in_safe_to_spend === false).map((a) => a.id));
+  const excluded = new Set(accounts.filter((a) => !isCountedInLeftToSpend(a)).map((a) => a.id));
   const planSources = accounts.filter((a) => sourceIds.has(a.id) && isPlanSourceAccount(a) && !excluded.has(a.id)).map((a) => ({ id: a.id, bank: a.provider, name: a.name, balance: a.balance }));
   const walk = walkUpcomingAccounts(cashflow, endMs, planSources, excluded);
   const positions = positionsFromToday(snap.account_eligibility, accounts) ?? {};
@@ -147,6 +148,8 @@ for (const slug of slugs) {
   for (const account of accounts) {
     assertKey(`availability: ${account.id}`, () => {
       const reading = accountAvailability({ ...account, currency: account.currency }, { status: "ready", positions: snap.account_eligibility });
+      // A192: an account that is not counted (ended connection) shows no availability.
+      if (!isCountedInLeftToSpend(account)) { assert.equal(reading, undefined, `${account.id} is not counted and must show no availability`); return; }
       const server = snap.account_eligibility[account.id];
       const isCurrent = !`${account.type} ${account.subtype}`.toLowerCase().match(/saving|isa|credit/);
       if (!isCurrent) { assert.equal(reading, undefined, `${account.id} is not a current account and must show no availability`); return; }

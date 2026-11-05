@@ -57,6 +57,7 @@ G365 (step 3), with their own differences table (WD1 to WD9).
 """
 from __future__ import annotations
 
+from app.services.counted_accounts import is_excluded
 import logging
 from dataclasses import dataclass, field
 from datetime import date
@@ -158,13 +159,13 @@ def user_accounts_loader(
         all_uk_accounts: list[dict] = []
         excluded: set[str] = set()
         async for acc in accounts_col.find({"user_id": uid}, projection):
-            if acc.get("include_in_safe_to_spend") is False:
+            if is_excluded(acc):
                 excluded.add(str(acc["_id"]))
                 continue
             acc["_str_id"] = str(acc["_id"])
             all_uk_accounts.append(acc)
         async for acc in yapily_accounts_col.find({"user_id": uid}, {**projection, "institution_id": 1}):
-            if acc.get("include_in_safe_to_spend") is False:
+            if is_excluded(acc):
                 excluded.add(str(acc["_id"]))
                 continue
             acc["_str_id"] = str(acc["_id"])
@@ -182,12 +183,12 @@ def user_accounts_loader(
         # /accounts API uses, so the two cannot disagree.
         offline: list[dict] = []
         async for macc in manual_accounts_col.find(
-            {"user_id": uid}, {"name": 1, "balance": 1, "account_type": 1, "include_in_safe_to_spend": 1}
+            {"user_id": uid}, {"name": 1, "balance": 1, "account_type": 1, "include_in_safe_to_spend": 1, "status": 1}
         ):
             macc_type = macc.get("account_type") or "savings"
-            if macc.get("include_in_safe_to_spend") is False:
+            if is_excluded(macc):
                 excluded.add(str(macc["_id"]))
-            if macc_type == "credit_card" or macc.get("include_in_safe_to_spend") is False:
+            if macc_type == "credit_card" or is_excluded(macc):
                 continue
             offline.append({
                 "_id": macc["_id"],

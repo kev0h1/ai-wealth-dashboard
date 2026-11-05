@@ -1,5 +1,6 @@
 "use client";
 
+import { CONNECTION_ENDED_NOT_COUNTED, connectionEnded, isCountedInLeftToSpend } from "@/lib/accountCounted";
 import { displayAccountName } from "@/lib/accountName";
 import { useEffect, useEffectEvent, useState, useCallback, useMemo, useRef } from "react";
 import { useSearchParams, useRouter, usePathname } from "next/navigation";
@@ -467,7 +468,7 @@ export default function AccountsPage() {
   // A card can only be paid from a connected, counted GBP cash account.
   // Business classification of the card itself never decides this.
   const cardPaymentAccounts = useMemo(() => accounts
-    .filter(account => !account.manual && account.status !== "expired" && account.currency === "GBP" && account.include_in_safe_to_spend !== false && accountKind(account) === "Current")
+    .filter(account => !account.manual && isCountedInLeftToSpend(account) && account.currency === "GBP" && accountKind(account) === "Current")
     .map(account => ({ id: account.id, name: displayAccountName(account.name), provider: account.provider })), [accounts]);
 
   // Close the "+ Add" menu on outside tap (same pattern as SpendTrends' widget menu)
@@ -2421,7 +2422,9 @@ export default function AccountsPage() {
           )}
 
             </>}
-            forecast={selectedAccount.include_in_safe_to_spend === false && !isManual && !isStatement && !isCredit && !isDebt ? (
+            forecast={connectionEnded(selectedAccount) && !isManual && !isStatement && !isCredit && !isDebt ? (
+              <p data-a192-connection-ended className="px-1 text-[12.5px] leading-snug text-slate-500 dark:text-slate-400 text-pretty">{CONNECTION_ENDED_NOT_COUNTED}</p>
+            ) : selectedAccount.include_in_safe_to_spend === false && !isManual && !isStatement && !isCredit && !isDebt ? (
               <button type="button" onClick={() => setAccountDetailsFor(selectedAccount.id)} className="flex min-h-11 w-full items-center gap-2 rounded-lg text-left text-[13px] text-slate-600 hover:text-slate-950 focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-slate-300 dark:hover:text-white">Excluded from estimated left to spend<ChevronRight size={16} aria-hidden="true" /></button>
             ) : available ? <AccountAvailabilityDetail key={selectedAccount.id} reading={available} position={position} hidden={hideNetWorth} layout="calm" /> : undefined}
             activity={<section data-g407-activity aria-label="Account activity" className={detailStyles.activity}>
@@ -2676,7 +2679,7 @@ export default function AccountsPage() {
                 onEditPayment={() => closeThen(() => setCardPaymentId(selectedAccount.id))}
                 onEditRates={() => closeThen(() => openCardTermsAt(selectedAccount.id, true))}
               />}
-              {!isManual && !isStatement && !isCredit && !isDebt && detailBalanceReady && (
+              {!isManual && !isStatement && !isCredit && !isDebt && detailBalanceReady && !connectionEnded(selectedAccount) && (
                 <AccountCountRow
                   account={selectedAccount}
                   counted={selectedAccount.include_in_safe_to_spend !== false}

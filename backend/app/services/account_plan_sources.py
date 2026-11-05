@@ -5,6 +5,7 @@ participate in allocation reserves or commitment feasibility calculations.
 """
 from __future__ import annotations
 
+from app.services.counted_accounts import is_excluded, is_counted
 import logging
 import math
 from copy import deepcopy
@@ -135,7 +136,7 @@ def validate_source_account(
         is_credit_card_account(doc) or doc.get("account_type") == "credit_card"
     ):
         raise HTTPException(422, "A card cannot pay a plan.")
-    if doc is not None and doc.get("include_in_safe_to_spend") is False:
+    if doc is not None and is_excluded(doc):
         raise HTTPException(
             422, "This account is not counted towards Left to spend, so it cannot pay a plan.",
         )
@@ -194,7 +195,7 @@ async def resolve_goal_source(
         return None, False  # the user's deliberate "Not set"
     if doc.get("source_account_id") is not None:
         source_id, basis = chosen_source(doc, account_map, destination_ids)
-        if basis == "chosen" and account_map[source_id].get("include_in_safe_to_spend") is not False:
+        if basis == "chosen" and is_counted(account_map[source_id]):
             return source_id, False
         return None, False  # an explicit account that is no longer usable
     if not destination_ids:
@@ -203,7 +204,7 @@ async def resolve_goal_source(
 
     eligible = {
         aid: acct for aid, acct in eligible_source_account_map(account_map, destination_ids).items()
-        if acct.get("include_in_safe_to_spend") is not False
+        if is_counted(acct)
     }
     try:
         if prefetched is not None:

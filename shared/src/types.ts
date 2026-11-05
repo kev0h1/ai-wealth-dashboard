@@ -30,6 +30,10 @@ export interface Account {
   /** G231: false when the user chose not to count this account towards Safe
    *  to Spend. Absent or true means counted. Balances still show either way. */
   include_in_safe_to_spend?: boolean;
+  /** A192: false when the account does not count towards Left to spend for any
+   *  reason, the user's own choice above or an ended bank connection (status
+   *  expired). Derived by the API. Filter on this, never on the raw flag. */
+  counted_in_left_to_spend?: boolean;
   /** A175: when the last successful transaction sync for this account
    *  finished (ISO, UTC) and how many rows the bank returned in it. Absent or
    *  null on older rows, offline accounts and statements. */
