@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "check:g424-tutorial-icons": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g424-tutorial-icons.test.mjs",
     "check:g423-bottom-nav": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g423-bottom-nav.test.mjs",
     "check:g420-upcoming-activity": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g420-upcoming-activity.test.mjs",
     "check:g417-upcoming-shortfall": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g417-upcoming-shortfall.test.mjs",

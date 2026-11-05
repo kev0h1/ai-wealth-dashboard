@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import { X } from "lucide-react";
 import { TUTORIAL_FLOWS, useTutorialInternal } from "./TutorialContext";
+import { usePreferences } from "./PreferencesContext";
+import TutorialIcon from "./TutorialIcon";
 
 function seenKey(flowId: string) {
   return `sorted_tour_seen_${flowId}`;
@@ -17,6 +19,7 @@ function seenKey(flowId: string) {
  */
 export default function TutorialOffer() {
   const pathname = usePathname();
+  const { pennyAppearance, pennyAppearanceResolved } = usePreferences();
   const { isActive, isReady, startFlow } = useTutorialInternal();
   const [dismissedTick, setDismissedTick] = useState(0);
   const [visible, setVisible] = useState(false);
@@ -57,6 +60,7 @@ export default function TutorialOffer() {
       style={{ bottom: "calc(max(env(safe-area-inset-bottom, 0px), 10px) + 100px)" }}
     >
       <div className="glass-card rounded-2xl shadow-lg w-full max-w-[402px] p-4 flex items-start gap-3 pointer-events-auto">
+        <TutorialIcon iconName={flow.steps[0].iconName} appearance={pennyAppearance} resolved={pennyAppearanceResolved} className="mt-0.5" />
         <div className="flex-1 min-w-0">
           <p className="text-[13px] font-semibold text-slate-900 dark:text-white leading-snug">
             {flow.label}
@@ -67,7 +71,7 @@ export default function TutorialOffer() {
           <button
             type="button"
             onClick={show}
-            className="mt-2.5 h-11 px-4 inline-flex items-center justify-center rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-[13px] font-semibold active:scale-95 transition-transform"
+            className="mt-2.5 h-11 px-4 inline-flex items-center justify-center rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-[13px] font-semibold active:scale-95 transition-transform motion-reduce:transition-none motion-reduce:active:scale-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 dark:focus-visible:outline-indigo-300"
           >
             Show me
           </button>
@@ -76,7 +80,7 @@ export default function TutorialOffer() {
           type="button"
           onClick={dismiss}
           aria-label="Dismiss tour offer"
-          className="flex-shrink-0 -mt-1 -mr-1 w-11 h-11 flex items-center justify-center rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 active:scale-95 transition-transform duration-150"
+          className="flex-shrink-0 -mt-1 -mr-1 w-11 h-11 flex items-center justify-center rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 active:scale-95 transition-transform duration-150 motion-reduce:transition-none motion-reduce:active:scale-100"
         >
           <span className="w-7 h-7 flex items-center justify-center rounded-full bg-slate-900/[0.05] dark:bg-white/[0.06] border border-slate-900/[0.06] dark:border-white/10 [@media(hover:hover)]:hover:bg-slate-900/[0.09] dark:[@media(hover:hover)]:hover:bg-white/[0.11] transition-colors duration-150">
             <X size={14} aria-hidden="true" className="text-slate-500 dark:text-slate-300" />
