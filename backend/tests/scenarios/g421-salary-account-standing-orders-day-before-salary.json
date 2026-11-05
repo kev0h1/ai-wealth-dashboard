@@ -1,0 +1,191 @@
+{
+  "name": "Salary account standing orders dated the day before the salary stay a genuine shortfall, covered by at most two sources (G421)",
+  "today": "2026-11-25",
+  "pay_period_config": {
+    "type": "last_friday"
+  },
+  "confirmed_income_streams": [],
+  "accounts": [
+    {
+      "_id": "acc-bc",
+      "name": "Barclays Current",
+      "provider": "barclays",
+      "type": "BANK",
+      "subtype": "TRANSACTION",
+      "balance": 600.0,
+      "currency": "GBP",
+      "status": "connected",
+      "include_in_safe_to_spend": true
+    },
+    {
+      "_id": "acc-hsbc",
+      "name": "HSBC Current",
+      "provider": "hsbc",
+      "type": "BANK",
+      "subtype": "TRANSACTION",
+      "balance": 150.0,
+      "currency": "GBP",
+      "status": "connected",
+      "include_in_safe_to_spend": true
+    },
+    {
+      "_id": "acc-nw",
+      "name": "NatWest Current",
+      "provider": "natwest",
+      "type": "BANK",
+      "subtype": "TRANSACTION",
+      "balance": 120.0,
+      "currency": "GBP",
+      "status": "connected",
+      "include_in_safe_to_spend": true
+    },
+    {
+      "_id": "acc-mz",
+      "name": "Monzo Current",
+      "provider": "monzo",
+      "type": "BANK",
+      "subtype": "TRANSACTION",
+      "balance": 80.0,
+      "currency": "GBP",
+      "status": "connected",
+      "include_in_safe_to_spend": true
+    }
+  ],
+  "manual_accounts": [],
+  "cashflow_cache": {
+    "recurring_spend": [
+      {
+        "key": "COUNCIL TAX",
+        "avg_amount": 150.0,
+        "avg_interval": 30,
+        "next_date": "2026-11-26",
+        "account_id": "acc-bc",
+        "account_name": "Barclays Current",
+        "account_bank": "barclays",
+        "account_balance": 600.0,
+        "is_credit_card": false,
+        "category": "Bills"
+      },
+      {
+        "key": "TEST OWNER HSBC STO",
+        "avg_amount": 900.0,
+        "avg_interval": 30,
+        "next_date": "2026-11-26",
+        "account_id": "acc-bc",
+        "account_name": "Barclays Current",
+        "account_bank": "barclays",
+        "account_balance": 600.0,
+        "is_credit_card": false,
+        "category": "Transfer",
+        "dest_account_id": "acc-hsbc",
+        "dest_account_name": "HSBC Current",
+        "dest_account_bank": "hsbc",
+        "dest_account_spendable": true
+      },
+      {
+        "key": "TEST OWNER NATWEST STO",
+        "avg_amount": 500.0,
+        "avg_interval": 30,
+        "next_date": "2026-11-26",
+        "account_id": "acc-bc",
+        "account_name": "Barclays Current",
+        "account_bank": "barclays",
+        "account_balance": 600.0,
+        "is_credit_card": false,
+        "category": "Transfer",
+        "dest_account_id": "acc-nw",
+        "dest_account_name": "NatWest Current",
+        "dest_account_bank": "natwest",
+        "dest_account_spendable": true
+      },
+      {
+        "key": "TEST OWNER MONZO STO",
+        "avg_amount": 200.0,
+        "avg_interval": 30,
+        "next_date": "2026-11-26",
+        "account_id": "acc-bc",
+        "account_name": "Barclays Current",
+        "account_bank": "barclays",
+        "account_balance": 600.0,
+        "is_credit_card": false,
+        "category": "Transfer",
+        "dest_account_id": "acc-mz",
+        "dest_account_name": "Monzo Current",
+        "dest_account_bank": "monzo",
+        "dest_account_spendable": true
+      }
+    ],
+    "recurring_income": [
+      {
+        "key": "acme|payroll::acc-bc",
+        "display_name": "Acme Payroll",
+        "avg_amount": 3000.0,
+        "avg_interval": 28,
+        "next_date": "2026-11-27",
+        "account_id": "acc-bc",
+        "account_name": "Barclays Current",
+        "account_bank": "barclays",
+        "account_balance": 600.0,
+        "category": "Income",
+        "occurrences": 2,
+        "amounts_recent": [
+          3000.0,
+          3000.0
+        ]
+      }
+    ],
+    "bnpl_commitments": [],
+    "avg_daily_spend": 0
+  },
+  "transactions": [],
+  "commitments": [],
+  "allocations": [],
+  "card_terms": [],
+  "expected": {
+    "left_to_spend": 800.0,
+    "accounts": {
+      "acc-bc": {
+        "spend_from": 0.0,
+        "after_payments": -1150.0,
+        "low_point": -1150.0,
+        "verdict": "short"
+      },
+      "acc-hsbc": {
+        "spend_from": 10.0,
+        "after_payments": 150.0,
+        "low_point": 150.0,
+        "verdict": "covered"
+      },
+      "acc-nw": {
+        "spend_from": 10.0,
+        "after_payments": 120.0,
+        "low_point": 120.0,
+        "verdict": "covered"
+      },
+      "acc-mz": {
+        "spend_from": 80.0,
+        "after_payments": 80.0,
+        "low_point": 80.0,
+        "verdict": "covered"
+      }
+    },
+    "cover_plan": {
+      "moves_total": 250.0,
+      "moves": [
+        {
+          "from": "acc-hsbc",
+          "to": "acc-bc",
+          "amount": 140.0
+        },
+        {
+          "from": "acc-nw",
+          "to": "acc-bc",
+          "amount": 110.0
+        }
+      ]
+    },
+    "payday_plan": null,
+    "at_risk_count": 1,
+    "notes": "G421. The honest counterpart to the on-payday scenario: the same salary account, but the three standing orders are dated Thu 26 Nov, one day BEFORE the Fri 27 Nov salary. Whatever the cause of that date, an outflow that lands before the income that funds it is a real gap in this window and is never hidden. Today is Wed 25 Nov, payday in 2 days, window 25 and 26 Nov. Barclays after payments = 600 - 150 (council tax) - 1,600 (standing orders) = -1,150, low point -1,150, short. The inbound legs are not credited to HSBC, NatWest or Monzo because their source Barclays is not itself covered that day, so those three keep 150, 120 and 80 and are not walked. Left to spend: the standing orders are own-account moves inside the pool, so only the council tax leaves it: 950 - 150 = 800. Cover plan (G421, at most two sources): the amount needed is ceil5(1,150) + 10 = 1,160. Headroom is balance minus the 10 buffer: HSBC 140, NatWest 110, Monzo 70. No single source covers it, so the two largest are used and never a third: HSBC 140 and NatWest 110, 250 in all, leaving 900 short after cover. Spend from after the earmark: HSBC 150 - 140 = 10, NatWest 120 - 110 = 10, Monzo 80, Barclays 0 (short). At risk count 1 (Barclays)."
+  }
+}

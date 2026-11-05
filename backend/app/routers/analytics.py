@@ -703,6 +703,36 @@ def _monthly_anchor(dates: list):
     return cluster_min
 
 
+def _payday_anchor(dates: list, config: dict | None):
+    """G421: the anchor of a monthly series that has only ever posted ON the
+    user's own payday (standing orders paid out of the salary on the day it
+    lands). `_monthly_anchor` needs three points to see a weekday rhythm; with
+    two (a freshly reconnected account, or the day before payday) it falls back
+    to day-of-month evidence and projects the series two days BEFORE payday
+    (last-Friday paydays 28 Aug and 25 Sep read as "the 25th"), which puts the
+    whole payday outflow ahead of the salary that funds it. When every observed
+    posting is itself a payday under the configured rhythm, the series is
+    payday-anchored. Returns the anchor shape `_monthly_anchor` uses, or None
+    when the evidence is not that strong or the config has no monthly payday."""
+    if not config or len(dates) < 2:
+        return None
+    from app.services.pay_period import get_pay_period_for_date, _js_to_py_weekday
+    kind = config.get("type")
+    if kind == "last_friday":
+        anchor: object = {"weekday": 4, "nth": -1}
+    elif kind == "last_weekday_of_month":
+        anchor = {"weekday": _js_to_py_weekday(config.get("weekday", 4)), "nth": -1}
+    elif kind == "monthly_pay_date" and isinstance(config.get("day"), int) and 1 <= config["day"] <= 31:
+        anchor = config["day"]
+    else:
+        return None
+    for d in dates:
+        day = d.date() if isinstance(d, datetime) else d
+        if get_pay_period_for_date(day, config)[0] != day:
+            return None
+    return anchor
+
+
 def _advance_month_to_anchor(d, anchor):
     """Move to the following calendar month, landing on `anchor`:
 
@@ -1070,7 +1100,9 @@ def _detect_recurring(txns: list, min_occurrences: int = 2, trusted_categories: 
                     # the target day from the fixed anchor on every step
                     # (rather than from the previous, possibly-clamped
                     # `next_date`) fixes both.
-                    anchor = _monthly_anchor(dates)
+                    anchor = None if is_income else _payday_anchor(dates, _config)
+                    if anchor is None:
+                        anchor = _monthly_anchor(dates)
                     monthly_anchor_desc = anchor
                     next_date = _advance_month_to_anchor(last_date, anchor)
                     # If still in the past or today (minus grace for bills), advance one more month

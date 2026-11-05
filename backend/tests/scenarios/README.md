@@ -143,6 +143,12 @@ Add a scenario whenever a money bug is fixed.
 
 ## Extra fixture keys (H142)
 
+- 11 `g421-salary-account-payday-standing-orders-on-payday` and `g421-salary-account-standing-orders-day-before-salary`
+  (G421): a salary account whose payday standing orders (1,600) exceed its balance (600). Dated on the payday itself
+  they are next period's and nothing is short; dated the day before the salary they are a genuine shortfall that is
+  never hidden, and the cover plan uses at most two sources (largest headroom first), leaving 900 short after cover.
+  The detector side (`_payday_anchor`, `tests/test_g421_payday_standing_orders.py`) is what dates a two-point
+  payday series on the payday instead of the 25th.
 - `commitments` (goals) and `allocations` (set-asides) need an explicit `_id` (a generated id would change every
   run; the harness refuses a snapshot that contains one). Date fields (`created_at`, `effective_from`,
   `created_period_start`, `created_period_end`) are ISO strings, converted on seeding.

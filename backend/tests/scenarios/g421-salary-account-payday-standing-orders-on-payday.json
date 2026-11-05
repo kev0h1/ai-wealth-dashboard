@@ -1,0 +1,180 @@
+{
+  "name": "Salary account payday standing orders dated on payday are next period's, never short today (G421)",
+  "today": "2026-11-25",
+  "pay_period_config": {
+    "type": "last_friday"
+  },
+  "confirmed_income_streams": [],
+  "accounts": [
+    {
+      "_id": "acc-bc",
+      "name": "Barclays Current",
+      "provider": "barclays",
+      "type": "BANK",
+      "subtype": "TRANSACTION",
+      "balance": 600.0,
+      "currency": "GBP",
+      "status": "connected",
+      "include_in_safe_to_spend": true
+    },
+    {
+      "_id": "acc-hsbc",
+      "name": "HSBC Current",
+      "provider": "hsbc",
+      "type": "BANK",
+      "subtype": "TRANSACTION",
+      "balance": 150.0,
+      "currency": "GBP",
+      "status": "connected",
+      "include_in_safe_to_spend": true
+    },
+    {
+      "_id": "acc-nw",
+      "name": "NatWest Current",
+      "provider": "natwest",
+      "type": "BANK",
+      "subtype": "TRANSACTION",
+      "balance": 120.0,
+      "currency": "GBP",
+      "status": "connected",
+      "include_in_safe_to_spend": true
+    },
+    {
+      "_id": "acc-mz",
+      "name": "Monzo Current",
+      "provider": "monzo",
+      "type": "BANK",
+      "subtype": "TRANSACTION",
+      "balance": 80.0,
+      "currency": "GBP",
+      "status": "connected",
+      "include_in_safe_to_spend": true
+    }
+  ],
+  "manual_accounts": [],
+  "cashflow_cache": {
+    "recurring_spend": [
+      {
+        "key": "COUNCIL TAX",
+        "avg_amount": 150.0,
+        "avg_interval": 30,
+        "next_date": "2026-11-26",
+        "account_id": "acc-bc",
+        "account_name": "Barclays Current",
+        "account_bank": "barclays",
+        "account_balance": 600.0,
+        "is_credit_card": false,
+        "category": "Bills"
+      },
+      {
+        "key": "TEST OWNER HSBC STO",
+        "avg_amount": 900.0,
+        "avg_interval": 30,
+        "next_date": "2026-11-27",
+        "account_id": "acc-bc",
+        "account_name": "Barclays Current",
+        "account_bank": "barclays",
+        "account_balance": 600.0,
+        "is_credit_card": false,
+        "category": "Transfer",
+        "dest_account_id": "acc-hsbc",
+        "dest_account_name": "HSBC Current",
+        "dest_account_bank": "hsbc",
+        "dest_account_spendable": true
+      },
+      {
+        "key": "TEST OWNER NATWEST STO",
+        "avg_amount": 500.0,
+        "avg_interval": 30,
+        "next_date": "2026-11-27",
+        "account_id": "acc-bc",
+        "account_name": "Barclays Current",
+        "account_bank": "barclays",
+        "account_balance": 600.0,
+        "is_credit_card": false,
+        "category": "Transfer",
+        "dest_account_id": "acc-nw",
+        "dest_account_name": "NatWest Current",
+        "dest_account_bank": "natwest",
+        "dest_account_spendable": true
+      },
+      {
+        "key": "TEST OWNER MONZO STO",
+        "avg_amount": 200.0,
+        "avg_interval": 30,
+        "next_date": "2026-11-27",
+        "account_id": "acc-bc",
+        "account_name": "Barclays Current",
+        "account_bank": "barclays",
+        "account_balance": 600.0,
+        "is_credit_card": false,
+        "category": "Transfer",
+        "dest_account_id": "acc-mz",
+        "dest_account_name": "Monzo Current",
+        "dest_account_bank": "monzo",
+        "dest_account_spendable": true
+      }
+    ],
+    "recurring_income": [
+      {
+        "key": "acme|payroll::acc-bc",
+        "display_name": "Acme Payroll",
+        "avg_amount": 3000.0,
+        "avg_interval": 28,
+        "next_date": "2026-11-27",
+        "account_id": "acc-bc",
+        "account_name": "Barclays Current",
+        "account_bank": "barclays",
+        "account_balance": 600.0,
+        "category": "Income",
+        "occurrences": 2,
+        "amounts_recent": [
+          3000.0,
+          3000.0
+        ]
+      }
+    ],
+    "bnpl_commitments": [],
+    "avg_daily_spend": 0
+  },
+  "transactions": [],
+  "commitments": [],
+  "allocations": [],
+  "card_terms": [],
+  "expected": {
+    "left_to_spend": 800.0,
+    "accounts": {
+      "acc-bc": {
+        "spend_from": 450.0,
+        "after_payments": 450.0,
+        "low_point": 450.0,
+        "verdict": "covered"
+      },
+      "acc-hsbc": {
+        "spend_from": 150.0,
+        "after_payments": 150.0,
+        "low_point": 150.0,
+        "verdict": "covered"
+      },
+      "acc-nw": {
+        "spend_from": 120.0,
+        "after_payments": 120.0,
+        "low_point": 120.0,
+        "verdict": "covered"
+      },
+      "acc-mz": {
+        "spend_from": 80.0,
+        "after_payments": 80.0,
+        "low_point": 80.0,
+        "verdict": "covered"
+      }
+    },
+    "cover_plan": {
+      "moves_total": 0,
+      "moves": []
+    },
+    "notes": "G421. Salary-account shape with invented figures. Today is Wed 25 Nov 2026, pay is the last Friday (27 Nov), so payday is in 2 days and the window is strictly before it (25 and 26 Nov). Balances: Barclays 600 + HSBC 150 + NatWest 120 + Monzo 80 = 950 pooled. Council tax 150 (Barclays) is due Thu 26 Nov and counts. The three payday standing orders out of Barclays (900 to HSBC, 500 to NatWest, 200 to Monzo, 1,600 in all, more than Barclays holds) are dated Fri 27 Nov, the payday itself, as the detector now dates a series that has only ever posted on a payday (_payday_anchor), so they belong to the next period with the 3,000 salary that funds them. Barclays after payments 600 - 150 = 450, low point 450, covered. HSBC, NatWest and Monzo have no bill before payday so they are not walked: their balances stand (150, 120, 80), low point the same, and the inbound standing orders are not credited (dated on payday). Left to spend = 950 - 150 = 800. Spend from is the smaller of after payments and low point: 450, 150, 120, 80, each below the pooled 800. Nobody is short, no cover move, at risk 0.",
+    "payday_plan": null,
+    "at_risk_count": 0
+  }
+}
