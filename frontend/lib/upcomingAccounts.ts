@@ -1,6 +1,7 @@
 import type { Account, AccountEligibility, CashflowData } from "./api";
 import { sourceClass } from "./coverPlanSourceClass";
 import { walkUpcomingAccounts } from "./upcomingAccountWalk";
+import { hasPlanSource, remaining, type Plan } from "./upcomingPlans";
 
 export type UpcomingAccountEvent = {
   id: string;
@@ -167,4 +168,34 @@ export function positionsFromToday(
 /** G327: "Payments through Thu 29 Oct", from the account window's last day (UTC). */
 export function paymentsThroughLabel(accountEndMs: number): string {
   return `Payments through ${new Date(accountEndMs).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" })}`;
+}
+
+/**
+ * G420: does this account belong in By account? Only if, in the period window
+ * the list already uses, it has an expected payment or income event, a plan or
+ * set-aside drawn from it, an earmarked or suggested move in or out, or a
+ * shortfall. Reads fields already on the summary, the server position and the
+ * plans; no new arithmetic. Mirrors backend `account_has_period_activity`.
+ */
+export function accountHasPeriodActivity(summary: UpcomingAccountSummary, position: UpcomingAccountPosition | undefined = summary.position, plans: Plan[] = []): boolean {
+  if (summary.events.length > 0) return true;
+  if (plans.some((plan) => plan.active && plan.sourceId === summary.id && hasPlanSource(plan) && (plan.amountUnavailable || remaining(plan) > 0))) return true;
+  if ((summary.suggestedMoves?.length ?? 0) > 0 || summary.coverSuggestion) return true;
+  if (summary.status === "short" || summary.status === "unfunded" || accountPaymentGap(summary) !== null) return true;
+  if (position) {
+    if (position.plansReserved > 0) return true;
+    if ((position.earmarkedTotal ?? 0) > 0 || (position.earmarksOut?.length ?? 0) > 0) return true;
+    if (position.coveredByMove || (position.shortAfterCover ?? 0) > 0) return true;
+  }
+  return false;
+}
+
+/** G420: the accounts By account lists, in their existing order. While plans
+ * are still loading the plan clause cannot be judged, so only the server
+ * position (`plansReserved`, which already counts every plan drawing on the
+ * account) stands in for it; the list is therefore the same once plans arrive
+ * for every account the server knows a plan draws on, and never shrinks then
+ * grows for them. */
+export function accountsWithPeriodActivity(summaries: UpcomingAccountSummary[], plans: Plan[] = []): UpcomingAccountSummary[] {
+  return summaries.filter((summary) => accountHasPeriodActivity(summary, summary.position, plans));
 }

@@ -182,7 +182,7 @@ for (const scenario of SCENARIOS) {
   if (scenario.id === "covered") assert.doesNotMatch(card, /data-status-signal="(?:risk|move|plan)"|lucide-triangle-alert|lucide-info/);
 }
 const empty = renderToStaticMarkup(React.createElement(UpcomingAccountsCard, { accounts: [], periodLabel: "This period", onOpen() {} }));
-assert.match(empty, /No account payments/); assert.doesNotMatch(empty, /<button/);
+assert.equal(empty, "");
 const unknown = renderToStaticMarkup(React.createElement(UpcomingAccountsCard, { accounts: summary([bill({ account_balance: null })]), periodLabel: "This period", onOpen() {} }));
 assert.match(unknown, /Not yet known/); assert.match(unknown, /data-status-signal="unknown"/); assert.doesNotMatch(unknown, /£0/);
 

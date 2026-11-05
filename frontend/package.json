@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "check:g420-upcoming-activity": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g420-upcoming-activity.test.mjs",
     "check:g417-upcoming-shortfall": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g417-upcoming-shortfall.test.mjs",
     "check:g418-committed-pace": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g418-committed-pace.test.mjs",
     "check:g418-whole-pounds": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g418-whole-pounds.test.mjs",

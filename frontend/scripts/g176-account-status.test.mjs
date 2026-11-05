@@ -38,11 +38,12 @@ for (const scenario of SCENARIOS) {
     assert.equal(result.estimated, account.status === "covered" && !plan.uncertain && plan.estimated);
   }
   const html = renderCard(state);
+  // G420: with nothing to list and no loading or error state, the section renders nothing.
+  if (state.accounts.length === 0 && state.plansStatus === "ready") { assert.equal(html, "", "empty ready state renders nothing"); continue; }
   assert.match(html, /data-account-status-card="b"/, "Production renders approved B");
   assert.equal((html.match(/data-account-row=/g) ?? []).length, state.accounts.length);
   assert.equal((html.match(/data-status-amount=/g) ?? []).length, state.accounts.length);
   assert.doesNotMatch(html, /data-flow-focus="plan-|<details/, "By account has no duplicate plan row or plan drill-in even when its action note names a plan");
-  if (scenario.id === "empty") assert.match(html, /No account payments are expected/);
   if (scenario.id === "error") assert.match(html, /Try again/);
   if (scenario.id === "loading" || scenario.id === "error") {
     assert.match(html, /Figures show payments only/);

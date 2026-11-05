@@ -102,6 +102,7 @@ from app.services.categories import (
     EXCLUDED, get_category_kinds, is_non_spend, kind_of, normalise_name, resolve_category_name,
 )
 from app.services.account_names import display_account_name
+from app.services.upcoming_account_activity import by_account_with_activity, load_activity_inputs
 from app.services.companion import compute_today_items, humanise_account_name
 from app.services.behaviour import compute_portrait as _compute_portrait
 from app.services.checkpoints import list_active as _list_active_checkpoints
@@ -2232,7 +2233,12 @@ async def _exec_get_upcoming_bills(uid: str) -> dict:
         return _tool_error("upcoming bills lookup failed")
     bills = resp.get("upcoming_bills") or []
     income = resp.get("upcoming_income") or []
+    # G420: cached/stored reads only, same filters as the UI walk (see the helper).
+    activity_inputs = await load_activity_inputs(uid)
     return {
+        # G420: only accounts with something in the window (same rule as the
+        # Upcoming By account list); an idle account is omitted, not listed.
+        "by_account": by_account_with_activity(bills, income, inflows=resp.get("internal_inflows") or [], **activity_inputs),
         "upcoming_bills": [
             {
                 "name": b.get("display_name") or b.get("name"), "key": b.get("name"),
