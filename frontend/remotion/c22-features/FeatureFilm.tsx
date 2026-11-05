@@ -87,7 +87,7 @@ const stories: Record<FeatureStory, StoryContent> = {
     proofShot3: "spend",
     proofShot4: "spend-detail",
     proofTitle: <>The pace.<br />Then the shape.</>,
-    proofSupport: "Spending and money moved are shown separately. See the pattern for this pay period.",
+    proofSupport: "Your last full pay period, shown separately from October’s current spending pace.",
     close: <>See the spend.<br />Keep the pace.</>,
     caption: "Fictional example · 8–30 October 2026",
   },
@@ -220,7 +220,7 @@ export function FeatureFilm({ story, theme }: { story: FeatureStory; theme: "lig
       <div style={{ position: "absolute", left: 72, top: motion(frame, 355, 369, 450, 420), fontSize: 184, fontWeight: 750, letterSpacing: "-.075em" }}>Sorted</div>
       <div style={{ position: "absolute", left: 72, top: 700, width: 830, fontSize: 76, fontWeight: 600, lineHeight: 1.02, letterSpacing: "-.052em" }}>{content.close}</div>
       <div style={{ position: "absolute", left: 72, top: 1080, width: 810, height: 4, background: story === "penny" ? pennyGradient : ink }} />
-      <div style={{ position: "absolute", left: 72, top: 1160, fontSize: 36, fontWeight: 600 }}>Explore Sorted <span style={{ marginLeft: 36 }}>↗</span></div>
+      <div style={{ position: "absolute", left: 72, top: 1160, fontSize: 36, fontWeight: 600 }}>Coming soon</div>
     </>)}
 
     <div style={{ position: "absolute", top: 1500, left: 72, color: muted, fontSize: 22 }}>{content.caption}</div>

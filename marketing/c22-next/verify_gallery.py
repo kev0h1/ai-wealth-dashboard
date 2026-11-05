@@ -36,7 +36,7 @@ def main():
             response = page.goto(args.base + "/design/marketing-kit" + query, wait_until="networkidle")
             assert response.status == 200
             page.evaluate("document.fonts.ready")
-            page.evaluate("Promise.all([...document.images].map(i=>i.decode()))")
+            page.evaluate("Promise.all([...document.images].map(i=>{i.loading='eager';return i.decode()}))")
             page.add_style_tag(content="nextjs-portal{display:none!important}")
         for theme in ("light", "dark"):
             visit("?topic=original&mode=" + theme)

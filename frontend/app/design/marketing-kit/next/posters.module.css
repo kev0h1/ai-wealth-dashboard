@@ -25,7 +25,7 @@
 .account footer{top:1145px}
 .working h2{font-size:102px;top:200px}
 .workingLabel{position:absolute;top:425px;left:72px;font-size:27px;color:var(--muted)}
-.working figure{top:500px;width:710px;padding:28px;background:#fff;border-radius:2px;box-sizing:content-box}
+.working figure{top:500px;width:710px;padding:28px;background:#fff;border-radius:28px;box-sizing:content-box}
 .dark.working figure{background:#1e293b}
 .working footer{top:1165px}
 .story header{top:150px}

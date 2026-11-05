@@ -7,12 +7,13 @@ import PosterCanvas, { type PosterFormat, type PosterTheme, type PosterVariant }
 import FeaturePoster from "../features/FeaturePoster";
 import { FEATURES, FEATURE_IDS, isFeature } from "../features/catalog";
 import styles from "./gallery.module.css";
+import StoreShelf from "./StoreShelf";
 
 type Media = { id: string; title: string; caption: string; base: string; topic: string };
 const original = "/design-media/c22/next";
 const featureBase = "/design-media/c22/features";
 const originalImages: Media[] = [
-  { id: "amount", title: "The amount", caption: "£312 estimated Safe to Spend until 30 October 2026, with the current app view.", base: original, topic: "original" },
+  { id: "amount", title: "The amount", caption: "£312 estimated left to spend until 30 October 2026, with the current app view.", base: original, topic: "original" },
   { id: "account", title: "The account", caption: "A £68 bills account, a £188 expected payment and a £120 shortfall.", base: original, topic: "original" },
   { id: "working", title: "The working", caption: "£610 cash less £188 expected bills and £110 buffer leaves £312 estimated.", base: original, topic: "original" },
 ];
@@ -43,20 +44,21 @@ export default function CampaignGallery() {
   }
   const visibleImages = images.filter(item => topic === "all" || item.topic === topic);
   const visibleFilms = films.filter(item => topic === "all" || item.topic === topic);
-  return <main className={styles.gallery} aria-label="Campaign media library">
-    <a className={styles.skip} href="#images">Skip to campaign images</a>
+  return <main className={`${styles.gallery} ${theme === "dark" ? styles.dark : ""}`} aria-label="Campaign media library">
+    <a className={styles.skip} href="#stores">Skip to store images</a>
     <div className={styles.top}>
-      <div><p className={styles.eyebrow}>C22 · CAMPAIGN REVIEW</p><h1>Money, shown plainly.</h1><p className={styles.intro}>Images and films use fictional examples and current production interface captures.</p></div>
+      <div><h1>Money, shown plainly.</h1><p className={styles.intro}>Sorted for the App Store, Google Play and Instagram. Real interface captures, with fictional examples.</p></div>
       <div className={styles.controls}>
         <fieldset><legend>Theme</legend>{(["light", "dark"] as const).map(value => <button type="button" key={value} aria-pressed={theme === value} onClick={() => update("mode", value)}>{value === "light" ? "Light" : "Dark"}</button>)}</fieldset>
         <fieldset><legend>Format</legend>{(["feed", "story"] as const).map(value => <button type="button" key={value} aria-pressed={format === value} onClick={() => update("format", value)}>{value === "feed" ? "Feed" : "Story"}</button>)}</fieldset>
       </div>
     </div>
-    <fieldset className={styles.topics}><legend>Explore a feature</legend>{[{ id: "all", title: "All" }, { id: "original", title: "First round" }, ...FEATURE_IDS.map(id => ({ id, title: FEATURES[id].title }))].map(item => <button type="button" key={item.id} aria-pressed={topic === item.id} onClick={() => update("topic", item.id)}>{item.title}</button>)}</fieldset>
-    <nav className={styles.jump} aria-label="Media sections"><a href="#videos">Watch the videos</a><a href="#images">View the images</a></nav>
-    <p className={styles.draft}>36 images · 16 MP4s · Draft review media with fictional data.</p>
+    <nav className={styles.jump} aria-label="Media sections"><a href="#stores">Store screenshots</a><a href="#images">Instagram images</a><a href="#videos">Watch the videos</a><a href="/design-media/c22/listing-copy.json" download>Store listing copy</a></nav>
+    <StoreShelf theme={theme} />
+    <fieldset className={styles.topics}><legend>Explore a campaign feature</legend>{[{ id: "all", title: "All" }, { id: "original", title: "First round" }, ...FEATURE_IDS.map(id => ({ id, title: FEATURES[id].title }))].map(item => <button type="button" key={item.id} aria-pressed={topic === item.id} onClick={() => update("topic", item.id)}>{item.title}</button>)}</fieldset>
+    <p className={styles.draft}>36 Instagram images · 16 MP4s · Light and dark · Review media with fictional data.</p>
     <section id="images" aria-labelledby="images-title">
-      <div className={styles.sectionHead}><p>01</p><h2 id="images-title">Images</h2></div>
+      <div className={styles.sectionHead}><h2 id="images-title">Images</h2><p>For Instagram</p></div>
       <div className={styles.imageGrid}>{visibleImages.map((item, index) => {
         const source = `${item.base}/${item.id}-${theme}-${format}.png`;
         return <article key={item.id}>
@@ -67,7 +69,7 @@ export default function CampaignGallery() {
       })}</div>
     </section>
     <section id="videos" aria-labelledby="videos-title">
-      <div className={styles.sectionHead}><p>02</p><h2 id="videos-title">Videos</h2></div>
+      <div className={styles.sectionHead}><h2 id="videos-title">Videos</h2><p>For Instagram</p></div>
       <div className={styles.videoGrid}>{visibleFilms.map(film => <article key={`${film.id}-${theme}`}>
         <video aria-label={film.title} controls playsInline preload="metadata" poster={`${film.base}/${film.id}-${theme}-poster.jpg`}>
           <source src={`${film.base}/${film.id}-${theme}.mp4`} type="video/mp4" />
@@ -77,6 +79,6 @@ export default function CampaignGallery() {
         <a href={`${film.base}/${film.id}-${theme}.mp4`} download>Download MP4</a>
       </article>)}</div>
     </section>
-    <footer className={styles.archive}><a href="?topic=original">Approved first round</a><a href="?round=crafted">Earlier crafted round</a><a href="?round=worlds">Worlds round</a><a href="?library=1">Media library</a><a href="/design-media/c22/features/manifest.json">Feature manifest</a></footer>
+    <footer className={styles.archive}><a href="?topic=original">Original stories</a><a href="?round=crafted">Archived crafted round</a><a href="?round=worlds">Archived worlds round</a><a href="?library=1">Archived media library</a><a href="/design-media/c22/store/manifest.json">Store manifest</a><a href="/design-media/c22/features/manifest.json">Feature manifest</a></footer>
   </main>;
 }

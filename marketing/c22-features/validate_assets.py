@@ -55,11 +55,11 @@ def main():
  assert sum(a["kind"] == "still" for a in assets.values()) == 24
  assert sum(a["kind"] == "film" for a in assets.values()) == 12
  assert sum(a["kind"] == "proof" for a in assets.values()) == 30
- # The previous approved exports must remain byte-for-byte intact.
+ # The companion original-story exports must match their refreshed manifest.
  old = ROOT / "frontend/public/design-media/c22/next"
  previous = json.loads((old / "manifest.json").read_text())
  for asset in previous["assets"]:
   assert digest(old / asset["file"]) == asset["sha256"], f"Approved asset changed: {asset['file']}"
- print("24 new PNGs, 12 films, 30 fresh UI proofs; approved 12 PNGs and 4 films preserved.")
+ print("24 feature PNGs, 12 films, 30 fresh UI proofs; refreshed original stories match their manifest.")
 
 if __name__ == "__main__": main()
