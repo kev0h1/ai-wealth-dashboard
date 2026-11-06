@@ -95,18 +95,34 @@ async def bump(uid: str) -> int:
         logger.exception("data_version.bump(%s) failed — version left unchanged", uid)
         return _memo.get(uid, (0.0, 0))[1]
     _memo[uid] = (time.monotonic(), version)
-    await _enqueue_warm(uid)
+    _schedule_warm(uid)
     return version
 
 
-async def _enqueue_warm(uid: str) -> None:
-    """Best-effort, bounded, never raises: a queue hiccup must not fail the
-    write that bumped the version (worst case the next open is cold, as
-    before E16)."""
+def _schedule_warm(uid: str) -> None:
+    """Fire-and-forget the warm enqueue so a write never waits on Redis.
+    No-op without a running loop or inside a warm/sync that suppresses it.
+    The task is retained like bump_soon's until it finishes."""
     if warm_enqueue_suppressed.get():
         return
     try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return
+    task = loop.create_task(_enqueue_warm(uid))
+    _background_tasks.add(task)
+    task.add_done_callback(_background_tasks.discard)
+
+
+async def _enqueue_warm(uid: str) -> None:
+    """Best-effort, bounded, never raises: a queue hiccup must not fail
+    anything (worst case the next open is cold, as before E16). On failure
+    the shared pool is dropped so a dead connection is not reused."""
+    try:
         from app.workers import queue
+    except Exception:
+        return
+    try:
         await asyncio.wait_for(
             queue.enqueue("task_warm_user", uid, job_id=f"warm:{uid}",
                           _defer_by=WARM_DEFER_SECONDS),
@@ -114,6 +130,10 @@ async def _enqueue_warm(uid: str) -> None:
         )
     except Exception as exc:
         logger.warning("data_version: warm enqueue failed (%s)", type(exc).__name__)
+        try:
+            queue.reset_pool()
+        except Exception:
+            pass
 
 
 async def current(uid: str, *, fresh: bool = False) -> int:
