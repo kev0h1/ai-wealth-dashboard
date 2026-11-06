@@ -146,3 +146,36 @@ def test_no_module_enqueues_except_the_choke_point():
         if re.search(r"\benqueue_job\b|\barq\s+import\s+create_pool|\bcreate_pool\s*\(", text):
             offenders.append(rel)
     assert offenders == [], f"enqueue/pool creation outside the choke point: {offenders}"
+
+
+def test_get_redis_is_none_in_test_mode_and_forbid_raises(monkeypatch):
+    import app.core.redis_client as rc
+    rc.reset_for_tests()
+    assert rc.get_redis() is None
+    assert asyncio.run(rc.redis_ok()) is False
+    monkeypatch.setattr(queue, "is_test_process", lambda: False)
+    monkeypatch.setenv(queue.FORBID_ENV, "1")
+    rc.reset_for_tests()
+    with pytest.raises(queue.LiveQueueForbidden):
+        rc.get_redis()
+    rc.reset_for_tests()
+
+
+def test_ratelimit_redis_check_defers_to_the_in_process_fallback():
+    import app.core.ratelimit as rl
+    import app.core.redis_client as rc
+    rc.reset_for_tests()
+    # None means "Redis could not check": the caller then uses its local window.
+    assert asyncio.run(rl._check_redis("h148:k", 2, 60)) is None
+
+
+def test_no_module_builds_a_redis_client_except_the_allowed_ones():
+    allowed = {"core/redis_client.py", "services/health/worker.py"}  # worker.py: read-only queue-depth probe
+    offenders = []
+    for path in APP.rglob("*.py"):
+        rel = path.relative_to(APP).as_posix()
+        if rel in allowed or rel.startswith("workers/"):
+            continue
+        if re.search(r"\bredis\.(?:asyncio\.)?Redis\s*\(|\bRedis\.from_url|\baioredis\b|import redis", path.read_text()):
+            offenders.append(rel)
+    assert offenders == [], f"Redis client built outside the allowed modules: {offenders}"

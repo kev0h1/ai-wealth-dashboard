@@ -25,7 +25,6 @@ from pymongo.errors import DuplicateKeyError
 from app.core.config import (
     FINEXER_WEBHOOK_SECRET,
     FINEXER_WEBHOOK_SIGNING_SECRET,
-    REDIS_URL,
     TRUELAYER_WEBHOOK_SECRET,
 )
 from app.core import config as _cfg
@@ -47,8 +46,7 @@ truelayer_router = APIRouter(prefix="/webhooks", tags=["webhooks"])
 
 
 async def _enqueue(task: str, **kwargs):
-    from app.workers import queue
-    await queue.enqueue(task, shared=False, **kwargs)
+    await _queue.enqueue(task, shared=False, **kwargs)
 
 
 @truelayer_router.post("/truelayer/{secret}", status_code=200)
