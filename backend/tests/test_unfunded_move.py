@@ -1278,3 +1278,24 @@ def test_regular_move_gate_failure_does_not_crash_the_whole_brief(monkeypatch):
         "the regular move card must degrade to absent on a gate failure, "
         "not be emitted from a half-failed gate"
     )
+
+
+def test_g428_unfunded_move_reaches_one_savings_account_and_says_so(monkeypatch):
+    """G428: two small current accounts (£25 headroom each) cannot cover the
+    £70 need; one savings account covers the rest, is flagged savings and
+    named in a plain cover note."""
+    accounts = [
+        _account("premier", 44.68, name="Premier Current Account"),
+        _account("accta", 35.0, name="Acct A", provider="natwest"),
+        _account("acctb", 35.0, name="Acct B", provider="monzo"),
+        _account("halifax", 5000.0, name="Halifax Savings", provider="halifax", subtype="SAVINGS"),
+    ]
+    bills = [_mv_bill("AMERICAN EXPRESS", 100.0, "premier",
+                       pending=True, days_past_due=2, original_date="2026-09-09")]
+    items, _ = _run(monkeypatch, bills, accounts=accounts)
+    move = _find(items, "unfunded_move")["moves"][0]
+    sources = move["suggested_sources"]
+    assert [s["account_id"] for s in sources if s.get("savings")] == ["halifax"]
+    assert sum(s["amount"] for s in sources) == move["suggested_amount"] == 70
+    assert move["suggested_cover_note"].startswith("Your other accounts can cover £50. A move of £20 from ")
+    assert move["suggested_cover_note"].endswith("would cover the rest.")

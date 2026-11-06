@@ -1674,7 +1674,9 @@ export type UnfundedMoveEntry = {
   // found, matching `suggested_from_count`'s 0 convention — the per-leg
   // amounts always sum to `suggested_amount` (backend-asserted, see
   // backend/tests/test_unfunded_move.py).
-  suggested_sources?: { account_id: string; name: string; provider: string; amount: number }[];
+  suggested_sources?: { account_id: string; name: string; provider: string; amount: number; savings?: boolean }[];
+  /** G428: plain sentence naming the one savings account suggested for what current accounts cannot cover (watch tone). */
+  suggested_cover_note?: string;
 };
 
 /**

@@ -457,6 +457,18 @@ def _gbp(x: float) -> str:
 UNCOVERED_OPTIONS = "You could edit a plan or skip a payment on Upcoming instead."
 
 
+def uncovered_line(gap: float) -> str:
+    """G428: the one plain sentence for what suggested moves leave uncovered."""
+    return f"{_gbp(gap)} is still uncovered. {UNCOVERED_OPTIONS}"
+
+
+def cover_residual(covered: float, gap: float) -> str | None:
+    """G428: residual line for any cover card; None when nothing is uncovered."""
+    if gap <= 0.5:
+        return None
+    return f"These moves cover {_gbp(covered)}, but {uncovered_line(gap)}"
+
+
 def split_cover_note(legs: list[tuple[str, float, bool]], gap: float = 0.0) -> dict | None:
     """G428: plain copy for a cover that reaches into savings. `legs` is
     (source name, amount, is_savings) per source. Returns None when no savings
@@ -4974,10 +4986,18 @@ async def compute_today_items(
                             # a provider to resolve the icon.
                             "provider": _l["move_map"]["from"]["provider"],
                             "amount": _l["amount"],
+                            **({"savings": True} if _l.get("source_kind") == "savings" else {}),
                         }
                         for _l in _um_legs
                     ],
                 }
+                # G428: a savings source is named plainly (watch tone, a suggestion).
+                _um_split = split_cover_note(
+                    [(_l["move_map"]["from"].get("display_label") or _l["_src_name"], float(_l["amount"]), _l.get("source_kind") == "savings") for _l in _um_legs],
+                    gap=max(0.0, float(_um_gap) - float(_um_leg_total)),
+                )
+                if _um_split is not None:
+                    _um_suggestion_by_acct[_um_acct2]["cover_note"] = _um_split["note"]
 
             _um_moves: list[dict] = []
             for _a, _b in _um_qualifying:
@@ -5013,6 +5033,7 @@ async def compute_today_items(
                     ),
                     "suggested_from_count": len(_um_sugg["sources"]) if _um_found else 0,
                     "suggested_covers_all": _um_sugg.get("covers_all") if _um_found else None,
+                    **({"suggested_cover_note": _um_sugg["cover_note"]} if _um_found and _um_sugg.get("cover_note") else {}),
                     # G44 (Kevin, 2026-09-11): "it's not telling me where to
                     # move it from" — G42 wired the source finder in but
                     # only surfaced a count (`suggested_from_count`) and,
@@ -5029,6 +5050,7 @@ async def compute_today_items(
                                 "name": s["name"],
                                 "provider": s["provider"],
                                 "amount": s["amount"],
+                                **({"savings": True} if s.get("savings") else {}),
                             }
                             for s in _um_sugg["sources"]
                         ]
@@ -5518,26 +5540,11 @@ async def compute_today_items(
                         f"{_mc_late_when} and has not arrived yet."
                     )
 
-        residual = None
-        if dest_gap > 0.5:
-            _residual_tail = (
-                "so it may need a different plan." if _is_overdraft_dest
-                else "so one payment may need a different plan."
-            )
-            residual = (
-                f"These moves cover £{total:,}, but {dest_name} is still "
-                f"{_gbp(dest_gap)} short, {_residual_tail}"
-            )
         # G428: what is genuinely uncovered is the shortfall less the moves
         # (the same figure Upcoming shows as short_after_cover), not the gap
-        # that includes the rounding and £10 buffer.
+        # that includes the rounding and £10 buffer. One sentence everywhere.
         _uncovered_amt = max(0.0, float(dest_shortfall[dest_acct]) - float(total))
-        if dest_gap > 0.5 and _uncovered_amt > 0.5 and not _is_overdraft_dest:
-            # Say plainly what is uncovered and what else can be done.
-            residual = (
-                f"These moves cover £{total:,}, but {_gbp(_uncovered_amt)} is still uncovered. "
-                f"{UNCOVERED_OPTIONS}"
-            )
+        residual = cover_residual(total, _uncovered_amt) if dest_gap > 0.5 else None
         # G428: current accounts could not cover it alone, so one savings
         # account is suggested for the rest (amber, a recommendation).
         _cover_split = split_cover_note(
@@ -5860,7 +5867,7 @@ async def compute_today_items(
                         _combined_gap = round(_payment_gap + _gap, 2)
                         _existing_move["covered"] = _existing_move["amount"] + 0.005 >= _combined_gap
                         _existing_move["residual"] = (
-                            f"Still {_gbp(_combined_gap - _existing_move['amount'])} short for payments and plans."
+                            cover_residual(_existing_move["amount"], _combined_gap - float(_existing_move["amount"]))
                             if not _existing_move["covered"] else None
                         )
                         _sp = split_cover_note(
@@ -5915,7 +5922,7 @@ async def compute_today_items(
                         "covered": bool(_covered + 1e-6 >= _gap + _sav_gap),
                         "sources_safe": bool(_legs),
                         "residual": (
-                            f"These moves cover {_gbp(_covered)}, but {_pay_name} is still {_gbp(_gap + _sav_gap - _covered)} short."
+                            cover_residual(_covered, _gap + _sav_gap - _covered)
                             if _covered + 0.5 < _gap + _sav_gap else None
                         ),
                         **({"savings_at_risk": _sav_fact} if _sav_fact else {}),
@@ -6036,7 +6043,7 @@ async def compute_today_items(
                     "covered": bool(_sv_covered + 1e-6 >= _sv_gap),
                     "sources_safe": True,
                     "residual": (
-                        f"These moves cover {_gbp(_sv_covered)}, but {_sv_name} is still {_gbp(_sv_gap - _sv_covered)} short for savings."
+                        cover_residual(_sv_covered, _sv_gap - _sv_covered)
                         if _sv_covered + 0.5 < _sv_gap else None
                     ),
                 })

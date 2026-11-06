@@ -116,7 +116,7 @@ export function accountActionNote(account: UpcomingAccountSummary, reading: Retu
       : `A ${exact(incoming)} move ${afterMove !== null && remainingGap === 0 ? "covers it" : "would help"}.`;
     if (afterMove === null) return `${move} The full result still needs checking.`;
     const options = coverLine ? ` ${coverLine}` : "";
-    return `${move} ${accountSummaryMoney(afterMove)} after the ${moves.length === 1 ? "move" : "moves"}${remainingGap > 0 && afterMove < 0 ? ", still short" : ""}.${remainingGap > 0 && afterMove >= 0 ? ` An earlier gap of ${exact(remainingGap)} still needs covering.` : ""}${options}`;
+    return `${move} ${accountSummaryMoney(afterMove)} after the ${moves.length === 1 ? "move" : "moves"}${remainingGap > 0 && afterMove < 0 ? ", still short" : ""}.${remainingGap > 0 && afterMove >= 0 && !coverLine ? ` ${uncoveredSentence(remainingGap / 100)}` : ""}${options}`;
   }
   if (!combinedKnown) return "Payments only. Plans need checking.";
   if (earlierGap) return `${futureIncome ? "Income arrives after a payment falls due." : paymentGap > 0 ? "An earlier payment needs covering." : "Plans need money earlier in this period."} ${accountSummaryMoney(reading.afterPlans)} left at the end of the period.`;

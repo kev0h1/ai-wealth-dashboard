@@ -893,6 +893,7 @@ export function UnfundedMoveCard({ item, hideNetWorth: hideNetWorthProp, maskAmo
               provider: source.provider,
               name: displayAccountName(source.name),
               amount: source.amount,
+              ...(source.savings ? { savings: true } : {}),
             }));
             const latestMove = accountMoves[accountMoves.length - 1];
             const due = latestMove.expected_date
@@ -914,6 +915,7 @@ export function UnfundedMoveCard({ item, hideNetWorth: hideNetWorthProp, maskAmo
               <div key={group.accountId} className={index > 0 ? "pt-3" : ""}>
                 <MoveRouteSummary sources={sources} destination={{ provider: suggestion.source_bank, name: suggestion.source_name }} />
                 <MoveSourcesDisclosure legs={sources} hideNetWorth={hideNetWorth} totalAmount={suggestion.suggested_amount ?? 0} />
+                {suggestion.suggested_cover_note && <div className="mt-2"><CoverNote data-cover-note><MoneyText text={maskAmounts(suggestion.suggested_cover_note)} /></CoverNote></div>}
                 <MovePaymentEvidence
                   bills={bills}
                   due={due}
@@ -1007,10 +1009,11 @@ export function UnfundedMoveCard({ item, hideNetWorth: hideNetWorthProp, maskAmo
                 {showLedger && (
                   <div className="mt-2">
                     <MoveSourcesLedger
-                      legs={sources!.map(s => ({ provider: s.provider, name: s.name, amount: s.amount }))}
+                      legs={sources!.map(s => ({ provider: s.provider, name: s.name, amount: s.amount, ...(s.savings ? { savings: true } : {}) }))}
                       hideNetWorth={hideNetWorth}
                       totalAmount={m.suggested_amount ?? undefined}
                     />
+                    {m.suggested_cover_note && <div className="mt-2"><CoverNote data-cover-note><MoneyText text={maskAmounts(m.suggested_cover_note)} /></CoverNote></div>}
                   </div>
                 )}
               </div>
