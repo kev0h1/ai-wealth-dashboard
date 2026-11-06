@@ -430,18 +430,14 @@ _enqueued_recently: dict[str, float] = {}
 # rather than dialling Redis on every read.
 _MODEL_WORK_BACKOFF_SECONDS = 5.0
 _model_work_failed_at: dict[str, float] = {}
-_arq_pool = None
 _inline_fallback_tasks: dict[str, "asyncio.Task"] = {}
 
 
 async def _get_arq_pool():
-    global _arq_pool
-    if _arq_pool is None:
-        from arq import create_pool
-        from arq.connections import RedisSettings
-        from app.core.config import REDIS_URL
-        _arq_pool = await create_pool(RedisSettings.from_dsn(REDIS_URL))
-    return _arq_pool
+    """Kept as the seam tests patch; the pool itself comes from the H148 choke
+    point (a recording double in test runs)."""
+    from app.workers import queue
+    return await queue.get_pool()
 
 
 async def enqueue_cashflow_recompute(uid: str, *, reason: str) -> bool:
@@ -449,7 +445,6 @@ async def enqueue_cashflow_recompute(uid: str, *, reason: str) -> bool:
     is already queued; never raises. If the queue is unreachable, falls back
     to a single in-process recompute (which still never calls the model in
     the API process), so a dirty doc is never left waiting for the 6h pass."""
-    global _arq_pool
     now = time.monotonic()
     last = _enqueued_recently.get(uid)
     # "model_work" is exempt from the throttle: the owed rerun is recorded on
@@ -468,11 +463,14 @@ async def enqueue_cashflow_recompute(uid: str, *, reason: str) -> bool:
         _enqueued_recently[uid] = now
     try:
         pool = await _get_arq_pool()
-        await pool.enqueue_job("task_recompute_cashflow", user_id=uid, reason=reason, _job_id=f"recompute:{uid}")
+        from app.workers import queue
+        await queue.enqueue("task_recompute_cashflow", user_id=uid, reason=reason,
+                            job_id=f"recompute:{uid}", pool=pool)
         logger.info("cashflow recompute enqueued for %s (reason=%s)", uid, reason)
         return True
     except Exception as exc:
-        _arq_pool = None
+        from app.workers import queue as _q
+        _q.reset_pool()
         if reason == "model_work":
             # An API compute cannot do the owed model work, so an in-process
             # fallback would only repeat the judge-free compute. The marker on

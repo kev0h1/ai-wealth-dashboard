@@ -18,15 +18,13 @@ import logging
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-from arq import create_pool
-from arq.connections import RedisSettings
+from app.workers import queue as _queue
 from fastapi import APIRouter, HTTPException, Request
 from pymongo.errors import DuplicateKeyError
 
 from app.core.config import (
     FINEXER_WEBHOOK_SECRET,
     FINEXER_WEBHOOK_SIGNING_SECRET,
-    REDIS_URL,
     TRUELAYER_WEBHOOK_SECRET,
 )
 from app.core import config as _cfg
@@ -48,9 +46,7 @@ truelayer_router = APIRouter(prefix="/webhooks", tags=["webhooks"])
 
 
 async def _enqueue(task: str, **kwargs):
-    pool = await create_pool(RedisSettings.from_dsn(REDIS_URL))
-    await pool.enqueue_job(task, **kwargs)
-    await pool.aclose()
+    await _queue.enqueue(task, shared=False, **kwargs)
 
 
 @truelayer_router.post("/truelayer/{secret}", status_code=200)
@@ -232,7 +228,7 @@ async def _claim_debounce(consent_id: str, window_seconds: int) -> bool:
     sync. Redis SET NX EX. Fails OPEN (True): task_sync_finexer is idempotent
     per consent, so an extra sync is cheap, a lost one is not."""
     try:
-        pool = await create_pool(RedisSettings.from_dsn(REDIS_URL))
+        pool = await _queue.get_pool(shared=False)
         try:
             return bool(await pool.set(f"fx_webhook_debounce:{consent_id}", "1", nx=True, ex=max(1, window_seconds)))
         finally:
@@ -246,7 +242,7 @@ async def _release_debounce(consent_id: str) -> None:
     """Best effort: drop the debounce key so a retry after a failed enqueue is
     not coalesced into a job that was never queued."""
     try:
-        pool = await create_pool(RedisSettings.from_dsn(REDIS_URL))
+        pool = await _queue.get_pool(shared=False)
         try:
             await pool.delete(f"fx_webhook_debounce:{consent_id}")
         finally:
