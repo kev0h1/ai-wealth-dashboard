@@ -4,32 +4,32 @@
     {
       "pdf": "frontend/public/TERMS.pdf",
       "source": "frontend/content/terms.md",
-      "source_sha256": "6e24452e4ccdea2eac66e087f8ba4d3d07a3dfbded466c0137edf4fc16199b4e",
-      "exported": "2026-11-01",
+      "source_sha256": "375ca5ed9c64ee6fa5b97704341ef67a21deb99d49ea73ad2ad510f9a3367fe0",
+      "exported": "2026-11-06",
       "pages": 8,
       "mcp_connector": "off"
     },
     {
       "pdf": "frontend/public/PRIVACY.pdf",
       "source": "frontend/content/privacy.md",
-      "source_sha256": "d86516ac5246577e9bd63f0ac3c09f315745857652b289c739dd413da6291661",
-      "exported": "2026-11-01",
+      "source_sha256": "fcf119c74013a08e2e34ce9f448b974da7a4aeb9b53d9359499362bbb4c0759d",
+      "exported": "2026-11-06",
       "pages": 8,
       "mcp_connector": "off"
     },
     {
       "pdf": "TERMS.pdf",
       "source": "TERMS.md",
-      "source_sha256": "bf788b87516f507a9fef7ec254348f0dcbaa540784607208c4fe858496296a61",
-      "exported": "2026-11-01",
+      "source_sha256": "d395d7db4a6a1b29032ecfff4ba7a1fafd61353379f2cfcced1c9d08754980d2",
+      "exported": "2026-11-06",
       "pages": 6,
       "mcp_connector": "full-text"
     },
     {
       "pdf": "PRIVACY.pdf",
       "source": "PRIVACY.md",
-      "source_sha256": "39e0c26952d245a8d2239a8aad9adc4e82ffbde0bc95c1201d2262ebe9359924",
-      "exported": "2026-11-01",
+      "source_sha256": "a4a58a3ce3d4be031cd282e6d095eeaf2cfe77d65fcc4844f756f181ff2f626a",
+      "exported": "2026-11-06",
       "pages": 6,
       "mcp_connector": "full-text"
     },
@@ -37,7 +37,7 @@
       "pdf": "SECURITY.pdf",
       "source": "SECURITY.md",
       "source_sha256": "c151b19d08eb94ef96538d782e1af98526408ee57aa31548e44c093f9293d827",
-      "exported": "2026-11-01",
+      "exported": "2026-11-06",
       "pages": 17,
       "mcp_connector": "full-text"
     }

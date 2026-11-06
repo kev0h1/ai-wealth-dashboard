@@ -2,7 +2,7 @@
 <!-- The sections marked mcp-connector:start/end below are shown in the app only when the MCP connector flag (MCP_CONNECTOR_ENABLED / NEXT_PUBLIC_MCP_CONNECTOR) is on; this file keeps the full text regardless, as the canonical published copy. -->
 # Sorted Terms & Conditions
 
-**Last updated:** 2026-09-23
+**Last updated:** 2026-11-06
 **Version:** 1.1
 
 These terms and conditions ("**Terms**") govern your use of Sorted (the "**Service**", "**App**"), a personal finance dashboard provided by AURIQ LTD. By creating an account or otherwise using the Service, you agree to be bound by these Terms. If you do not agree, please do not use the Service.
@@ -11,7 +11,7 @@ These terms and conditions ("**Terms**") govern your use of Sorted (the "**Servi
 
 ## 1. About us and these terms
 
-Sorted is provided by **AURIQ LTD**, a company registered in England and Wales under company number **16813875**, trading as "Sorted" ("**we**", "**us**", "**our**"). Our registered office is in Birmingham, B36, United Kingdom; the full registered office address is available on the Companies House register under company number 16813875.
+Sorted is provided by **AURIQ LTD**, a company registered in England and Wales under company number **16813875**, trading as "Sorted" ("**we**", "**us**", "**our**"). Our registered office is 124 City Road, London, EC1V 2NX, United Kingdom.
 
 You can contact us at **info@auriqltd.co.uk**.
 
@@ -189,5 +189,5 @@ These Terms are governed by the laws of England and Wales. Any dispute arising o
 If you have any questions about these Terms or the Service, please contact us at:
 
 **AURIQ LTD**
-Birmingham, B36, United Kingdom
+124 City Road, London, EC1V 2NX, United Kingdom
 Email: info@auriqltd.co.uk
