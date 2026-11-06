@@ -65,7 +65,7 @@ function PaymentActions({ payment, navigation }: { payment: PaymentDetail; navig
   return <div>
     {error && <p role="alert" className="mb-3 text-sm">{error}</p>}
     <div className="grid grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)] gap-3"><button type="button" data-flow-focus="edit-payment" disabled={busy} className={flowSecondary} onClick={() => navigation.goTo({ kind: "edit-payment", id: payment.id })}><Pencil size={16} aria-hidden="true" />{payment.planned ? "Edit payment" : "Edit prediction"}</button><button type="button" disabled={busy} className={flowPrimary} onClick={navigation.close}>Done</button></div>
-    {payment.skip && <button type="button" disabled={busy} onClick={skip} className={`mt-2 min-h-11 w-full rounded-lg text-sm text-slate-600 dark:text-slate-300 ${detailFocus}`}>{busy ? "Dismissing…" : "Dismiss for this month"}</button>}
+    {payment.skip && <button type="button" disabled={busy} onClick={skip} className={`mt-2 min-h-11 w-full rounded-lg text-sm text-slate-600 dark:text-slate-300 ${detailFocus}`}>{busy ? "Dismissing…" : payment.model.savingsNote ? "Let it skip this month" : "Dismiss for this month"}</button>}
   </div>;
 }
 

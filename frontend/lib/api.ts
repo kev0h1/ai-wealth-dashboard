@@ -1454,8 +1454,10 @@ export type PlanDestBill = {
   /** ISO date for this individual payment, rather than the plan's earliest date. */
   expected_date?: string | null;
   days_past_due?: number;
-  /** Only overdue own-transfer occurrences expose the per-month skip action. */
+  /** Only overdue own-transfer occurrences, and an own-savings standing order the account cannot fund (G426), expose the per-month skip action. */
   can_skip?: boolean;
+  /** G426: an own-savings standing order, named as a savings transfer rather than a payment. */
+  savings?: boolean;
 };
 export type PlanDest = {
   account_id: string;

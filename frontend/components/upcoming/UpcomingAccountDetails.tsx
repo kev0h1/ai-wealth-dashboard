@@ -69,8 +69,10 @@ function Verdict({ account, plans, plansStatus }: Required<Pick<UpcomingAccountD
   const uncountedLine = uncounted > 0 ? <p data-uncredited-note><MoneyText text={`Expected ${m(uncounted)} is not counted until it is confirmed.`} /></p> : null;
   if (gap !== null) {
     const named = account.shortFor?.cardRepayment ? <p data-card-repayment-short><MoneyText text={maskMoneyText(cardRepaymentShortCopy({ ...account, shortfall: gap }), hidden)} />{signal === "risk" ? ". A missed repayment can bring fees and interest. Goals and allocations are separate from this bill gap." : "."}</p> : null;
-    if (moves.length) return named || uncountedLine ? <div className={styles.warningNote}>{named}{uncountedLine}</div> : null;
-    return <VerdictBlock signal="risk" title={plansStatus === "ready" ? "Payments need more money. No covering move is suggested." : "Payments need more money. Suggested moves are still to be checked."}>{named}{uncountedLine}</VerdictBlock>;
+    // G426: an own-savings standing order on the same account keeps its own amber sentence beside the payment gap.
+    const savingsLine = account.position?.savingsAtRisk ? <p data-savings-at-risk>{account.position.savingsAtRisk.note}</p> : null;
+    if (moves.length) return named || uncountedLine || savingsLine ? <div className={styles.warningNote}>{named}{uncountedLine}{savingsLine}</div> : null;
+    return <VerdictBlock signal="risk" title={plansStatus === "ready" ? "Payments need more money. No covering move is suggested." : "Payments need more money. Suggested moves are still to be checked."}>{named}{uncountedLine}{savingsLine}</VerdictBlock>;
   }
   if (account.status === "unknown") return <VerdictBlock signal="unknown" title="Balance needs checking">Payments are listed, but the account’s result cannot be confirmed without a balance.</VerdictBlock>;
   if (plansStatus !== "ready") return <VerdictBlock signal="unknown" title={plansStatus === "loading" ? "Loading goals and allocations" : "Goals and allocations need checking"}>{plansStatus === "loading" ? "Loading goals and allocations. This figure covers payments only." : "Goals and allocations could not be checked. This figure covers payments only."}</VerdictBlock>;

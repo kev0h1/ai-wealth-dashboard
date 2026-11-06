@@ -58,7 +58,10 @@ export function upcomingStatusText(status: UpcomingStatus) {
 }
 
 export function canDismissUpcomingOccurrence(model: UpcomingRowModel) {
-  return model.type === "bill" && !model.isSettling && Boolean(model.pending) && (
+  if (model.type !== "bill" || model.isSettling) return false;
+  // G426: an own-savings standing order the account cannot fund can be let skip this month, due yet or not.
+  if (model.isMovement && model.savingsNote) return true;
+  return Boolean(model.pending) && (
     (model.isMovement && (model.unfundedMovement || (model.coverage?.shortfall ?? 0) > 0)) ||
     (model.daysPastDue ?? 0) >= 5
   );

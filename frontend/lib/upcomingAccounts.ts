@@ -109,7 +109,8 @@ export function reconcileWithServerPosition(account: UpcomingAccountSummary, pos
   // G422: a gap wholly explained by an own-savings standing order is amber and
   // never a payment shortfall, whatever the server's walk figures say.
   const savings = position.savingsAtRisk?.amount ?? 0;
-  if (lowest < 0 && savings > 0 && -lowest <= savings + 0.005 && account.status !== "short") {
+  // G426: also when the client walk calls it short because a later real bill cascades off the order; the server's payment-only walk says the payments alone clear.
+  if (lowest < 0 && savings > 0 && -lowest <= savings + 0.005) {
     return { ...account, position, status: "unfunded", shortfall: Math.max(account.shortfall ?? 0, -lowest), firstShortDate: account.firstShortDate ?? account.events.find((event) => event.after !== null && event.after < 0)?.date ?? null, shortFor: null };
   }
   if (lowest < 0) {

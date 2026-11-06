@@ -230,6 +230,18 @@ function CurrentSupportingCopy({
           <span>{model.savingsNote}</span>
         </p>
       )}
+      {model.savingsNote && model.isMovement && !model.pending && onSkipOccurrence && (
+        <button
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation();
+            onSkipOccurrence();
+          }}
+          className="pointer-events-auto mt-0.5 text-xs font-medium text-slate-500 underline-offset-2 hover:underline focus:outline-none focus-visible:underline dark:text-slate-400"
+        >
+          Let it skip this month
+        </button>
+      )}
       {model.movementCalm && !model.savingsNote && (
         <p className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
           <span aria-hidden className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-600 dark:bg-amber-400" />

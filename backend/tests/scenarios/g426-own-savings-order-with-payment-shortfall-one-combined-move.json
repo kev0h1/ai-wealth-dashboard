@@ -1,0 +1,153 @@
+{
+  "name": "Own-savings standing order with two other bills short on the same account (G426)",
+  "today": "2026-11-24",
+  "pay_period_config": {
+    "type": "last_friday"
+  },
+  "confirmed_income_streams": [],
+  "accounts": [
+    {
+      "_id": "acc-bc",
+      "name": "Barclays Current",
+      "provider": "barclays",
+      "type": "BANK",
+      "subtype": "TRANSACTION",
+      "balance": 150.0,
+      "currency": "GBP",
+      "status": "connected",
+      "include_in_safe_to_spend": true
+    },
+    {
+      "_id": "acc-mz",
+      "name": "Monzo Current",
+      "provider": "monzo",
+      "type": "BANK",
+      "subtype": "TRANSACTION",
+      "balance": 500.0,
+      "currency": "GBP",
+      "status": "connected",
+      "include_in_safe_to_spend": true
+    },
+    {
+      "_id": "acc-sav",
+      "name": "Barclays Saver",
+      "provider": "barclays",
+      "type": "BANK",
+      "subtype": "SAVINGS",
+      "balance": 1000.0,
+      "currency": "GBP",
+      "status": "connected",
+      "include_in_safe_to_spend": true
+    }
+  ],
+  "manual_accounts": [],
+  "cashflow_cache": {
+    "recurring_spend": [
+      {
+        "key": "SAVER STANDING ORDER",
+        "avg_amount": 300.0,
+        "avg_interval": 30,
+        "next_date": "2026-11-25",
+        "account_id": "acc-bc",
+        "account_name": "Barclays Current",
+        "account_bank": "barclays",
+        "account_balance": 150.0,
+        "is_credit_card": false,
+        "category": "Transfer",
+        "dest_account_id": "acc-sav",
+        "dest_account_name": "Barclays Saver",
+        "dest_account_bank": "barclays",
+        "dest_account_spendable": false
+      },
+      {
+        "key": "PHONE CONTRACT",
+        "avg_amount": 100.0,
+        "avg_interval": 30,
+        "next_date": "2026-11-26",
+        "account_id": "acc-bc",
+        "account_name": "Barclays Current",
+        "account_bank": "barclays",
+        "account_balance": 150.0,
+        "is_credit_card": false,
+        "category": "Bills"
+      },
+      {
+        "key": "GAS SUPPLIER",
+        "avg_amount": 200.0,
+        "avg_interval": 30,
+        "next_date": "2026-11-26",
+        "account_id": "acc-bc",
+        "account_name": "Barclays Current",
+        "account_bank": "barclays",
+        "account_balance": 150.0,
+        "is_credit_card": false,
+        "category": "Bills"
+      }
+    ],
+    "recurring_income": [],
+    "bnpl_commitments": [],
+    "avg_daily_spend": 0
+  },
+  "transactions": [],
+  "commitments": [],
+  "allocations": [],
+  "card_terms": [],
+  "expected": {
+    "left_to_spend": 50.0,
+    "spend_from_total": 50.0,
+    "spendable_balance": 650.0,
+    "not_spendable": [
+      "acc-sav"
+    ],
+    "accounts": {
+      "acc-bc": {
+        "spend_from": 10.0,
+        "after_payments": -450.0,
+        "low_point": -450.0,
+        "verdict": "short",
+        "covered_by_move": {
+          "amount": 460.0,
+          "from": [
+            {
+              "account_id": "acc-mz",
+              "amount": 460.0
+            }
+          ]
+        },
+        "short_after_cover": 0.0,
+        "spend_from_requires_move": true,
+        "savings_at_risk": {
+          "amount": 300.0,
+          "no_cover": false
+        }
+      },
+      "acc-mz": {
+        "spend_from": 40.0,
+        "after_payments": 500.0,
+        "low_point": 500.0,
+        "verdict": "covered",
+        "earmarked_total": 460.0,
+        "earmarks_out": [
+          {
+            "to": "acc-bc",
+            "amount": 460.0
+          }
+        ],
+        "savings_at_risk": null
+      }
+    },
+    "cover_plan": {
+      "moves_total": 460.0,
+      "moves": [
+        {
+          "from": "acc-mz",
+          "to": "acc-bc",
+          "amount": 460.0
+        }
+      ]
+    },
+    "payday_plan": null,
+    "at_risk_count": 2,
+    "notes": "G426 (Kevin 2026-11-06). Today Tue 24 Nov 2026, payday Fri 27 Nov, window 24 to 26 Nov. Barclays Current holds 150 and carries an own-savings standing order of 300 into Barclays Saver on Wed 25 Nov, a Phone bill of 100 and a Gas bill of 200 on Thu 26 Nov. Walk: 150 - 300 = -150, then -250 after Phone, then -450 after Gas. After payments and low point -450, verdict short. Payments alone, order left out: 150 - 100 - 200 = -150, so the payments are 150 short on their own. Savings part = 450 - 150 = 300 (amber). The payment part, 150, is the only payment shortfall (red stays earned). One combined move covers the whole walk deficit: ceil5(450) + 10 = 460. Monzo Current holds 500, headroom 490, so one move of 460 from Monzo to Barclays (the saver is never a source). Earmarks: Monzo set aside 460, Spend from 500 - 460 = 40; Barclays Spend from 10 (cushion). Short after cover = max(0, 450 - 460) = 0. Savings covered by the move = min(300, 460 - 150) = 300, so not no-cover. At risk count 2 (Phone and Gas bounce; the order is a movement and never counts). Left to spend: pool 650 - 300 - 100 - 200 = 50 = 40 + 10. Payday plan null (G402)."
+  }
+}
