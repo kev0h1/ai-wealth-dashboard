@@ -93,3 +93,22 @@ def test_a_future_dated_occurrence_is_never_closed_by_the_fallback(monkeypatch):
     future = _vanguard(next_date=(timeutil.user_today() + timedelta(days=3)).isoformat())
     resp = _run_build_response(monkeypatch, [future], observed=[_posted("ACME INVESTMENTS UK", days_ago=1)])
     assert len(_bills(resp)) == 1
+
+
+def test_a_same_category_same_amount_debit_with_no_shared_word_never_closes_it(monkeypatch):
+    _freeze(monkeypatch)
+    resp = _run_build_response(monkeypatch, [_vanguard()], observed=[_posted("GREENFIELD GARDEN CENTRE")])
+    assert len(_bills(resp)) == 1
+    # Stop words alone do not count as a shared word.
+    resp = _run_build_response(monkeypatch, [_vanguard()], observed=[_posted("DIRECT DEBIT PAYMENT LTD")])
+    assert len(_bills(resp)) == 1
+
+
+def test_a_card_repayment_series_is_never_closed_by_the_fallback(monkeypatch):
+    _freeze(monkeypatch)
+    card = _vanguard(card_dest_account_id="card-1", card_dest_account_name="Test Visa", category="Investing")
+    resp = _run_build_response(monkeypatch, [card], observed=[_posted("ACME INVESTMENTS UK REF 7731")])
+    assert len(_bills(resp)) == 1
+    card2 = _vanguard(is_credit_card=True)
+    resp = _run_build_response(monkeypatch, [card2], observed=[_posted("ACME INVESTMENTS UK REF 7731")])
+    assert len(_bills(resp)) == 1

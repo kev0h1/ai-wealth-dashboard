@@ -4234,6 +4234,7 @@ async def _build_cashflow_response(cached: dict, uid: str | None = None, prefs: 
                 "amount": abs(float(_t.get("amount", 0))),
                 "account_id": str(_t.get("account_id") or ""),
                 "category": _t.get("custom_category") or _t.get("category"),
+                "text": f"{_t.get('merchant_name') or ''} {_t.get('description') or ''}",
                 "used": False,
             })
 
@@ -4361,8 +4362,15 @@ async def _build_cashflow_response(cached: dict, uid: str | None = None, prefs: 
         return False
 
     _spend_pattern_keys = {p.get("key") for p in spend_patterns}
+    _ORPHAN_STOP_WORDS = frozenset({
+        "the", "and", "for", "pay", "payment", "payments", "ltd", "limited", "plc", "direct", "debit", "dd", "sto",
+        "standing", "order", "transfer", "from", "ref", "reference", "bill", "bills", "card", "bank", "uk", "gbp",
+    })
 
-    def _match_orphan_observed(key, account_id, expected_amount, expected_d, category):
+    def _significant_words(text) -> set:
+        return {w for w in re.findall(r"[a-z]{3,}", str(text or "").lower()) if w not in _ORPHAN_STOP_WORDS}
+
+    def _match_orphan_observed(key, account_id, expected_amount, expected_d, category, series_name=None):
         """G428: a payment that is already past its predicted date and has
         already posted must not be walked a second time. `_match_observed`
         closes it by series key; when the bank's wording changed (a new
@@ -4377,6 +4385,12 @@ async def _build_cashflow_response(cached: dict, uid: str | None = None, prefs: 
         rule as `_match_observed`."""
         if not account_id or not category or expected_d >= today_d:
             return False
+        # The orphan debit's narrative must share a significant word (three or
+        # more letters, not a stop word) with the series name, so a different
+        # payee of the same size on the same day never closes it.
+        series_words = _significant_words(series_name or key)
+        if not series_words:
+            return False
         want = abs(expected_amount)
         tol = max(1.0, want * 0.02)
         lo = expected_d - timedelta(days=OBSERVATION_LOOKBACK_DAYS)
@@ -4388,6 +4402,8 @@ async def _build_cashflow_response(cached: dict, uid: str | None = None, prefs: 
                 if tx["used"] or not (lo <= tx["date"] <= today_d):
                     continue
                 if tx["account_id"] != str(account_id) or tx.get("category") != category:
+                    continue
+                if not (series_words & _significant_words(tx.get("text"))):
                     continue
                 if abs(tx["amount"] - want) > tol:
                     continue
@@ -4585,7 +4601,9 @@ async def _build_cashflow_response(cached: dict, uid: str | None = None, prefs: 
                 continue
             if uid and _match_observed(r["key"], r.get("account_id"), final_amount, D):
                 continue          # CLOSED by an observed debit (early payments included)
-            if uid and _match_orphan_observed(r["key"], r.get("account_id"), final_amount, D, r.get("category")):
+            # Never for a card repayment: its amount moves and its payments are matched by the card link (G403/G413).
+            _is_card_series = bool(r.get("is_credit_card") or r.get("card_dest_account_name") or r.get("card_dest_account_id"))
+            if uid and not _is_card_series and _match_orphan_observed(r["key"], r.get("account_id"), final_amount, D, r.get("category"), r.get("key")):
                 continue          # G428: already posted under reworded text
             # Bank-side PENDING debit (see app/services/pending_transactions.py):
             # the account balance already reflects this occurrence even
