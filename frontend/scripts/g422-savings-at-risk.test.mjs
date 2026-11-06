@@ -14,7 +14,7 @@ import { BalancesHiddenContext } from "../lib/balancesHidden.tsx";
 import UpcomingAccountDetails from "../components/upcoming/UpcomingAccountDetails.tsx";
 import UpcomingRow from "../components/upcoming/UpcomingRow.tsx";
 
-const NO_COVER = "There is not enough to fund this savings transfer this period. You could pause or cancel the standing order with your bank for this month.";
+const NO_COVER = "There may not be enough to fund this savings transfer this period. You could pause or cancel the standing order with your bank for this month.";
 const COVERED = "Savings at risk. A suggested move from Monzo Current would cover it. Nothing has been moved.";
 
 const order = { name: "SAVER STANDING ORDER", label: "Saver Standing Order", amount: 250, expected_date: "2026-11-26", to_name: "Barclays Saver" };

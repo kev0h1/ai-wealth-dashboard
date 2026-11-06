@@ -1717,7 +1717,7 @@ def _gate_recommendation(
 # untouched: G402 says habitual transfers are not plan rows.
 
 SAVINGS_NO_COVER_NOTE = (
-    "There is not enough to fund this savings transfer this period. "
+    "There may not be enough to fund this savings transfer this period. "
     "You could pause or cancel the standing order with your bank for this month."
 )
 SAVINGS_UNSIZED_NOTE = "Savings at risk. This account may not have enough to fund the transfer this period."
@@ -1773,7 +1773,7 @@ def _savings_at_risk_fact(
         else:
             note = (
                 f"Savings at risk, even after the suggested move from {src}. "
-                "There is not enough to fund the rest this period. "
+                "There may not be enough to fund the rest this period. "
                 "You could pause or cancel the standing order with your bank for this month."
             )
     return {
@@ -5738,7 +5738,13 @@ async def compute_today_items(
                         },
                     }
 
-                _sv_unsized = _sv_item_id in dismissed or len(allocation_items) >= _sv_slots
+                # A dismissed combined plan card (`allocation_shortfall:`) for this account is the
+                # user's dismissal of the same cover move: never resurface it as a savings card.
+                _sv_unsized = (
+                    _sv_item_id in dismissed
+                    or f"allocation_shortfall:{_sv_id}:{window_end.isoformat()}" in dismissed
+                    or len(allocation_items) >= _sv_slots
+                )
                 _sv_legs = [] if _sv_unsized else _find_legs_for_destination(
                     _sv_id, float(_ceil5(_sv_gap) + 10), _build_sv_move_map,
                     exclude_sources=frozenset(str(b.get("dest_account_id")) for b in _sav_gaps[_sv_id]["orders"]),

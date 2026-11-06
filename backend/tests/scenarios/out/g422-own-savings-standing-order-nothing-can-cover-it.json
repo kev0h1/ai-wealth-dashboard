@@ -16,7 +16,7 @@
         "amount": 200.0,
         "covered": 0.0,
         "no_cover": true,
-        "note": "There is not enough to fund this savings transfer this period. You could pause or cancel the standing order with your bank for this month.",
+        "note": "There may not be enough to fund this savings transfer this period. You could pause or cancel the standing order with your bank for this month.",
         "orders": [
           {
             "amount": 250.0,

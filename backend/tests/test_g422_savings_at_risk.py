@@ -140,3 +140,26 @@ def test_penny_reads_the_same_sentence_from_the_engine_fact(monkeypatch):
     assert facts["by_account"]["barclays"]["savings_at_risk"] is row
     plain = earmark_facts(eligibility={"x": {"short": False}}, accounts=accounts, name_tokens=[])
     assert "savings_at_risk" not in plain
+
+
+def test_dismissed_combined_card_is_not_resurfaced_as_a_savings_card(monkeypatch):
+    import app.services.companion as comp
+
+    plans = [_plan("alloc-travel", "Travel", "barclays", 100.0, dest=("pot",))]
+    items0, _ = _go(monkeypatch, [_sto()], _world(1000.0), plans)
+    card = next(i for i in items0 if i.get("type") == "move")
+    dismissed_id = card["id"]
+    assert dismissed_id.startswith("allocation_shortfall:barclays:")
+
+    async def _get_dismissed(uid):
+        return {dismissed_id}
+
+    monkeypatch.setattr(comp, "_get_dismissed", _get_dismissed)
+    items, elig = _go(monkeypatch, [_sto()], _world(1000.0), plans)
+    assert [i for i in items if i.get("type") == "move"] == []
+    assert _sav_cards(items) == []
+    fact = elig["barclays"]["savings_at_risk"]
+    assert fact["no_cover"] is False
+    assert fact["covered"] == 0.0
+    assert fact["note"] == comp.SAVINGS_UNSIZED_NOTE
+    assert "covered_by_move" not in elig["barclays"]
