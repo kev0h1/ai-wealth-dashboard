@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { ArrowLeftRight, ArrowRight, CircleAlert } from "lucide-react";
-import { api } from "@/lib/api";
+import { loadMiscategorisedCount } from "@/lib/miscategorisedCount";
 import { TRANSACTIONS_CHANGED_EVENT } from "@/lib/cacheInvalidation";
 
 export type TransferCheckState = { status: "loading" } | { status: "failed" } | { status: "ready"; count: number };
@@ -64,7 +64,7 @@ export default function HomeTransfersCheck({ refreshKey, enabled = true, onReady
     if (!enabled) { onReadyRef.current?.(); return; }
     let current = true;
     setState(beginRefetch);
-    api.getMiscategorisedCount().then(data => {
+    loadMiscategorisedCount(0, retry > 0).then(data => {
       const count = transferReviewCount(data);
       if (current) setState({ status: "ready", count });
     }).catch(() => { if (current) setState({ status: "failed" }); })
