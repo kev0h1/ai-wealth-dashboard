@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from "recharts";
 import { CalendarClock, TrendingUp, TrendingDown } from "lucide-react";
 import { api, CashflowData } from "@/lib/api";
+import { cachedEndpoint, ENDPOINT, peekEndpoint } from "@/lib/endpointCache";
 
 
 function fmt(n: number, sym: string) {
@@ -33,11 +34,12 @@ const CustomTooltip = ({ active, payload, label, sym }: { active?: boolean; payl
 
 export default function CashFlowCard() {
   const sym = "£";
-  const [data, setData] = useState<CashflowData | null>(null);
-  const [loading, setLoading] = useState(true);
+  // G425: a remount within the TTL paints the cached payload with no skeleton.
+  const [data, setData] = useState<CashflowData | null>(() => peekEndpoint<CashflowData>(ENDPOINT.cashflow.key) ?? null);
+  const [loading, setLoading] = useState(() => peekEndpoint(ENDPOINT.cashflow.key) === undefined);
 
   useEffect(() => {
-    api.cashflow()
+    cachedEndpoint(ENDPOINT.cashflow.key, () => api.cashflow(), { ttlMs: ENDPOINT.cashflow.ttlMs, onUpdate: setData })
       .then(setData)
       .catch(() => {})
       .finally(() => setLoading(false));

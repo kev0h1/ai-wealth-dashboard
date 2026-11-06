@@ -54,6 +54,11 @@ let failures = [];
 // must leave that cache alone.
 const ALLOWED_UNREACHABLE = [
   [
+    "lib/endpointCache.ts",
+    "invalidateEndpoint",
+    "G425: the single-key variant of the per-endpoint client cache; invalidateAllAccountData() already clears every key through invalidateAllEndpoints(), and this narrower function exists for write paths (PreferencesContext, the api fetch wrapper) that must drop only the money keys.",
+  ],
+  [
     "lib/onboardingGate.ts",
     "clearOnboarded",
     "per-user 'has completed onboarding' marker (D12), not account- or transaction-derived data; it is cleared only on account deletion, because an ordinary account mutation clearing it would send an existing user back through onboarding.",

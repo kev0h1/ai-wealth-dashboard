@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import { ChevronRight } from "lucide-react";
 import { api, CashflowData } from "@/lib/api";
+import { cachedEndpoint, ENDPOINT, peekEndpoint } from "@/lib/endpointCache";
 import { useRouter } from "next/navigation";
 import { useBalancesHidden, maskMoneyText } from "@/lib/balancesHidden";
 import {
@@ -32,8 +33,10 @@ export default function UpcomingBillsStrip({ onReady }: UpcomingBillsStripProps 
   const sym = "£";
   const hidden = useBalancesHidden();
   const router = useRouter();
-  const [data, setData] = useState<CashflowData | null>(null);
-  const [status, setStatus] = useState<Status>("loading");
+  // G425: seeded from the endpoint cache so a remount paints with no skeleton.
+  const [data, setData] = useState<CashflowData | null>(() => peekEndpoint<CashflowData>(ENDPOINT.cashflow.key) ?? null);
+  const statusRef = useRef<Status>("loading");
+  const [status, setStatus] = useState<Status>(() => (peekEndpoint(ENDPOINT.cashflow.key) === undefined ? "loading" : "ready"));
 
   // Latest onReady in a ref rather than a `fetch` dependency — HomePage
   // passes a fresh callback identity most renders, and this must never
@@ -43,8 +46,10 @@ export default function UpcomingBillsStrip({ onReady }: UpcomingBillsStripProps 
   const readyFiredRef = useRef(false);
 
   const fetch = useCallback(() => {
-    setStatus("loading");
-    api.cashflow()
+    // Retries (status "failed") must refetch; a first load may use the cache.
+    const force = statusRef.current === "failed";
+    if (peekEndpoint(ENDPOINT.cashflow.key) === undefined) setStatus("loading");
+    cachedEndpoint(ENDPOINT.cashflow.key, () => api.cashflow(), { force, ttlMs: ENDPOINT.cashflow.ttlMs, onUpdate: setData })
       .then(d => { setData(d); setStatus("ready"); })
       .catch(() => setStatus("failed"))
       .finally(() => {
@@ -54,6 +59,7 @@ export default function UpcomingBillsStrip({ onReady }: UpcomingBillsStripProps 
       });
   }, []);
 
+  statusRef.current = status;
   useEffect(() => { fetch(); }, [fetch]);
 
   if (status === "loading") {
