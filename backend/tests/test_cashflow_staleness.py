@@ -135,8 +135,10 @@ def _pull(env, txns=None):
     return asyncio.run(finexer_sync._upsert_finexer_transactions(txns or [_fx_txn()], "acc-1", UID))
 
 
-# 1. a pull that inserts marks stale, invalidates, and the next read recomputes
-def test_pull_inserting_a_transaction_marks_stale_and_next_read_recomputes(_env, monkeypatch):
+# 1. a pull that inserts marks stale, invalidates; the next read serves the
+# stored doc flagged stale and enqueues the recompute (E18), which the worker
+# task then runs and clears the stamp.
+def test_pull_inserting_a_transaction_marks_stale_and_next_read_enqueues_recompute(_env, monkeypatch):
     new, _ = _pull(_env)
     assert len(new) == 1
     assert _env["cache"].docs[UID].get("dirty_since") is not None
@@ -145,16 +147,29 @@ def test_pull_inserting_a_transaction_marks_stale_and_next_read_recomputes(_env,
     class _Stop(Exception):
         pass
 
+    seen: dict = {}
+
     async def stop_here(cached, uid=None):
-        # Everything after the recompute (response building) needs the real
-        # DB; the recompute decision has already been made by this point.
-        assert "dirty_since" not in cached, "the read served a dirty doc"
+        # Everything after the doc is chosen (response building) needs the
+        # real DB; the serve-vs-recompute decision has already been made.
+        seen["dirty"] = cached.get("dirty_since")
         raise _Stop
 
+    queued: list = []
+
+    async def fake_enqueue(uid, *, reason):
+        queued.append((uid, reason))
+        return True
+
     monkeypatch.setattr(analytics, "_build_cashflow_response", stop_here)
+    monkeypatch.setattr(derived_caches, "enqueue_cashflow_recompute", fake_enqueue)
     with pytest.raises(_Stop):
         asyncio.run(analytics.get_cashflow(user={"email": UID}))
-    assert _env["computes"] == [UID], "the next read must recompute a dirty doc"
+    assert seen["dirty"] is not None, "the stored doc is served as it stands"
+    assert _env["computes"] == [], "the request path must not recompute"
+    assert queued == [(UID, "dirty")]
+    asyncio.run(sync_worker.task_recompute_cashflow({}, UID))
+    assert _env["computes"] == [UID]
     assert "dirty_since" not in _env["cache"].docs[UID]
 
 

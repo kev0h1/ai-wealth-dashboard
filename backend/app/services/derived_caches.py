@@ -323,7 +323,7 @@ async def cache_needs_recompute(uid: str, *, new_count: int, trigger: SyncTrigge
         return True, "new_transactions"
     from app.routers.analytics import PATTERNS_VERSION
     doc = await cashflow_cache_col.find_one(
-        {"_id": uid}, {"computed_at": 1, "patterns_version": 1, "engine_build": 1, "dirty_since": 1},
+        {"_id": uid}, {"computed_at": 1, "patterns_version": 1, "engine_build": 1, "dirty_since": 1, "model_work_pending": 1},
     )
     if not doc or doc.get("computed_at") is None:
         return True, "no_cache"
@@ -332,6 +332,8 @@ async def cache_needs_recompute(uid: str, *, new_count: int, trigger: SyncTrigge
     # engine build is current.
     if doc.get("dirty_since") is not None:
         return True, "dirty"
+    if doc.get("model_work_pending"):
+        return True, "model_work"  # E18: an owed judge/predictor rerun
     if (doc.get("patterns_version") or 0) < PATTERNS_VERSION:
         return True, "patterns_version"
     if doc.get("engine_build") != engine_build():
@@ -409,3 +411,82 @@ async def refresh_stale_cashflow_caches(*, reason: str) -> dict:
     }
     logger.info("engine refresh: %s", summary)
     return summary
+
+
+# ---------------------------------------------------------------------------
+# E18: request paths never recompute the forecast; they enqueue it.
+#
+# GET /cashflow serves the stored doc (stale allowed) and calls
+# `enqueue_cashflow_recompute`, which puts `task_recompute_cashflow` on the
+# arq worker under the job id `recompute:<uid>`, so a burst of reads (or a
+# dirty doc read from two tabs) queues one job. The worker task is registered
+# with keep_result=0 so a finished job does not block the next enqueue for
+# arq's default hour. `_enqueued_recently` is a short per-process throttle
+# that saves the Redis round trip for the burst itself and bounds a
+# permanently failing recompute to one enqueue per window per process.
+_ENQUEUE_THROTTLE_SECONDS = 30.0
+_enqueued_recently: dict[str, float] = {}
+# model_work only: when the queue was unreachable, back off for a few seconds
+# rather than dialling Redis on every read.
+_MODEL_WORK_BACKOFF_SECONDS = 5.0
+_model_work_failed_at: dict[str, float] = {}
+_arq_pool = None
+_inline_fallback_tasks: dict[str, "asyncio.Task"] = {}
+
+
+async def _get_arq_pool():
+    global _arq_pool
+    if _arq_pool is None:
+        from arq import create_pool
+        from arq.connections import RedisSettings
+        from app.core.config import REDIS_URL
+        _arq_pool = await create_pool(RedisSettings.from_dsn(REDIS_URL))
+    return _arq_pool
+
+
+async def enqueue_cashflow_recompute(uid: str, *, reason: str) -> bool:
+    """Queue one worker recompute for `uid`. True when a job was queued or one
+    is already queued; never raises. If the queue is unreachable, falls back
+    to a single in-process recompute (which still never calls the model in
+    the API process), so a dirty doc is never left waiting for the 6h pass."""
+    global _arq_pool
+    now = time.monotonic()
+    last = _enqueued_recently.get(uid)
+    # "model_work" is exempt from the throttle: the owed rerun is recorded on
+    # the doc and every read re-asks, so it must reach the queue each time
+    # (arq's job id still dedupes a queued or running job).
+    if reason == "model_work":
+        failed = _model_work_failed_at.get(uid)
+        if failed is not None and now - failed < _MODEL_WORK_BACKOFF_SECONDS:
+            return False
+    else:
+        if last is not None and now - last < _ENQUEUE_THROTTLE_SECONDS:
+            return True
+        if len(_enqueued_recently) > 2000:
+            for k in [k for k, t in _enqueued_recently.items() if now - t >= _ENQUEUE_THROTTLE_SECONDS]:
+                del _enqueued_recently[k]
+        _enqueued_recently[uid] = now
+    try:
+        pool = await _get_arq_pool()
+        await pool.enqueue_job("task_recompute_cashflow", user_id=uid, reason=reason, _job_id=f"recompute:{uid}")
+        logger.info("cashflow recompute enqueued for %s (reason=%s)", uid, reason)
+        return True
+    except Exception as exc:
+        _arq_pool = None
+        if reason == "model_work":
+            # An API compute cannot do the owed model work, so an in-process
+            # fallback would only repeat the judge-free compute. The marker on
+            # the doc keeps the work owed; back off and let a later read retry.
+            _model_work_failed_at[uid] = now
+            if len(_model_work_failed_at) > 2000:
+                for k in [k for k, t in _model_work_failed_at.items() if now - t >= _MODEL_WORK_BACKOFF_SECONDS]:
+                    del _model_work_failed_at[k]
+            logger.warning("cashflow model_work enqueue failed (%s); will retry on a later read", type(exc).__name__)
+            return False
+        logger.warning("cashflow recompute enqueue failed (%s); running in-process", type(exc).__name__)
+    existing = _inline_fallback_tasks.get(uid)
+    if existing is not None and not existing.done():
+        return True
+    from app.routers.analytics import compute_and_cache_cashflow
+    _inline_fallback_tasks[uid] = asyncio.create_task(compute_and_cache_cashflow(uid))
+    return False

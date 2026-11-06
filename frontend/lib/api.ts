@@ -329,6 +329,10 @@ export type CashflowData = {
   spendable_balance?: number | null;
   /** G188: true when spendable/savings (and per-item account_balance) were overlaid with live balances; false when the overlay failed and the cached snapshot is served. */
   balances_live?: boolean;
+  /** E18: true while the stored forecast is one a sync marked dirty or an older engine wrote; the worker is refreshing it and the next load is current. No client copy yet. */
+  cashflow_stale?: boolean;
+  /** E18: when the stored forecast was computed (ISO), null when unknown. */
+  cashflow_computed_at?: string | null;
   /** Savings-account balances, shown as a separate quiet line — never silently folded into runway. */
   savings_balance?: number;
   next_payday: string | null;

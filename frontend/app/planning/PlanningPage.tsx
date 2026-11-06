@@ -4,6 +4,7 @@ import { isCountedInLeftToSpend } from "@/lib/accountCounted";
 import { useEffect, useMemo, useState, useRef, type ReactNode } from "react";
 import dynamic from "next/dynamic";
 import { EyeOff } from "lucide-react";
+import { shouldRefetchStaleCashflow, scheduleStaleCashflowRefetch, canApplyStaleCashflow } from "@/lib/cashflowStaleRetry";
 import { api, Account, Allocation, CashflowData, type AccountEligibility, type AccountPlanData, type CompanionItem } from "@/lib/api";
 import { getAccountsCached } from "@/lib/accountsCache";
 import { invalidateVerdictCache } from "@/lib/verdictCache";
@@ -283,6 +284,24 @@ export default function PlanningPage() {
   useEffect(() => {
     api.cashflowWithForecast().then(setCashflow).catch(() => setCashflowError(true));
   }, []);
+
+  // E18: a forecast served stale while the worker recomputes is refetched once,
+  // quietly, about five seconds later. The ref spends the single retry; a fresh
+  // response re-arms it for the next correction.
+  const staleRetried = useRef(false);
+  useEffect(() => {
+    if (cashflow && cashflow.cashflow_stale !== true) staleRetried.current = false;
+    if (!shouldRefetchStaleCashflow(cashflow, staleRetried.current)) return;
+    return scheduleStaleCashflowRefetch(
+      () => {
+        api.cashflowWithForecast().then((fresh) => {
+          // G421: never inside an undo window, or a removed row would come back.
+          if (canApplyStaleCashflow(lastPlannedDeleteRef.current, lastDismissRef.current)) setCashflow(fresh);
+        }).catch(() => {});
+      },
+      () => { staleRetried.current = true; },
+    );
+  }, [cashflow]);
 
   useEffect(() => {
     const idleWindow = window as Window & {

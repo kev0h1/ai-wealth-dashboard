@@ -2199,7 +2199,12 @@ async def _load_cashflow_cache(uid: str) -> dict | None:
         return None
     _started = datetime.now()  # naive-ok: cache watermark
     _started = _started.replace(microsecond=(_started.microsecond // 1000) * 1000)
-    cached = await _compute_cashflow_patterns(uid)
+    from app.services.recurring_judge import track_model_work
+    with track_model_work() as _mw:
+        cached = await _compute_cashflow_patterns(uid)
+    owed = _mw["owed"]
+    if owed:
+        cached["model_work_pending"] = True  # E18: the worker still owes the model passes
     cached["computed_at"] = datetime.now()
     cached["patterns_version"] = PATTERNS_VERSION
     # G159 review fix #5: same stamp analytics.py's own cache-miss branch
@@ -2219,6 +2224,10 @@ async def _load_cashflow_cache(uid: str) -> dict | None:
         )
     except DuplicateKeyError:
         pass  # a newer recompute landed first; keep theirs
+    # E18: this compute ran judge-free (the API forbids model calls); the
+    # worker reruns it with the model passes.
+    from app.services.derived_caches import enqueue_cashflow_recompute
+    await enqueue_cashflow_recompute(uid, reason="model_work" if owed else "no_cache")
     return cached
 
 

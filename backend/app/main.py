@@ -401,6 +401,15 @@ async def _ensure_index(col, keys, **kwargs) -> None:
 
 
 @app.on_event("startup")
+async def _forbid_model_passes_in_api():
+    """E18: the cashflow compute's model passes (recurring judge, AI
+    recurring predictor, income payer judge) run only in the arq worker. In
+    this process a compute uses cached verdicts and enqueues the worker."""
+    from app.services.recurring_judge import forbid_model_calls
+    forbid_model_calls()
+
+
+@app.on_event("startup")
 async def _create_indexes():
     await _ensure_index(transactions_col, "account_id")
     await _ensure_index(transactions_col, "date")

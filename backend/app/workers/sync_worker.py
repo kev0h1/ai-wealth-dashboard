@@ -5,7 +5,7 @@ import math
 from datetime import datetime, timedelta
 from typing import Optional
 
-from arq import ArqRedis, cron
+from arq import ArqRedis, cron, func as arq_func
 from arq.connections import RedisSettings
 
 from app.core import timeutil
@@ -808,6 +808,22 @@ async def task_safe_to_spend_snapshot(ctx):
     return summary
 
 
+async def task_recompute_cashflow(ctx, user_id: str, reason: str | None = None):
+    """E18: the request path's recompute. GET /cashflow (and any other read
+    that finds a dirty, out-of-date or judge-pending doc) serves what is
+    stored and enqueues this under the job id `recompute:<user_id>`. Runs the
+    same recompute a sync runs, including the model passes that the API
+    process is forbidden to make, and clears `dirty_since` on success."""
+    from app.routers.analytics import compute_and_cache_cashflow
+    # A model_work rerun only owes the judge and predictor, and the transactions
+    # are unchanged: keep this process's AI recurring prediction cache
+    # (`analytics._ai_recurring_cache`, keyed by user id alone, 24 h, in this
+    # worker's memory, never filled by the API because its gate returns early).
+    ok = await compute_and_cache_cashflow(user_id, clear_ai_cache=reason != "model_work")
+    logger.info("cashflow recompute task done for %s: %s", user_id, "ok" if ok else "not written")
+    return {"recomputed": bool(ok)}
+
+
 async def _engine_refresh_on_startup() -> None:
     try:
         from app.services.derived_caches import refresh_stale_cashflow_caches
@@ -840,6 +856,8 @@ async def _on_startup(ctx: dict) -> None:
     task so the queue is served from the first second; the engine-build
     stamp makes a restart without a code change a no-op. The task handle
     is kept on `ctx` so it cannot be garbage-collected mid-flight."""
+    from app.services.recurring_judge import allow_model_calls
+    allow_model_calls()   # E18: the worker is the one process that runs the model passes
     try:   # E8: record exception class names (only) for the new-error-type alert
         from app.db.collections import error_types_seen_col
         from app.services.health import error_types
@@ -883,7 +901,10 @@ class WorkerSettings:
                  task_sync_finexer, task_reconcile_truelayer, task_period_digests,
                  task_refresh_investment_prices, task_refresh_savings_insights,
                  task_consent_watch, task_retention_sweep, task_trial_reminder,
-                 task_reconcile_finexer_events, task_safe_to_spend_snapshot, task_health_samples]
+                 task_reconcile_finexer_events, task_safe_to_spend_snapshot, task_health_samples,
+                 # keep_result=0: the job id dedupes a burst while queued or
+                 # running, and must not block the next enqueue afterwards.
+                 arq_func(task_recompute_cashflow, keep_result=0)]
     cron_jobs = [
         cron(task_reconcile_truelayer, hour={0, 4, 8, 12, 16, 20}, minute=0, run_at_startup=False),
         cron(task_refresh_investment_prices, hour=6, minute=30, run_at_startup=False),
