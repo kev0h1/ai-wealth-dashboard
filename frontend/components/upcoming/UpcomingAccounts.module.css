@@ -1,4 +1,4 @@
-/* G417 approved A. Geometry and tokens carried from the coded direction. */
+/* G429 approved A rows on the G417 card and sheet tokens. */
 .card,.sheetBody { --sheet-muted:#475569; --sheet-line:#e2e8f0; --sheet-surface:#fff; color:#0f172a; }
 :global(.dark) .card,:global(.dark) .sheetBody { --sheet-muted:#cbd5e1; --sheet-line:#334155; color:#f1f5f9; }
 .card { background:var(--sheet-surface); overflow:hidden; border:1px solid var(--sheet-line); border-radius:16px; box-shadow:0 1px 2px #0f172a0d; }
@@ -7,19 +7,25 @@
 .listHeading { padding:16px; border-bottom:1px solid var(--sheet-line); }
 .listHeading h2 { font-size:16px; line-height:1.4; font-weight:700; }
 .period { font-size:12px; line-height:1.6; color:var(--sheet-muted); margin-top:4px; }
-.accountRow { display:grid; grid-template-columns:32px minmax(0,1fr) auto 14px; align-items:center; width:100%; column-gap:10px; row-gap:10px; padding:16px; text-align:left; min-height:80px; border-bottom:1px solid var(--sheet-line); }
+.accountRow { display:grid; grid-template-columns:32px minmax(0,1fr) max-content 14px; align-items:start; width:100%; column-gap:10px; row-gap:8px; padding:16px; text-align:left; min-height:80px; border-bottom:1px solid var(--sheet-line); }
 .accountRow:hover,.fineToggle:hover { background:#64748b0a; }
 .accountRow:active,.fineToggle:active,.done:active,.sheetBody button:active { opacity:.7; }
-.identity { min-width:0; }
+.bankMark { grid-column:1; grid-row:1; }
+.identity { grid-column:2; grid-row:1; min-width:0; }
 .identity strong { display:block; font-size:14px; font-weight:600; line-height:1.4; }
 .identity > span { display:block; font-size:12px; line-height:1.4; color:var(--sheet-muted); margin-top:3px; overflow-wrap:anywhere; }
-.rowFigure { text-align:right; max-width:130px; }
-.rowFigure > strong { font-size:18px; line-height:1.4; font-weight:700; white-space:nowrap; }
-.rowCaption { display:flex; align-items:center; justify-content:flex-end; gap:4px; font-size:11px; line-height:1.5; color:var(--sheet-muted); margin-top:3px; }
-.moveRows { grid-column:2/-1; margin-top:2px; display:grid; gap:2px; font-size:12px; line-height:1.5; color:var(--sheet-muted); }
-.moveRow { display:flex; justify-content:space-between; gap:12px; }
-.moveRow strong { font-weight:600; font-variant-numeric:tabular-nums; }
-.rowNote { grid-column:2/-1; font-size:12px; line-height:1.6; color:var(--sheet-muted); overflow-wrap:anywhere; }
+.rowFigure { display:contents; }
+.rowFigure > strong { grid-column:3; grid-row:1; font-size:18px; line-height:1.4; font-weight:700; text-align:right; white-space:nowrap; }
+.rowCaption { grid-column:2/4; grid-row:2; display:flex; align-items:center; gap:4px; min-width:0; font-size:11px; line-height:1.5; color:var(--sheet-muted); }
+.chevron { grid-column:4; grid-row:1; align-self:center; color:var(--sheet-muted); }
+.moveRows { grid-column:2/4; display:grid; gap:8px; margin-top:0; min-width:0; }
+.moveRow { display:grid; grid-template-columns:20px minmax(0,1fr) auto; align-items:start; gap:8px; min-height:24px; }
+.sourceMark { display:flex; padding-top:1px; }
+.sourceIdentity { min-width:0; font-size:12px; line-height:1.5; color:var(--sheet-muted); overflow-wrap:anywhere; }
+.sourceAmount { font-size:13px; line-height:1.5; font-weight:600; text-align:right; white-space:nowrap; }
+.savingsMarker { display:block; font-size:11px; line-height:1.5; margin-top:3px; }
+.rowNote { grid-column:2/4; font-size:12px; line-height:1.6; color:var(--sheet-muted); overflow-wrap:anywhere; }
+.rowNote :global(.money) { white-space:nowrap; }
 .watch { color:#b45309; flex-shrink:0; }
 .risk { color:#be123c; flex-shrink:0; }
 .muted { color:var(--sheet-muted,#475569); flex-shrink:0; }
@@ -95,4 +101,4 @@
 .card :is(.accountRow,.fineToggle):focus-visible { outline-offset:-2px; border-radius:8px; }
 .card :is(button,summary),.sheetBody :is(button,summary),.done { touch-action:manipulation; -webkit-tap-highlight-color:transparent; }
 .card ::selection,.sheetBody ::selection { color:#fff; background:#4f46e5; }
-@media(max-width:359px) { .moveRows { grid-column:1/-1; } .accountRow { column-gap:8px; padding-inline:12px; } .rowFigure > strong { font-size:16px; } .rowCaption { max-width:100px; } .rowNote { grid-column:1/-1; } .eventRow,.planRow { gap:8px; } .eventAmount { font-size:12px; } }
+@media(max-width:359px) { .eventRow,.planRow { gap:8px; } .eventAmount { font-size:12px; } }
