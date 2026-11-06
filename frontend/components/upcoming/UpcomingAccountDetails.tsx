@@ -5,7 +5,8 @@ import { ArrowDownLeft, ArrowLeftRight, ArrowUpRight, ChevronDown, ChevronRight,
 import { accountPaymentGap, type UpcomingAccountEvent, type UpcomingAccountSummary, type UpcomingSuggestedMove } from "@/lib/upcomingAccounts";
 import { fulfilmentRow, hasPlanSource, remaining, type Plan } from "@/lib/upcomingPlans";
 import { cardRepaymentShortCopy, type AccountStatus } from "@/lib/upcomingAccountStatus";
-import { accountActionReading } from "@/lib/upcomingAccountPresentation";
+import { accountActionReading, accountCoverLine } from "@/lib/upcomingAccountPresentation";
+import { UNCOVERED_OPTIONS } from "@/lib/coverNarrative";
 import { money, useMaskedMoney } from "./detailPrimitives";
 import { useBalancesHidden, maskMoneyText } from "@/lib/balancesHidden";
 import { AccountMoney, AccountSignal } from "./accountPresentation";
@@ -72,7 +73,7 @@ function Verdict({ account, plans, plansStatus }: Required<Pick<UpcomingAccountD
     // G426: an own-savings standing order on the same account keeps its own amber sentence beside the payment gap.
     const savingsLine = account.position?.savingsAtRisk ? <p data-savings-at-risk>{account.position.savingsAtRisk.note}</p> : null;
     if (moves.length) return named || uncountedLine || savingsLine ? <div className={styles.warningNote}>{named}{uncountedLine}{savingsLine}</div> : null;
-    return <VerdictBlock signal="risk" title={plansStatus === "ready" ? "Payments need more money. No covering move is suggested." : "Payments need more money. Suggested moves are still to be checked."}>{named}{uncountedLine}{savingsLine}</VerdictBlock>;
+    return <VerdictBlock signal="risk" title={plansStatus === "ready" ? "Payments need more money. No covering move is suggested." : "Payments need more money. Suggested moves are still to be checked."}>{named}{uncountedLine}{savingsLine}{plansStatus === "ready" && <p data-uncovered-options>{UNCOVERED_OPTIONS}</p>}</VerdictBlock>;
   }
   if (account.status === "unknown") return <VerdictBlock signal="unknown" title="Balance needs checking">Payments are listed, but the account’s result cannot be confirmed without a balance.</VerdictBlock>;
   if (plansStatus !== "ready") return <VerdictBlock signal="unknown" title={plansStatus === "loading" ? "Loading goals and allocations" : "Goals and allocations need checking"}>{plansStatus === "loading" ? "Loading goals and allocations. This figure covers payments only." : "Goals and allocations could not be checked. This figure covers payments only."}</VerdictBlock>;
@@ -94,7 +95,9 @@ function LedgerLine({ label, pence, total = false, positive = false, suggested =
 /** G417 approved A. The original forecast and every drill-in stay authoritative. */
 export default function UpcomingAccountDetails({ account, periodLabel, plans = [], plansStatus = "ready", onPlan, onEvent, editableEventIds }: UpcomingAccountDetailsProps) {
   const id = useId();
+  const hidden = useBalancesHidden();
   const reading = accountActionReading(account, plans, plansStatus);
+  const coverLine = accountCoverLine(reading);
   const { result, headline, combinedKnown, earlierGap, futureIncome, moves, afterMove, signal, ready } = reading;
   const opening = account.opening === null ? null : Math.round(account.opening * 100);
   const listedPayments = opening !== null && [account.opening, account.income, account.transfersIn, account.outgoing].every(Number.isFinite)
@@ -115,6 +118,7 @@ export default function UpcomingAccountDetails({ account, periodLabel, plans = [
     {moves.length > 0 && <section data-verdict data-covered-by-move={reading.incoming > 0 || undefined} className={styles.moveBridge} aria-label="Effect of suggested moves">
       <div className={styles.afterMove}><p className={styles.metricLabel}>Balance after the suggested {moves.length === 1 ? "move" : "moves"}</p><strong data-after-move><AccountMoney pence={afterMove} /></strong></div>
     </section>}
+    {coverLine && <p data-cover-line data-cover-savings={moves.some(move => move.savings) || undefined} className={`${styles.note} text-amber-800 dark:text-amber-200`}><MoneyText text={maskMoneyText(coverLine, hidden)} /></p>}
     <Verdict account={account} plans={plans} plansStatus={plansStatus} />
     {plansStatus !== "ready" && <p className={styles.note} role="status">{plansStatus === "loading" ? "Checking goals and set-asides. The account’s full result is not known yet." : "Goals and set-asides could not be checked. Close this sheet and try again."}</p>}
     <details data-g417-working data-g416-working className={styles.working}><summary>How this adds up<ChevronDown size={16} aria-hidden="true" /></summary><dl className={styles.ledger}>
@@ -125,7 +129,7 @@ export default function UpcomingAccountDetails({ account, periodLabel, plans = [
       {forecastDifference !== null && forecastDifference !== 0 && <LedgerLine label="Forecast difference" pence={forecastDifference} positive />}
       <LedgerLine label="After payments" pence={result.afterPayments} total />
       {ready && result.reservedPence > 0 && <><LedgerLine label={result.estimated ? "Still to set aside · estimated" : "Still to set aside"} pence={-result.reservedPence} /><LedgerLine label={result.estimated ? "After payments and plans · estimated" : "After payments and plans"} pence={reading.afterPlans} total /></>}
-      {moves.map(move => <LedgerLine key={move.id} label={`Suggested ${move.amount < 0 ? "to" : "from"} ${move.counterpartName}`} pence={Math.round(move.amount * 100)} suggested />)}
+      {moves.map(move => <LedgerLine key={move.id} label={`Suggested ${move.amount < 0 ? "to" : "from"} ${move.counterpartName}${move.savings ? " (savings)" : ""}`} pence={Math.round(move.amount * 100)} suggested />)}
       {moves.length > 0 && <LedgerLine label={moves.length === 1 ? "If you make the suggested move" : "If you make the suggested moves"} pence={afterMove} total />}
     </dl>{forecastDifference !== null && forecastDifference !== 0 && <p className={styles.note}>The listed payments do not fully explain the latest account forecast. The difference is shown above.</p>}{listedPayments === null && result.afterPayments !== null && <p className={styles.note}>Some forecast inputs are unavailable. After payments shows the latest account forecast.</p>}{moves.length > 0 && <p className={styles.note}>Suggested moves are separate from expected payments. Nothing has been moved.</p>}
       {account.position?.lowPoint != null && result.afterPayments !== Math.round(account.position.lowPoint * 100) && <dl className={styles.lowPoint}><div><dt>Lowest point before plans</dt><dd><AccountMoney pence={Math.round(account.position.lowPoint * 100)} exact /></dd></div></dl>}

@@ -44,7 +44,7 @@ export function suggestedMovesFor(account: UpcomingAccountSummary): UpcomingSugg
   }
   for (const move of liveCover(account)?.from ?? []) {
     const id = `suggested:${move.accountId}:${account.id}`;
-    moves.push({ id, counterpartId: move.accountId, counterpartName: move.label ?? cachedName(id, move.name), amount: move.amount, byDate: validDay(account.firstShortDate) ?? cachedDate(id), ...(move.label ? { labelled: true } : {}) });
+    moves.push({ id, counterpartId: move.accountId, counterpartName: move.label ?? cachedName(id, move.name), amount: move.amount, byDate: validDay(account.firstShortDate) ?? cachedDate(id), ...(move.label ? { labelled: true } : {}), ...(move.savings ? { savings: true } : {}) });
   }
   // The engine normally coalesces these, but cached older responses may not.
   const grouped = new Map<string, UpcomingSuggestedMove>();

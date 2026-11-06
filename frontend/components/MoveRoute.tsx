@@ -23,7 +23,7 @@ export function resolveBankChip(provider: string) {
 }
 
 /** `display_label` (G359) is the server's sentence label that tells two same-bank accounts apart ("your Barclays current account"); the bank icon still keys off provider. */
-export type MoveLedgerLeg = BankIdentity & { provider: string; name: string; amount: number; display_label?: string | null };
+export type MoveLedgerLeg = BankIdentity & { provider: string; name: string; amount: number; display_label?: string | null; /** G428: a savings source, shown amber as a suggestion. */ savings?: boolean };
 
 /** The name an endpoint shows: the server's distinct label when present (first letter capitalised), else the cleaned account name. */
 export function moveAccountLabel(account: { name: string; display_label?: string | null }): string {
@@ -137,7 +137,7 @@ export function MoveSourcesDisclosure({
         {legs.map((leg, index) => (
           <div key={`${leg.provider}-${leg.name}-${index}`} className="flex min-h-11 items-center gap-2.5 py-1.5">
             <MoveAccountIcon account={leg} size={32} />
-            <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-slate-700 dark:text-slate-200">{moveAccountLabel(leg)}</span>
+            <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-slate-700 dark:text-slate-200">{moveAccountLabel(leg)}{leg.savings && <span data-savings-source className="block text-[11px] font-normal text-amber-800 dark:text-amber-200">From savings, a suggestion</span>}</span>
             <span className="money shrink-0 text-[13px] font-semibold text-slate-900 dark:text-slate-100"><AmountText text={moveMoney(leg.amount, hideNetWorth)} /></span>
           </div>
         ))}

@@ -33,7 +33,7 @@ export type UpcomingAccountPosition = {
   spendFromRequiresMove?: boolean;
   uncertain: boolean;
   /** G410: what a live suggested move would cover here, and what would still be short after it. Absent when no move is live. */
-  coveredByMove?: { amount: number; shortfall?: number; from: { accountId: string; name: string; amount: number; label?: string }[] } | null;
+  coveredByMove?: { amount: number; shortfall?: number; from: { accountId: string; name: string; amount: number; label?: string; savings?: boolean }[] } | null;
   shortAfterCover?: number | null;
   /** G410: set aside in this account for a suggested move out of it (already excluded from `spendFrom`). */
   earmarkedTotal?: number | null;
@@ -70,6 +70,8 @@ export type UpcomingSuggestedMove = {
   id: string;
   counterpartId: string;
   counterpartName: string;
+  /** G428: this suggested source is a savings account (amber, a suggestion only). */
+  savings?: boolean;
   /** Signed pounds: a suggested credit is positive, a suggested debit negative. */
   amount: number;
   /** A payment deadline, not a scheduled transfer date. Null when not supplied. */
@@ -169,7 +171,7 @@ export function positionsFromToday(
       spendFromRequiresMove: entry.spend_from_requires_move === true,
       uncertain: entry.uncertain,
       coveredByMove: entry.covered_by_move
-        ? { amount: entry.covered_by_move.amount, shortfall: typeof entry.covered_by_move.shortfall === "number" ? entry.covered_by_move.shortfall : undefined, from: entry.covered_by_move.from.map((f) => ({ accountId: f.account_id, name: f.name, amount: f.amount, ...(f.display_label?.trim() ? { label: f.display_label.trim() } : {}) })) }
+        ? { amount: entry.covered_by_move.amount, shortfall: typeof entry.covered_by_move.shortfall === "number" ? entry.covered_by_move.shortfall : undefined, from: entry.covered_by_move.from.map((f) => ({ accountId: f.account_id, name: f.name, amount: f.amount, ...(f.display_label?.trim() ? { label: f.display_label.trim() } : {}), ...(f.source_kind === "savings" ? { savings: true } : {}) })) }
         : null,
       shortAfterCover: typeof entry.short_after_cover === "number" ? entry.short_after_cover : null,
       earmarkedTotal: typeof entry.earmarked_total === "number" ? entry.earmarked_total : null,
