@@ -2654,29 +2654,23 @@ async def compute_today_items(
 
     # ── 1. Load cashflow cache + prefs (once — threaded through below) ──────
     cached = await cashflow_cache_col.find_one({"_id": uid})
-    if not cached:
-        return []
 
-    # G174 review: mirror analytics.at_risk_count's own staleness guard --
-    # without this, a cache doc computed before a `PATTERNS_VERSION` bump
-    # (e.g. the confirmed_alias field this round adds) keeps serving the
-    # OLD shape into the payday plan/every other card this function builds
-    # until the next sync or a `/cashflow` GET happens to recompute it.
-    # Lazy import to avoid a companion<->analytics import cycle, same
-    # convention this module already uses for its other analytics imports
-    # (see `_has_affinity` above). Failure-tolerant: any error here (a bad
-    # recompute, a transient Mongo hiccup) logs and falls back to the stale
-    # doc already in hand rather than ever raising through to the caller.
+    # E20 (E18 contract): never block the request on a recompute. A dirty,
+    # old-`PATTERNS_VERSION` (G174) or model-work-pending doc is served as it
+    # stands and the worker recompute is enqueued; a missing doc computes once,
+    # judge-free, and enqueues. Lazy import: companion<->analytics import cycle,
+    # same convention as this module's other analytics imports. Failure
+    # tolerant: any error logs and falls back to the doc already in hand.
     try:
-        from app.routers.analytics import PATTERNS_VERSION, compute_and_cache_cashflow
-        if (cached.get("patterns_version") or 0) < PATTERNS_VERSION:
-            await compute_and_cache_cashflow(uid)
-            cached = await cashflow_cache_col.find_one({"_id": uid}) or cached
+        from app.routers.analytics import serve_stored_cashflow_for_read
+        cached = await serve_stored_cashflow_for_read(uid, cached)
     except Exception:
         log.exception(
-            "G174: patterns_version staleness recompute failed for %r, "
-            "continuing with the stale cache doc", uid,
+            "E20: stored-cashflow read/enqueue failed for %r, "
+            "continuing with the doc in hand", uid,
         )
+    if not cached:
+        return []
 
     prefs = await preferences_col.find_one({"user_id": uid}) or {}
     excluded_sources = {str(a) for a in (prefs.get("cover_plan_excluded_accounts") or [])}

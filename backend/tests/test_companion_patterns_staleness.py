@@ -112,39 +112,45 @@ def _run(monkeypatch, *, cache_doc, on_recompute=None):
         return {"upcoming_bills": [], "upcoming_income": [], "internal_inflows": []}
     monkeypatch.setattr(companion, "_build_cashflow_response", fake_resp)
 
+    # E20: a stored doc is never recomputed on this path; a stale one enqueues
+    # the worker recompute instead. `calls` records enqueues, `computes` any
+    # (forbidden) synchronous recompute.
     calls = []
+    computes = []
 
-    async def fake_compute_and_cache(uid):
+    async def fake_compute_and_cache(uid, clear_ai_cache=True):
+        computes.append(uid)
+
+    async def fake_enqueue(uid, *, reason):
         calls.append(uid)
         if on_recompute is not None:
             await on_recompute(cache_col)
+        return True
 
+    import app.services.derived_caches as derived_caches
     monkeypatch.setattr(analytics, "compute_and_cache_cashflow", fake_compute_and_cache)
+    monkeypatch.setattr(derived_caches, "enqueue_cashflow_recompute", fake_enqueue)
 
     items = asyncio.run(companion.compute_today_items(UID, payday_preview=False, persist=False))
+    assert computes == [], "a stored doc must never be recomputed on the request path"
     return items, calls
 
 
-def test_stale_version_triggers_recompute_exactly_once(monkeypatch):
-    async def _bump(cache_col):
-        cache_col.docs[0]["patterns_version"] = analytics.PATTERNS_VERSION
-        cache_col.docs[0]["recomputed"] = True
-
-    items, calls = _run(monkeypatch, cache_doc={"_id": UID, "patterns_version": analytics.PATTERNS_VERSION - 1}, on_recompute=_bump)
+def test_stale_version_enqueues_exactly_once_and_never_recomputes(monkeypatch):
+    items, calls = _run(monkeypatch, cache_doc={"_id": UID, "patterns_version": analytics.PATTERNS_VERSION - 1})
     assert calls == [UID]
     assert isinstance(items, list)
 
 
-def test_missing_version_field_also_triggers_recompute(monkeypatch):
-    """A pre-versioning cache doc (no `patterns_version` key at all) must be
-    treated as version 0 -- always stale -- same as `at_risk_count`'s own
-    `(cached.get("patterns_version") or 0)` fallback."""
+def test_missing_version_field_also_enqueues(monkeypatch):
+    """A pre-versioning cache doc (no `patterns_version` key at all) is
+    treated as version 0, always stale, like `at_risk_count`'s own fallback."""
     items, calls = _run(monkeypatch, cache_doc={"_id": UID}, on_recompute=None)
     assert calls == [UID]
     assert isinstance(items, list)
 
 
-def test_current_version_never_triggers_recompute(monkeypatch):
+def test_current_version_never_enqueues(monkeypatch):
     items, calls = _run(
         monkeypatch,
         cache_doc={"_id": UID, "patterns_version": analytics.PATTERNS_VERSION},
@@ -153,13 +159,12 @@ def test_current_version_never_triggers_recompute(monkeypatch):
     assert isinstance(items, list)
 
 
-def test_recompute_failure_is_swallowed_and_stale_doc_still_used(monkeypatch):
-    """Failure-tolerant per the review's own wording: an exception raised
-    inside the recompute hook must be logged and swallowed, not propagated
-    -- the function still returns its normal (possibly empty) item list off
-    the untouched stale doc rather than crashing the whole card set."""
+def test_enqueue_failure_is_swallowed_and_stale_doc_still_used(monkeypatch):
+    """An exception raised by the enqueue is logged and swallowed, not
+    propagated: the function still returns its normal item list off the
+    stored doc."""
     async def _boom(cache_col):
-        raise RuntimeError("simulated recompute failure")
+        raise RuntimeError("simulated enqueue failure")
 
     items, calls = _run(
         monkeypatch,

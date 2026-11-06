@@ -40,6 +40,7 @@ from app.db.collections import (
 from app.services.account_names import display_account_name
 from app.services.pay_period import current_period_facts, get_pay_period_for_date, prev_pay_period
 from app.services import response_cache
+from app.services import derived_caches as _derived_caches  # E20: bound at import, never first imported while a test patches db_collections (H143)
 from app.services.sync_freshness import first_sync_state, last_bank_sync
 from app.services.own_account_transfers import (  # G413: IssuerFallback*: saved decisions under the old merged issuer key still apply
     IssuerFallbackDict, IssuerFallbackSet, saved_key_applies, series_key, repayment_display_name,
@@ -3311,6 +3312,36 @@ async def recompute_if_dirty_for_read(uid: str, cached: dict | None) -> dict | N
         return after or fresh
 
 
+async def serve_stored_cashflow_for_read(uid: str, cached: dict | None) -> dict | None:
+    """E20: the E18 contract for a reader that is not GET /cashflow itself.
+
+    A request path never recomputes the cashflow patterns on a stored doc. A
+    doc a sync marked dirty (G177), one written by an older PATTERNS_VERSION or
+    one with an owed worker rerun (`model_work_pending`) is returned as it
+    stands and the recompute is enqueued on the worker (single-flight per user,
+    job `recompute:<uid>`). Only a MISSING doc computes here, because there is
+    nothing to serve; that compute never calls the model (the API process
+    forbids it) and the worker is enqueued behind it. Returns None only when
+    even that compute left no doc."""
+    if cached:
+        reason = None
+        if cached.get("dirty_since") is not None:
+            reason = "dirty"
+        elif (cached.get("patterns_version") or 0) < PATTERNS_VERSION:
+            reason = "patterns_version"
+        elif cached.get("model_work_pending"):
+            reason = "model_work"
+        if reason:
+            await _derived_caches.enqueue_cashflow_recompute(uid, reason=reason)
+        return cached
+    await compute_and_cache_cashflow(uid, clear_ai_cache=False)
+    after = await cashflow_cache_col.find_one({"_id": uid})
+    # Same as get_cashflow's inline path: an owed model rerun is throttle-exempt.
+    await _derived_caches.enqueue_cashflow_recompute(
+        uid, reason="model_work" if (after or {}).get("model_work_pending") else "no_cache")
+    return after
+
+
 def _ms(dt: datetime) -> datetime:
     """Truncate to Mongo's millisecond precision so the in-memory watermark
     and the stored one compare equal."""
@@ -3421,22 +3452,13 @@ async def at_risk_count(user: dict = Depends(current_user)):
     time is insufficient — reflecting payment sequencing and incoming income.
     """
     cached = await cashflow_cache_col.find_one({"_id": user["email"]})
-    # G177: a doc a sync marked dirty is recomputed (single-flight, with
-    # failure backoff) before this badge is computed from it.
-    cached = await recompute_if_dirty_for_read(user["email"], cached)
-    if cached and cached.get("model_work_pending"):
-        # E18: an owed worker rerun (judge/predictor) is queued again from here.
-        from app.services.derived_caches import enqueue_cashflow_recompute
-        await enqueue_cashflow_recompute(user["email"], reason="model_work")
-    if not cached or (cached.get("patterns_version") or 0) < PATTERNS_VERSION:
-        # This badge drives a user-visible red "at risk" count — a stale/pre-fix
-        # cache doc (missing is_credit_card) can misclassify a credit card as a
-        # debit account and inflate it with a false alarm. Recompute
-        # synchronously rather than ever serving that doc for this endpoint.
-        await compute_and_cache_cashflow(user["email"])
-        cached = await cashflow_cache_col.find_one({"_id": user["email"]})
-        if not cached:
-            return {"count": 0}
+    # E20 (E18 contract): never recompute on this request. A dirty, old-version
+    # or model-work-pending doc is served as it stands and the worker recompute
+    # is enqueued; a missing doc computes once, judge-free, and enqueues. The
+    # stale figures are the same shape the badge always read.
+    cached = await serve_stored_cashflow_for_read(user["email"], cached)
+    if not cached:
+        return {"count": 0}
     resp = await _build_cashflow_response(cached, uid=user["email"])
 
     # G364: the shared window-inputs builder (services/window_inputs.py)
