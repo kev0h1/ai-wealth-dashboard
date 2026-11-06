@@ -174,6 +174,15 @@ async def _warm_user_impl(uid: str, include_cover_plan: bool = True) -> dict:
     original references and silently ignore any later monkeypatch.
     """
     t0 = time.monotonic()
+    # E16: this warm's own bump must not enqueue another warm.
+    suppress_token = data_version.warm_enqueue_suppressed.set(True)
+    try:
+        return await _warm_user_body(uid, include_cover_plan, t0)
+    finally:
+        data_version.warm_enqueue_suppressed.reset(suppress_token)
+
+
+async def _warm_user_body(uid: str, include_cover_plan: bool, t0: float) -> dict:
     v = await data_version.bump(uid)
 
     warmed: list[str] = []
@@ -214,4 +223,4 @@ async def _warm_user_impl(uid: str, include_cover_plan: bool = True) -> dict:
     logger.info(
         "warm_user(%s): warmed=%s failed=%s in %sms", uid, warmed, failed, elapsed_ms
     )
-    return {"warmed": warmed, "failed": failed, "elapsed_ms": elapsed_ms}
+    return {"warmed": warmed, "failed": failed, "elapsed_ms": elapsed_ms, "version": v}

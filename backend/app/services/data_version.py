@@ -44,6 +44,7 @@ window where a real change could be missed).
 import asyncio
 import logging
 import time
+from contextvars import ContextVar
 from datetime import datetime, timezone
 
 from pymongo import ReturnDocument
@@ -56,6 +57,14 @@ _MEMO_TTL = 1.0  # seconds
 # Mongo op budget for the cache's hot read/write paths — a slow/unreachable
 # Mongo must degrade to a cache miss quickly, not hang a request.
 _MAX_TIME_MS = 500
+
+# E16: every successful bump asks the worker to warm that user's cache.
+# `warm:<uid>` is the arq job id, so a burst of bumps while the job is still
+# queued (the defer below) enqueues once: arq refuses a live job id. Set for
+# the duration of a warm so a warm's own bump never enqueues another warm.
+WARM_DEFER_SECONDS = 5
+_WARM_ENQUEUE_TIMEOUT = 1.5
+warm_enqueue_suppressed: ContextVar[bool] = ContextVar("warm_enqueue_suppressed", default=False)
 
 # {uid: (monotonic_ts_of_last_refresh, version)}
 _memo: dict[str, tuple[float, int]] = {}
@@ -86,7 +95,25 @@ async def bump(uid: str) -> int:
         logger.exception("data_version.bump(%s) failed — version left unchanged", uid)
         return _memo.get(uid, (0.0, 0))[1]
     _memo[uid] = (time.monotonic(), version)
+    await _enqueue_warm(uid)
     return version
+
+
+async def _enqueue_warm(uid: str) -> None:
+    """Best-effort, bounded, never raises: a queue hiccup must not fail the
+    write that bumped the version (worst case the next open is cold, as
+    before E16)."""
+    if warm_enqueue_suppressed.get():
+        return
+    try:
+        from app.workers import queue
+        await asyncio.wait_for(
+            queue.enqueue("task_warm_user", uid, job_id=f"warm:{uid}",
+                          _defer_by=WARM_DEFER_SECONDS),
+            _WARM_ENQUEUE_TIMEOUT,
+        )
+    except Exception as exc:
+        logger.warning("data_version: warm enqueue failed (%s)", type(exc).__name__)
 
 
 async def current(uid: str, *, fresh: bool = False) -> int:

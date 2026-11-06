@@ -824,6 +824,34 @@ async def task_recompute_cashflow(ctx, user_id: str, reason: str | None = None):
     return {"recomputed": bool(ok)}
 
 
+async def task_warm_user(ctx, user_id: str, again: bool = False):
+    """E16: warm one user's response cache on the worker, enqueued by every
+    data_version bump as `warm:<user_id>` (deferred a few seconds so a burst
+    of writes warms once). Includes the cover plan. A write that lands while
+    this runs cannot enqueue (arq refuses the live job id) and makes the
+    pinned cache writes skip, so if the version moved by the end we queue one
+    follow-up (`again`), which never chains further."""
+    from app.services import data_version
+    from app.services.warmup import warm_user
+    out = await warm_user(user_id, include_cover_plan=True)
+    if not again and await data_version.current(user_id, fresh=True) != out.get("version"):
+        from app.workers import queue
+        await queue.enqueue("task_warm_user", user_id, True,
+                            job_id=f"warm:{user_id}:again",
+                            _defer_by=data_version.WARM_DEFER_SECONDS)
+    return {"warmed": len(out.get("warmed", [])), "failed": len(out.get("failed", []))}
+
+
+async def task_warm_rollover(ctx, now_utc: datetime | None = None):
+    """E16: shortly after midnight Europe/London, warm users active in the
+    last 7 days. Cron runs at 23:05 and 00:05 UTC and only the one that is
+    00:05 London does anything, so BST and GMT both work."""
+    from app.services import warm_schedule
+    if not warm_schedule.is_london_rollover(now_utc):
+        return {"skipped": "not_london_midnight"}
+    return await warm_schedule.warm_recent_users(now_utc)
+
+
 async def _engine_refresh_on_startup() -> None:
     try:
         from app.services.derived_caches import refresh_stale_cashflow_caches
@@ -904,7 +932,11 @@ class WorkerSettings:
                  task_reconcile_finexer_events, task_safe_to_spend_snapshot, task_health_samples,
                  # keep_result=0: the job id dedupes a burst while queued or
                  # running, and must not block the next enqueue afterwards.
-                 arq_func(task_recompute_cashflow, keep_result=0)]
+                 arq_func(task_recompute_cashflow, keep_result=0),
+                 # E16: same job-id dedupe reasoning; keep_result=0 so the
+                 # next write can enqueue a fresh warm straight after.
+                 arq_func(task_warm_user, keep_result=0),
+                 task_warm_rollover]
     cron_jobs = [
         cron(task_reconcile_truelayer, hour={0, 4, 8, 12, 16, 20}, minute=0, run_at_startup=False),
         cron(task_refresh_investment_prices, hour=6, minute=30, run_at_startup=False),
@@ -927,6 +959,9 @@ class WorkerSettings:
         cron(task_trial_reminder, hour=9, minute=0, run_at_startup=False),
         # E7: every 5 minutes, the /ops/health trend samples (capped store).
         cron(task_health_samples, minute=set(range(0, 60, 5)), run_at_startup=False),
+        # E16: day-rollover warm, 00:05 Europe/London (23:05 UTC in BST,
+        # 00:05 UTC in GMT; the task checks London time and skips the other).
+        cron(task_warm_rollover, hour={23, 0}, minute=5, run_at_startup=False),
     ]
     redis_settings = RedisSettings.from_dsn(REDIS_URL)
     max_jobs = 5
