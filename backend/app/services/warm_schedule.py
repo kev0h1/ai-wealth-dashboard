@@ -29,13 +29,13 @@ ROLLOVER_MINUTE = 5
 
 def is_london_rollover(now_utc: datetime | None = None) -> bool:
     """True when it is the 00:00 to 00:59 hour in London."""
-    now_utc = now_utc or datetime.now(timezone.utc)
+    now_utc = now_utc or datetime.now(timezone.utc)  # naive-ok: aware UTC instant, converted to London or compared to stored UTC
     return now_utc.astimezone(timeutil.LONDON).hour == 0
 
 
 async def select_recent_users(now_utc: datetime | None = None, days: int = ACTIVE_WINDOW_DAYS) -> list[str]:
     from app.db import collections as cols
-    now_utc = now_utc or datetime.now(timezone.utc)
+    now_utc = now_utc or datetime.now(timezone.utc)  # naive-ok: aware UTC instant, converted to London or compared to stored UTC
     # Mongo returns and compares naive UTC datetimes here.
     cutoff = (now_utc - timedelta(days=days)).replace(tzinfo=None)
     uids: set[str] = set()
