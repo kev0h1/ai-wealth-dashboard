@@ -22,6 +22,12 @@ import asyncio
 
 import app.db.collections as db_collections
 import app.routers.analytics as analytics
+# H143/H150: import these before any test patches db_collections with fakes, so a
+# first import inside a test cannot bind fake collections into them for later files.
+import app.routers.card_terms  # noqa: F401
+import app.routers.commitments  # noqa: F401
+import app.routers.debt_plan  # noqa: F401
+import app.services.debt_plan  # noqa: F401
 import app.services.companion as companion
 import app.services.pace as pace_module
 

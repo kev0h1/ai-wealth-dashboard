@@ -105,7 +105,12 @@ def test_history_masks_long_reference_and_exposes_safe_contains_and_prepared_exa
     assert payment["description"] == "AMERICAN EXPRESS …20001"
     assert payment["contains_text"] == "20001"
     assert payment["exact_match"]["kind"] == "exact"
-    assert "3799" not in str(payment["exact_match"])
+    # fingerprint and salt are random hex and can contain "3799" by chance,
+    # so check only the readable fields for the fragment (as H149 did).
+    random_fields = {"fingerprint", "salt"}
+    readable = {k: v for k, v in payment["exact_match"].items() if k not in random_fields}
+    assert "3799" not in str(readable)
+    assert "3799-111111-20001" not in str(payment["exact_match"])
     assert len(payment["exact_match"]["fingerprint"]) == 64
 
 
