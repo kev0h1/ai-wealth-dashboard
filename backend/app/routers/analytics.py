@@ -53,6 +53,7 @@ from app.services.categorisation import (
 from app.services.account_kinds import is_credit_card_account, is_debt_account
 from app.services.spending import try_build_spending_context
 from app.services.categories import get_category_kinds, is_non_spend, is_spend, kind_of, CategoryKinds, BUILTIN_CATEGORY_KINDS, MOVEMENT, COMMITMENT, is_card_repayment
+from app.services import recurring_judge as _recurring_judge
 from app.services.recurring_judge import gate_failure_reason, judge_suspect_series, apply_verdicts
 from app.services.bnpl import is_bnpl_txn, build_bnpl_projections
 from app.services.pending_transactions import PENDING_TXN_MAX_AGE_DAYS
@@ -389,6 +390,11 @@ async def _ai_recurring_predict(candidates: list[dict], user_id: str) -> list[di
         return cached[1]
 
     if not OPENROUTER_API_KEY or not candidates:
+        return []
+    if not _recurring_judge.model_calls_allowed():
+        # E18: request-path process, never call the model. The worker's
+        # recompute (enqueued after the write) makes this call.
+        _recurring_judge.note_model_work_pending(user_id)
         return []
 
     # Build a compact payload: just description + amount + last seen date
@@ -1535,6 +1541,9 @@ async def _process_income_payer_attachments(
                 "income_payer_attachments write failed for %s (non-fatal)", uid, exc_info=True,
             )
         if att.get("decision") == "ambiguous":
+            if not _recurring_judge.model_calls_allowed():
+                _recurring_judge.note_model_work_pending(uid)  # E18: the worker judges it
+                continue
             await _judge_income_payer_match(uid, att)
 
 
@@ -3368,6 +3377,11 @@ async def compute_and_cache_cashflow(uid: str, clear_ai_cache: bool = True) -> b
         # H146: awaited, so the bump has landed before the caller's next
         # version-compare (the money shape CAS in recompute_derived_caches).
         await response_cache.ainvalidate(uid)
+        if _recurring_judge.pop_model_work_pending(uid):
+            # E18: this process may not call the model (the API), and the
+            # compute skipped a judgement it owed; the worker finishes it.
+            from app.services.derived_caches import enqueue_cashflow_recompute
+            await enqueue_cashflow_recompute(uid, reason="model_work")
         return True
     except Exception as e:
         print(f"[cashflow_cache] compute failed for {uid}: {e}")
@@ -4953,30 +4967,30 @@ async def get_cashflow(user: dict = Depends(current_user), include: str = ""):
     uid    = user["email"]
     cached = await cashflow_cache_col.find_one({"_id": uid})
 
-    if cached and cached.get("dirty_since") is not None:
-        # G177: a sync inserted/updated transactions after this doc was
-        # computed and its own recompute has not landed (or failed). Never
-        # serve it: recompute now so the next read is right, not the next
-        # 6h refresh.
-        cached = await recompute_if_dirty_for_read(uid, cached)
-
-    if cached and (cached.get("patterns_version") or 0) < PATTERNS_VERSION:
-        # Pre-fix (or unversioned) cache doc — e.g. bills serialised before the
-        # is_credit_card flag existed, where the missing key resolves to a
-        # false-but-confident False rather than "unknown". Recompute
-        # synchronously so this response never serves that stale doc, even once.
-        await compute_and_cache_cashflow(uid)
-        cached = await cashflow_cache_col.find_one({"_id": uid}) or cached
-
+    # E18: the request path only ever serves the stored doc. A doc a sync
+    # marked dirty (G177), one written by an older PATTERNS_VERSION, or one
+    # past its TTL is served as it stands, flagged stale, and the recompute is
+    # enqueued on the worker (single-flight per user). Only a MISSING doc
+    # computes here, because there is nothing to serve, and that compute never
+    # calls the model (the API process forbids it; the worker reruns it).
+    stale = False
     if cached:
-        # Serve cache immediately; if stale, kick off a background refresh for next load
         computed_at = cached.get("computed_at")
-        if computed_at and (datetime.now() - computed_at).total_seconds() > _CACHE_TTL_HOURS * 3600:
-            asyncio.create_task(compute_and_cache_cashflow(uid))
+        stale_reason = None
+        if cached.get("dirty_since") is not None:
+            stale_reason = "dirty"
+        elif (cached.get("patterns_version") or 0) < PATTERNS_VERSION:
+            stale_reason = "patterns_version"
+        elif computed_at and (datetime.now() - computed_at).total_seconds() > _CACHE_TTL_HOURS * 3600:
+            stale_reason = "ttl"
+        if stale_reason:
+            stale = stale_reason != "ttl"
+            from app.services.derived_caches import enqueue_cashflow_recompute
+            await enqueue_cashflow_recompute(uid, reason=stale_reason)
         resp = await _build_cashflow_response(cached, uid=uid)
         data = cached
     else:
-        # No cache yet — compute live, store, then return
+        # No cache yet — compute (judge-free), store, then return
         _started = _ms(datetime.now())  # naive-ok: cache watermark, same as compute_and_cache_cashflow
         data = await _compute_cashflow_patterns(uid)
         data["computed_at"] = datetime.now()
@@ -5002,6 +5016,14 @@ async def get_cashflow(user: dict = Depends(current_user), include: str = ""):
         except DuplicateKeyError:
             pass  # a newer recompute landed first; serve this response, keep theirs
         resp = await _build_cashflow_response(data, uid=uid)
+        _recurring_judge.pop_model_work_pending(uid)
+        from app.services.derived_caches import enqueue_cashflow_recompute
+        await enqueue_cashflow_recompute(uid, reason="no_cache")
+
+    # E18: how fresh the stored doc is, for a client that wants to say so.
+    resp["cashflow_stale"] = stale
+    _ca = data.get("computed_at")
+    resp["cashflow_computed_at"] = _ca.isoformat() if isinstance(_ca, datetime) else None
 
     # G188: overlay LIVE pool balances onto the cached snapshot, through the
     # same helper Safe-to-Spend seeds from. Read per request (never cached

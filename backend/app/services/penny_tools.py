@@ -2219,6 +2219,12 @@ async def _load_cashflow_cache(uid: str) -> dict | None:
         )
     except DuplicateKeyError:
         pass  # a newer recompute landed first; keep theirs
+    # E18: this compute ran judge-free (the API forbids model calls); the
+    # worker reruns it with the model passes.
+    from app.services.derived_caches import enqueue_cashflow_recompute
+    from app.services.recurring_judge import pop_model_work_pending
+    pop_model_work_pending(uid)
+    await enqueue_cashflow_recompute(uid, reason="no_cache")
     return cached
 
 

@@ -164,8 +164,44 @@ def _build_prompt(series: dict, acct: dict | None) -> str:
     )
 
 
+# E18: the model passes inside the cashflow compute (this judge, the AI
+# recurring predictor and the income payer judge in routers/analytics.py)
+# run only in the worker. The API process calls `forbid_model_calls()` at
+# start-up; from then on a compute there uses cached verdicts only, notes the
+# user as pending, and `compute_and_cache_cashflow` enqueues the worker to
+# finish the judgement. Default is allowed, so the worker, scripts and unit
+# tests need no setup.
+_model_calls_allowed = True
+_pending_model_work: set[str] = set()
+
+
+def forbid_model_calls() -> None:
+    global _model_calls_allowed
+    _model_calls_allowed = False
+
+
+def allow_model_calls() -> None:
+    global _model_calls_allowed
+    _model_calls_allowed = True
+
+
+def model_calls_allowed() -> bool:
+    return _model_calls_allowed
+
+
+def note_model_work_pending(uid: str) -> None:
+    _pending_model_work.add(uid)
+
+
+def pop_model_work_pending(uid: str) -> bool:
+    if uid in _pending_model_work:
+        _pending_model_work.discard(uid)
+        return True
+    return False
+
+
 async def _call_llm_judge(series: dict, acct: dict | None, uid: str) -> dict | None:
-    if not OPENROUTER_API_KEY:
+    if not OPENROUTER_API_KEY or not _model_calls_allowed:
         return None
     prompt = _build_prompt(series, acct)
     try:
@@ -204,8 +240,7 @@ async def judge_suspect_series(uid: str, series_list: list[dict], account_map: d
     Cached per user in `recurring_judge_col`, keyed on `f"{uid}::{key}"`,
     invalidated by `_cache_signature` the moment the series' evidence
     changes. Fresh judgements for a cold cache run CONCURRENTLY
-    (asyncio.gather), not serially, since this executes inline in the
-    `/cashflow` request path and up to `MAX_JUDGEMENTS_PER_REFRESH` serial
+    (asyncio.gather), not serially, since up to `MAX_JUDGEMENTS_PER_REFRESH` serial
     15s-timeout calls would make that request crawl.
     """
     if not series_list:
@@ -226,6 +261,12 @@ async def judge_suspect_series(uid: str, series_list: list[dict], account_map: d
 
     if not OPENROUTER_API_KEY:
         return verdicts  # fail open: nothing fresh can be judged, cache hits still apply
+
+    if to_judge and not _model_calls_allowed:
+        # E18: request-path process. Never call the model here; the worker's
+        # recompute (enqueued by compute_and_cache_cashflow) judges them.
+        note_model_work_pending(uid)
+        return verdicts
 
     to_judge = to_judge[:MAX_JUDGEMENTS_PER_REFRESH]
 
