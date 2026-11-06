@@ -3330,6 +3330,13 @@ async def compute_and_cache_cashflow(uid: str, clear_ai_cache: bool = True) -> b
         if clear_ai_cache:
             _ai_recurring_cache.pop(uid, None)
         data = await _compute_cashflow_patterns(uid)
+        # E18: model work this compute owed but could not do (the API
+        # process forbids model calls) is recorded ON the doc, so it
+        # survives a throttled or deduplicated enqueue, a lost CAS and a
+        # restart; the worker's write (gate open, nothing owed) clears it.
+        _owed_model_work = _recurring_judge.pop_model_work_pending(uid)
+        if _owed_model_work:
+            data["model_work_pending"] = True
         data["computed_at"] = datetime.now()
         data["patterns_version"] = PATTERNS_VERSION
         # Which build of the engine produced this doc (G159): the reconcile
@@ -3360,7 +3367,10 @@ async def compute_and_cache_cashflow(uid: str, clear_ai_cache: bool = True) -> b
                 # Fresh transactions/categories can move the 90-day medians the
                 # Spend tiles compare against, so the memoised per-category
                 # baselines go with the stale cashflow (see pace._read_cached_baseline).
-                {"$set": data, "$unset": {"total_baselines": ""}},
+                {"$set": data, "$unset": (
+                    {"total_baselines": ""} if _owed_model_work
+                    else {"total_baselines": "", "model_work_pending": ""}
+                )},
                 upsert=True,
             )
         except DuplicateKeyError:
@@ -3377,9 +3387,11 @@ async def compute_and_cache_cashflow(uid: str, clear_ai_cache: bool = True) -> b
         # H146: awaited, so the bump has landed before the caller's next
         # version-compare (the money shape CAS in recompute_derived_caches).
         await response_cache.ainvalidate(uid)
-        if _recurring_judge.pop_model_work_pending(uid):
+        if _owed_model_work:
             # E18: this process may not call the model (the API), and the
             # compute skipped a judgement it owed; the worker finishes it.
+            # The marker on the doc is the durable record; this enqueue is
+            # the fast path and any later read re-enqueues if it is dropped.
             from app.services.derived_caches import enqueue_cashflow_recompute
             await enqueue_cashflow_recompute(uid, reason="model_work")
         return True
@@ -3403,6 +3415,10 @@ async def at_risk_count(user: dict = Depends(current_user)):
     # G177: a doc a sync marked dirty is recomputed (single-flight, with
     # failure backoff) before this badge is computed from it.
     cached = await recompute_if_dirty_for_read(user["email"], cached)
+    if cached and cached.get("model_work_pending"):
+        # E18: an owed worker rerun (judge/predictor) is queued again from here.
+        from app.services.derived_caches import enqueue_cashflow_recompute
+        await enqueue_cashflow_recompute(user["email"], reason="model_work")
     if not cached or (cached.get("patterns_version") or 0) < PATTERNS_VERSION:
         # This badge drives a user-visible red "at risk" count — a stale/pre-fix
         # cache doc (missing is_credit_card) can misclassify a credit card as a
@@ -4981,10 +4997,12 @@ async def get_cashflow(user: dict = Depends(current_user), include: str = ""):
             stale_reason = "dirty"
         elif (cached.get("patterns_version") or 0) < PATTERNS_VERSION:
             stale_reason = "patterns_version"
+        elif cached.get("model_work_pending"):
+            stale_reason = "model_work"  # E18: owed worker rerun, not shown as stale
         elif computed_at and (datetime.now() - computed_at).total_seconds() > _CACHE_TTL_HOURS * 3600:  # naive-ok: hour-scale cache TTL, same as before
             stale_reason = "ttl"
         if stale_reason:
-            stale = stale_reason != "ttl"
+            stale = stale_reason in ("dirty", "patterns_version")
             from app.services.derived_caches import enqueue_cashflow_recompute
             await enqueue_cashflow_recompute(uid, reason=stale_reason)
         resp = await _build_cashflow_response(cached, uid=uid)
@@ -5004,6 +5022,9 @@ async def get_cashflow(user: dict = Depends(current_user), include: str = ""):
         # engine build.
         data["engine_build"] = engine_build()
         data["computed_from"] = _started
+        _owed_model_work = _recurring_judge.pop_model_work_pending(uid)
+        if _owed_model_work:
+            data["model_work_pending"] = True
         try:
             # Same compare-and-swap as compute_and_cache_cashflow (G177).
             await cashflow_cache_col.update_one(
@@ -5016,9 +5037,8 @@ async def get_cashflow(user: dict = Depends(current_user), include: str = ""):
         except DuplicateKeyError:
             pass  # a newer recompute landed first; serve this response, keep theirs
         resp = await _build_cashflow_response(data, uid=uid)
-        _recurring_judge.pop_model_work_pending(uid)
         from app.services.derived_caches import enqueue_cashflow_recompute
-        await enqueue_cashflow_recompute(uid, reason="no_cache")
+        await enqueue_cashflow_recompute(uid, reason="model_work" if _owed_model_work else "no_cache")
 
     # E18: how fresh the stored doc is, for a client that wants to say so.
     resp["cashflow_stale"] = stale

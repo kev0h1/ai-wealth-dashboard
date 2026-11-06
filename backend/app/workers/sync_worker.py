@@ -808,14 +808,18 @@ async def task_safe_to_spend_snapshot(ctx):
     return summary
 
 
-async def task_recompute_cashflow(ctx, user_id: str):
+async def task_recompute_cashflow(ctx, user_id: str, reason: str | None = None):
     """E18: the request path's recompute. GET /cashflow (and any other read
     that finds a dirty, out-of-date or judge-pending doc) serves what is
     stored and enqueues this under the job id `recompute:<user_id>`. Runs the
     same recompute a sync runs, including the model passes that the API
     process is forbidden to make, and clears `dirty_since` on success."""
     from app.routers.analytics import compute_and_cache_cashflow
-    ok = await compute_and_cache_cashflow(user_id)
+    # A model_work rerun only owes the judge and predictor, and the transactions
+    # are unchanged: keep this process's AI recurring prediction cache
+    # (`analytics._ai_recurring_cache`, keyed by user id alone, 24 h, in this
+    # worker's memory, never filled by the API because its gate returns early).
+    ok = await compute_and_cache_cashflow(user_id, clear_ai_cache=reason != "model_work")
     logger.info("cashflow recompute task done for %s: %s", user_id, "ok" if ok else "not written")
     return {"recomputed": bool(ok)}
 

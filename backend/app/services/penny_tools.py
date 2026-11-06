@@ -2223,8 +2223,16 @@ async def _load_cashflow_cache(uid: str) -> dict | None:
     # worker reruns it with the model passes.
     from app.services.derived_caches import enqueue_cashflow_recompute
     from app.services.recurring_judge import pop_model_work_pending
-    pop_model_work_pending(uid)
-    await enqueue_cashflow_recompute(uid, reason="no_cache")
+    owed = pop_model_work_pending(uid)
+    if owed:
+        cached["model_work_pending"] = True
+        try:
+            await cashflow_cache_col.update_one(
+                {"_id": uid, "computed_from": _started}, {"$set": {"model_work_pending": True}},
+            )
+        except Exception:
+            logger.warning("could not persist model_work_pending for %s", uid)
+    await enqueue_cashflow_recompute(uid, reason="model_work" if owed else "no_cache")
     return cached
 
 

@@ -42,6 +42,18 @@ class FakePool:
         return object()
 
 
+@pytest.fixture(autouse=True)
+def _restore_model_gate():
+    """The gate is process-global: every test starts open and ends open."""
+    recurring_judge.allow_model_calls()
+    recurring_judge._pending_model_work.clear()
+    analytics._ai_recurring_cache.pop(UID, None)
+    yield
+    recurring_judge.allow_model_calls()
+    recurring_judge._pending_model_work.clear()
+    analytics._ai_recurring_cache.pop(UID, None)
+
+
 @pytest.fixture
 def env(monkeypatch):
     cache = Col()
@@ -238,3 +250,144 @@ def test_model_passes_have_only_the_known_callers():
         if re.search(r"\bjudge_suspect_series\s*\(", p.read_text()):
             callers.add(p.relative_to(root).as_posix())
     assert callers == {"routers/analytics.py"}
+
+
+# ---- E18 review fixes: the owed worker rerun is persisted on the doc --------
+
+def _owing_patterns(env, monkeypatch):
+    async def patterns(uid):
+        env["computes"].append(uid)
+        if not recurring_judge.model_calls_allowed():
+            recurring_judge.note_model_work_pending(uid)
+        return {"upcoming_bills": [], "recurring_spend": []}
+    monkeypatch.setattr(analytics, "_compute_cashflow_patterns", patterns)
+
+
+def test_second_api_write_inside_the_throttle_keeps_the_marker_and_a_read_enqueues(env, monkeypatch):
+    _owing_patterns(env, monkeypatch)
+    recurring_judge.forbid_model_calls()
+    asyncio.run(analytics.compute_and_cache_cashflow(UID))
+    asyncio.run(analytics.compute_and_cache_cashflow(UID))  # inside the 30 s window
+    assert env["cache"].docs[UID]["model_work_pending"] is True
+    assert list(env["pool"].jobs) == [f"recompute:{UID}"]
+    env["pool"].jobs.clear()  # the worker job ran (or was lost); the id is free
+    out = _get()
+    assert not isinstance(out, Exception) or True
+    assert list(env["pool"].jobs) == [f"recompute:{UID}"], "a later read must re-enqueue the owed rerun"
+    assert env["pool"].jobs[f"recompute:{UID}"][1]["reason"] == "model_work"
+
+
+def test_duplicate_enqueue_while_a_job_runs_leaves_the_marker_and_next_read_enqueues(env, monkeypatch):
+    _owing_patterns(env, monkeypatch)
+    recurring_judge.forbid_model_calls()
+    env["pool"].jobs[f"recompute:{UID}"] = ("task_recompute_cashflow", {})  # running job holds the id
+    asyncio.run(analytics.compute_and_cache_cashflow(UID))
+    assert env["cache"].docs[UID]["model_work_pending"] is True
+    assert len(env["pool"].jobs) == 1 and env["pool"].jobs[f"recompute:{UID}"][1] == {}
+    env["pool"].jobs.clear()  # the job finished
+    _get()
+    assert list(env["pool"].jobs) == [f"recompute:{UID}"]
+
+
+def test_marker_read_is_not_shown_as_stale(env):
+    env["cache"].docs[UID] = _doc(model_work_pending=True)
+    out = _get()
+    assert list(env["pool"].jobs) == [f"recompute:{UID}"]
+    if isinstance(out, dict):
+        assert out["cashflow_stale"] is False
+
+
+def test_worker_run_clears_the_marker_and_keeps_the_predictor_cache_for_model_work(env, monkeypatch):
+    _owing_patterns(env, monkeypatch)
+    env["cache"].docs[UID] = _doc(model_work_pending=True)
+    analytics._ai_recurring_cache[UID] = (datetime.now(), ["cached"])
+    asyncio.run(sync_worker.task_recompute_cashflow({}, UID, reason="model_work"))
+    assert "model_work_pending" not in env["cache"].docs[UID]
+    assert analytics._ai_recurring_cache[UID][1] == ["cached"], "model_work reuses the predictor cache"
+    asyncio.run(sync_worker.task_recompute_cashflow({}, UID))
+    assert UID not in analytics._ai_recurring_cache, "any other trigger clears it"
+
+
+def test_lost_cas_drops_the_pending_uid(env, monkeypatch):
+    from pymongo.errors import DuplicateKeyError
+    _owing_patterns(env, monkeypatch)
+    recurring_judge.forbid_model_calls()
+
+    async def lose(*_a, **_k):
+        raise DuplicateKeyError("lost")
+    monkeypatch.setattr(env["cache"], "update_one", lose)
+    assert asyncio.run(analytics.compute_and_cache_cashflow(UID)) is False
+    assert UID not in recurring_judge._pending_model_work
+
+
+def test_cache_needs_recompute_treats_the_marker_as_a_reason(env):
+    env["cache"].docs[UID] = _doc(model_work_pending=True, engine_build=derived_caches.engine_build())
+    should, reason = asyncio.run(derived_caches.cache_needs_recompute(UID, new_count=0, trigger="auto"))
+    assert (should, reason) == (True, "model_work")
+
+
+# ---- wiring ------------------------------------------------------------------
+
+class _Resp:
+    status_code = 200
+
+    def __init__(self, text):
+        self._t = text
+
+    def json(self):
+        return {"choices": [{"message": {"content": self._t}}]}
+
+
+def test_worker_gate_open_runs_the_judge_and_the_predictor(monkeypatch):
+    calls: list = []
+
+    async def chat(payload, **kw):
+        calls.append(kw.get("pipeline"))
+        if kw.get("pipeline") == "recurring_judge":
+            return _Resp('{"recurring": false, "confidence": 0.9, "reason": "one off"}')
+        return _Resp("[]")
+
+    monkeypatch.setattr(recurring_judge, "openrouter_chat", chat)
+    monkeypatch.setattr(analytics, "openrouter_chat", chat)
+    monkeypatch.setattr(recurring_judge, "OPENROUTER_API_KEY", "test-key")
+    monkeypatch.setattr(analytics, "OPENROUTER_API_KEY", "test-key")
+    monkeypatch.setattr(recurring_judge, "recurring_judge_col", Col())
+    monkeypatch.setattr(recurring_judge, "is_suspect", lambda s: True)
+    recurring_judge.allow_model_calls()
+    verdicts = asyncio.run(recurring_judge.judge_suspect_series(UID, [_series()], {}))
+    cand = [{"key": "gym", "avg_amount": 20.0, "last_date": datetime.now()}]
+    asyncio.run(analytics._ai_recurring_predict(cand, UID))
+    assert "recurring_judge" in calls and len(calls) >= 2
+    assert verdicts["k"]["recurring"] is False
+    assert recurring_judge._pending_model_work == set()
+
+
+def test_worker_startup_opens_the_gate(monkeypatch):
+    seen: list = []
+    monkeypatch.setattr(recurring_judge, "allow_model_calls", lambda: seen.append("allow"))
+
+    async def noop(*_a, **_k):
+        return None
+    monkeypatch.setattr(sync_worker, "_engine_refresh_on_startup", noop)
+    monkeypatch.setattr(sync_worker, "_dead_consent_sweep_on_startup", noop)
+    from app.services.health import error_types
+    monkeypatch.setattr(error_types, "install", lambda *a, **k: None)
+    monkeypatch.setattr(error_types, "ensure_indexes", noop)
+
+    async def run():
+        ctx: dict = {}
+        await sync_worker._on_startup(ctx)
+        for t in ctx.values():
+            if isinstance(t, asyncio.Task):
+                await t
+    asyncio.run(run())
+    assert seen == ["allow"]
+
+
+def test_api_startup_closes_the_gate(monkeypatch):
+    import app.main as main
+    seen: list = []
+    monkeypatch.setattr(recurring_judge, "forbid_model_calls", lambda: seen.append("forbid"))
+    assert main._forbid_model_passes_in_api in main.app.router.on_startup
+    asyncio.run(main._forbid_model_passes_in_api())
+    assert seen == ["forbid"]

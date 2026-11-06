@@ -323,7 +323,7 @@ async def cache_needs_recompute(uid: str, *, new_count: int, trigger: SyncTrigge
         return True, "new_transactions"
     from app.routers.analytics import PATTERNS_VERSION
     doc = await cashflow_cache_col.find_one(
-        {"_id": uid}, {"computed_at": 1, "patterns_version": 1, "engine_build": 1, "dirty_since": 1},
+        {"_id": uid}, {"computed_at": 1, "patterns_version": 1, "engine_build": 1, "dirty_since": 1, "model_work_pending": 1},
     )
     if not doc or doc.get("computed_at") is None:
         return True, "no_cache"
@@ -332,6 +332,8 @@ async def cache_needs_recompute(uid: str, *, new_count: int, trigger: SyncTrigge
     # engine build is current.
     if doc.get("dirty_since") is not None:
         return True, "dirty"
+    if doc.get("model_work_pending"):
+        return True, "model_work"  # E18: an owed judge/predictor rerun
     if (doc.get("patterns_version") or 0) < PATTERNS_VERSION:
         return True, "patterns_version"
     if doc.get("engine_build") != engine_build():
@@ -446,7 +448,10 @@ async def enqueue_cashflow_recompute(uid: str, *, reason: str) -> bool:
     global _arq_pool
     now = time.monotonic()
     last = _enqueued_recently.get(uid)
-    if last is not None and now - last < _ENQUEUE_THROTTLE_SECONDS:
+    # "model_work" is exempt from the throttle: the owed rerun is recorded on
+    # the doc and every read re-asks, so it must reach the queue each time
+    # (arq's job id still dedupes a queued or running job).
+    if reason != "model_work" and last is not None and now - last < _ENQUEUE_THROTTLE_SECONDS:
         return True
     if len(_enqueued_recently) > 2000:
         for k in [k for k, t in _enqueued_recently.items() if now - t >= _ENQUEUE_THROTTLE_SECONDS]:
@@ -454,7 +459,7 @@ async def enqueue_cashflow_recompute(uid: str, *, reason: str) -> bool:
     _enqueued_recently[uid] = now
     try:
         pool = await _get_arq_pool()
-        await pool.enqueue_job("task_recompute_cashflow", user_id=uid, _job_id=f"recompute:{uid}")
+        await pool.enqueue_job("task_recompute_cashflow", user_id=uid, reason=reason, _job_id=f"recompute:{uid}")
         logger.info("cashflow recompute enqueued for %s (reason=%s)", uid, reason)
         return True
     except Exception as exc:
