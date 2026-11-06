@@ -38,7 +38,7 @@ function AccountRow({ account, reading, onOpen }: { account: UpcomingAccountSumm
     <span className={styles.rowFigure}><strong data-status-amount><AccountMoney pence={headline} /></strong><span data-status-caption className={styles.rowCaption}><AccountSignal signal={signal} />{caption}</span></span>
     <ChevronRight size={14} className={styles.muted} aria-hidden="true" />
     {(signal || reading.result.estimated) && <span className={styles.rowNote}><MoneyText text={maskMoneyText(note, hidden)} /></span>}
-    {moveRows.length > 0 && <span data-move-rows className={styles.moveRows}>{moveRows.map(row => <span key={row.name} className={styles.moveRow}><span>{row.name}</span><strong><MoneyText text={maskMoneyText(row.amount, hidden)} /></strong></span>)}</span>}
+    {moveRows.length > 0 && <span data-move-rows className={styles.moveRows}>{moveRows.map(row => <span key={row.name} className={styles.moveRow}><span>{row.name}{row.savings && <small data-savings-source className="block text-amber-800 dark:text-amber-200">From savings, a suggestion</small>}</span><strong><MoneyText text={maskMoneyText(row.amount, hidden)} /></strong></span>)}</span>}
   </button>;
 }
 

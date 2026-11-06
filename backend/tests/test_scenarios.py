@@ -295,7 +295,7 @@ async def _compute(spec: dict, uid: str) -> dict:
         "account_eligibility": elig,
         "account_plans": plans,
         "items": [
-            {k: i.get(k) for k in ("id", "type", "amount", "total", "moves", "dests", "salary", "covered", "income_note", "habitual_note", "plan_dest", "plan_shortfall")
+            {k: i.get(k) for k in ("id", "type", "amount", "total", "moves", "dests", "salary", "covered", "income_note", "habitual_note", "plan_dest", "plan_shortfall", "cover_note", "cover_split")
              if k in i}
             for i in items
         ],
@@ -443,8 +443,8 @@ def _check_expected(snap: dict, spec: dict) -> None:
             chk.check(f"{acct_id} covered_by_move amount", _r2(cov.get("amount") or 0), _r2(want["covered_by_move"]["amount"]))
             chk.check(
                 f"{acct_id} covered_by_move from",
-                sorted((e["account_id"], _r2(e["amount"])) for e in cov.get("from") or []),
-                sorted((e["account_id"], _r2(e["amount"])) for e in want["covered_by_move"]["from"]),
+                sorted((e["account_id"], _r2(e["amount"]), e.get("source_kind") or "") for e in cov.get("from") or []),
+                sorted((e["account_id"], _r2(e["amount"]), e.get("source_kind") or "") for e in want["covered_by_move"]["from"]),
             )
         if "short_after_cover" in want:
             chk.check(f"{acct_id} short_after_cover", _r2(got.get("short_after_cover")), _r2(want["short_after_cover"]))
@@ -487,6 +487,10 @@ def _check_expected(snap: dict, spec: dict) -> None:
         got_moves = sorted((m["from"], m["to"], _r2(m["amount"])) for m in moves)
         want_moves = sorted((m["from"], m["to"], _r2(m["amount"])) for m in cover["moves"])
         chk.check("cover moves", got_moves, want_moves)
+        # G428: the plain sentence naming the savings account when current accounts cannot cover it alone.
+        if "cover_note" in cover:
+            notes = [i.get("cover_note") for i in snap["items"] if i["type"] == "move" and i.get("cover_note")]
+            chk.check("cover note", notes, [cover["cover_note"]])
         for move in cover["moves"]:
             if "plan_ids" not in move:
                 continue

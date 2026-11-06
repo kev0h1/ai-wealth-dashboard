@@ -454,6 +454,57 @@ def _gbp(x: float) -> str:
     return f"{sign}£{abs(n):,}"
 
 
+UNCOVERED_OPTIONS = "You could edit a plan or skip a payment on Upcoming instead."
+
+
+def uncovered_line(gap: float) -> str:
+    """G428: the one plain sentence for what suggested moves leave uncovered."""
+    return f"{_gbp(gap)} is still uncovered. {UNCOVERED_OPTIONS}"
+
+
+def cover_residual(covered: float, gap: float) -> str | None:
+    """G428: residual line for any cover card; None when nothing is uncovered."""
+    if gap <= 0.5:
+        return None
+    return f"These moves cover {_gbp(covered)}, but {uncovered_line(gap)}"
+
+
+def split_cover_note(legs: list[tuple[str, float, bool]], gap: float = 0.0) -> dict | None:
+    """G428: plain copy for a cover that reaches into savings. `legs` is
+    (source name, amount, is_savings) per source. Returns None when no savings
+    leg is used. `gap` is what stays uncovered even after the suggested moves.
+    A recommendation only: the app never moves money, and a savings balance is
+    never counted as spendable."""
+    sav = [(n, a) for n, a, is_s in legs if is_s]
+    if not sav:
+        return None
+    cur = round(sum(a for _, a, is_s in legs if not is_s), 2)
+    name, sav_amt = sav[0]
+    gap = round(max(0.0, float(gap)), 2)
+    if cur > 0:
+        lead = f"Your other accounts can cover {_gbp(cur)}. "
+        tail = (
+            f"A move of {_gbp(sav_amt)} from {name} would cover the rest."
+            if gap <= 0.5 else
+            f"A move of {_gbp(sav_amt)} from {name} would cover more, but {_gbp(gap)} is still uncovered. {UNCOVERED_OPTIONS}"
+        )
+    else:
+        lead = ""
+        tail = (
+            f"A move of {_gbp(sav_amt)} from {name} would cover it."
+            if gap <= 0.5 else
+            f"A move of {_gbp(sav_amt)} from {name} would cover part of it, but {_gbp(gap)} is still uncovered. {UNCOVERED_OPTIONS}"
+        )
+    return {
+        "note": lead + tail,
+        "current_amount": cur,
+        "savings_amount": round(float(sav_amt), 2),
+        "savings_name": name,
+        "uncovered": gap if gap > 0.5 else 0.0,
+    }
+
+
+
 def _fmt_overdrawn(amount: float) -> str:
     """Pence-precision string for a live overdrawn amount (no £ prefix), e.g.
     2.48 -> "2.48", 2.0 -> "2". The overdraft trigger has no noise floor (any
@@ -3342,6 +3393,15 @@ async def compute_today_items(
     # what it can and the rest stays as short_after_cover. A move never has
     # the destination as a source, under any of its ids.
     _MAX_COVER_SOURCES = 2
+    # G428: plus at most one savings account, for what current money cannot cover.
+    _MAX_SAVINGS_COVER_SOURCES = 1
+
+    def _kind_of_from(frm: dict) -> dict:
+        """G428: carry a savings source's label onto the account-fact row."""
+        return {"source_kind": "savings"} if frm.get("source_kind") == "savings" else {}
+
+    def _acct_is_savings(acc: dict | None) -> bool:
+        return bool(acc) and bool(_is_savings(acc)) and not is_credit_card_account(acc)
 
     def _find_legs_for_destination(dest_acct: str, amount_needed: float, build_move_map, existing_sources: frozenset = frozenset(), exclude_sources: frozenset = frozenset()) -> list[dict]:
         # `exclude_sources` (G422): accounts that may never fund this cover,
@@ -3352,7 +3412,12 @@ async def compute_today_items(
         _dest_doc = _account_map.get(dest_acct)
         # A source already on the destination's card (payment legs, then a plan
         # top-up) does not take a new slot.
-        slots = max(0, _MAX_COVER_SOURCES - len(existing_sources))
+        # G428: current accounts take at most two slots; savings, reached only
+        # for what current money cannot cover, takes one more (three in all).
+        # A source already on this card (any class) never costs a new slot.
+        _existing_savings = {s for s in existing_sources if _acct_is_savings(_account_map.get(s))}
+        cur_slots = max(0, _MAX_COVER_SOURCES - len(existing_sources - _existing_savings))
+        sav_slots = 0 if _existing_savings else _MAX_SAVINGS_COVER_SOURCES
 
         def _live_class(accounts, predicate):
             # Account-intrinsic usability (the £5 headroom floor and the
@@ -3393,12 +3458,18 @@ async def compute_today_items(
             src_own_bills = acct_bills_total.get(sid, 0.0)
             src_reserved = reserved_by_source.get(sid, 0.0)
             move_map = build_move_map(sid, src_name, src_provider, src_balance, src_own_bills, leg_amount, src_reserved)
-            return {
+            leg = {
                 "amount": leg_amount,
                 "dest_acct": dest_acct,
                 "move_map": move_map,
                 "_src_name": src_name,
             }
+            if _acct_is_savings(acc):
+                # G428: label the leg so every surface can name it a move
+                # from savings. Absent for a current account.
+                leg["source_kind"] = "savings"
+                move_map["from"]["source_kind"] = "savings"
+            return leg
 
         # No `require_non_negative_current` flag here any more — that gate
         # moved into `_account_usable_by_finder`, which derives the class
@@ -3417,12 +3488,12 @@ async def compute_today_items(
         # `_live_class`'s sort key (connected before offline at equal
         # headroom), not here.
         class_specs = [
-            (all_uk_accounts + offline_accounts, lambda acc: _is_current(acc) and not _is_savings(acc)),
-            (all_uk_accounts + offline_accounts, _is_savings),
+            (all_uk_accounts + offline_accounts, lambda acc: _is_current(acc) and not _is_savings(acc), cur_slots),
+            (all_uk_accounts + offline_accounts, _is_savings, sav_slots),
         ]
 
         remaining = amount_needed
-        for accounts, predicate in class_specs:
+        for accounts, predicate, class_slots in class_specs:
             if remaining <= 0:
                 break
             # Re-read live capacity each class: headroom shrinks and
@@ -3438,7 +3509,7 @@ async def compute_today_items(
             new_used = 0
             for cand in live:
                 is_new = cand[0] not in existing_sources
-                if is_new and new_used >= slots:
+                if is_new and new_used >= class_slots:
                     continue
                 chosen.append(cand)
                 new_used += 1 if is_new else 0
@@ -3458,9 +3529,8 @@ async def compute_today_items(
                 source_capacity[sid] = source_capacity.get(sid, 0.0) - leg_amount
                 used_sources.add(sid)
                 leg_remaining -= leg_amount
-            slots = max(0, slots - new_used)
             remaining = leg_remaining
-            if covers or slots <= 0:
+            if covers:
                 break
         return legs
 
@@ -4758,7 +4828,7 @@ async def compute_today_items(
                 _src_id = _l["move_map"]["from"]["account_id"]
                 _src_name = _l["move_map"]["from"]["name"]
                 _amt = round(float(_l["amount"]), 2)
-                _from_rows.append({"account_id": _src_id, "name": _src_name, "amount": _amt, "display_label": _l["move_map"]["from"].get("display_label")})
+                _from_rows.append({"account_id": _src_id, "name": _src_name, "amount": _amt, "display_label": _l["move_map"]["from"].get("display_label"), **_kind_of_from(_l["move_map"]["from"])})
                 _src_entry = account_eligibility_out.get(_src_id)
                 # Same guard as the `spend_from_headroom` reserve above: an uncertain
                 # source shows no deduction against an unchanged Available.
@@ -4916,10 +4986,18 @@ async def compute_today_items(
                             # a provider to resolve the icon.
                             "provider": _l["move_map"]["from"]["provider"],
                             "amount": _l["amount"],
+                            **({"savings": True} if _l.get("source_kind") == "savings" else {}),
                         }
                         for _l in _um_legs
                     ],
                 }
+                # G428: a savings source is named plainly (watch tone, a suggestion).
+                _um_split = split_cover_note(
+                    [(_l["move_map"]["from"].get("display_label") or _l["_src_name"], float(_l["amount"]), _l.get("source_kind") == "savings") for _l in _um_legs],
+                    gap=max(0.0, float(_um_gap) - float(_um_leg_total)),
+                )
+                if _um_split is not None:
+                    _um_suggestion_by_acct[_um_acct2]["cover_note"] = _um_split["note"]
 
             _um_moves: list[dict] = []
             for _a, _b in _um_qualifying:
@@ -4955,6 +5033,7 @@ async def compute_today_items(
                     ),
                     "suggested_from_count": len(_um_sugg["sources"]) if _um_found else 0,
                     "suggested_covers_all": _um_sugg.get("covers_all") if _um_found else None,
+                    **({"suggested_cover_note": _um_sugg["cover_note"]} if _um_found and _um_sugg.get("cover_note") else {}),
                     # G44 (Kevin, 2026-09-11): "it's not telling me where to
                     # move it from" — G42 wired the source finder in but
                     # only surfaced a count (`suggested_from_count`) and,
@@ -4971,6 +5050,7 @@ async def compute_today_items(
                                 "name": s["name"],
                                 "provider": s["provider"],
                                 "amount": s["amount"],
+                                **({"savings": True} if s.get("savings") else {}),
                             }
                             for s in _um_sugg["sources"]
                         ]
@@ -5460,16 +5540,19 @@ async def compute_today_items(
                         f"{_mc_late_when} and has not arrived yet."
                     )
 
-        residual = None
-        if dest_gap > 0.5:
-            _residual_tail = (
-                "so it may need a different plan." if _is_overdraft_dest
-                else "so one payment may need a different plan."
-            )
-            residual = (
-                f"These moves cover £{total:,}, but {dest_name} is still "
-                f"{_gbp(dest_gap)} short, {_residual_tail}"
-            )
+        # G428: what is genuinely uncovered is the shortfall less the moves
+        # (the same figure Upcoming shows as short_after_cover), not the gap
+        # that includes the rounding and £10 buffer. One sentence everywhere.
+        _uncovered_amt = max(0.0, float(dest_shortfall[dest_acct]) - float(total))
+        residual = cover_residual(total, _uncovered_amt) if dest_gap > 0.5 else None
+        # G428: current accounts could not cover it alone, so one savings
+        # account is suggested for the rest (amber, a recommendation).
+        _cover_split = split_cover_note(
+            [(r["move_map"]["from"].get("display_label") or r["_src_name"], float(r["amount"]), r.get("source_kind") == "savings") for r in rows],
+            gap=_uncovered_amt,
+        )
+        if _cover_split is not None:
+            residual = None
 
         assumed_incomes = [
             {
@@ -5517,6 +5600,9 @@ async def compute_today_items(
             item_doc["move_map"] = rows[0]["move_map"]
         if residual is not None:
             item_doc["residual"] = residual
+        if _cover_split is not None:
+            item_doc["cover_note"] = _cover_split["note"]
+            item_doc["cover_split"] = {k: v for k, v in _cover_split.items() if k != "note"}
         if persist:
             await companion_items_col.update_one(
                 {"_id": item_id, "uid": uid},
@@ -5550,6 +5636,9 @@ async def compute_today_items(
             emit["move_map"] = rows[0]["move_map"]
         if residual is not None:
             emit["residual"] = residual
+        if _cover_split is not None:
+            emit["cover_note"] = _cover_split["note"]
+            emit["cover_split"] = {k: v for k, v in _cover_split.items() if k != "note"}
         if income_note is not None:
             emit["income_note"] = income_note
         items.append(emit)
@@ -5739,7 +5828,7 @@ async def compute_today_items(
                             _src_id = _leg["move_map"]["from"]["account_id"]
                             _src_name = _leg["move_map"]["from"]["name"]
                             _amt = round(float(_leg["amount"]), 2)
-                            _from_rows.append({"account_id": _src_id, "name": _src_name, "amount": _amt, "display_label": _leg["move_map"]["from"].get("display_label")})
+                            _from_rows.append({"account_id": _src_id, "name": _src_name, "amount": _amt, "display_label": _leg["move_map"]["from"].get("display_label"), **_kind_of_from(_leg["move_map"]["from"])})
                             _src = account_eligibility_out.get(_src_id)
                             if _src is not None and not _src.get("uncertain"):
                                 _src["spend_from_headroom"] = round(float(_src.get("spend_from_headroom") or 0) - _amt, 2)
@@ -5778,9 +5867,20 @@ async def compute_today_items(
                         _combined_gap = round(_payment_gap + _gap, 2)
                         _existing_move["covered"] = _existing_move["amount"] + 0.005 >= _combined_gap
                         _existing_move["residual"] = (
-                            f"Still {_gbp(_combined_gap - _existing_move['amount'])} short for payments and plans."
+                            cover_residual(_existing_move["amount"], _combined_gap - float(_existing_move["amount"]))
                             if not _existing_move["covered"] else None
                         )
+                        _sp = split_cover_note(
+                            [(m["move_map"]["from"].get("display_label") or m["move_map"]["from"]["name"], float(m["amount"]), m["move_map"]["from"].get("source_kind") == "savings") for m in _existing_move["moves"]],
+                            gap=max(0.0, _combined_gap - float(_existing_move["amount"])),
+                        )
+                        if _sp is not None:
+                            _existing_move["cover_note"] = _sp["note"]
+                            _existing_move["cover_split"] = {k: v for k, v in _sp.items() if k != "note"}
+                            _existing_move["residual"] = None
+                        else:
+                            _existing_move.pop("cover_note", None)
+                            _existing_move.pop("cover_split", None)
                         if len(_existing_move["moves"]) == 1:
                             _existing_move["move_map"] = _existing_move["moves"][0]["move_map"]
                         else:
@@ -5822,11 +5922,19 @@ async def compute_today_items(
                         "covered": bool(_covered + 1e-6 >= _gap + _sav_gap),
                         "sources_safe": bool(_legs),
                         "residual": (
-                            f"These moves cover {_gbp(_covered)}, but {_pay_name} is still {_gbp(_gap + _sav_gap - _covered)} short."
+                            cover_residual(_covered, _gap + _sav_gap - _covered)
                             if _covered + 0.5 < _gap + _sav_gap else None
                         ),
                         **({"savings_at_risk": _sav_fact} if _sav_fact else {}),
                     })
+                    _sp = split_cover_note(
+                        [(l["move_map"]["from"].get("display_label") or l["move_map"]["from"]["name"], float(l["amount"]), l["move_map"]["from"].get("source_kind") == "savings") for l in _legs],
+                        gap=max(0.0, _gap + _sav_gap - _covered),
+                    )
+                    if _sp is not None:
+                        allocation_items[-1]["cover_note"] = _sp["note"]
+                        allocation_items[-1]["cover_split"] = {k: v for k, v in _sp.items() if k != "note"}
+                        allocation_items[-1]["residual"] = None
         except Exception:
             log.warning("allocation shortfall failed for %s", uid, exc_info=True)
             allocation_items = []
@@ -5901,7 +6009,7 @@ async def compute_today_items(
                     for _leg in _sv_legs:
                         _src_id = _leg["move_map"]["from"]["account_id"]
                         _amt = round(float(_leg["amount"]), 2)
-                        _sv_from.append({"account_id": _src_id, "name": _leg["move_map"]["from"]["name"], "amount": _amt, "display_label": _leg["move_map"]["from"].get("display_label")})
+                        _sv_from.append({"account_id": _src_id, "name": _leg["move_map"]["from"]["name"], "amount": _amt, "display_label": _leg["move_map"]["from"].get("display_label"), **_kind_of_from(_leg["move_map"]["from"])})
                         _src = account_eligibility_out.get(_src_id)
                         if _src is not None and not _src.get("uncertain"):
                             _src["spend_from_headroom"] = round(float(_src.get("spend_from_headroom") or 0) - _amt, 2)
@@ -5935,10 +6043,18 @@ async def compute_today_items(
                     "covered": bool(_sv_covered + 1e-6 >= _sv_gap),
                     "sources_safe": True,
                     "residual": (
-                        f"These moves cover {_gbp(_sv_covered)}, but {_sv_name} is still {_gbp(_sv_gap - _sv_covered)} short for savings."
+                        cover_residual(_sv_covered, _sv_gap - _sv_covered)
                         if _sv_covered + 0.5 < _sv_gap else None
                     ),
                 })
+                _sp = split_cover_note(
+                    [(l["move_map"]["from"].get("display_label") or l["move_map"]["from"]["name"], float(l["amount"]), l["move_map"]["from"].get("source_kind") == "savings") for l in _sv_legs],
+                    gap=max(0.0, _sv_gap - _sv_covered),
+                )
+                if _sp is not None:
+                    allocation_items[-1]["cover_note"] = _sp["note"]
+                    allocation_items[-1]["cover_split"] = {k: v for k, v in _sp.items() if k != "note"}
+                    allocation_items[-1]["residual"] = None
         except Exception:
             log.warning("savings at risk failed for %s", uid, exc_info=True)
 
@@ -5964,6 +6080,12 @@ async def compute_today_items(
                 else:
                     _merged_from[_key] = dict(_row)
             _cov["from"] = list(_merged_from.values())
+            # G428: how much of the cover is current money and how much a
+            # suggested move from one savings account (absent when none).
+            _sav_amt = round(sum(float(r["amount"]) for r in _cov["from"] if r.get("source_kind") == "savings"), 2)
+            if _sav_amt > 0:
+                _cov["savings_amount"] = _sav_amt
+                _cov["current_amount"] = round(float(_cov.get("amount") or 0) - _sav_amt, 2)
 
     # ── 6c. PLAN EASING (G228) ──────────────────────────────────────────────
     # A goal plan whose paying account is short this period, with no safe move

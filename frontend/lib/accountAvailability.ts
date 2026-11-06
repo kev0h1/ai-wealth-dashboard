@@ -1,10 +1,11 @@
 import type { Account, AccountEligibility } from "@/lib/api";
 import { isCountedInLeftToSpend } from "@/lib/accountCounted";
 import { accountKind } from "@/lib/accountKind";
+import { coverSplitSentence, uncoveredSentence, type CoverSplit } from "@/lib/coverNarrative";
 
 export type AccountAvailabilityReading =
   | { kind: "checking" | "unavailable" }
-  | { kind: "ready"; value: number; warning?: "payments" | "plans"; note?: string; requiresMove?: boolean; coveredByMove?: { fromLabel: string; shortAfterCover: number; coversPlans?: boolean } };
+  | { kind: "ready"; value: number; warning?: "payments" | "plans"; note?: string; requiresMove?: boolean; coveredByMove?: { fromLabel: string; shortAfterCover: number; coversPlans?: boolean; split?: CoverSplit } };
 
 export type AccountAvailabilitySnapshot = {
   status: "loading" | "ready" | "failed";
@@ -54,10 +55,16 @@ export function accountAvailability(
   // payments. A dismissed or no-longer-needed move has no earmark, so the
   // underlying shortfall remains plain. The server remains the sole source.
   const warning = paymentGap ? "payments" : plansGap ? "plans" : undefined;
+  // G428: current accounts cannot cover it alone, so one savings account is suggested for the rest.
+  const savingsLeg = position.covered_by_move?.from.find((f) => f.source_kind === "savings");
+  const split: CoverSplit | undefined = savingsLeg && typeof position.covered_by_move?.savings_amount === "number"
+    ? { currentAmount: position.covered_by_move.current_amount ?? 0, savingsAmount: position.covered_by_move.savings_amount, savingsName: savingsLeg.display_label?.trim() || savingsLeg.name }
+    : undefined;
   const covered = warning && position.covered_by_move && position.covered_by_move.amount > 0 && position.covered_by_move.from.length
     ? {
         fromLabel: new Set(position.covered_by_move.from.map((f) => f.account_id)).size > 1 ? `${new Set(position.covered_by_move.from.map((f) => f.account_id)).size} of your other accounts` : (position.covered_by_move.from[0].display_label?.trim() || position.covered_by_move.from[0].name),
         shortAfterCover: typeof position.short_after_cover === "number" ? position.short_after_cover : 0,
+        ...(split ? { split } : {}),
         ...(paymentGap && typeof position.covered_by_move.shortfall === "number" && position.covered_by_move.shortfall > paymentShortfall + 0.005 ? { coversPlans: true } : {}),
       }
     : undefined;
@@ -66,7 +73,9 @@ export function accountAvailability(
     warning,
     requiresMove: position.spend_from_requires_move === true,
     coveredByMove: covered,
-    note: covered ? (covered.shortAfterCover > 0
+    note: covered?.split ? `${covered.coversPlans ? "Payments and plans" : warning === "payments" ? "Payments" : "Plans"} look short this pay period. ${coverSplitSentence(covered.split, covered.shortAfterCover)} Open the account for the working.`
+      : covered && covered.shortAfterCover > 0 && !covered.split && warning ? `${covered.coversPlans ? "Payments and plans" : warning === "payments" ? "Payments" : "Plans"} look short this pay period, even after the suggested move from ${covered.fromLabel}. ${uncoveredSentence(covered.shortAfterCover)} Open the account for the working.`
+      : covered ? (covered.shortAfterCover > 0
         ? `${covered.coversPlans ? "Payments and plans" : warning === "payments" ? "Payments" : "Plans"} look short this pay period, even after the suggested move from ${covered.fromLabel}. Open the account for the working.`
         : `${covered.coversPlans ? "Payments and plans" : warning === "payments" ? "Payments" : "Plans"} look short this pay period, covered by the suggested move from ${covered.fromLabel}. Open the account for the working.`)
       : paymentGap ? "Payments look short this pay period. Open the account for the working."

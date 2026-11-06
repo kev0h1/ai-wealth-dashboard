@@ -1436,6 +1436,8 @@ export type MoveMap = {
      * fix 2026-08-31).
      */
     reserved_for_allocations?: number;
+    /** G428: "savings" when this source is a savings account (a suggestion in the watch tone). Absent for a current account. */
+    source_kind?: "savings";
   };
   to: MoveMapAccount & { incoming: string };
 };
@@ -1672,7 +1674,9 @@ export type UnfundedMoveEntry = {
   // found, matching `suggested_from_count`'s 0 convention — the per-leg
   // amounts always sum to `suggested_amount` (backend-asserted, see
   // backend/tests/test_unfunded_move.py).
-  suggested_sources?: { account_id: string; name: string; provider: string; amount: number }[];
+  suggested_sources?: { account_id: string; name: string; provider: string; amount: number; savings?: boolean }[];
+  /** G428: plain sentence naming the one savings account suggested for what current accounts cannot cover (watch tone). */
+  suggested_cover_note?: string;
 };
 
 /**
@@ -1802,6 +1806,9 @@ export type CompanionItem = {
   moves?: PlanMove[];
   summary?: string;
   residual?: string;
+  /** G428: when current accounts cannot cover it alone, the engine's plain sentence naming the one savings account suggested for the rest (watch tone). */
+  cover_note?: string;
+  cover_split?: { current_amount: number; savings_amount: number; savings_name: string; uncovered: number };
   overflow_note?: string;
   income_note?: string;
   assumed_incomes?: { name: string; amount: number; expected_date: string; basis?: "confirmed" | "reliable" | "steady" | null; estimated?: boolean }[];
@@ -1952,7 +1959,7 @@ export type AccountEligibility = {
   // above are untouched; display only.
   earmarks_out?: { to_account_id: string; to_name: string; amount: number }[];
   earmarked_total?: number;
-  covered_by_move?: { amount: number; shortfall?: number; from: { account_id: string; name: string; amount: number; display_label?: string | null }[] };
+  covered_by_move?: { amount: number; shortfall?: number; savings_amount?: number; current_amount?: number; from: { account_id: string; name: string; amount: number; display_label?: string | null; source_kind?: "savings" }[] };
   short_after_cover?: number;
   /** G422: an own-savings standing order this account cannot fund this period. `amount` is the part of the negative figures it explains (never a payment shortfall, never red); `note` is the engine's own sentence, a recommendation in words only. */
   savings_at_risk?: SavingsAtRisk;

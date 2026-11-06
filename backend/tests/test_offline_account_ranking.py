@@ -349,10 +349,10 @@ def test_offline_savings_only_reached_once_current_accounts_are_exhausted(monkey
     assert amount_by_source["piggy"] == 120
 
 
-def test_two_current_accounts_fill_both_slots_so_savings_is_not_reached(monkeypatch):
-    """G421: two current accounts that cannot cover the gap together use both
-    source slots; the move covers what they can and never adds a third source,
-    even an offline savings pot with room."""
+def test_two_current_accounts_fill_both_slots_then_savings_covers_the_rest(monkeypatch):
+    """G428 (was G421): two current accounts that cannot cover the gap together
+    use both current slots, and one savings account (here an offline pot) takes
+    the remainder: three sources at most, current money first."""
     accounts = [
         _account("premier", 0.0, name="Premier Current"),
         _account("conn_a", 110.0, name="Connected Current A", provider="hsbc"),
@@ -365,6 +365,7 @@ def test_two_current_accounts_fill_both_slots_so_savings_is_not_reached(monkeypa
 
     move = _find(items, "move")
     assert move is not None
-    assert _leg_source_ids(move) == {"conn_a", "conn_b"}
+    assert _leg_source_ids(move) == {"conn_a", "conn_b", "piggy"}
     amount_by_source = {m["move_map"]["from"]["account_id"]: m["amount"] for m in move["moves"]}
-    assert amount_by_source == {"conn_a": 100, "conn_b": 50}
+    # Need 210 + 10 = 220: 100 and 50 from current headroom, 70 from savings.
+    assert amount_by_source == {"conn_a": 100, "conn_b": 50, "piggy": 70}

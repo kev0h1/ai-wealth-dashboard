@@ -32,6 +32,7 @@ import { isPlansOnlyShort } from "@/lib/pennyScreenViews";
 import { initialsOf } from "@/lib/displayName";
 import ActionLabel from "@/components/ActionLabel";
 import { actionHref } from "@/lib/actionRoutes";
+import CoverNote from "@/components/CoverNote";
 import { MoveAccountIcon, MoveRouteSummary, MoveSourcesDisclosure, moveMoney, resolveBankChip, type MoveLedgerLeg } from "@/components/MoveRoute";
 
 export { MoveAccountIcon };
@@ -173,6 +174,7 @@ function MoveSourcesLedger({
             />
             <span className="flex-1 min-w-0">
               <span className="text-sm font-medium text-slate-700 dark:text-slate-200 truncate block">{leg.name}</span>
+              {leg.savings && <span data-savings-source className="block text-[11px] text-amber-800 dark:text-amber-200">From savings, a suggestion</span>}
             </span>
             <span className="money text-sm font-semibold text-slate-900 dark:text-slate-100 flex-shrink-0">
               <AmountText text={hideNetWorth ? "£••••" : `£${Math.round(leg.amount).toLocaleString("en-GB")}`} />
@@ -891,6 +893,7 @@ export function UnfundedMoveCard({ item, hideNetWorth: hideNetWorthProp, maskAmo
               provider: source.provider,
               name: displayAccountName(source.name),
               amount: source.amount,
+              ...(source.savings ? { savings: true } : {}),
             }));
             const latestMove = accountMoves[accountMoves.length - 1];
             const due = latestMove.expected_date
@@ -912,6 +915,7 @@ export function UnfundedMoveCard({ item, hideNetWorth: hideNetWorthProp, maskAmo
               <div key={group.accountId} className={index > 0 ? "pt-3" : ""}>
                 <MoveRouteSummary sources={sources} destination={{ provider: suggestion.source_bank, name: suggestion.source_name }} />
                 <MoveSourcesDisclosure legs={sources} hideNetWorth={hideNetWorth} totalAmount={suggestion.suggested_amount ?? 0} />
+                {suggestion.suggested_cover_note && <div className="mt-2"><CoverNote data-cover-note><MoneyText text={maskAmounts(suggestion.suggested_cover_note)} /></CoverNote></div>}
                 <MovePaymentEvidence
                   bills={bills}
                   due={due}
@@ -1005,10 +1009,11 @@ export function UnfundedMoveCard({ item, hideNetWorth: hideNetWorthProp, maskAmo
                 {showLedger && (
                   <div className="mt-2">
                     <MoveSourcesLedger
-                      legs={sources!.map(s => ({ provider: s.provider, name: s.name, amount: s.amount }))}
+                      legs={sources!.map(s => ({ provider: s.provider, name: s.name, amount: s.amount, ...(s.savings ? { savings: true } : {}) }))}
                       hideNetWorth={hideNetWorth}
                       totalAmount={m.suggested_amount ?? undefined}
                     />
+                    {m.suggested_cover_note && <div className="mt-2"><CoverNote data-cover-note><MoneyText text={maskAmounts(m.suggested_cover_note)} /></CoverNote></div>}
                   </div>
                 )}
               </div>
@@ -1207,7 +1212,7 @@ export function MoveCard({ item, hideNetWorth: hideNetWorthProp, maskAmounts, hi
     }
   }
 
-  type LegEntry = { provider: string; name: string; amount: number; display_label?: string | null };
+  type LegEntry = { provider: string; name: string; amount: number; display_label?: string | null; savings?: boolean };
   const legs: LegEntry[] =
     item.moves && item.moves.length > 0
       ? item.moves.map(m => ({
@@ -1215,6 +1220,7 @@ export function MoveCard({ item, hideNetWorth: hideNetWorthProp, maskAmounts, hi
           name: (m.move_map.from as any)?.name,
           amount: m.amount ?? 0,
           display_label: (m.move_map.from as any)?.display_label,
+          ...(m.move_map.from.source_kind === "savings" ? { savings: true } : {}),
         }))
       : item.move_map
       ? [{ provider: (item.move_map.from as any)?.provider, name: (item.move_map.from as any)?.name, amount: item.amount ?? 0, display_label: (item.move_map.from as any)?.display_label }]
@@ -1329,8 +1335,9 @@ export function MoveCard({ item, hideNetWorth: hideNetWorthProp, maskAmounts, hi
             <span className="money"><AmountText text={moveMoney(Math.abs(destination.balance), hideNetWorth)} /></span> overdrawn right now.
           </p>
         )}
-        {(assurance || item.residual || savingsNote || item.income_note || item.overflow_note) && (
+        {(assurance || item.residual || item.cover_note || savingsNote || item.income_note || item.overflow_note) && (
           <div className="mt-3 space-y-1.5">
+            {item.cover_note && <CoverNote data-cover-note><MoneyText text={maskAmounts(item.cover_note)} /></CoverNote>}
             {assurance && <p className="text-[12px] leading-snug text-slate-500 dark:text-slate-400">{assurance}</p>}
             {item.residual && <p className="text-[12px] leading-snug text-slate-400 dark:text-slate-500"><MoneyText text={maskAmounts(String(item.residual))} /></p>}
             {savingsNote && <p data-savings-at-risk className="text-[12px] leading-snug text-slate-500 dark:text-slate-400">{savingsNote}</p>}
@@ -1444,6 +1451,7 @@ export function MoveCard({ item, hideNetWorth: hideNetWorthProp, maskAmounts, hi
               : null;
             return (
               <div className="mt-3 space-y-1.5">
+                {item.cover_note && <CoverNote data-cover-note><MoneyText text={maskAmounts(item.cover_note)} /></CoverNote>}
                 {assurance && (
                   <p data-move-assurance className="text-[12px] text-slate-500 dark:text-slate-400 leading-snug">{assurance}</p>
                 )}

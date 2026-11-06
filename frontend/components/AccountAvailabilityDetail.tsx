@@ -4,6 +4,7 @@ import { ChevronDown, CircleAlert } from "lucide-react";
 import type { AccountEligibility } from "@/lib/api";
 import { formatAvailabilityAmount, type AccountAvailabilityReading } from "@/lib/accountAvailability";
 import MoneyText from "@/components/MoneyText";
+import { coverSplitSentence } from "@/lib/coverNarrative";
 
 /** G406: the available estimate opens its existing server-position evidence. */
 export default function AccountAvailabilityDetail({ reading, position, hidden, layout = "default" }: {
@@ -36,7 +37,7 @@ export default function AccountAvailabilityDetail({ reading, position, hidden, l
   const allocationNote = (position?.allocation_unassigned ?? 0) > 0
     ? "Some forecast money cannot yet be safely allocated to an account."
     : "Adding the account amounts gives that total.";
-  const coveredNote = covered ? (covered.shortAfterCover > 0
+  const coveredNote = covered?.split ? `${coverSplitSentence(covered.split, covered.shortAfterCover)} Nothing has been moved.` : covered ? (covered.shortAfterCover > 0
     ? `A suggested move from ${covered.fromLabel} would cover part of this${covered.coversPlans ? ", including the linked plans" : ""}. Nothing has been moved.`
     : `A suggested move from ${covered.fromLabel} would cover this${covered.coversPlans ? ", including the linked plans" : ""}. Nothing has been moved.`) : null;
   if (layout === "calm") return <div data-account-availability-working className="text-[13px] leading-5 text-slate-600 dark:text-slate-300">
