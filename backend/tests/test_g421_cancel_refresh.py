@@ -54,7 +54,7 @@ def calls(monkeypatch):
     def invalidate(uid):
         log.append("invalidate")
 
-    async def warm(uid):
+    async def warm(uid, include_cover_plan=True):
         log.append("warm_user")
         return {}
 
@@ -129,7 +129,7 @@ def test_warm_failure_never_fails_the_cancel(calls, monkeypatch):
     oid = ObjectId()
     monkeypatch.setattr(planned, "planned_expenses_col", _Col([{"_id": oid, "user_id": UID}]))
 
-    async def boom(uid):
+    async def boom(uid, include_cover_plan=True):
         raise RuntimeError("warm failed")
 
     monkeypatch.setattr(warmup, "warm_user", boom)
