@@ -2124,9 +2124,11 @@ function fetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> 
 // data version: any successful write drops the money endpoints, so a dismissal,
 // edit, set-aside or sync can never be followed by a cached pre-write payload.
 // Excluded: reads, preferences (PreferencesContext invalidates only for the
-// money fields, matching the server), Penny chat turns, auth and push
-// registration, none of which move a cached figure.
-const ENDPOINT_CACHE_WRITE_EXEMPT = /\/(?:preferences|penny\/(?:chat|stream|history)|auth|push|telemetry|analytics\/event)(?:[/?]|$)/;
+// money fields, matching the server), Penny chat turns and chips, auth and
+// push registration, and the read-only POSTs (can-i, the cashflow, commitment,
+// schedule and spend-intent previews, card payment-match preview, receipt
+// scan), none of which move a cached figure.
+const ENDPOINT_CACHE_WRITE_EXEMPT = /\/(?:preferences|penny\/(?:chat|stream|history|chip)|auth|push|telemetry|analytics\/event|can-i|cashflow\/preview-rule|commitments\/(?:schedule-)?preview|spend\/intent-preview|card-terms\/[^/?]+\/payment-match-preview|baskets\/scan-receipt)(?:[/?]|$)/;
 function isEndpointCacheWrite(input: RequestInfo | URL, init?: RequestInit): boolean {
   const method = (init?.method ?? (typeof Request !== "undefined" && input instanceof Request ? input.method : "GET")).toUpperCase();
   if (method === "GET" || method === "HEAD" || method === "OPTIONS") return false;

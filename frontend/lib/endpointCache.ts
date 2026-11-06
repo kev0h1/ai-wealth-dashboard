@@ -29,7 +29,38 @@ export type EndpointOptions<T> = {
 
 export const DEFAULT_ENDPOINT_TTL_MS = 60_000;
 
-type Entry = { data: unknown; at: number; json: string };
+/** Hard ceiling on how old a payload may be and still be shown, stale-while-
+ *  revalidate included. Past it (or on a different Europe/London day) the
+ *  entry is a miss and the normal loading path runs, so the first open after
+ *  midnight or a long idle never paints yesterday's figures. */
+export const ENDPOINT_MAX_AGE_MS = 10 * 60_000;
+
+type Entry = { data: unknown; at: number; json: string; day: string };
+
+const londonDayFormat = typeof Intl !== "undefined"
+  ? new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/London", year: "numeric", month: "2-digit", day: "2-digit" })
+  : null;
+function londonDay(ms: number): string {
+  return londonDayFormat ? londonDayFormat.format(new Date(ms)) : new Date(ms).toISOString().slice(0, 10);
+}
+
+/** The live entry for `key`, or undefined after dropping an expired one. */
+function liveEntry(key: string): Entry | undefined {
+  const e = entries.get(key);
+  if (!e) return undefined;
+  const t = now();
+  if (t - e.at >= ENDPOINT_MAX_AGE_MS || londonDay(e.at) !== londonDay(t)) {
+    entries.delete(key);
+    return undefined;
+  }
+  return e;
+}
+
+const invalidationHooks = new Set<() => void>();
+/** Runs `fn` whenever any endpoint is invalidated (the miscategorised count
+ *  registers here so a post-write invalidation also drops it). */
+export function onEndpointsInvalidated(fn: () => void): void { invalidationHooks.add(fn); }
+function runHooks(): void { for (const h of invalidationHooks) h(); }
 
 const entries = new Map<string, Entry>();
 const inflight = new Map<string, Promise<unknown>>();
@@ -54,7 +85,8 @@ function fetchAndStore<T>(key: string, fetcher: () => Promise<T>): Promise<T> {
   const p = fetcher()
     .then((data) => {
       if (startedAt === generation) {
-        entries.set(key, { data, at: now(), json: serialise(data) });
+        const at = now();
+        entries.set(key, { data, at, json: serialise(data), day: londonDay(at) });
       }
       return data;
     })
@@ -68,12 +100,12 @@ function fetchAndStore<T>(key: string, fetcher: () => Promise<T>): Promise<T> {
 /** The cached payload for `key` regardless of age, or undefined. Use it to
  *  seed initial component state so a remount paints without a skeleton. */
 export function peekEndpoint<T>(key: string): T | undefined {
-  return entries.get(key)?.data as T | undefined;
+  return liveEntry(key)?.data as T | undefined;
 }
 
 /** True when `key` has an entry younger than `ttlMs`. */
 export function isEndpointFresh(key: string, ttlMs = DEFAULT_ENDPOINT_TTL_MS): boolean {
-  const e = entries.get(key);
+  const e = liveEntry(key);
   return !!e && now() - e.at < ttlMs;
 }
 
@@ -86,7 +118,7 @@ export function cachedEndpoint<T>(
 ): Promise<T> {
   const ttl = options.ttlMs ?? DEFAULT_ENDPOINT_TTL_MS;
   if (options.force) return fetchAndStore(key, fetcher);
-  const hit = entries.get(key);
+  const hit = liveEntry(key);
   if (hit) {
     if (now() - hit.at < ttl) return Promise.resolve(hit.data as T);
     // Stale: serve now, revalidate quietly, replace only on change.
@@ -105,6 +137,7 @@ export function cachedEndpoint<T>(
 export function invalidateEndpoint(...keys: string[]): void {
   generation++;
   for (const k of keys) { entries.delete(k); inflight.delete(k); }
+  runHooks();
 }
 
 /** Drop every key. Sign-out, user change and account mutations call this. */
@@ -112,6 +145,7 @@ export function invalidateAllEndpoints(): void {
   generation++;
   entries.clear();
   inflight.clear();
+  runHooks();
 }
 
 /** Keys per invalidation trigger. "all" drops everything. */

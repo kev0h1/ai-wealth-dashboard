@@ -33,6 +33,9 @@ check("sign-out / account mutations clear endpoint caches", mutations.includes("
 check("money preference saves clear endpoint caches", prefs.includes("invalidateEndpoint(...TRANSACTIONS_CHANGED_KEYS)"));
 check("successful writes clear money endpoints in the api fetch wrapper", apiSrc.includes("isEndpointCacheWrite(input, init)") && apiSrc.includes("invalidateEndpoint(...TRANSACTIONS_CHANGED_KEYS)"));
 check("no localStorage persistence in the endpoint cache", !/localStorage/.test(read("lib/endpointCache.ts").replace(/\/\/.*$/gm, "")));
+check("push receipt drops the endpoint caches", /addListener\("pushNotificationReceived", \(\) => \{[^}]*invalidateAllEndpoints\(\);/s.test(read("lib/capacitorPush.ts")));
+check("push listener does not return a plugin proxy from an async function", !/return\s+PushNotifications\b/.test(read("lib/capacitorPush.ts").split("pushNotificationReceived")[1]?.slice(0, 400) ?? ""));
+check("endpoint cache enforces a max age and London-day boundary", /ENDPOINT_MAX_AGE_MS/.test(read("lib/endpointCache.ts")) && read("lib/endpointCache.ts").includes("Europe/London"));
 
 if (failures) { console.error(`\n${failures} check(s) failed`); process.exit(1); }
 console.log("\nAll G425 source checks passed");

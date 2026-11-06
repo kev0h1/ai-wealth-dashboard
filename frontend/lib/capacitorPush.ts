@@ -2,6 +2,7 @@ import { Capacitor } from "@capacitor/core";
 import { api, isAppLockedError } from "./api";
 import { isAppLocked, runWhenUnlocked } from "./appLock";
 import { getToken } from "./auth";
+import { invalidateAllEndpoints } from "./endpointCache";
 
 // Last APNs/FCM token we registered with the backend, so `unregisterCapacitorPush`
 // can tell the server which token to drop without re-reading it from the OS.
@@ -304,6 +305,9 @@ export async function initCapacitorPush(): Promise<PushInitResult> {
     if (!receivedListenerRegistered) {
       receivedListenerRegistered = true;
       await PushNotifications.addListener("pushNotificationReceived", () => {
+        // G425: a sync-complete push means server figures moved; drop the
+        // client endpoint caches so a foregrounded Home refreshes.
+        invalidateAllEndpoints();
         for (const resolve of pendingReceiveResolvers) resolve(true);
         pendingReceiveResolvers.clear();
       });

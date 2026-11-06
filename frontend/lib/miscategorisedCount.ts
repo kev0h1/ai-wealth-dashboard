@@ -9,6 +9,7 @@
 // (miscategorised_count:<offset>) and only offset 0 is warmed (services/
 // warmup.py), so a Spend visit restored to an earlier period is the cold call.
 import { api } from "@/lib/api";
+import { onEndpointsInvalidated } from "@/lib/endpointCache";
 import type { MiscategorisedCount } from "@/lib/api";
 
 export const MISCATEGORISED_COUNT_TTL_MS = 30_000;
@@ -49,3 +50,7 @@ export function bindMiscategorisedInvalidation(target: EventTarget, events: stri
   for (const e of events) target.addEventListener(e, handler);
   return () => { for (const e of events) target.removeEventListener(e, handler); };
 }
+
+// Any endpoint invalidation (every successful write, money preference save,
+// sign-out) also drops the count, which depends on the same data.
+onEndpointsInvalidated(invalidateMiscategorisedCount);

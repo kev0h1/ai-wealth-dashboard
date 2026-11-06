@@ -1,9 +1,9 @@
 // G425: plain-Node test for lib/endpointCache.ts and lib/miscategorisedCount.ts.
 // Run: npm run -s check:endpoint-cache
-import { api } from "../lib/api";
+import { api, gatedFetch } from "../lib/api";
 import {
   cachedEndpoint, peekEndpoint, invalidateEndpoint, invalidateAllEndpoints,
-  bindEndpointInvalidation, __setEndpointClock, ENDPOINT, TRANSACTIONS_CHANGED_KEYS,
+  bindEndpointInvalidation, __setEndpointClock, ENDPOINT, TRANSACTIONS_CHANGED_KEYS, ENDPOINT_MAX_AGE_MS,
 } from "../lib/endpointCache";
 import {
   loadMiscategorisedCount, invalidateMiscategorisedCount, bindMiscategorisedInvalidation,
@@ -128,6 +128,70 @@ invalidateAllAccountData();
 await loadMiscategorisedCount(0);
 check("miscategorised: sign-out clears it", mc, 6);
 api.getMiscategorisedCount = original;
+
+// 11. Max age: previous London day or older than 10 minutes is a miss.
+{
+  invalidateAllEndpoints();
+  const saved = t;
+  t = Date.parse("2026-11-06T09:00:00Z");
+  await cachedEndpoint("age", fetcher({ d: 1 }), { ttlMs: 60_000 });
+  t += ENDPOINT_MAX_AGE_MS - 1000;
+  check("age: just under 10 minutes still peeks", peekEndpoint("age") !== undefined, true);
+  t += 2000;
+  check("age: past 10 minutes peek is a miss", peekEndpoint("age"), undefined);
+  calls = 0;
+  const upd = [];
+  const v = await cachedEndpoint("age", fetcher({ d: 2 }), { ttlMs: 60_000, onUpdate: (d) => upd.push(d) });
+  check("age: expired entry takes the loading path (fetched, no stale paint)", [calls, v, upd], [1, { d: 2 }, []]);
+  // Across London midnight (GMT in November): 23:59 then 00:01 next day, 2 minutes apart.
+  invalidateAllEndpoints();
+  t = Date.parse("2026-11-06T23:59:00Z");
+  await cachedEndpoint("mid", fetcher({ m: 1 }), { ttlMs: 60_000 });
+  t = Date.parse("2026-11-07T00:01:00Z");
+  check("midnight: a previous-day entry is a miss", peekEndpoint("mid"), undefined);
+  calls = 0;
+  const m = await cachedEndpoint("mid", fetcher({ m: 2 }), { ttlMs: 60_000 });
+  check("midnight: refetched rather than served", [calls, m], [1, { m: 2 }]);
+  // BST: 23:30 UTC on 1 Jul is already 00:30 London on 2 Jul.
+  invalidateAllEndpoints();
+  t = Date.parse("2026-07-01T22:30:00Z");
+  await cachedEndpoint("bst", fetcher({ b: 1 }), { ttlMs: 60_000 });
+  t = Date.parse("2026-07-01T23:30:00Z");
+  check("BST: London midnight is honoured (not UTC)", peekEndpoint("bst"), undefined);
+  t = saved;
+}
+
+// 12. Write exemption: read-only POSTs keep the cache, a real write clears it.
+{
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = () => Promise.resolve({ ok: true, status: 200, json: async () => ({}) });
+  const readOnly = ["/api/penny/chip", "/api/can-i", "/api/cashflow/preview-rule", "/api/commitments/preview", "/api/commitments/schedule-preview", "/api/spend/intent-preview", "/api/card-terms/abc123/payment-match-preview", "/api/baskets/scan-receipt"];
+  for (const path of readOnly) {
+    invalidateAllEndpoints();
+    await cachedEndpoint(ENDPOINT.today.key, fetcher({ items: [] }));
+    await gatedFetch(path, { method: "POST", body: "{}" });
+    check(`read-only POST ${path} keeps the cache`, peekEndpoint(ENDPOINT.today.key) !== undefined, true);
+  }
+  for (const path of ["/api/today/abc/dismiss", "/api/commitments", "/api/accounts/sync"]) {
+    invalidateAllEndpoints();
+    await cachedEndpoint(ENDPOINT.today.key, fetcher({ items: [] }));
+    await gatedFetch(path, { method: "POST", body: "{}" });
+    check(`real write POST ${path} clears the cache`, peekEndpoint(ENDPOINT.today.key), undefined);
+  }
+  // 13. A write also drops the miscategorised count.
+  api.getMiscategorisedCount = (o = 0) => { mc++; return Promise.resolve({ count: o, ids: [] }); };
+  invalidateMiscategorisedCount();
+  mc = 0;
+  await loadMiscategorisedCount(0);
+  await gatedFetch("/api/today/abc/dismiss", { method: "POST", body: "{}" });
+  await loadMiscategorisedCount(0);
+  check("a successful write drops the miscategorised count", mc, 2);
+  await gatedFetch("/api/can-i", { method: "POST", body: "{}" });
+  await loadMiscategorisedCount(0);
+  check("a read-only POST keeps the miscategorised count", mc, 2);
+  globalThis.fetch = realFetch;
+  api.getMiscategorisedCount = original;
+}
 
 if (failures) { console.error(`\n${failures} check(s) failed`); process.exit(1); }
 console.log("\nAll endpoint-cache checks passed");
