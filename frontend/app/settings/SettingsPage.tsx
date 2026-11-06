@@ -44,6 +44,7 @@ import PayPeriodSettingsSheet from "@/components/PayPeriodSettingsSheet";
 import { SettingsDirectory, resolveSettingsSection, type SettingsSection } from "@/components/settings/SettingsDirectory";
 import { settingsPayPeriodLabel, settingsPlanLabel, settingsIdentityState } from "@/lib/settingsNavigation";
 import PennyAppearanceSetting from "@/components/settings/PennyAppearanceSetting";
+import { shouldWriteNumericPreference, numericBaselineFromSnapshot } from "@/lib/numericPreferenceWrite";
 
 // D keeps orientation on the canvas; only related controls share a surface.
 function SettingsGroup({ visible, title, intro, children, surface = true }: {
@@ -546,6 +547,11 @@ export default function SettingsPage() {
   // in handleIncomeBlur/handlePensionBlur), the only gap was this guard.
   const incomeSavingRef = useRef(false);
   const pensionSavingRef = useRef(false);
+  // E15: last value known to be stored on the server for each field (null
+  // until the first snapshot lands). A blur that leaves the value unchanged
+  // sends no PATCH, because every PATCH makes Home recompute cold.
+  const incomeStoredRef = useRef<number | null>(null);
+  const pensionStoredRef = useRef<number | null>(null);
   const applyHasChildBenefit = useCallback((next: boolean) => {
     hasChildBenefitRef.current = next;
     setHasChildBenefit(next);
@@ -568,9 +574,11 @@ export default function SettingsPage() {
     if (rawPrefs === null) return;
     if (rawPrefs.income_bracket) setIncomeBracket(rawPrefs.income_bracket);
     if (!incomeSavingRef.current && "income_value" in rawPrefs) {
+      incomeStoredRef.current = numericBaselineFromSnapshot(rawPrefs.income_value);
       setIncomeInput(rawPrefs.income_value === 0 ? "" : String(rawPrefs.income_value));
     }
     if (!pensionSavingRef.current && "pension_annual" in rawPrefs) {
+      pensionStoredRef.current = numericBaselineFromSnapshot(rawPrefs.pension_annual);
       setPensionAnnual(rawPrefs.pension_annual === 0 ? "" : String(rawPrefs.pension_annual));
     }
     // Skipped entirely while our own save is in flight (see
@@ -638,8 +646,10 @@ export default function SettingsPage() {
     // so the pension/child-benefit fields appear without a refetch
     setIncomeBracket(value < 100_000 ? "under_100k" : value <= 125_140 ? "100k_125k" : "125k_plus");
     setFinanceMsg(null);
+    if (!shouldWriteNumericPreference(value, incomeStoredRef.current)) return;
     incomeSavingRef.current = true;
     api.updatePreferences({ income_value: value }).then(() => {
+      incomeStoredRef.current = value;
       setFinanceMsg({ text: "Saved", ok: true });
       setTimeout(() => setFinanceMsg(null), 2000);
     }).catch((e: unknown) => {
@@ -654,8 +664,10 @@ export default function SettingsPage() {
     const value = isNaN(n) ? 0 : n;
     setPensionAnnual(value === 0 ? "" : String(value));
     setFinanceMsg(null);
+    if (!shouldWriteNumericPreference(value, pensionStoredRef.current)) return;
     pensionSavingRef.current = true;
     api.updatePreferences({ pension_annual: value }).then(() => {
+      pensionStoredRef.current = value;
       setFinanceMsg({ text: "Saved", ok: true });
       setTimeout(() => setFinanceMsg(null), 2000);
     }).catch((e: unknown) => {
