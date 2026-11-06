@@ -437,12 +437,13 @@ def test_execute_set_pay_period_dispatches_real_route(monkeypatch):
     assert result["executed"] is True
 
 
-def test_execute_set_hide_balances_uses_real_update_preferences_and_wipes_cache(monkeypatch):
+def test_execute_set_hide_balances_uses_real_update_preferences_and_leaves_cache(monkeypatch):
     """Unlike the tests above (which replace update_preferences entirely to
     prove dispatch/param-passing), this one runs the REAL router function
-    to prove the shared executor picks up its response-cache wipe, exactly
-    as a Settings PATCH would — the whole point of replaying through
-    `update_preferences` rather than writing to preferences_col directly."""
+    to prove the shared executor goes through the same cache policy as a
+    Settings PATCH (E15: hide_net_worth is cosmetic, so no wipe) — the whole
+    point of replaying through `update_preferences` rather than writing to
+    preferences_col directly."""
     fake_proposals = _FakeCol([_live_doc("set_hide_balances", {"hide_net_worth": True})])
     monkeypatch.setattr(can_i_module, "penny_proposals_col", fake_proposals)
     _patch_consented_prefs(monkeypatch)
@@ -461,7 +462,7 @@ def test_execute_set_hide_balances_uses_real_update_preferences_and_wipes_cache(
 
     result = asyncio.run(can_i_module.execute_proposal("p-test", user={"email": UID}))
     assert result["executed"] is True
-    assert invalidated == [UID]
+    assert invalidated == []
     assert fake_prefs_for_route.docs[0]["hide_net_worth"] is True
 
 
