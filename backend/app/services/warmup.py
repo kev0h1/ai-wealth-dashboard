@@ -175,11 +175,14 @@ async def _warm_user_impl(uid: str, include_cover_plan: bool = True) -> dict:
     """
     t0 = time.monotonic()
     # E16: this warm's own bump must not enqueue another warm.
-    suppress_token = data_version.warm_enqueue_suppressed.set(True)
+    # (getattr: a few unit tests stand in a bare fake for data_version.)
+    var = getattr(data_version, "warm_enqueue_suppressed", None)
+    token = var.set(True) if var is not None else None
     try:
         return await _warm_user_body(uid, include_cover_plan, t0)
     finally:
-        data_version.warm_enqueue_suppressed.reset(suppress_token)
+        if var is not None:
+            var.reset(token)
 
 
 async def _warm_user_body(uid: str, include_cover_plan: bool, t0: float) -> dict:
