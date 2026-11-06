@@ -4981,7 +4981,7 @@ async def get_cashflow(user: dict = Depends(current_user), include: str = ""):
             stale_reason = "dirty"
         elif (cached.get("patterns_version") or 0) < PATTERNS_VERSION:
             stale_reason = "patterns_version"
-        elif computed_at and (datetime.now() - computed_at).total_seconds() > _CACHE_TTL_HOURS * 3600:
+        elif computed_at and (datetime.now() - computed_at).total_seconds() > _CACHE_TTL_HOURS * 3600:  # naive-ok: hour-scale cache TTL, same as before
             stale_reason = "ttl"
         if stale_reason:
             stale = stale_reason != "ttl"
