@@ -272,7 +272,6 @@ def test_second_api_write_inside_the_throttle_keeps_the_marker_and_a_read_enqueu
     assert list(env["pool"].jobs) == [f"recompute:{UID}"]
     env["pool"].jobs.clear()  # the worker job ran (or was lost); the id is free
     out = _get()
-    assert not isinstance(out, Exception) or True
     assert list(env["pool"].jobs) == [f"recompute:{UID}"], "a later read must re-enqueue the owed rerun"
     assert env["pool"].jobs[f"recompute:{UID}"][1]["reason"] == "model_work"
 
