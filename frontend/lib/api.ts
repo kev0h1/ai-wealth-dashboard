@@ -1801,6 +1801,8 @@ export type CompanionItem = {
   /** G359: set on the ask that carries a hedged income prompt ("confirm_salary" or "payday_funds_moves"). */
   income_note_kind?: "confirm_salary" | "payday_funds_moves";
   plan_dest?: PlanDest;
+  /** G422: set on a cover move that exists for an own-savings standing order the account cannot fund. */
+  savings_at_risk?: SavingsAtRisk;
   /** G212: account row for a cover plan card with no transfer source (readable name, balance and payments in one line). */
   dest_row?: { title: string; detail: string };
   covered?: boolean;
@@ -1945,6 +1947,17 @@ export type AccountEligibility = {
   earmarked_total?: number;
   covered_by_move?: { amount: number; shortfall?: number; from: { account_id: string; name: string; amount: number; display_label?: string | null }[] };
   short_after_cover?: number;
+  /** G422: an own-savings standing order this account cannot fund this period. `amount` is the part of the negative figures it explains (never a payment shortfall, never red); `note` is the engine's own sentence, a recommendation in words only. */
+  savings_at_risk?: SavingsAtRisk;
+};
+
+export type SavingsAtRisk = {
+  amount: number;
+  covered: number;
+  /** True only when no other account could spare anything. */
+  no_cover: boolean;
+  note: string;
+  orders: { name: string; label: string; amount: number; expected_date?: string | null; to_name: string }[];
 };
 
 export type TodayResponse = {

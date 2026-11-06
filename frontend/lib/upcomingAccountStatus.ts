@@ -29,6 +29,12 @@ export function statusFor(account: UpcomingAccountSummary, plans: Plan[]): Accou
     return { amount: gap, label: "Short for payments", signal: "risk", estimated: false };
   }
   if (account.status === "unfunded" && account.shortfall !== null) {
+    // G422: an own-savings standing order the account cannot fund. Amber, never
+    // a payment shortfall; a live suggested move is named when there is one.
+    const suggestion = account.coverSuggestion;
+    if (suggestion && account.position?.savingsAtRisk) {
+      return { amount: account.shortfall, label: suggestion.shortAfterCover > 0 ? "Short for transfers after the suggested move" : "Short for transfers, a move would cover it", signal: "move", estimated: false };
+    }
     return { amount: account.shortfall, label: "Short for transfers", signal: "move", estimated: false };
   }
   const result = accountPlan(account, plans);

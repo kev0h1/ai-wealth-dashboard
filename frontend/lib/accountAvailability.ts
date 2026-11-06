@@ -40,9 +40,16 @@ export function accountAvailability(
   if (!position || position.uncertain || typeof position.after_payments_and_plans !== "number" || !Number.isFinite(position.after_payments_and_plans)) return { kind: "unavailable" };
   const value = position.spend_from_headroom;
   if (typeof value !== "number" || !Number.isFinite(value) || value < 0) return { kind: "unavailable" };
-  const paymentGap = [position.low_point, position.after_payments].some(v => typeof v === "number" && Number.isFinite(v) && v < 0);
-  const paymentShortfall = Math.max(0, ...[position.low_point, position.after_payments].filter((v): v is number => typeof v === "number" && Number.isFinite(v)).map((v) => -v));
-  const plansGap = [position.low_point_and_plans, position.after_payments_and_plans].some(v => typeof v === "number" && Number.isFinite(v) && v < 0);
+  // G422: what an own-savings standing order explains is neither a payment nor
+  // a plan shortfall. It is amber, carries the engine's own note, and never
+  // shows the red payments warning.
+  const savings = position.savings_at_risk && typeof position.savings_at_risk.amount === "number" && position.savings_at_risk.amount > 0 ? position.savings_at_risk : null;
+  const savingsGap = savings ? savings.amount : 0;
+  const rawPaymentShortfall = Math.max(0, ...[position.low_point, position.after_payments].filter((v): v is number => typeof v === "number" && Number.isFinite(v)).map((v) => -v));
+  const rawPlansShortfall = Math.max(0, ...[position.low_point_and_plans, position.after_payments_and_plans].filter((v): v is number => typeof v === "number" && Number.isFinite(v)).map((v) => -v));
+  const paymentGap = savings ? rawPaymentShortfall - savingsGap > 0.005 : rawPaymentShortfall > 0;
+  const paymentShortfall = savings ? Math.max(0, rawPaymentShortfall - savingsGap) : rawPaymentShortfall;
+  const plansGap = savings ? rawPlansShortfall - savingsGap > 0.005 : rawPlansShortfall > 0;
   // G414: plans and set-asides use the same live cover-move contract as
   // payments. A dismissed or no-longer-needed move has no earmark, so the
   // underlying shortfall remains plain. The server remains the sole source.
@@ -64,6 +71,7 @@ export function accountAvailability(
         : `${covered.coversPlans ? "Payments and plans" : warning === "payments" ? "Payments" : "Plans"} look short this pay period, covered by the suggested move from ${covered.fromLabel}. Open the account for the working.`)
       : paymentGap ? "Payments look short this pay period. Open the account for the working."
       : plansGap ? "Short after plans this pay period. Open the account for the working."
+      : savings ? savings.note
       : `Allocated from your shared Left to spend after known payments and plans this pay period${position.estimated ? "; some plan sources are estimated" : ""}${position.spend_from_requires_move ? ". This amount is available after the suggested move." : "."}`,
   };
 }

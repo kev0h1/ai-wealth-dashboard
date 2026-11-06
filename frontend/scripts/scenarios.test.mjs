@@ -122,10 +122,15 @@ for (const slug of slugs) {
       const server = snap.account_eligibility[account.id];
       const shown = reconcileWithServerPosition(account, positions[account.id]);
       const serverShort = (server.after_payments ?? 0) < 0 || (server.low_point ?? 0) < 0;
-      assert.equal(shown.status === "short", serverShort, `${account.id} shown status ${shown.status} vs server verdict ${serverShort ? "short" : "covered"}`);
-      assert.equal(accountPaymentGap(shown) !== null, serverShort, `${account.id} sheet verdict (payment gap) vs server verdict`);
+      // G422: a gap wholly explained by an own-savings standing order is amber ("unfunded"), never a payment shortfall.
+      const savingsOnly = serverShort && (server.savings_at_risk?.amount ?? 0) > 0
+        && -Math.min(server.after_payments ?? 0, server.low_point ?? 0) <= server.savings_at_risk.amount + 0.005;
+      assert.equal(shown.status === "short", serverShort && !savingsOnly, `${account.id} shown status ${shown.status} vs server verdict ${serverShort ? "short" : "covered"}`);
+      if (savingsOnly) assert.equal(shown.status, "unfunded", `${account.id} savings-only gap shows unfunded`);
+      assert.equal(accountPaymentGap(shown) !== null, serverShort && !savingsOnly, `${account.id} sheet verdict (payment gap) vs server verdict`);
       const row = statusFor(shown, []);
-      if (serverShort) assert.equal(row.label, "Short for payments", `${account.id} By account label`);
+      if (savingsOnly) assert.notEqual(row.signal, "risk", `${account.id} savings-only gap is never red`);
+      else if (serverShort) assert.equal(row.label, "Short for payments", `${account.id} By account label`);
       else if (shown.status === "covered" && !plans.some((p) => p.sourceId === account.id)) assert.equal(money(row.amount), money(server.after_payments), `${account.id} By account left figure vs server after payments`);
     });
     assertKey(`rows agree with shown status: ${account.id}`, () => {
@@ -157,7 +162,11 @@ for (const slug of slugs) {
       if (reading.kind !== "ready") { assert.ok(server.uncertain || server.spend_from_headroom < 0, `${account.id} unavailable although the server has a figure`); return; }
       assert.equal(reading.value, server.spend_from_headroom, `${account.id} availability vs server Spend from`);
       const serverShort = (server.after_payments ?? 0) < 0 || (server.low_point ?? 0) < 0;
-      assert.equal(reading.warning === "payments", serverShort, `${account.id} availability warning vs server verdict`);
+      // G422: a gap wholly explained by an own-savings standing order is not a payment warning (never the red one).
+      const savingsOnly = serverShort && (server.savings_at_risk?.amount ?? 0) > 0
+        && -Math.min(server.after_payments ?? 0, server.low_point ?? 0) <= server.savings_at_risk.amount + 0.005;
+      assert.equal(reading.warning === "payments", serverShort && !savingsOnly, `${account.id} availability warning vs server verdict`);
+      if (savingsOnly) assert.equal(reading.note, server.savings_at_risk.note, `${account.id} availability note is the engine's savings sentence`);
     });
   }
 

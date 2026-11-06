@@ -1,0 +1,287 @@
+{
+  "account_eligibility": {
+    "acc-bc": {
+      "account_headroom_raw": 10.0,
+      "after_payments": -200.0,
+      "after_payments_and_plans": -200.0,
+      "allocation_order": 0,
+      "allocation_unassigned": 0.0,
+      "covered_by_move": {
+        "amount": 210.0,
+        "from": [
+          {
+            "account_id": "acc-mz",
+            "amount": 210.0,
+            "display_label": "Monzo Current",
+            "name": "Monzo Current"
+          }
+        ],
+        "shortfall": 200.0
+      },
+      "estimated": false,
+      "headroom": -210.0,
+      "is_current_account": true,
+      "low_point": -200.0,
+      "low_point_and_plans": -200.0,
+      "plans_reserved": 0.0,
+      "savings_at_risk": {
+        "amount": 200.0,
+        "covered": 210.0,
+        "no_cover": false,
+        "note": "Savings at risk. A suggested move from Monzo Current would cover it. Nothing has been moved.",
+        "orders": [
+          {
+            "amount": 250.0,
+            "expected_date": "2026-11-26",
+            "label": "Saver Standing Order",
+            "name": "SAVER STANDING ORDER",
+            "to_name": "Barclays Saver"
+          }
+        ]
+      },
+      "short": true,
+      "short_after_cover": 0.0,
+      "spend_from_capped": false,
+      "spend_from_headroom": 10.0,
+      "spend_from_requires_move": true,
+      "uncertain": false
+    },
+    "acc-mz": {
+      "account_headroom_raw": 290.0,
+      "after_payments": 500.0,
+      "after_payments_and_plans": 500.0,
+      "allocation_order": 1,
+      "allocation_unassigned": 0.0,
+      "earmarked_total": 210.0,
+      "earmarks_out": [
+        {
+          "amount": 210.0,
+          "to_account_id": "acc-bc",
+          "to_name": "Barclays Current"
+        }
+      ],
+      "estimated": false,
+      "headroom": 490.0,
+      "is_current_account": true,
+      "low_point": 500.0,
+      "low_point_and_plans": 500.0,
+      "plans_reserved": 0.0,
+      "short": false,
+      "spend_from_capped": false,
+      "spend_from_headroom": 290.0,
+      "uncertain": false
+    },
+    "acc-sav": {
+      "account_headroom_raw": 990.0,
+      "after_payments": 1000.0,
+      "after_payments_and_plans": 1000.0,
+      "allocation_order": 2,
+      "allocation_unassigned": 0.0,
+      "estimated": false,
+      "headroom": 990.0,
+      "is_current_account": false,
+      "low_point": 1000.0,
+      "low_point_and_plans": 1000.0,
+      "plans_reserved": 0.0,
+      "short": false,
+      "spend_from_capped": false,
+      "spend_from_headroom": 0.0,
+      "uncertain": false
+    }
+  },
+  "account_plans": [],
+  "accounts": [
+    {
+      "balance": 50.0,
+      "currency": "GBP",
+      "id": "acc-bc",
+      "include_in_safe_to_spend": true,
+      "name": "Barclays Current",
+      "provider": "barclays",
+      "status": "connected",
+      "subtype": "TRANSACTION",
+      "type": "BANK"
+    },
+    {
+      "balance": 500.0,
+      "currency": "GBP",
+      "id": "acc-mz",
+      "include_in_safe_to_spend": true,
+      "name": "Monzo Current",
+      "provider": "monzo",
+      "status": "connected",
+      "subtype": "TRANSACTION",
+      "type": "BANK"
+    },
+    {
+      "balance": 1000.0,
+      "currency": "GBP",
+      "id": "acc-sav",
+      "include_in_safe_to_spend": true,
+      "name": "Barclays Saver",
+      "provider": "barclays",
+      "status": "connected",
+      "subtype": "SAVINGS",
+      "type": "BANK"
+    }
+  ],
+  "at_risk_count": 0,
+  "cashflow": {
+    "internal_inflows": [
+      {
+        "account_bank": "Barclays",
+        "account_id": "acc-sav",
+        "account_name": "Barclays Saver",
+        "amount": 250.0,
+        "days_away": 1,
+        "destination_spendable": false,
+        "expected_date": "2026-11-26",
+        "name": "SAVER STANDING ORDER",
+        "source_account_id": "acc-bc",
+        "source_account_name": "Barclays Current"
+      },
+      {
+        "account_bank": "Barclays",
+        "account_id": "acc-sav",
+        "account_name": "Barclays Saver",
+        "amount": 250.0,
+        "days_away": 34,
+        "destination_spendable": false,
+        "expected_date": "2026-12-29",
+        "name": "SAVER STANDING ORDER",
+        "source_account_id": "acc-bc",
+        "source_account_name": "Barclays Current"
+      }
+    ],
+    "next_payday": "2026-11-27",
+    "observed_pending_bills": [],
+    "period": {
+      "day_number": 27,
+      "end": "2026-11-26",
+      "label": "30 Oct to 26 Nov",
+      "length_days": 28,
+      "payday": "2026-11-27",
+      "payday_observed": null,
+      "start": "2026-10-30",
+      "type": "last_friday"
+    },
+    "spendable_balance": 550.0,
+    "upcoming_bills": [
+      {
+        "account_balance": 50.0,
+        "account_bank": "Barclays",
+        "account_id": "acc-bc",
+        "account_name": "Barclays Current",
+        "amount": 250.0,
+        "amount_basis": null,
+        "card_dest_account_bank": null,
+        "card_dest_account_id": null,
+        "card_dest_account_name": null,
+        "category": "Transfer",
+        "days_away": 1,
+        "days_past_due": 0,
+        "dest_account_bank": "Barclays",
+        "dest_account_id": "acc-sav",
+        "dest_account_name": "Barclays Saver",
+        "dest_account_spendable": false,
+        "edited": false,
+        "expected_date": "2026-11-26",
+        "is_card_repayment": false,
+        "is_credit_card": false,
+        "kind": "movement",
+        "name": "SAVER STANDING ORDER",
+        "observed_pending": false,
+        "original_date": null,
+        "pending": false,
+        "rule_label": null
+      },
+      {
+        "account_balance": 50.0,
+        "account_bank": "Barclays",
+        "account_id": "acc-bc",
+        "account_name": "Barclays Current",
+        "amount": 250.0,
+        "amount_basis": null,
+        "card_dest_account_bank": null,
+        "card_dest_account_id": null,
+        "card_dest_account_name": null,
+        "category": "Transfer",
+        "days_away": 34,
+        "days_past_due": 0,
+        "dest_account_bank": "Barclays",
+        "dest_account_id": "acc-sav",
+        "dest_account_name": "Barclays Saver",
+        "dest_account_spendable": false,
+        "edited": false,
+        "expected_date": "2026-12-29",
+        "is_card_repayment": false,
+        "is_credit_card": false,
+        "kind": "movement",
+        "name": "SAVER STANDING ORDER",
+        "observed_pending": false,
+        "original_date": "2026-12-26",
+        "pending": false,
+        "rule_label": null
+      }
+    ],
+    "upcoming_income": []
+  },
+  "days_to_payday": 2,
+  "items": [
+    {
+      "amount": 210.0,
+      "covered": true,
+      "id": "savings_shortfall:acc-bc:2026-11-27",
+      "moves": [
+        {
+          "amount": 210.0,
+          "move_map": {
+            "from": {
+              "account_id": "acc-mz",
+              "balance": 500.0,
+              "display_label": "Monzo Current",
+              "name": "Monzo Current",
+              "provider": "monzo",
+              "reserved_for_allocations": 0.0,
+              "safe_note": "Nothing due from this account right now"
+            },
+            "to": {
+              "account_id": "acc-bc",
+              "balance": 50.0,
+              "incoming": "savings transfer",
+              "name": "Barclays Current",
+              "provider": "barclays"
+            }
+          }
+        }
+      ],
+      "plan_dest": {
+        "account_id": "acc-bc",
+        "balance": 50.0,
+        "bills": [],
+        "is_overdraft": false,
+        "name": "Barclays Current",
+        "needs_by": "",
+        "needs_by_date": null,
+        "needs_by_last": "",
+        "needs_by_last_date": null,
+        "needs_total": 200.0,
+        "provider": "barclays"
+      },
+      "type": "move"
+    }
+  ],
+  "name": "Own-savings standing order the salary account cannot fund, 500 spare in another current account (G422)",
+  "period": {
+    "end": "2026-11-26",
+    "start": "2026-10-30"
+  },
+  "safe_to_spend": {
+    "allocations_reserved": 0.0,
+    "calculation_status": "complete",
+    "commitments_reserved": 0,
+    "safe_to_spend": 300.0,
+    "safe_to_spend_cash": 300.0
+  },
+  "today": "2026-11-25"
+}

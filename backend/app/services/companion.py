@@ -1705,6 +1705,102 @@ def _gate_recommendation(
     return real_bounced[0]
 
 
+# ── Savings at risk (G422) ────────────────────────────────────────────────────
+# A recurring transfer into the user's OWN savings that its source account
+# cannot fund this period. `_gate_recommendation` gate (b) rightly keeps it out
+# of the payment shortfall path (no fee, no credit damage, never red), but until
+# G422 that left the user with no word at all. Kevin (2026-11-06): fund it like
+# a plan when money exists elsewhere (one combined G414 cover move, earmarked,
+# amber, never a payment shortfall); when nothing can cover it, say so in one
+# plain line and suggest pausing or cancelling the standing order with the bank
+# this month. The app never moves or cancels anything. The payday plan is
+# untouched: G402 says habitual transfers are not plan rows.
+
+SAVINGS_NO_COVER_NOTE = (
+    "There is not enough to fund this savings transfer this period. "
+    "You could pause or cancel the standing order with your bank for this month."
+)
+SAVINGS_UNSIZED_NOTE = "Savings at risk. This account may not have enough to fund the transfer this period."
+
+
+def _savings_order_gaps(
+    min_running: dict[str, float],
+    bounced_bills: dict[str, list[dict]],
+    skip_accounts: set[str],
+) -> dict[str, dict]:
+    """PURE. {account_id: {"gap": pounds, "orders": [bounced standing orders]}}
+    for every account whose ONLY bounced items are own-savings standing orders
+    that are still to come. An account with any real bounce is a payment
+    shortfall and keeps its existing path (its cover already counts the
+    standing orders). A pending (due or overdue, unseen) order belongs to the
+    G42 `unfunded_move` item, so such an account is left to it. A card
+    repayment is a payment at risk, never savings. `skip_accounts` carries the
+    accounts another path already speaks for (shortfalls, overdrafts, payday
+    standing orders funded by the salary)."""
+    out: dict[str, dict] = {}
+    for acct, min_bal in min_running.items():
+        if min_bal >= -0.005 or acct == "__unknown__" or acct in skip_accounts:
+            continue
+        bounced = bounced_bills.get(acct) or []
+        if not bounced:
+            continue
+        if any(
+            b.get("kind") != MOVEMENT or b.get("is_card_repayment") or b.get("is_credit_card")
+            or b.get("pending") or not b.get("dest_account_id") or b.get("dest_account_spendable") is True
+            for b in bounced
+        ):
+            continue
+        out[acct] = {"gap": round(abs(float(min_bal)), 2), "orders": list(bounced)}
+    return out
+
+
+def _savings_at_risk_fact(
+    *, gap: float, orders: list[dict], covered: float, from_label: str | None,
+    from_count: int, no_cover: bool, unsized: bool = False,
+) -> dict:
+    """PURE. The one `savings_at_risk` fact every surface reads (Upcoming row,
+    account sheet, Home move card, Penny). `no_cover` is true only when the
+    finder found no account that could spare anything; a dismissed card or an
+    exhausted card allowance (`unsized`) claims nothing either way."""
+    if unsized:
+        note = SAVINGS_UNSIZED_NOTE
+    elif no_cover:
+        note = SAVINGS_NO_COVER_NOTE
+    else:
+        src = f"{from_count} of your other accounts" if from_count > 1 else (from_label or "another of your accounts")
+        if covered + 0.005 >= gap:
+            note = f"Savings at risk. A suggested move from {src} would cover it. Nothing has been moved."
+        else:
+            note = (
+                f"Savings at risk, even after the suggested move from {src}. "
+                "There is not enough to fund the rest this period. "
+                "You could pause or cancel the standing order with your bank for this month."
+            )
+    return {
+        "amount": round(float(gap), 2),
+        "orders": orders,
+        "covered": round(float(covered), 2),
+        "no_cover": bool(no_cover and not unsized),
+        "note": note,
+    }
+
+
+def _savings_order_rows(orders: list[dict], accounts_by_id: dict[str, dict]) -> list[dict]:
+    rows = []
+    for b in orders:
+        dest = accounts_by_id.get(str(b.get("dest_account_id") or ""))
+        rows.append({
+            "name": b.get("name") or "",
+            "label": _humanise_bill_name(b.get("display_name") or b.get("name") or "standing order"),
+            "amount": round(float(b.get("amount") or 0), 2),
+            "expected_date": b.get("expected_date"),
+            "to_name": humanise_account_name(
+                (dest or {}).get("name") or b.get("dest_account_name") or "savings"
+            ),
+        })
+    return rows
+
+
 # ── Overdraft destinations ────────────────────────────────────────────────────
 # An account can be genuinely negative today independent of any bill: either
 # with nothing due on it inside the window at all (`_walk_events` never seeds
@@ -2907,6 +3003,7 @@ async def compute_today_items(
     # G359: salaries whose payday standing orders explain a would-be cover
     # move (suppressed below, spoken once by a `payday_funds_moves` note).
     _payday_funds_salaries: list[dict] = []
+    _payday_funds_accts: set[str] = set()
     for dest_acct, min_bal in min_running.items():
         if min_bal >= 0 or dest_acct == "__unknown__":
             continue
@@ -2917,6 +3014,7 @@ async def compute_today_items(
             )
             if _pf_salary is not None:
                 _payday_funds_salaries.append(_pf_salary)
+                _payday_funds_accts.add(dest_acct)
                 continue
         _result = _shortfall_for_destination(
             dest_acct, min_bal, shortfall_bill, bounced_bills,
@@ -3185,7 +3283,10 @@ async def compute_today_items(
     # the destination as a source, under any of its ids.
     _MAX_COVER_SOURCES = 2
 
-    def _find_legs_for_destination(dest_acct: str, amount_needed: float, build_move_map, existing_sources: frozenset = frozenset()) -> list[dict]:
+    def _find_legs_for_destination(dest_acct: str, amount_needed: float, build_move_map, existing_sources: frozenset = frozenset(), exclude_sources: frozenset = frozenset()) -> list[dict]:
+        # `exclude_sources` (G422): accounts that may never fund this cover,
+        # e.g. the savings account a standing order pays into, since moving
+        # its own money back to fund its own transfer would be circular.
         legs: list[dict] = []
         used_sources: set[str] = set()   # belt-and-braces: one source per destination
         _dest_doc = _account_map.get(dest_acct)
@@ -3204,9 +3305,11 @@ async def compute_today_items(
             out = []
             for acc in accounts:
                 sid = acc["_str_id"]
-                if sid == dest_acct or sid in excluded_sources or sid in used_sources:
+                if sid == dest_acct or sid in excluded_sources or sid in used_sources or sid in exclude_sources:
                     continue
                 if _same_bank_account(acc, _dest_doc):
+                    continue
+                if exclude_sources and any(_same_bank_account(acc, _account_map.get(x)) for x in exclude_sources):
                     continue
                 if not predicate(acc):
                     continue
@@ -5342,6 +5445,16 @@ async def compute_today_items(
     # its £10 buffer, its exclusions), never a second ranking. Ranks below all
     # payment cards (see the merge in section 9).
     allocation_items: list[dict] = []
+    # G422: own-savings standing orders the source cannot fund. They ride the
+    # same combined cover move as a plan gap on the same account (below), or
+    # get their own card in 6b2 when the account has no plan gap.
+    _sav_gaps: dict[str, dict] = {}
+    _sav_handled: set[str] = set()
+    if not payday_preview:
+        _sav_gaps = _savings_order_gaps(
+            min_running, bounced_bills,
+            {_sd for _, _, _sd, _ in shortfalls} | set(_overdraft_today) | _payday_funds_accts,
+        )
     _ap_plans: list[dict] = []
     _ap_ctx: tuple | None = None
     _plan_gap_seen = False
@@ -5417,7 +5530,11 @@ async def compute_today_items(
                     _plan_slots = max(0, min(_MOVE_CARD_CAP - len(items), 3 - len(items) - len(unfunded_move_items[:1])))
                     if _existing_move is None and len(allocation_items) >= _plan_slots:
                         continue
-                    _payment_gap = float(dest_shortfall.get(_pay_id, 0.0))
+                    _sav_gap = float((_sav_gaps.get(_pay_id) or {}).get("gap") or 0.0)
+                    # G422: an unfunded own-savings standing order on this
+                    # account is part of the same combined target, so it is
+                    # one cover move, never a second card for one account.
+                    _payment_gap = float(dest_shortfall.get(_pay_id, 0.0)) + _sav_gap
                     _combined_target = float(_ceil5(_payment_gap + _gap) + 10)
                     _already_covered = float(_existing_move.get("amount") or 0.0) if _existing_move else 0.0
                     _incremental_needed = max(0.0, _combined_target - _already_covered)
@@ -5427,8 +5544,22 @@ async def compute_today_items(
                             str(((_m.get("move_map") or {}).get("from") or {}).get("account_id") or "")
                             for _m in ((_existing_move or {}).get("moves") or [])
                         ),
+                        exclude_sources=frozenset(
+                            str(b.get("dest_account_id")) for b in (_sav_gaps.get(_pay_id) or {}).get("orders", [])
+                        ),
                     )
                     _covered = round(sum(float(l["amount"]) for l in _legs), 2)
+                    _sav_fact: dict | None = None
+                    if _sav_gap > 0:
+                        _sav_handled.add(_pay_id)
+                        _sav_fact = _savings_at_risk_fact(
+                            gap=_sav_gap, orders=_savings_order_rows(_sav_gaps[_pay_id]["orders"], _ap_accts),
+                            covered=_covered, from_label=(_legs[0]["move_map"]["from"].get("display_label") or _legs[0]["move_map"]["from"]["name"]) if _legs else None,
+                            from_count=len({l["move_map"]["from"]["account_id"] for l in _legs}),
+                            no_cover=not _legs,
+                        )
+                        if account_eligibility_out is not None and account_eligibility_out.get(_pay_id) is not None:
+                            account_eligibility_out[_pay_id]["savings_at_risk"] = _sav_fact
                     # G414: a plan gap gets the same useful, possibly partial
                     # cover recommendation as a payment gap.  The plan edit
                     # remains an alternative action, carried in ``plans``.
@@ -5488,7 +5619,7 @@ async def compute_today_items(
                             # fact, so no surface reports two separate covers.
                             _existing = _dest_entry.get("covered_by_move") or {"amount": 0.0, "shortfall": 0.0, "from": []}
                             _existing["amount"] = round(float(_existing.get("amount") or 0) + _covered, 2)
-                            _existing["shortfall"] = round(float(_existing.get("shortfall") or 0) + _gap, 2)
+                            _existing["shortfall"] = round(float(_existing.get("shortfall") or 0) + _gap + _sav_gap, 2)
                             _existing["from"] = list(_existing.get("from") or []) + _from_rows
                             _dest_entry["covered_by_move"] = _existing
                             _dest_entry["short_after_cover"] = round(max(0.0, _existing["shortfall"] - _existing["amount"]), 2)
@@ -5544,7 +5675,7 @@ async def compute_today_items(
                             f"Your {_primary_plan['name']} plan is short" if not _multi
                             else f"Your plans at {humanise_account_name(_pay_name)} are short"
                         ),
-                        "body": f"{_gbp(_gap)} short this period.",
+                        "body": f"{_gbp(_gap + _sav_gap)} short this period.",
                         # The app never moves money: the card phrases the move
                         # as a recommendation from `moves`, so no action route.
                         "action": None,
@@ -5553,16 +5684,121 @@ async def compute_today_items(
                         "plan_shortfall": _plan_shortfall,
                         "plan_dest": _plan_dest,
                         "moves": _plan_shortfall["moves"],
-                        "covered": bool(_covered + 1e-6 >= _gap),
+                        "covered": bool(_covered + 1e-6 >= _gap + _sav_gap),
                         "sources_safe": bool(_legs),
                         "residual": (
-                            f"These moves cover {_gbp(_covered)}, but {_pay_name} is still {_gbp(_gap - _covered)} short."
-                            if _covered + 0.5 < _gap else None
+                            f"These moves cover {_gbp(_covered)}, but {_pay_name} is still {_gbp(_gap + _sav_gap - _covered)} short."
+                            if _covered + 0.5 < _gap + _sav_gap else None
                         ),
+                        **({"savings_at_risk": _sav_fact} if _sav_fact else {}),
                     })
         except Exception:
             log.warning("allocation shortfall failed for %s", uid, exc_info=True)
             allocation_items = []
+
+    # ── 6b2. SAVINGS AT RISK (G422) ─────────────────────────────────────────
+    # An own-savings standing order its source cannot fund this period, on an
+    # account with no plan gap (a plan gap on the same account already folded
+    # it into its one combined cover move above). The same finder, the same
+    # £10 cushion, the same earmark facts and the same card allowance as a plan
+    # gap; amber, never a payment shortfall, never counted at risk. When no
+    # account can spare anything there is no move, and the fact says so in one
+    # plain line. Nothing here moves, pauses or cancels anything.
+    if not payday_preview and _sav_gaps:
+        try:
+            _sv_accts = {a["_str_id"]: a for a in all_uk_accounts + offline_accounts}
+            for _sv_id in sorted(_sav_gaps, key=lambda a: (-_sav_gaps[a]["gap"], a)):
+                if _sv_id in _sav_handled:
+                    continue
+                _sv_acc = _sv_accts.get(_sv_id)
+                if _sv_acc is None:
+                    continue
+                _sv_gap = float(_sav_gaps[_sv_id]["gap"])
+                _sv_orders = _savings_order_rows(_sav_gaps[_sv_id]["orders"], _sv_accts)
+                _sv_name = _clean_name(_sv_acc.get("name"), _sv_id)
+                _sv_item_id = f"savings_shortfall:{_sv_id}:{window_end.isoformat()}"
+                _sv_slots = max(0, min(_MOVE_CARD_CAP - len(items), 3 - len(items) - len(unfunded_move_items[:1])))
+
+                def _build_sv_move_map(src_id, src_name, src_provider, src_balance, src_own_bills, leg_amount, src_reserved=0.0, _pn=_sv_name, _pid=_sv_id, _pa=_sv_acc, _o=_sv_orders):
+                    return {
+                        "from": {
+                            "account_id": src_id, "name": humanise_account_name(src_name), "provider": src_provider,
+                            "balance": float(src_balance),
+                            "display_label": _dl(src_id),
+                            "safe_note": (
+                                f"Covers its own £{int(round(src_own_bills)):,} of bills with room to spare"
+                                if src_own_bills > 0 else "Nothing due from this account right now"
+                            ),
+                            "reserved_for_allocations": round(src_reserved, 2),
+                        },
+                        "to": {
+                            "account_id": _pid, "name": _pn, "provider": _provider_of(_pa),
+                            "balance": float(live_balances.get(_pid, float(_pa.get("balance") or 0))),
+                            "incoming": "savings transfer" if len(_o) == 1 else "savings transfers",
+                        },
+                    }
+
+                _sv_unsized = _sv_item_id in dismissed or len(allocation_items) >= _sv_slots
+                _sv_legs = [] if _sv_unsized else _find_legs_for_destination(
+                    _sv_id, float(_ceil5(_sv_gap) + 10), _build_sv_move_map,
+                    exclude_sources=frozenset(str(b.get("dest_account_id")) for b in _sav_gaps[_sv_id]["orders"]),
+                )
+                _sv_covered = round(sum(float(l["amount"]) for l in _sv_legs), 2)
+                _sv_fact = _savings_at_risk_fact(
+                    gap=_sv_gap, orders=_sv_orders, covered=_sv_covered,
+                    from_label=(_sv_legs[0]["move_map"]["from"].get("display_label") or _sv_legs[0]["move_map"]["from"]["name"]) if _sv_legs else None,
+                    from_count=len({l["move_map"]["from"]["account_id"] for l in _sv_legs}),
+                    no_cover=not _sv_legs, unsized=_sv_unsized,
+                )
+                _sv_entry = (account_eligibility_out or {}).get(_sv_id)
+                if _sv_entry is not None:
+                    _sv_entry["savings_at_risk"] = _sv_fact
+                if not _sv_legs:
+                    continue
+                if account_eligibility_out is not None:
+                    _sv_from: list[dict] = []
+                    for _leg in _sv_legs:
+                        _src_id = _leg["move_map"]["from"]["account_id"]
+                        _amt = round(float(_leg["amount"]), 2)
+                        _sv_from.append({"account_id": _src_id, "name": _leg["move_map"]["from"]["name"], "amount": _amt, "display_label": _leg["move_map"]["from"].get("display_label")})
+                        _src = account_eligibility_out.get(_src_id)
+                        if _src is not None and not _src.get("uncertain"):
+                            _src["spend_from_headroom"] = round(float(_src.get("spend_from_headroom") or 0) - _amt, 2)
+                            _src.setdefault("earmarks_out", []).append({"to_account_id": _sv_id, "to_name": _sv_name, "amount": _amt})
+                            _src["earmarked_total"] = round(float(_src.get("earmarked_total") or 0) + _amt, 2)
+                    if _sv_entry is not None:
+                        _sv_entry["covered_by_move"] = {"amount": _sv_covered, "shortfall": round(_sv_gap, 2), "from": _sv_from}
+                        _sv_entry["short_after_cover"] = round(max(0.0, _sv_gap - _sv_covered), 2)
+                _sv_one = len(_sv_orders) == 1
+                allocation_items.append({
+                    "id": _sv_item_id,
+                    "type": "move",
+                    "headline": (
+                        f"Your {_sv_orders[0]['label']} transfer is short" if _sv_one
+                        else f"Your savings transfers from {humanise_account_name(_sv_name)} are short"
+                    ),
+                    "body": f"{_gbp(_sv_gap)} short for savings this period.",
+                    "action": None,
+                    "estimated": False,
+                    "amount": _sv_covered,
+                    "savings_at_risk": _sv_fact,
+                    "plan_dest": {
+                        "account_id": _sv_id, "name": _sv_name, "provider": _provider_of(_sv_acc),
+                        "balance": float(live_balances.get(_sv_id, float(_sv_acc.get("balance") or 0))),
+                        "needs_total": round(_sv_gap, 2),
+                        "needs_by": "", "needs_by_last": "", "needs_by_date": None, "needs_by_last_date": None,
+                        "bills": [], "is_overdraft": False,
+                    },
+                    "moves": [{"amount": l["amount"], "move_map": l["move_map"]} for l in _sv_legs],
+                    "covered": bool(_sv_covered + 1e-6 >= _sv_gap),
+                    "sources_safe": True,
+                    "residual": (
+                        f"These moves cover {_gbp(_sv_covered)}, but {_sv_name} is still {_gbp(_sv_gap - _sv_covered)} short for savings."
+                        if _sv_covered + 0.5 < _sv_gap else None
+                    ),
+                })
+        except Exception:
+            log.warning("savings at risk failed for %s", uid, exc_info=True)
 
     # Payment and plan coverage is one move per source/destination, including
     # its account facts. Never show two earmark deductions for the same move.

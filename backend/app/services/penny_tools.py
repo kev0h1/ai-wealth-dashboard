@@ -2235,7 +2235,7 @@ async def _exec_get_upcoming_bills(uid: str) -> dict:
     income = resp.get("upcoming_income") or []
     # G420: cached/stored reads only, same filters as the UI walk (see the helper).
     activity_inputs = await load_activity_inputs(uid)
-    return {
+    return {**await _savings_risk_extra(uid),  # G422, see the helper
         # G420: only accounts with something in the window (same rule as the
         # Upcoming By account list); an idle account is omitted, not listed.
         "by_account": by_account_with_activity(bills, income, inflows=resp.get("internal_inflows") or [], **activity_inputs),
@@ -8676,3 +8676,13 @@ async def _update_commitment_entry(uid: str, args: dict) -> dict:
     return await _exec_propose_update_commitment(
         uid, args.get("commitment_ref"), args.get("name"), args.get("amount"), args.get("target_date"),
     )
+
+
+async def _savings_risk_extra(uid: str) -> dict:
+    """G422: an own-savings standing order an account cannot fund this period,
+    in the engine's own words for get_upcoming_bills (recommendation only; the
+    app never moves, pauses or cancels). Empty when there is none."""
+    from app.services.penny_consolidation import savings_at_risk_facts
+
+    rows = await savings_at_risk_facts(uid)
+    return {"savings_at_risk": rows} if rows else {}
