@@ -31,23 +31,7 @@ type PreviewRoute = {
 };
 
 const ROUTES: PreviewRoute[] = [
-  {
-    slug: "spend-patterns-charts",
-    name: "Clearer Spend patterns · G380",
-    description: "G380 · impeccable · A separates larger payments alongside daily spending. B explores one question at a time with a reversible chart-only filter. Even scales, payment counts, missing history and hidden figures. Synthetic examples; production charts await a choice.",
-    variants: [{ label: "A · A clearer overview", value: "a" }, { label: "B · One question at a time", value: "b" }],
-    states: [{ label: "One large payment", value: "large" }, { label: "Everyday spending", value: "ordinary" }, { label: "Two large payments", value: "multiple" }, { label: "Not counted", value: "not-counted" }, { label: "Incomplete history", value: "sparse" }, { label: "No transactions", value: "empty" }],
-    group: "current",
-  },
 
-  {
-    slug: "cover-plan-move-card",
-    name: "Cover plan move card · G383",
-    description: "G383 · impeccable · Two focused alternatives for one recommended funding move. Each keeps one suggested amount, a From/To route and one progressive disclosure that reconciles funding with the payments it protects. Synthetic examples only, so no transfer is made. ?variant=a|b&state=one|two|overdue|none&mode=light|dark&hidden=1",
-    variants: [{ label: "A · One move, one reason", value: "a" }, { label: "B · Payment-led", value: "b" }],
-    states: [{ label: "One source", value: "one" }, { label: "Two sources", value: "two" }, { label: "Overdue payment", value: "overdue" }, { label: "No move needed", value: "none" }],
-    group: "current",
-  },
 
 
   {
@@ -74,14 +58,6 @@ const ROUTES: PreviewRoute[] = [
     group: "current",
   },
 
-  {
-    slug: "account-availability-shortfall",
-    name: "Account availability and shortfall · G385",
-    description: "G385 · impeccable · Two compact account-row treatments that keep Available as the conservative Spend from limit, floored at £0, while making a real before-payday account shortfall intelligible. A pairs the figures; B uses a plain verdict line. Synthetic fixtures cover positive availability, payment shortfall, plans-only gap, checking, unavailable, cover-plan suggestion, hidden figures and pence. No production route or data is changed.",
-    variants: [{ label: "A · Paired figures", value: "a" }, { label: "B · Verdict line", value: "b" }],
-    states: [{ label: "Payments short", value: "payments-short" }, { label: "Covered", value: "covered" }, { label: "6p available", value: "pennies" }, { label: "Plans gap", value: "plans-gap" }, { label: "Checking", value: "checking" }, { label: "Not available yet", value: "unknown" }, { label: "Could not check", value: "error" }],
-    group: "current",
-  },
 
 
   {
