@@ -1,6 +1,6 @@
 # Privacy Policy
 
-**Last updated:** 2026-09-23
+**Last updated:** 2026-11-06
 **Version:** 1.1
 
 This Privacy Policy explains how we collect, use, share and protect your personal data when you use our personal finance app, Sorted. It is written for UK residents aged 18 or over. Please read it alongside any in-app consent screens you are shown when you connect a bank account.
@@ -11,7 +11,7 @@ This Privacy Policy explains how we collect, use, share and protect your persona
 
 Sorted is provided by AURIQ LTD, a company registered in England and Wales under company number 16813875, trading as "Sorted".
 
-- **Registered address:** Birmingham, B36, United Kingdom (full registered office address is available on the Companies House register under company number 16813875)
+- **Registered address:** 124 City Road, London, EC1V 2NX, United Kingdom (company number 16813875)
 - **Contact:** info@auriqltd.co.uk
 - **ICO registration:** ZC214737
 
@@ -181,7 +181,7 @@ If you have any questions about this policy or how we handle your data, or want 
 
 **AURIQ LTD (trading as Sorted)**
 Email: info@auriqltd.co.uk
-Registered address: Birmingham, B36, United Kingdom
+Registered address: 124 City Road, London, EC1V 2NX, United Kingdom
 ICO registration: ZC214737
 
 If you are unhappy with how we have handled your data, you have the right to complain to the UK's data protection regulator, the Information Commissioner's Office (ICO):
