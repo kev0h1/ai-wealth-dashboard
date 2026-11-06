@@ -177,3 +177,34 @@ def test_today_items_survives_an_enqueue_failure(env, monkeypatch):
         raise RuntimeError("queue down")
     monkeypatch.setattr(derived_caches, "enqueue_cashflow_recompute", broken)
     assert _today() == "halted"
+
+
+def test_missing_doc_with_owed_model_work_enqueues_as_model_work(env, monkeypatch):
+    calls = []
+
+    async def fake_compute(uid, clear_ai_cache=True):
+        calls.append(clear_ai_cache)
+        env["cache"].docs[uid] = _doc(model_work_pending=True)
+        return True
+
+    reasons = []
+
+    async def fake_enqueue(uid, *, reason):
+        reasons.append(reason)
+        return True
+    monkeypatch.setattr(analytics, "compute_and_cache_cashflow", fake_compute)
+    monkeypatch.setattr(derived_caches, "enqueue_cashflow_recompute", fake_enqueue)
+    assert _at_risk() == "halted"
+    assert calls == [False]
+    assert reasons == ["model_work"]
+
+
+def test_missing_doc_without_owed_work_enqueues_as_no_cache(env, monkeypatch):
+    reasons = []
+
+    async def fake_enqueue(uid, *, reason):
+        reasons.append(reason)
+        return True
+    monkeypatch.setattr(derived_caches, "enqueue_cashflow_recompute", fake_enqueue)
+    _at_risk()
+    assert reasons == ["no_cache"]

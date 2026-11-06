@@ -3334,9 +3334,11 @@ async def serve_stored_cashflow_for_read(uid: str, cached: dict | None) -> dict 
         if reason:
             await _derived_caches.enqueue_cashflow_recompute(uid, reason=reason)
         return cached
-    await compute_and_cache_cashflow(uid)
+    await compute_and_cache_cashflow(uid, clear_ai_cache=False)
     after = await cashflow_cache_col.find_one({"_id": uid})
-    await _derived_caches.enqueue_cashflow_recompute(uid, reason="no_cache")
+    # Same as get_cashflow's inline path: an owed model rerun is throttle-exempt.
+    await _derived_caches.enqueue_cashflow_recompute(
+        uid, reason="model_work" if (after or {}).get("model_work_pending") else "no_cache")
     return after
 
 
