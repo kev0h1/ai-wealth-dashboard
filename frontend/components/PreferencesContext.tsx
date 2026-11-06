@@ -393,6 +393,13 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
   // point, all five savers below pass it as `onSuccess`, costs one extra
   // client-side cache clear on darkMode/hideNetWorth toggles that don't
   // actually need it — negligible next to a stale four-figure verdict.
+  //
+  // E15 (2026-11-06): the server now bumps its data version only for fields
+  // that feed money figures (backend/app/routers/preferences.py,
+  // MONEY_FEEDING_PREFERENCE_FIELDS), so the cosmetic savers (hide_net_worth,
+  // dark_mode, show_tips, pay_split_reference, penny_appearance,
+  // open_last_chat) no longer clear these client caches; the three money
+  // savers (pay_period_config, debt_target_months, debt_tracking_start) do.
   const invalidateSpendCaches = useCallback(() => {
     invalidateVerdictCache();
     invalidateMoneyShapeCache();
@@ -406,7 +413,6 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
     reconcile: makeFieldReconcile<boolean>(fetchPreferencesSnapshot, "hide_net_worth"),
     noteVersion: notePreferencesVersion,
     onError: makeFieldErrorHandler("hide_net_worth"),
-    onSuccess: invalidateSpendCaches,
   })).current;
 
   const darkModeSaver = useRef(createPreferenceSaver<boolean>({
@@ -417,7 +423,6 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
     reconcile: makeFieldReconcile<boolean>(fetchPreferencesSnapshot, "dark_mode"),
     noteVersion: notePreferencesVersion,
     onError: makeFieldErrorHandler("dark_mode"),
-    onSuccess: invalidateSpendCaches,
   })).current;
 
   const pennyAppearanceSaver = useRef(createPreferenceSaver<PennyAppearance>({
@@ -438,7 +443,6 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
     reconcile: makeFieldReconcile<boolean>(fetchPreferencesSnapshot, "show_tips"),
     noteVersion: notePreferencesVersion,
     onError: makeFieldErrorHandler("show_tips"),
-    onSuccess: invalidateSpendCaches,
   })).current;
 
   const payPeriodConfigSaver = useRef(createPreferenceSaver<PayPeriodConfig>({
@@ -496,7 +500,6 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
     ),
     noteVersion: notePreferencesVersion,
     onError: makeFieldErrorHandler("pay_split_reference"),
-    onSuccess: invalidateSpendCaches,
   })).current;
 
   const loadPreferences = useCallback((): Promise<Record<string, any> | null> => {
