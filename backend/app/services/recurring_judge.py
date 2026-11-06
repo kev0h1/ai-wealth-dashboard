@@ -28,6 +28,8 @@ as it did before this module existed. This module only ever REMOVES a
 series from the projection (a veto); it never adds one.
 """
 import asyncio
+import contextlib
+import contextvars
 import hashlib
 import json
 import logging
@@ -173,6 +175,21 @@ def _build_prompt(series: dict, acct: dict | None) -> str:
 # tests need no setup.
 _model_calls_allowed = True
 _pending_model_work: set[str] = set()
+# Per-compute tracking: `track_model_work()` wraps one compute and yields a box
+# its own `note_model_work_pending` calls set, so two overlapping computes for
+# one user each know whether THEY skipped model work. Calls outside any
+# tracked compute fall back to the shared per-user set.
+_owed_box: contextvars.ContextVar = contextvars.ContextVar("model_work_owed_box", default=None)
+
+
+@contextlib.contextmanager
+def track_model_work():
+    box = {"owed": False}
+    token = _owed_box.set(box)
+    try:
+        yield box
+    finally:
+        _owed_box.reset(token)
 
 
 def forbid_model_calls() -> None:
@@ -190,7 +207,11 @@ def model_calls_allowed() -> bool:
 
 
 def note_model_work_pending(uid: str) -> None:
-    _pending_model_work.add(uid)
+    box = _owed_box.get()
+    if box is not None:
+        box["owed"] = True
+    else:
+        _pending_model_work.add(uid)
 
 
 def pop_model_work_pending(uid: str) -> bool:

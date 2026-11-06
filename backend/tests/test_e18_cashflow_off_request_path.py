@@ -90,6 +90,7 @@ def env(monkeypatch):
     monkeypatch.setattr(cashflow_service, "monthly_cashflow", fake_monthly_cf)
     monkeypatch.setattr(derived_caches, "_get_arq_pool", fake_pool)
     monkeypatch.setattr(derived_caches, "_enqueued_recently", {})
+    monkeypatch.setattr(derived_caches, "_model_work_failed_at", {})
     return {"cache": cache, "pool": pool, "computes": computes}
 
 
@@ -390,3 +391,102 @@ def test_api_startup_closes_the_gate(monkeypatch):
     assert main._forbid_model_passes_in_api in main.app.router.on_startup
     asyncio.run(main._forbid_model_passes_in_api())
     assert seen == ["forbid"]
+
+
+# ---- second re-review fixes --------------------------------------------------
+
+def test_overlapping_computes_each_carry_their_own_marker(env, monkeypatch):
+    """The slower, newer write must still carry the marker even though the
+    faster compute finished first (a shared per-user flag lost it)."""
+    recurring_judge.forbid_model_calls()
+    delays = iter([0.05, 0.0])
+
+    async def patterns(uid):
+        d = next(delays)
+        recurring_judge.note_model_work_pending(uid)
+        await asyncio.sleep(d)
+        return {"upcoming_bills": [], "recurring_spend": []}
+    monkeypatch.setattr(analytics, "_compute_cashflow_patterns", patterns)
+
+    async def run():
+        await asyncio.gather(analytics.compute_and_cache_cashflow(UID), analytics.compute_and_cache_cashflow(UID))
+    asyncio.run(run())
+    assert env["cache"].docs[UID]["model_work_pending"] is True
+    assert recurring_judge._pending_model_work == set()
+
+
+def test_a_compute_that_skipped_nothing_writes_no_marker(env, monkeypatch):
+    env["cache"].docs[UID] = _doc(model_work_pending=True)
+
+    async def patterns(uid):
+        return {"upcoming_bills": [], "recurring_spend": []}
+    monkeypatch.setattr(analytics, "_compute_cashflow_patterns", patterns)
+    asyncio.run(analytics.compute_and_cache_cashflow(UID))
+    assert "model_work_pending" not in env["cache"].docs[UID]
+
+
+def test_redis_down_with_marker_does_not_compute_inline_and_backs_off(env, monkeypatch):
+    env["cache"].docs[UID] = _doc(model_work_pending=True)
+    pool_calls: list = []
+
+    async def broken_pool():
+        pool_calls.append(1)
+        raise ConnectionError("redis down")
+    monkeypatch.setattr(derived_caches, "_get_arq_pool", broken_pool)
+
+    async def run():
+        for _ in range(4):
+            await derived_caches.enqueue_cashflow_recompute(UID, reason="model_work")
+        await asyncio.sleep(0)
+    asyncio.run(run())
+    assert env["computes"] == [], "an API compute cannot do the owed work, so no inline fallback"
+    assert len(pool_calls) == 1, "a failed model_work enqueue backs off"
+    derived_caches._model_work_failed_at[UID] -= derived_caches._MODEL_WORK_BACKOFF_SECONDS + 1
+    asyncio.run(derived_caches.enqueue_cashflow_recompute(UID, reason="model_work"))
+    assert len(pool_calls) == 2, "after the back-off a read tries again"
+
+
+def test_repeated_reads_with_redis_down_never_compute_inline(env, monkeypatch):
+    env["cache"].docs[UID] = _doc(model_work_pending=True)
+
+    async def broken_pool():
+        raise ConnectionError("redis down")
+    monkeypatch.setattr(derived_caches, "_get_arq_pool", broken_pool)
+    for _ in range(3):
+        _get()
+    assert env["computes"] == []
+
+
+def test_redis_down_still_falls_back_inline_for_a_dirty_doc(env, monkeypatch):
+    async def broken_pool():
+        raise ConnectionError("redis down")
+    monkeypatch.setattr(derived_caches, "_get_arq_pool", broken_pool)
+
+    async def run():
+        await derived_caches.enqueue_cashflow_recompute(UID, reason="dirty")
+        await asyncio.sleep(0.05)
+    asyncio.run(run())
+    assert env["computes"] == [UID]
+
+
+def test_predictor_cache_is_per_candidate_set_and_the_window_is_24_hours(monkeypatch):
+    calls: list = []
+
+    async def chat(payload, **kw):
+        calls.append(1)
+        return _Resp("[]")
+    monkeypatch.setattr(analytics, "openrouter_chat", chat)
+    monkeypatch.setattr(analytics, "OPENROUTER_API_KEY", "test-key")
+    recurring_judge.allow_model_calls()
+    a = [{"key": "gym", "avg_amount": 20.0, "last_date": datetime.now()}]
+    b = a + [{"key": "pool", "avg_amount": 9.0, "last_date": datetime.now()}]
+    asyncio.run(analytics._ai_recurring_predict(a, UID))
+    asyncio.run(analytics._ai_recurring_predict(a, UID))
+    assert len(calls) == 1, "same candidates reuse the cache"
+    asyncio.run(analytics._ai_recurring_predict(b, UID))
+    assert len(calls) == 2, "a different candidate set never reuses it"
+    # 24 h is real: 25 hours old, even though .seconds would read 3600
+    ts, res, sig = analytics._ai_recurring_cache[UID]
+    analytics._ai_recurring_cache[UID] = (ts - timedelta(hours=25), res, sig)
+    asyncio.run(analytics._ai_recurring_predict(b, UID))
+    assert len(calls) == 3

@@ -426,6 +426,10 @@ async def refresh_stale_cashflow_caches(*, reason: str) -> dict:
 # permanently failing recompute to one enqueue per window per process.
 _ENQUEUE_THROTTLE_SECONDS = 30.0
 _enqueued_recently: dict[str, float] = {}
+# model_work only: when the queue was unreachable, back off for a few seconds
+# rather than dialling Redis on every read.
+_MODEL_WORK_BACKOFF_SECONDS = 5.0
+_model_work_failed_at: dict[str, float] = {}
 _arq_pool = None
 _inline_fallback_tasks: dict[str, "asyncio.Task"] = {}
 
@@ -451,12 +455,17 @@ async def enqueue_cashflow_recompute(uid: str, *, reason: str) -> bool:
     # "model_work" is exempt from the throttle: the owed rerun is recorded on
     # the doc and every read re-asks, so it must reach the queue each time
     # (arq's job id still dedupes a queued or running job).
-    if reason != "model_work" and last is not None and now - last < _ENQUEUE_THROTTLE_SECONDS:
-        return True
-    if len(_enqueued_recently) > 2000:
-        for k in [k for k, t in _enqueued_recently.items() if now - t >= _ENQUEUE_THROTTLE_SECONDS]:
-            del _enqueued_recently[k]
-    _enqueued_recently[uid] = now
+    if reason == "model_work":
+        failed = _model_work_failed_at.get(uid)
+        if failed is not None and now - failed < _MODEL_WORK_BACKOFF_SECONDS:
+            return False
+    else:
+        if last is not None and now - last < _ENQUEUE_THROTTLE_SECONDS:
+            return True
+        if len(_enqueued_recently) > 2000:
+            for k in [k for k, t in _enqueued_recently.items() if now - t >= _ENQUEUE_THROTTLE_SECONDS]:
+                del _enqueued_recently[k]
+        _enqueued_recently[uid] = now
     try:
         pool = await _get_arq_pool()
         await pool.enqueue_job("task_recompute_cashflow", user_id=uid, reason=reason, _job_id=f"recompute:{uid}")
@@ -464,6 +473,16 @@ async def enqueue_cashflow_recompute(uid: str, *, reason: str) -> bool:
         return True
     except Exception as exc:
         _arq_pool = None
+        if reason == "model_work":
+            # An API compute cannot do the owed model work, so an in-process
+            # fallback would only repeat the judge-free compute. The marker on
+            # the doc keeps the work owed; back off and let a later read retry.
+            _model_work_failed_at[uid] = now
+            if len(_model_work_failed_at) > 2000:
+                for k in [k for k, t in _model_work_failed_at.items() if now - t >= _MODEL_WORK_BACKOFF_SECONDS]:
+                    del _model_work_failed_at[k]
+            logger.warning("cashflow model_work enqueue failed (%s); will retry on a later read", type(exc).__name__)
+            return False
         logger.warning("cashflow recompute enqueue failed (%s); running in-process", type(exc).__name__)
     existing = _inline_fallback_tasks.get(uid)
     if existing is not None and not existing.done():

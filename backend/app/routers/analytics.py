@@ -68,7 +68,13 @@ from app.services.income_payer import (
 )
 
 # Cache AI recurring predictions per user (in-process, cleared on restart)
-_ai_recurring_cache: dict[str, tuple[datetime, list]] = {}
+# Keyed by user id; the value carries a signature of the candidate keys it was
+# made for, so a different candidate set never reuses it.
+_ai_recurring_cache: dict[str, tuple[datetime, list, str]] = {}
+
+
+def _ai_candidate_sig(candidates: list[dict]) -> str:
+    return hashlib.sha256("\n".join(sorted(str(c.get("key")) for c in candidates)).encode()).hexdigest()
 
 # England & Wales bank holidays (static set; extend when new years published)
 UK_BANK_HOLIDAYS_EW: frozenset = frozenset({
@@ -385,8 +391,9 @@ async def _ai_recurring_predict(candidates: list[dict], user_id: str) -> list[di
     Returns list of {key, avg_amount, next_date} for any it recognises as periodic.
     Results are cached 24h per user to avoid repeated API calls.
     """
+    _sig = _ai_candidate_sig(candidates)
     cached = _ai_recurring_cache.get(user_id)
-    if cached and (datetime.now() - cached[0]).seconds < 86400:
+    if cached and cached[2] == _sig and (datetime.now() - cached[0]).total_seconds() < 86400:
         return cached[1]
 
     if not OPENROUTER_API_KEY or not candidates:
@@ -458,7 +465,7 @@ async def _ai_recurring_predict(candidates: list[dict], user_id: str) -> list[di
             "account_id":   c.get("account_id"),
         })
 
-    _ai_recurring_cache[user_id] = (datetime.now(), result)
+    _ai_recurring_cache[user_id] = (datetime.now(), result, _sig)
     return result
 
 
@@ -3329,12 +3336,14 @@ async def compute_and_cache_cashflow(uid: str, clear_ai_cache: bool = True) -> b
         # AI predictions stay valid and the rebuild takes milliseconds.
         if clear_ai_cache:
             _ai_recurring_cache.pop(uid, None)
-        data = await _compute_cashflow_patterns(uid)
-        # E18: model work this compute owed but could not do (the API
-        # process forbids model calls) is recorded ON the doc, so it
-        # survives a throttled or deduplicated enqueue, a lost CAS and a
-        # restart; the worker's write (gate open, nothing owed) clears it.
-        _owed_model_work = _recurring_judge.pop_model_work_pending(uid)
+        # E18: model work THIS compute owed but could not do (the API
+        # process forbids model calls) is tracked per compute and recorded ON
+        # the doc, so it survives a throttled or deduplicated enqueue, a lost
+        # CAS, a restart and an overlapping compute; the worker's write (gate
+        # open, nothing owed) clears it.
+        with _recurring_judge.track_model_work() as _mw:
+            data = await _compute_cashflow_patterns(uid)
+        _owed_model_work = _mw["owed"]
         if _owed_model_work:
             data["model_work_pending"] = True
         data["computed_at"] = datetime.now()
@@ -5010,7 +5019,8 @@ async def get_cashflow(user: dict = Depends(current_user), include: str = ""):
     else:
         # No cache yet — compute (judge-free), store, then return
         _started = _ms(datetime.now())  # naive-ok: cache watermark, same as compute_and_cache_cashflow
-        data = await _compute_cashflow_patterns(uid)
+        with _recurring_judge.track_model_work() as _mw:
+            data = await _compute_cashflow_patterns(uid)
         data["computed_at"] = datetime.now()
         data["patterns_version"] = PATTERNS_VERSION
         # G159 review fix #5: this is the other writer of a cashflow_cache
@@ -5022,7 +5032,7 @@ async def get_cashflow(user: dict = Depends(current_user), include: str = ""):
         # engine build.
         data["engine_build"] = engine_build()
         data["computed_from"] = _started
-        _owed_model_work = _recurring_judge.pop_model_work_pending(uid)
+        _owed_model_work = _mw["owed"]
         if _owed_model_work:
             data["model_work_pending"] = True
         try:
