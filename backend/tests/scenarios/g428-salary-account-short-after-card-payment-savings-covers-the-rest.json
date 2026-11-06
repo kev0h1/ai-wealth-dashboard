@@ -1,0 +1,172 @@
+{
+  "name": "Salary account short by 1,200 after a large card payment: two small current accounts and one savings account cover it (G428)",
+  "today": "2026-11-06",
+  "pay_period_config": {
+    "type": "last_friday"
+  },
+  "confirmed_income_streams": [],
+  "accounts": [
+    {
+      "_id": "acc-bc",
+      "name": "Barclays Current",
+      "provider": "barclays",
+      "type": "BANK",
+      "subtype": "TRANSACTION",
+      "balance": 1400.0,
+      "currency": "GBP",
+      "status": "connected",
+      "include_in_safe_to_spend": true
+    },
+    {
+      "_id": "acc-hs",
+      "name": "HSBC Current",
+      "provider": "hsbc",
+      "type": "BANK",
+      "subtype": "TRANSACTION",
+      "balance": 110.0,
+      "currency": "GBP",
+      "status": "connected",
+      "include_in_safe_to_spend": true
+    },
+    {
+      "_id": "acc-mz",
+      "name": "Monzo Current",
+      "provider": "monzo",
+      "type": "BANK",
+      "subtype": "TRANSACTION",
+      "balance": 60.0,
+      "currency": "GBP",
+      "status": "connected",
+      "include_in_safe_to_spend": true
+    },
+    {
+      "_id": "acc-sav",
+      "name": "Barclays Saver",
+      "provider": "barclays",
+      "type": "BANK",
+      "subtype": "SAVINGS",
+      "balance": 5000.0,
+      "currency": "GBP",
+      "status": "connected",
+      "include_in_safe_to_spend": true
+    }
+  ],
+  "manual_accounts": [],
+  "cashflow_cache": {
+    "recurring_spend": [
+      {
+        "key": "ACME CARD PAYMENT",
+        "avg_amount": 2600.0,
+        "avg_interval": 30,
+        "next_date": "2026-11-09",
+        "account_id": "acc-bc",
+        "account_name": "Barclays Current",
+        "account_bank": "barclays",
+        "account_balance": 1400.0,
+        "is_credit_card": false,
+        "category": "Bills"
+      }
+    ],
+    "recurring_income": [],
+    "bnpl_commitments": [],
+    "avg_daily_spend": 0
+  },
+  "transactions": [],
+  "commitments": [],
+  "allocations": [],
+  "card_terms": [],
+  "expected": {
+    "left_to_spend": -1030.0,
+    "spend_from_total": 0.0,
+    "spendable_balance": 1570.0,
+    "not_spendable": [
+      "acc-sav"
+    ],
+    "accounts": {
+      "acc-bc": {
+        "spend_from": 0.0,
+        "after_payments": -1200.0,
+        "low_point": -1200.0,
+        "verdict": "short",
+        "covered_by_move": {
+          "amount": 1210.0,
+          "from": [
+            {
+              "account_id": "acc-hs",
+              "amount": 100.0
+            },
+            {
+              "account_id": "acc-mz",
+              "amount": 50.0
+            },
+            {
+              "account_id": "acc-sav",
+              "amount": 1060.0,
+              "source_kind": "savings"
+            }
+          ]
+        },
+        "short_after_cover": 0.0
+      },
+      "acc-hs": {
+        "spend_from": 0.0,
+        "after_payments": 110.0,
+        "low_point": 110.0,
+        "verdict": "covered",
+        "earmarked_total": 100.0,
+        "earmarks_out": [
+          {
+            "to": "acc-bc",
+            "amount": 100.0
+          }
+        ]
+      },
+      "acc-mz": {
+        "spend_from": 0.0,
+        "after_payments": 60.0,
+        "low_point": 60.0,
+        "verdict": "covered",
+        "earmarked_total": 50.0,
+        "earmarks_out": [
+          {
+            "to": "acc-bc",
+            "amount": 50.0
+          }
+        ]
+      },
+      "acc-sav": {
+        "earmarked_total": 1060.0,
+        "earmarks_out": [
+          {
+            "to": "acc-bc",
+            "amount": 1060.0
+          }
+        ]
+      }
+    },
+    "cover_plan": {
+      "moves_total": 1210.0,
+      "moves": [
+        {
+          "from": "acc-hs",
+          "to": "acc-bc",
+          "amount": 100.0
+        },
+        {
+          "from": "acc-mz",
+          "to": "acc-bc",
+          "amount": 50.0
+        },
+        {
+          "from": "acc-sav",
+          "to": "acc-bc",
+          "amount": 1060.0
+        }
+      ],
+      "cover_note": "Your other accounts can cover \u00a3150. A move of \u00a31,060 from Barclays Saver would cover the rest."
+    },
+    "payday_plan": null,
+    "at_risk_count": 1,
+    "notes": "G428 (Kevin 2026-11-06). Today Fri 6 Nov 2026, pay period last Friday, so payday is Fri 27 Nov and the window is 6 to 26 Nov. Barclays Current (the salary account) holds 1,400 and has one payment of 2,600 on Mon 9 Nov. HSBC Current holds 110 and Monzo Current 60, with nothing due. Barclays Saver is savings and holds 5,000 (savings, in no pool). Barclays walk: 1,400 - 2,600 = -1,200 after payments and at the low point, so short. At risk count 1 (the 2,600 payment cannot be paid from Barclays on its own). Cover target: ceil5(1,200) = 1,200, plus the 10 cushion = 1,210. Source headroom is the running minimum less the 10 cushion: HSBC 110 - 10 = 100, Monzo 60 - 10 = 50, Saver 5,000 - 10 = 4,990. Current accounts first, two slots at most: HSBC 100 and Monzo 50 together cover 150, which is less than 1,210, so both are used. One savings account then covers the rest: 1,210 - 150 = 1,060 from Barclays Saver (three sources in all). Covered 100 + 50 + 1,060 = 1,210 against a shortfall of 1,200, so short after cover = max(0, 1,200 - 1,210) = 0. Earmarks on every source: HSBC 100, Monzo 50 and the Saver 1,060, all to Barclays Current. The card reads: Your other accounts can cover \u00a3150. A move of \u00a31,060 from Barclays Saver would cover the rest. (a recommendation in the watch tone, never an action). Left to spend: the pool is the three counted current accounts 1,400 + 110 + 60 = 1,570 (the saver is in no pool); 1,570 - 2,600 = -1,030, the lowest point, so Left to spend is -1,030. Own-account moves never change the pool, and the 1,060 from savings is never counted as spendable. With the pool below zero nothing is spendable, so Spend from is 0 on every account and the total is 0. The payday plan is null: no salary is expected before 27 Nov inside the window."
+  }
+}

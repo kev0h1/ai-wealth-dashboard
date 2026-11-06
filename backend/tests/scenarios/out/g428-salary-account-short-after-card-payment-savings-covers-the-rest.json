@@ -1,0 +1,368 @@
+{
+  "account_eligibility": {
+    "acc-bc": {
+      "account_headroom_raw": 10.0,
+      "after_payments": -1200.0,
+      "after_payments_and_plans": -1200.0,
+      "allocation_order": 0,
+      "allocation_unassigned": 0.0,
+      "covered_by_move": {
+        "amount": 1210.0,
+        "current_amount": 150.0,
+        "from": [
+          {
+            "account_id": "acc-hs",
+            "amount": 100.0,
+            "display_label": "HSBC Current",
+            "name": "HSBC Current"
+          },
+          {
+            "account_id": "acc-mz",
+            "amount": 50.0,
+            "display_label": "Monzo Current",
+            "name": "Monzo Current"
+          },
+          {
+            "account_id": "acc-sav",
+            "amount": 1060.0,
+            "display_label": "Barclays Saver",
+            "name": "Barclays Saver",
+            "source_kind": "savings"
+          }
+        ],
+        "savings_amount": 1060.0,
+        "shortfall": 1200.0
+      },
+      "estimated": false,
+      "headroom": -1210.0,
+      "is_current_account": true,
+      "low_point": -1200.0,
+      "low_point_and_plans": -1200.0,
+      "plans_reserved": 0.0,
+      "short": true,
+      "short_after_cover": 0.0,
+      "spend_from_capped": true,
+      "spend_from_headroom": 0.0,
+      "uncertain": false
+    },
+    "acc-hs": {
+      "account_headroom_raw": 10.0,
+      "after_payments": 110.0,
+      "after_payments_and_plans": 110.0,
+      "allocation_order": 1,
+      "allocation_unassigned": 0.0,
+      "earmarked_total": 100.0,
+      "earmarks_out": [
+        {
+          "amount": 100.0,
+          "to_account_id": "acc-bc",
+          "to_name": "Barclays Current"
+        }
+      ],
+      "estimated": false,
+      "headroom": 100.0,
+      "is_current_account": true,
+      "low_point": 110.0,
+      "low_point_and_plans": 110.0,
+      "plans_reserved": 0.0,
+      "short": false,
+      "spend_from_capped": true,
+      "spend_from_headroom": 0.0,
+      "uncertain": false
+    },
+    "acc-mz": {
+      "account_headroom_raw": 10.0,
+      "after_payments": 60.0,
+      "after_payments_and_plans": 60.0,
+      "allocation_order": 2,
+      "allocation_unassigned": 0.0,
+      "earmarked_total": 50.0,
+      "earmarks_out": [
+        {
+          "amount": 50.0,
+          "to_account_id": "acc-bc",
+          "to_name": "Barclays Current"
+        }
+      ],
+      "estimated": false,
+      "headroom": 50.0,
+      "is_current_account": true,
+      "low_point": 60.0,
+      "low_point_and_plans": 60.0,
+      "plans_reserved": 0.0,
+      "short": false,
+      "spend_from_capped": true,
+      "spend_from_headroom": 0.0,
+      "uncertain": false
+    },
+    "acc-sav": {
+      "account_headroom_raw": 3930.0,
+      "after_payments": 5000.0,
+      "after_payments_and_plans": 5000.0,
+      "allocation_order": 3,
+      "allocation_unassigned": 0.0,
+      "earmarked_total": 1060.0,
+      "earmarks_out": [
+        {
+          "amount": 1060.0,
+          "to_account_id": "acc-bc",
+          "to_name": "Barclays Current"
+        }
+      ],
+      "estimated": false,
+      "headroom": 4990.0,
+      "is_current_account": false,
+      "low_point": 5000.0,
+      "low_point_and_plans": 5000.0,
+      "plans_reserved": 0.0,
+      "short": false,
+      "spend_from_capped": false,
+      "spend_from_headroom": 0.0,
+      "uncertain": false
+    }
+  },
+  "account_plans": [],
+  "accounts": [
+    {
+      "balance": 1400.0,
+      "currency": "GBP",
+      "id": "acc-bc",
+      "include_in_safe_to_spend": true,
+      "name": "Barclays Current",
+      "provider": "barclays",
+      "status": "connected",
+      "subtype": "TRANSACTION",
+      "type": "BANK"
+    },
+    {
+      "balance": 110.0,
+      "currency": "GBP",
+      "id": "acc-hs",
+      "include_in_safe_to_spend": true,
+      "name": "HSBC Current",
+      "provider": "hsbc",
+      "status": "connected",
+      "subtype": "TRANSACTION",
+      "type": "BANK"
+    },
+    {
+      "balance": 60.0,
+      "currency": "GBP",
+      "id": "acc-mz",
+      "include_in_safe_to_spend": true,
+      "name": "Monzo Current",
+      "provider": "monzo",
+      "status": "connected",
+      "subtype": "TRANSACTION",
+      "type": "BANK"
+    },
+    {
+      "balance": 5000.0,
+      "currency": "GBP",
+      "id": "acc-sav",
+      "include_in_safe_to_spend": true,
+      "name": "Barclays Saver",
+      "provider": "barclays",
+      "status": "connected",
+      "subtype": "SAVINGS",
+      "type": "BANK"
+    }
+  ],
+  "at_risk_count": 1,
+  "cashflow": {
+    "internal_inflows": [],
+    "next_payday": "2026-11-27",
+    "observed_pending_bills": [],
+    "period": {
+      "day_number": 8,
+      "end": "2026-11-26",
+      "label": "30 Oct to 26 Nov",
+      "length_days": 28,
+      "payday": "2026-11-27",
+      "payday_observed": null,
+      "start": "2026-10-30",
+      "type": "last_friday"
+    },
+    "spendable_balance": 1570.0,
+    "upcoming_bills": [
+      {
+        "account_balance": 1400.0,
+        "account_bank": "Barclays",
+        "account_id": "acc-bc",
+        "account_name": "Barclays Current",
+        "amount": 2600.0,
+        "amount_basis": null,
+        "card_dest_account_bank": null,
+        "card_dest_account_id": null,
+        "card_dest_account_name": null,
+        "category": "Bills",
+        "days_away": 3,
+        "days_past_due": 0,
+        "dest_account_bank": null,
+        "dest_account_id": null,
+        "dest_account_name": null,
+        "dest_account_spendable": null,
+        "edited": false,
+        "expected_date": "2026-11-09",
+        "is_card_repayment": false,
+        "is_credit_card": false,
+        "kind": "commitment",
+        "name": "ACME CARD PAYMENT",
+        "observed_pending": false,
+        "original_date": null,
+        "pending": false,
+        "rule_label": null
+      },
+      {
+        "account_balance": 1400.0,
+        "account_bank": "Barclays",
+        "account_id": "acc-bc",
+        "account_name": "Barclays Current",
+        "amount": 2600.0,
+        "amount_basis": null,
+        "card_dest_account_bank": null,
+        "card_dest_account_id": null,
+        "card_dest_account_name": null,
+        "category": "Bills",
+        "days_away": 33,
+        "days_past_due": 0,
+        "dest_account_bank": null,
+        "dest_account_id": null,
+        "dest_account_name": null,
+        "dest_account_spendable": null,
+        "edited": false,
+        "expected_date": "2026-12-09",
+        "is_card_repayment": false,
+        "is_credit_card": false,
+        "kind": "commitment",
+        "name": "ACME CARD PAYMENT",
+        "observed_pending": false,
+        "original_date": null,
+        "pending": false,
+        "rule_label": null
+      }
+    ],
+    "upcoming_income": []
+  },
+  "days_to_payday": 21,
+  "items": [
+    {
+      "amount": 1210,
+      "cover_note": "Your other accounts can cover \u00a3150. A move of \u00a31,060 from Barclays Saver would cover the rest.",
+      "cover_split": {
+        "current_amount": 150.0,
+        "savings_amount": 1060.0,
+        "savings_name": "Barclays Saver",
+        "uncovered": 0.0
+      },
+      "covered": true,
+      "id": "plan:2026-11-27:c85720279e",
+      "moves": [
+        {
+          "amount": 100,
+          "headline": "Move \u00a3100 from HSBC Current",
+          "move_map": {
+            "from": {
+              "account_id": "acc-hs",
+              "balance": 110.0,
+              "display_label": "HSBC Current",
+              "name": "HSBC Current",
+              "provider": "hsbc",
+              "reserved_for_allocations": 0.0,
+              "safe_note": "Nothing due from this account before Monday"
+            },
+            "to": {
+              "account_id": "acc-bc",
+              "balance": 1400.0,
+              "display_label": "Barclays Current",
+              "incoming": "\u00a32,600 Acme Card Payment expected Monday",
+              "name": "Barclays Current",
+              "provider": "barclays"
+            }
+          }
+        },
+        {
+          "amount": 50,
+          "headline": "Move \u00a350 from Monzo Current",
+          "move_map": {
+            "from": {
+              "account_id": "acc-mz",
+              "balance": 60.0,
+              "display_label": "Monzo Current",
+              "name": "Monzo Current",
+              "provider": "monzo",
+              "reserved_for_allocations": 0.0,
+              "safe_note": "Nothing due from this account before Monday"
+            },
+            "to": {
+              "account_id": "acc-bc",
+              "balance": 1400.0,
+              "display_label": "Barclays Current",
+              "incoming": "\u00a32,600 Acme Card Payment expected Monday",
+              "name": "Barclays Current",
+              "provider": "barclays"
+            }
+          }
+        },
+        {
+          "amount": 1060,
+          "headline": "Move \u00a31,060 from Barclays Saver",
+          "move_map": {
+            "from": {
+              "account_id": "acc-sav",
+              "balance": 5000.0,
+              "display_label": "Barclays Saver",
+              "name": "Barclays Saver",
+              "provider": "barclays",
+              "reserved_for_allocations": 0.0,
+              "safe_note": "Nothing due from this account before Monday",
+              "source_kind": "savings"
+            },
+            "to": {
+              "account_id": "acc-bc",
+              "balance": 1400.0,
+              "display_label": "Barclays Current",
+              "incoming": "\u00a32,600 Acme Card Payment expected Monday",
+              "name": "Barclays Current",
+              "provider": "barclays"
+            }
+          }
+        }
+      ],
+      "plan_dest": {
+        "account_id": "acc-bc",
+        "balance": 1400.0,
+        "bills": [
+          {
+            "amount": 2600,
+            "expected_date": "2026-11-09",
+            "label": "Acme Card Payment"
+          }
+        ],
+        "display_label": "Barclays Current",
+        "is_overdraft": false,
+        "name": "Barclays Current",
+        "needs_by": "Monday",
+        "needs_by_date": "2026-11-09",
+        "needs_by_last": "Monday",
+        "needs_by_last_date": "2026-11-09",
+        "needs_total": 2600,
+        "provider": "barclays"
+      },
+      "type": "move"
+    }
+  ],
+  "name": "Salary account short by 1,200 after a large card payment: two small current accounts and one savings account cover it (G428)",
+  "period": {
+    "end": "2026-11-26",
+    "start": "2026-10-30"
+  },
+  "safe_to_spend": {
+    "allocations_reserved": 0.0,
+    "calculation_status": "complete",
+    "commitments_reserved": 0,
+    "safe_to_spend": -1030.0,
+    "safe_to_spend_cash": -1030.0
+  },
+  "today": "2026-11-06"
+}

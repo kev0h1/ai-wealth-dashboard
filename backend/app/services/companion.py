@@ -5528,17 +5528,21 @@ async def compute_today_items(
                 f"These moves cover £{total:,}, but {dest_name} is still "
                 f"{_gbp(dest_gap)} short, {_residual_tail}"
             )
-            if not _is_overdraft_dest:
-                # G428: say plainly what is uncovered and what else can be done.
-                residual = (
-                    f"These moves cover £{total:,}, but {_gbp(dest_gap)} is still uncovered. "
-                    f"{UNCOVERED_OPTIONS}"
-                )
+        # G428: what is genuinely uncovered is the shortfall less the moves
+        # (the same figure Upcoming shows as short_after_cover), not the gap
+        # that includes the rounding and £10 buffer.
+        _uncovered_amt = max(0.0, float(dest_shortfall[dest_acct]) - float(total))
+        if dest_gap > 0.5 and _uncovered_amt > 0.5 and not _is_overdraft_dest:
+            # Say plainly what is uncovered and what else can be done.
+            residual = (
+                f"These moves cover £{total:,}, but {_gbp(_uncovered_amt)} is still uncovered. "
+                f"{UNCOVERED_OPTIONS}"
+            )
         # G428: current accounts could not cover it alone, so one savings
         # account is suggested for the rest (amber, a recommendation).
         _cover_split = split_cover_note(
             [(r["_src_name"], float(r["amount"]), r.get("source_kind") == "savings") for r in rows],
-            gap=dest_gap if dest_gap > 0.5 else 0.0,
+            gap=_uncovered_amt,
         )
         if _cover_split is not None:
             residual = None
