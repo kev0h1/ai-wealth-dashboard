@@ -1,5 +1,6 @@
 """User preferences endpoints."""
 import asyncio
+import logging
 from fastapi import APIRouter, Depends, HTTPException
 from pymongo.errors import DuplicateKeyError
 
@@ -14,6 +15,7 @@ from app.services import response_cache
 from app.routers.analytics import DEFAULT_RECURRING_CATEGORIES
 
 router = APIRouter(tags=["preferences"])
+logger = logging.getLogger(__name__)
 
 # G57 A1: a first-time user's Home evidence starts with the approved period
 # comparison chart. An explicitly stored None still means they chose to
@@ -86,6 +88,87 @@ ALLOWED_PREFERENCE_FIELDS = frozenset({
     "open_last_chat",
     "pay_split_reference",
 })
+
+# E15 (2026-11-06): which PATCH /preferences fields can change a cached money
+# figure. A PATCH used to wipe the user's whole response cache (one global
+# data-version bump per user) whatever it touched, so a Settings visit made
+# the next Home open recompute /cashflow, /today, /safe-to-spend and
+# /spend/verdict cold (1.2 to 2.4 s in production against 25 ms warm). Now
+# only a field classed "money" whose value genuinely differs from the stored
+# one bumps the data version; "cosmetic" fields and unchanged values leave it
+# alone. The cache has ONE per-user counter (see response_cache.invalidate),
+# so there is no name-scoped invalidation to prefer: a field either feeds some
+# cached payload and bumps everything, or feeds none and bumps nothing.
+#
+# Derived from every reader of the preferences document in backend/app, not
+# from the backlog item alone. Any field NOT listed here is treated as money
+# (the safe default), so a newly allowed field never silently skips the wipe.
+# Each entry cites its reader. "Uncached" means the reader runs per request or
+# per tool call and nothing derived from it is stored by response_cache.
+PREFERENCE_CACHE_IMPACT = {
+    # --- money: read by a computation whose result is response_cache'd ---
+    # analytics.py (_detect_recurring, cashflow, safe_to_spend), companion.py
+    # (/today brief), money_shape.py, debt_plan.py, counted_accounts.py.
+    "pay_period_config": "money",
+    # chat.py fact pack and grow.py (/grow, cached as "grow") read all three.
+    "income_value": "money",
+    "income_bracket": "money",  # derived from income_value, grow.py:108
+    "pension_annual": "money",  # grow.py:107
+    "has_child_benefit": "money",  # chat.py:56 tax fact pack
+    # companion.py:2682, set-aside moves in the cached /today brief.
+    "cover_plan_excluded_accounts": "money",
+    "cover_plan_exclude_add": "money",  # delta op on the same list
+    "cover_plan_exclude_remove": "money",  # delta op on the same list
+    # analytics.py:2906, the trusted recurring categories for bill detection.
+    "recurring_categories": "money",
+    # companion.py:6907 orders account_eligibility in the cached /today brief.
+    "home_pinned_accounts": "money",
+    # Debt settings: no reader found in backend/app today (only Penny's
+    # propose tools write them), but the item names them as money-feeding and
+    # a debt plan is the obvious future reader, so they stay money.
+    "debt_target_months": "money",
+    "debt_tracking_start": "money",
+    # --- cosmetic: no cached payload reads them ---
+    "hide_net_worth": "cosmetic",  # no backend reader; masking is client-side
+    "dark_mode": "cosmetic",  # finexer.py:165 consent page theme, uncached
+    "penny_appearance": "cosmetic",  # GET/PATCH echo only
+    "show_tips": "cosmetic",  # savings_insights._tips_enabled, read live, uncached
+    "open_last_chat": "cosmetic",  # GET/PATCH echo only
+    "pay_split_reference": "cosmetic",  # penny_pay_split.py, read live per tool call
+    "spend_widgets": "cosmetic",  # GET echo only
+    "home_pinned_widget": "cosmetic",  # GET echo only
+    "home_pinned_cards": "cosmetic",  # GET echo only
+    # what-if figures for a Spend widget, never fed back (see get_preferences)
+    "debt_burndown_overrides": "cosmetic",
+    "notification_prefs": "cosmetic",  # notifications.py:98 at send time, uncached
+}
+
+_MISSING = object()
+
+
+def _money_fields_changed(before: dict, fields: dict, add_ids: list, remove_ids: list) -> list:
+    """Names of money-feeding fields this PATCH would genuinely change.
+
+    `before` is the stored document, `fields` the body as it will be written
+    (income_bracket already derived, delta ops popped into add_ids and
+    remove_ids). A field absent from the stored document counts as changed.
+    Unclassified fields count as money."""
+    changed = []
+    for key, value in fields.items():
+        if PREFERENCE_CACHE_IMPACT.get(key, "money") != "money":
+            continue
+        stored = before.get(key, _MISSING)
+        if key == "cover_plan_excluded_accounts":
+            if stored is _MISSING or {str(x) for x in (stored or [])} != {str(x) for x in (value or [])}:
+                changed.append(key)
+        elif stored is _MISSING or stored != value:
+            changed.append(key)
+    stored_excluded = {str(x) for x in (before.get("cover_plan_excluded_accounts") or [])}
+    if any(i not in stored_excluded for i in add_ids):
+        changed.append("cover_plan_exclude_add")
+    if any(i in stored_excluded for i in remove_ids):
+        changed.append("cover_plan_exclude_remove")
+    return changed
 
 # A85: a protocol-level key, not a preference field itself -- carries the
 # optimistic-concurrency check in update_preferences below. Kept out of
@@ -447,6 +530,17 @@ async def update_preferences(body: dict, user: dict = Depends(current_user)):
             detail=f"Unknown preference field(s): {', '.join(sorted(unknown_fields))}",
         )
 
+    # E15 diagnostic, REMOVE ONE RELEASE AFTER E15 SHIPS: the Settings page
+    # (and the app at session start) were seen sending PATCHes nobody could
+    # attribute to a user action. Static reading of the frontend found one
+    # candidate (an unchanged income/pension blur, now guarded) but not the
+    # five-in-five-seconds burst, so this logs which FIELD NAMES arrive.
+    # Names only: never values, never ids.
+    logger.warning(
+        "E15 preferences PATCH fields=%s",
+        sorted(k for k in body.keys() if k != EXPECTED_VERSION_KEY),
+    )
+
     if "open_last_chat" in body and not isinstance(body["open_last_chat"], bool):
         raise HTTPException(status_code=422, detail="open_last_chat must be true or false")
     if "show_tips" in body and not isinstance(body["show_tips"], bool):
@@ -513,7 +607,6 @@ async def update_preferences(body: dict, user: dict = Depends(current_user)):
         )
     if "pension_annual" in body:
         body["pension_annual"] = _coerce_money_field(body.get("pension_annual"), "pension_annual")
-    pay_period_changed = "pay_period_config" in body
 
     # G54 delta ops: "toggle exclusion for ONE account", exactly what a
     # Settings toggle means. $addToSet/$pull are atomic single-element Mongo
@@ -529,6 +622,10 @@ async def update_preferences(body: dict, user: dict = Depends(current_user)):
         str(x).strip() for x in (body.pop("cover_plan_exclude_remove", None) or [])
         if str(x).strip()
     })
+    # E15: the stored document, read once before any write, so the cache wipe
+    # below can tell a genuine money change from a cosmetic or unchanged one.
+    before_doc = await preferences_col.find_one({"user_id": uid}) or {}
+    money_changed = _money_fields_changed(before_doc, body, add_ids, remove_ids)
     delta_op_ran = False
     for op_ids, set_key in ((add_ids, "$addToSet"), (remove_ids, "$pull")):
         if not op_ids:
@@ -592,16 +689,20 @@ async def update_preferences(body: dict, user: dict = Depends(current_user)):
     doc = await preferences_col.find_one({"user_id": uid})
 
     # Preferences include Safe-to-Spend inputs (notably the pay-period
-    # configuration and the user buffer). A successful patch must never leave
-    # a cached spending permission on screen. Full invalidation is
-    # deliberately the safe default: some less-obvious preference fields feed
-    # dependent Home/Penny summaries too, and cache entries are per-user.
-    # Awaited (ainvalidate, not the sync invalidate()'s fire-and-forget bump)
-    # so the very next read — even from a different process — is guaranteed
-    # cold, not just eventually cold.
-    await response_cache.ainvalidate(uid)
+    # configuration and the user buffer). A successful patch that changes one
+    # of them must never leave a cached spending permission on screen, so it
+    # wipes the per-user response cache. E15: a patch that changes only
+    # cosmetic fields, or writes values equal to the stored ones, leaves the
+    # data version and cache intact (PREFERENCE_CACHE_IMPACT lists every
+    # field and its reader). The document `version` above still increments on
+    # every write: it is the optimistic-concurrency signal, separate from the
+    # response cache's data version. Awaited (ainvalidate, not the sync
+    # invalidate()'s fire-and-forget bump) so the very next read, even from a
+    # different process, is guaranteed cold, not just eventually cold.
+    if money_changed:
+        await response_cache.ainvalidate(uid)
 
-    if pay_period_changed:
+    if "pay_period_config" in money_changed:
         # Best-effort: recompute cashflow so the new pay period takes effect
         # immediately. Don't let a compute failure block the pref save.
         try:
