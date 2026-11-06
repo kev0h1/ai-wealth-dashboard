@@ -299,9 +299,9 @@ def test_memory_and_mongo_hits_return_identical_encoded_shape(monkeypatch):
     asyncio.run(go())
 
 
-# ── warm_user writes the six entries under the new version ─────────────────
+# ── warm_user writes every entry under the new version ─────────────────
 
-def test_warm_user_writes_six_entries_under_new_version(monkeypatch):
+def test_warm_user_writes_every_entry_under_new_version(monkeypatch):
     _patch_cols(monkeypatch)
     _patch_day(monkeypatch)
 
@@ -326,6 +326,7 @@ def test_warm_user_writes_six_entries_under_new_version(monkeypatch):
         return _compute
 
     monkeypatch.setattr(warmup, "_compute_today", _mock("today", {"status": "ok", "items": []}, self_caching=False))
+    monkeypatch.setattr(warmup, "_compute_cover_plan", _mock("cover_plan", {"status": "ok", "items": []}, self_caching=False))
     monkeypatch.setattr(warmup, "_compute_safe_to_spend", _mock("safe_to_spend", {"status": "ok"}, self_caching=False))
     monkeypatch.setattr(warmup, "_compute_spend_verdict", _mock("spend_verdict:0", {"reading": "under"}, self_caching=False))
     monkeypatch.setattr(warmup, "_compute_miscategorised_count", _mock("miscategorised_count:0", {"count": 0}, self_caching=True))
@@ -338,18 +339,18 @@ def test_warm_user_writes_six_entries_under_new_version(monkeypatch):
         result = await warmup.warm_user(UID)
         assert result["failed"] == []
         assert sorted(result["warmed"]) == sorted(
-            ["today", "safe_to_spend", "spend_verdict:0", "miscategorised_list", "miscategorised_count:0", "grow", "commitments"]
+            ["today", "cover_plan", "safe_to_spend", "spend_verdict:0", "miscategorised_list", "miscategorised_count:0", "grow", "commitments"]
         )
         after = await data_version.current(UID)
         assert after == before + 1  # warm_user's own bump, nothing else touched it
 
-        for name in ("today", "safe_to_spend", "spend_verdict:0", "miscategorised_list", "miscategorised_count:0", "grow", "commitments"):
+        for name in ("today", "cover_plan", "safe_to_spend", "spend_verdict:0", "miscategorised_list", "miscategorised_count:0", "grow", "commitments"):
             cached = await response_cache.aget(name, UID)
             assert cached is not None, f"{name} was not warmed"
 
     asyncio.run(go())
     assert set(calls) == {
-        "today", "safe_to_spend", "spend_verdict:0", "miscategorised_list", "miscategorised_count:0", "grow", "commitments",
+        "today", "cover_plan", "safe_to_spend", "spend_verdict:0", "miscategorised_list", "miscategorised_count:0", "grow", "commitments",
     }
 
 
@@ -365,6 +366,7 @@ def test_warm_user_tolerates_one_step_failing(monkeypatch):
         return {"ok": True}
 
     monkeypatch.setattr(warmup, "_compute_today", _ok)
+    monkeypatch.setattr(warmup, "_compute_cover_plan", _ok)
     monkeypatch.setattr(warmup, "_compute_safe_to_spend", _ok)
     monkeypatch.setattr(warmup, "_compute_spend_verdict", _ok)
     monkeypatch.setattr(warmup, "_compute_miscategorised_count", _ok)

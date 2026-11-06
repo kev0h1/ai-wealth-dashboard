@@ -44,6 +44,12 @@ async def _compute_today(uid: str) -> dict:
     return await build_today_payload(uid, payday_preview=False)
 
 
+async def _compute_cover_plan(uid: str) -> dict:
+    # E17: shared with GET /today/cover-plan (read-only, persist=False).
+    from app.routers.companion import build_cover_plan_payload
+    return await build_cover_plan_payload(uid)
+
+
 async def _compute_safe_to_spend(uid: str) -> dict:
     # Shared with GET /safe-to-spend (app.routers.analytics.get_safe_to_spend)
     # so the two call sites can never drift on this endpoint's shape.
@@ -92,19 +98,34 @@ async def _compute_commitments(uid: str) -> dict:
 _inflight: dict[str, "asyncio.Task"] = {}
 
 
-async def warm_user(uid: str) -> dict:
+async def warm_user(uid: str, include_cover_plan: bool = True) -> dict:
     """Single-flight wrapper around `_warm_user_impl`: multiple bank
     connections syncing for the same user can each enqueue their own
     post-sync warm-up in quick succession (see
     app.workers.sync_worker._warm_after_sync) — without this, they'd race
-    each other's version bumps and redundantly recompute the same six
+    each other's version bumps and redundantly recompute the same
     responses. A second call for a uid that's already warming just awaits
-    the SAME in-flight task instead of starting another."""
-    existing = _inflight.get(uid)
-    if existing is not None and not existing.done():
+    the SAME in-flight task instead of starting another.
+
+    E17: `include_cover_plan=False` is for request-path callers
+    (`_refresh_after_override`) that must not pay the extra cover-plan
+    compute. A call may only join an in-flight task that covers what it
+    wants: a caller that wants the cover plan never joins a task started
+    without it; it waits for that task to finish, then starts its own."""
+    while True:
+        existing = _inflight.get(uid)
+        if existing is None or existing.done():
+            break
+        if include_cover_plan and not getattr(existing, "_include_cover_plan", True):
+            try:
+                await existing
+            except Exception:
+                pass
+            continue
         return await existing
 
-    task = asyncio.ensure_future(_warm_user_impl(uid))
+    task = asyncio.ensure_future(_warm_user_impl(uid, include_cover_plan))
+    task._include_cover_plan = include_cover_plan  # type: ignore[attr-defined]
     _inflight[uid] = task
     try:
         return await task
@@ -113,7 +134,7 @@ async def warm_user(uid: str) -> dict:
             _inflight.pop(uid, None)
 
 
-async def _warm_user_impl(uid: str) -> dict:
+async def _warm_user_impl(uid: str, include_cover_plan: bool = True) -> dict:
     """Bump uid's data version FIRST — so every entry this function writes
     carries a version newer than anything computed before this sync — then
     recompute each of the six heaviest per-page-load responses.
@@ -180,6 +201,8 @@ async def _warm_user_impl(uid: str) -> dict:
             failed.append(name)
 
     await _step("today", _compute_today, self_caching=False)
+    if include_cover_plan:
+        await _step("cover_plan", _compute_cover_plan, self_caching=False)
     await _step("safe_to_spend", _compute_safe_to_spend, self_caching=False)
     await _step("spend_verdict:0", _compute_spend_verdict, self_caching=False)
     await _step("miscategorised_list", _compute_miscategorised_list, self_caching=True)

@@ -6,6 +6,7 @@ each would otherwise see its own private counters/pending-login store.
 Everything here is best-effort: a Redis outage must degrade the callers to
 their existing per-process fallback, never raise into a request handler.
 """
+import os
 import time
 
 import redis.asyncio as redis
@@ -26,7 +27,14 @@ def get_redis() -> "redis.Redis | None":
     a redis.asyncio.Redis object doesn't itself connect, but wrap it anyway
     so a malformed REDIS_URL can't take a request down."""
     global _client
+    # H148: a test process never opens the shared Redis; callers take their
+    # in-process fallback. FORBID_LIVE_QUEUE=1 also refuses a real connection.
+    from app.workers import queue as _queue
+    if _queue.is_test_process():
+        return None
     if _client is None:
+        if os.environ.get(_queue.FORBID_ENV) == "1":
+            raise _queue.LiveQueueForbidden("live Redis access is forbidden (FORBID_LIVE_QUEUE=1)")
         try:
             _client = redis.Redis.from_url(
                 REDIS_URL,
@@ -47,6 +55,9 @@ async def redis_ok() -> bool:
     now = time.monotonic()
     if _ok_cache is not None and (now - _ok_cache[1]) < _OK_TTL:
         return _ok_cache[0]
+    from app.workers import queue as _queue
+    if _queue.is_test_process():
+        return False
     client = get_redis()
     ok = False
     if client is not None:

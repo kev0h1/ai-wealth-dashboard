@@ -44,6 +44,7 @@ def test_cover_plan_route_uses_read_only_engine_mode_and_filters_items(monkeypat
         ]
 
     monkeypatch.setattr(companion_router, "compute_today_items", compute)
+    monkeypatch.setattr(companion_router, "response_cache", _CacheSpy())
 
     result = asyncio.run(companion_router.get_cover_plan({"email": "kevin"}))
 
@@ -78,6 +79,7 @@ def test_cover_plan_route_never_persists_even_when_engine_would(monkeypatch):
         return []
 
     monkeypatch.setattr(companion_router, "compute_today_items", compute)
+    monkeypatch.setattr(companion_router, "response_cache", _CacheSpy())
 
     asyncio.run(companion_router.get_cover_plan({"email": "kevin"}))
 
