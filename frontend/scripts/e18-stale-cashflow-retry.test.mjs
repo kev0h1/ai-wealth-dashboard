@@ -10,7 +10,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import {
-  STALE_CASHFLOW_REFETCH_MS, shouldRefetchStaleCashflow, scheduleStaleCashflowRefetch,
+  STALE_CASHFLOW_REFETCH_MS, shouldRefetchStaleCashflow, scheduleStaleCashflowRefetch, canApplyStaleCashflow,
 } from "../lib/cashflowStaleRetry.ts";
 
 assert.equal(STALE_CASHFLOW_REFETCH_MS, 5000);
@@ -34,5 +34,15 @@ assert.deepEqual(none, []);
 const page = readFileSync(new URL("../app/planning/PlanningPage.tsx", import.meta.url), "utf8");
 assert.match(page, /scheduleStaleCashflowRefetch/);
 assert.match(page, /staleRetried/);
+
+// G421 two-ref guard: a retry inside an undo window must not resurrect the removed row.
+assert.equal(canApplyStaleCashflow(null, null), true);
+assert.equal(canApplyStaleCashflow({ id: "p1" }, null), false, "planned delete undo window");
+assert.equal(canApplyStaleCashflow(null, { name: "x" }), false, "dismiss undo window");
+assert.equal(canApplyStaleCashflow({ id: "p1" }, { name: "x" }), false);
+const i = page.indexOf("scheduleStaleCashflowRefetch(");
+const retry = page.slice(i, i + 700);
+assert.match(retry, /canApplyStaleCashflow\(lastPlannedDeleteRef\.current, lastDismissRef\.current\)\) setCashflow\(fresh\)/);
+assert.doesNotMatch(retry, /\.then\(setCashflow\)/, "the retry never sets the forecast unguarded");
 
 console.log("e18-stale-cashflow-retry: ok");

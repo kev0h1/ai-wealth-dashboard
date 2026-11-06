@@ -26,3 +26,15 @@ export function scheduleStaleCashflowRefetch(
   const id = setTimeout(() => { retried(); refetch(); }, delayMs);
   return () => clearTimeout(id);
 }
+
+/**
+ * G421 guard: the stale refetch must not overwrite the page while an
+ * optimistic planned-delete or dismiss is inside its undo window, or the
+ * removed row would reappear. Both refs null means it is safe to apply.
+ */
+export function canApplyStaleCashflow(
+  lastPlannedDelete: unknown | null,
+  lastDismiss: unknown | null,
+): boolean {
+  return lastPlannedDelete === null && lastDismiss === null;
+}

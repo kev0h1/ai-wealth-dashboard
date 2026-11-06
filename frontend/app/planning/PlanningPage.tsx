@@ -4,7 +4,7 @@ import { isCountedInLeftToSpend } from "@/lib/accountCounted";
 import { useEffect, useMemo, useState, useRef, type ReactNode } from "react";
 import dynamic from "next/dynamic";
 import { EyeOff } from "lucide-react";
-import { shouldRefetchStaleCashflow, scheduleStaleCashflowRefetch } from "@/lib/cashflowStaleRetry";
+import { shouldRefetchStaleCashflow, scheduleStaleCashflowRefetch, canApplyStaleCashflow } from "@/lib/cashflowStaleRetry";
 import { api, Account, Allocation, CashflowData, type AccountEligibility, type AccountPlanData, type CompanionItem } from "@/lib/api";
 import { getAccountsCached } from "@/lib/accountsCache";
 import { invalidateVerdictCache } from "@/lib/verdictCache";
@@ -293,7 +293,12 @@ export default function PlanningPage() {
     if (cashflow && cashflow.cashflow_stale !== true) staleRetried.current = false;
     if (!shouldRefetchStaleCashflow(cashflow, staleRetried.current)) return;
     return scheduleStaleCashflowRefetch(
-      () => { api.cashflowWithForecast().then(setCashflow).catch(() => {}); },
+      () => {
+        api.cashflowWithForecast().then((fresh) => {
+          // G421: never inside an undo window, or a removed row would come back.
+          if (canApplyStaleCashflow(lastPlannedDeleteRef.current, lastDismissRef.current)) setCashflow(fresh);
+        }).catch(() => {});
+      },
       () => { staleRetried.current = true; },
     );
   }, [cashflow]);
