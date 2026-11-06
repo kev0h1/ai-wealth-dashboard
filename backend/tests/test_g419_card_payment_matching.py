@@ -1,5 +1,6 @@
 """G419 exact card-payment rules: opaque identity and statement safeguards."""
 import asyncio
+import re
 from datetime import date, datetime, timezone
 
 import app.db.collections as collections
@@ -71,7 +72,19 @@ def test_exact_rule_is_whole_description_not_substring_and_keeps_hyphens_signifi
 def test_exact_long_number_is_opaque_and_prepared_identity_round_trips():
     prepared = normalise_match_rule({"kind": "exact", "text": REF_A})
 
-    assert "3799" not in str(prepared)
+    # fingerprint and salt are random hex, so a short digit fragment can match
+    # them by coincidence (about 1 in 2,500 runs). Check the human-readable
+    # fields for the digits, and the whole structure only for the full raw
+    # number, which cannot collide by chance.
+    random_fields = {"fingerprint", "salt"}
+    assert random_fields <= prepared.keys()
+    for field in random_fields:
+        assert re.fullmatch(r"[0-9a-f]+", prepared[field])
+    readable = {k: v for k, v in prepared.items() if k not in random_fields}
+    assert "3799" not in str(readable)
+    assert "111111" not in str(readable)
+    assert "3799-111111-20001" not in str(prepared)
+    assert "3799111111" not in str(prepared)
     assert prepared["text"].endswith("20001")
     unchanged = normalise_match_rule(prepared)
     assert unchanged == prepared
