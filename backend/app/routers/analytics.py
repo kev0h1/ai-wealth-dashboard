@@ -4233,6 +4233,7 @@ async def _build_cashflow_response(cached: dict, uid: str | None = None, prefs: 
                 "date": _d_obj,
                 "amount": abs(float(_t.get("amount", 0))),
                 "account_id": str(_t.get("account_id") or ""),
+                "category": _t.get("custom_category") or _t.get("category"),
                 "used": False,
             })
 
@@ -4358,6 +4359,43 @@ async def _build_cashflow_response(cached: dict, uid: str | None = None, prefs: 
             tx["used"] = True   # one debit closes at most one occurrence
             return True
         return False
+
+    _spend_pattern_keys = {p.get("key") for p in spend_patterns}
+
+    def _match_orphan_observed(key, account_id, expected_amount, expected_d, category):
+        """G428: a payment that is already past its predicted date and has
+        already posted must not be walked a second time. `_match_observed`
+        closes it by series key; when the bank's wording changed (a new
+        reference on the same standing order) the key differs and the
+        occurrence would sit "overdue" and be debited again from a balance
+        that no longer holds the money. Fallback, deliberately narrow: the
+        occurrence is already past, the debit is on the SAME account, in the
+        SAME category, within 2 percent of the amount, dated in the lookback
+        window, belongs to no recurring series of its own (so it is not another
+        bill's payment), and is the ONLY such debit (ambiguity leaves the
+        ordinary overdue ask to the user). Same one-debit-closes-one-occurrence
+        rule as `_match_observed`."""
+        if not account_id or not category or expected_d >= today_d:
+            return False
+        want = abs(expected_amount)
+        tol = max(1.0, want * 0.02)
+        lo = expected_d - timedelta(days=OBSERVATION_LOOKBACK_DAYS)
+        found = []
+        for k, txs in observed.items():
+            if k == key or k in _spend_pattern_keys:
+                continue
+            for tx in txs:
+                if tx["used"] or not (lo <= tx["date"] <= today_d):
+                    continue
+                if tx["account_id"] != str(account_id) or tx.get("category") != category:
+                    continue
+                if abs(tx["amount"] - want) > tol:
+                    continue
+                found.append(tx)
+        if len(found) != 1:
+            return False
+        found[0]["used"] = True
+        return True
 
     def _match_pending_observed(key, account_id, expected_amount, expected_d):
         """Same tolerances/contention rule as `_match_observed`, sourced from
@@ -4547,6 +4585,8 @@ async def _build_cashflow_response(cached: dict, uid: str | None = None, prefs: 
                 continue
             if uid and _match_observed(r["key"], r.get("account_id"), final_amount, D):
                 continue          # CLOSED by an observed debit (early payments included)
+            if uid and _match_orphan_observed(r["key"], r.get("account_id"), final_amount, D, r.get("category")):
+                continue          # G428: already posted under reworded text
             # Bank-side PENDING debit (see app/services/pending_transactions.py):
             # the account balance already reflects this occurrence even
             # though our settled feed hasn't caught up yet. Checked only
