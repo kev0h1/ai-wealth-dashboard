@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { X, ChevronRight, RotateCcw } from "lucide-react";
 import { api, SavingsInsight } from "@/lib/api";
+import { cachedEndpoint, ENDPOINT, peekEndpoint } from "@/lib/endpointCache";
 import { insightCategoryIcon } from "@/lib/insightIcons";
 import PennyMark from "@/components/PennyMark";
 import MoneyText from "@/components/MoneyText";
@@ -53,8 +54,10 @@ interface HomeInsightSpotlightProps {
 export default function HomeInsightSpotlight({ onReady, previewInsight }: HomeInsightSpotlightProps = {}) {
   const router = useRouter();
   const { showTips } = usePreferences();
-  const [insight, setInsight] = useState<SavingsInsight | null>(previewInsight ?? null);
-  const [loaded, setLoaded] = useState(Boolean(previewInsight));
+  // G425: seeded from the endpoint cache so a remount shows the card, no skeleton.
+  const cachedInsight = previewInsight ? undefined : peekEndpoint<SavingsInsight | null>(ENDPOINT.spotlight.key);
+  const [insight, setInsight] = useState<SavingsInsight | null>(previewInsight ?? cachedInsight ?? null);
+  const [loaded, setLoaded] = useState(Boolean(previewInsight) || cachedInsight !== undefined);
 
   // Latest onReady in a ref, and a fired-once guard — `load()` is also
   // re-invoked after a dismiss to surface the next eligible insight, and
@@ -70,8 +73,7 @@ export default function HomeInsightSpotlight({ onReady, previewInsight }: HomeIn
 
   const load = useCallback(() => {
     if (previewInsight) return;
-    api
-      .getSpotlightInsight()
+    cachedEndpoint(ENDPOINT.spotlight.key, () => api.getSpotlightInsight(), { ttlMs: ENDPOINT.spotlight.ttlMs, onUpdate: setInsight })
       .then(setInsight)
       .catch(() => setInsight(null))
       .finally(() => {

@@ -7,6 +7,8 @@ import { BarChart3, Check, WalletCards, Undo2 } from "lucide-react";
 import { api, Account, Transaction, SpendVerdict, type SavingsInsight, type MoneyShape } from "@/lib/api";
 import { invalidateMoneyShapeCache, loadMoneyShape, peekMoneyShape } from "@/lib/moneyShape";
 import { clearHomeCache } from "@/lib/homeCache";
+import { cachedEndpoint, ENDPOINT } from "@/lib/endpointCache";
+import { loadMiscategorisedCount } from "@/lib/miscategorisedCount";
 import { useCategories } from "@/components/CategoriesContext";
 import SpendShapeCard, { hasShapeContent } from "@/components/SpendShapeCard";
 import { useAllTransactions } from "@/lib/useAllTransactions";
@@ -680,8 +682,10 @@ export default function SpendPage() {
   // Banner count is period-scoped server-side now (a series counts only if
   // it has a transaction inside the requested period) — refetch whenever
   // the viewed period changes, not just on mount.
-  const fetchMiscategorisedCount = useCallback((offset: number) => {
-    api.getMiscategorisedCount(offset)
+  const fetchMiscategorisedCount = useCallback((offset: number, force = false) => {
+    // G425: the shared loader de-duplicates against Home's count and caches
+    // briefly per offset; TRANSACTIONS_CHANGED and review events invalidate it.
+    loadMiscategorisedCount(offset, force)
       .then(m => { setMiscategorisedCount(m.count); setMiscategorisedIds(m.ids); setPairCount(m.pair_count ?? 0); setReviewTotal(m.review_total); })
       .catch(() => {});
   }, []);
@@ -743,8 +747,10 @@ export default function SpendPage() {
   useEffect(() => {
     // "statements" is the new free tier (statement upload only, no open
     // banking) — everything above it counts as isPro for this hint gate.
-    api.getSubscription()
-      .then(s => setIsPro(s.tier !== "statements"))
+    // G425: shared per-endpoint cache with stale-while-revalidate.
+    const apply = (s: { tier: string }) => setIsPro(s.tier !== "statements");
+    cachedEndpoint(ENDPOINT.subscription.key, () => api.getSubscription(), { ttlMs: ENDPOINT.subscription.ttlMs, onUpdate: apply })
+      .then(apply)
       .catch(() => setIsPro(true));
   }, []);
 
@@ -1101,7 +1107,7 @@ export default function SpendPage() {
     );
     // A recategorise can clear (or add) a miscategorised flag — refresh the
     // chip's count/ids so it drops off once the flagged transfer is fixed.
-    fetchMiscategorisedCount(periodOffset);
+    fetchMiscategorisedCount(periodOffset, true);
     // A correction can move which categories are notable/majority this period.
     fetchVerdict(periodOffset);
     // G146: the module-level signals cache above is now cleared, but this
@@ -1376,7 +1382,7 @@ export default function SpendPage() {
           onClose={() => setReviewOpen(false)}
           onChanged={() => {
             void refreshAllTransactions(true);
-            fetchMiscategorisedCount(periodOffset);
+            fetchMiscategorisedCount(periodOffset, true);
             // The review has saved and recomputed the whole batch. Refresh
             // this mounted page once, after its sheet closes.
             fetchVerdict(periodOffset);

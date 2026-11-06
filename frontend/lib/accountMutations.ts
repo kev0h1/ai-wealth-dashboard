@@ -4,6 +4,8 @@ import { clearHomeCache } from "@/lib/homeCache";
 import { invalidateVerdictCache } from "@/lib/verdictCache";
 import { invalidateMoneyShapeCache } from "@/lib/moneyShape";
 import { invalidateSignalsCache } from "@/lib/signalsCache";
+import { invalidateAllEndpoints } from "@/lib/endpointCache";
+import { invalidateMiscategorisedCount } from "@/lib/miscategorisedCount";
 import { PAYDAY_DOT_CACHE_KEY } from "@/lib/paydayWindow";
 
 // G138: a deleted Barclays savings account's £100 transaction of 21 Sep kept
@@ -53,6 +55,12 @@ export function invalidateAllAccountData(): void {
   invalidateVerdictCache();
   invalidateMoneyShapeCache();
   invalidateSignalsCache();
+  // G425: per-endpoint client caches (today, safe-to-spend, cashflow, profile,
+  // offers, sync status, recent transactions, investments, spotlight,
+  // subscription) and the miscategorised count. Sign-out and user change land
+  // here too, so no payload crosses users.
+  invalidateAllEndpoints();
+  invalidateMiscategorisedCount();
 
   // localStorage counts/flags derived from the user's accounts or
   // transactions, not covered by an in-memory cache above.

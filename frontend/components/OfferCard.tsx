@@ -12,15 +12,19 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { X } from "lucide-react";
 import { api, type OfferCardData } from "@/lib/api";
+import { cachedEndpoint, ENDPOINT, peekEndpoint } from "@/lib/endpointCache";
 
 export default function OfferCard() {
   const router = useRouter();
-  const [offer, setOffer] = useState<OfferCardData | null>(null);
+  type OffersRes = { offers: OfferCardData[] };
+  const [offer, setOffer] = useState<OfferCardData | null>(() => peekEndpoint<OffersRes>(ENDPOINT.offers.key)?.offers[0] ?? null);
 
   useEffect(() => {
     let cancelled = false;
-    api
-      .listOffers()
+    cachedEndpoint(ENDPOINT.offers.key, () => api.listOffers(), {
+      ttlMs: ENDPOINT.offers.ttlMs,
+      onUpdate: (res) => { if (!cancelled) setOffer(res.offers[0] ?? null); },
+    })
       .then((res) => {
         if (!cancelled) setOffer(res.offers[0] ?? null);
       })

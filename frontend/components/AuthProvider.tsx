@@ -23,6 +23,7 @@ import { clearHomeDismissedAdvice } from "@/lib/homeDismissedAdvice";
 import { resolveFullName } from "@/lib/displayName";
 import { FINE_FOLD_KEY } from "@/lib/upcomingAccountStatus";
 import { identifyForErrorReporting } from "@/lib/errorReporting";
+import "@/lib/endpointCacheBindings"; // G425: registers the client endpoint-cache invalidation listeners
 
 interface AuthUser {
   email: string;

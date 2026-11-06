@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import dynamic from "next/dynamic";
 import { ChevronRight } from "lucide-react";
-import { api, ApiError, Account, type Connection, AccountEligibility, Transaction, InvestmentAccount, SafeToSpend, CompanionItem, type SyncStatus } from "@/lib/api";
+import { api, ApiError, Account, type Connection, AccountEligibility, Transaction, InvestmentAccount, SafeToSpend, CompanionItem, type SyncStatus, type UserProfile } from "@/lib/api";
 import { startConsent } from "@/lib/startConsent";
 import { bestSpendAccount, type TodayRequestStatus } from "@/lib/spendFromAccount";
 import { coverMoveEvidence } from "@/lib/coverMoveEvidence";
@@ -26,6 +26,8 @@ import FuelSavingsCard from "@/components/FuelSavingsCard";
 import GroceryBasketCard from "@/components/GroceryBasketCard";
 import { useHomePinnedCards } from "@/lib/useHomePinnedCards";
 import { getHomeCache, setHomeCache } from "@/lib/homeCache";
+import { invalidateMiscategorisedCount } from "@/lib/miscategorisedCount";
+import { cachedEndpoint, ENDPOINT, peekEndpoint } from "@/lib/endpointCache";
 import HomeBrief, { HomeBriefClearedRow } from "@/components/HomeBrief";
 import HomeGreetingHeader from "@/components/HomeGreetingHeader";
 import HomeTransfersCheck from "@/components/HomeTransfersCheck";
@@ -192,7 +194,8 @@ export default function HomePage() {
   // race here.
   const [profileFullName, setProfileFullName] = useState<string | undefined>(undefined);
   useEffect(() => {
-    api.getProfile().then((p) => setProfileFullName(p.full_name || undefined)).catch(() => {});
+    const apply = (p: UserProfile) => setProfileFullName(p.full_name || undefined);
+    cachedEndpoint(ENDPOINT.profile.key, () => api.getProfile(), { ttlMs: ENDPOINT.profile.ttlMs, onUpdate: apply }).then(apply).catch(() => {});
   }, []);
   // A182: bank connections, for the 90-day reconfirmation prompt and the
   // plain reason on the reconnect strip.
@@ -385,41 +388,73 @@ export default function HomePage() {
     setHomeCache({ accounts, investmentAccounts, safeToSpend, companionItems, accountEligibility, todayStatus, accountsStatus, recentTxns, recentPendingTxns, recentPendingTotal, recentActivityError });
   }, [accounts, investmentAccounts, safeToSpend, companionItems, accountEligibility, todayStatus, accountsStatus, recentTxns, recentPendingTxns, recentPendingTotal, recentActivityError]);
 
-  const loadData = useCallback(async () => {
+  // G425: `allowCache` is passed ONLY by the mount effect. Every other caller
+  // (pull-to-refresh, the sync button and its polls, retries, app-unlock, the
+  // review sheet's onChanged) omits it and so always refetches. With it, a
+  // payload younger than its TTL is reused with no request, and an older one
+  // paints immediately then revalidates in the background, replacing the view
+  // only when it changed (lib/endpointCache.ts).
+  const loadData = useCallback(async (opts?: { allowCache?: boolean }) => {
+    const allowCache = opts?.allowCache === true;
+    const force = !allowCache;
     const requestId = ++loadRequestRef.current;
+    // A cached payload must render immediately: do not reset the status flags
+    // to "loading" when we are about to serve the same data from the cache.
+    const warmToday = allowCache && peekEndpoint(ENDPOINT.today.key) !== undefined;
+    const warmAccounts = allowCache && getHomeCache() != null;
     setLoadError(false);
     setStsError(false);
     // G148: a retry or a manual sync is a fresh attempt, so the spend-from
     // rail goes back to its quiet in-flight state rather than keeping a
     // stale "we could not check" line on screen. Any eligibility already
     // held is untouched, so a warm rail does not blink out while refreshing.
-    setTodayStatus("loading");
-    setAvailabilityFresh(false);
-    setAccountsStatus("loading");
+    if (!warmToday) {
+      setTodayStatus("loading");
+      setAvailabilityFresh(false);
+    }
+    if (!warmAccounts) setAccountsStatus("loading");
     try {
       // Fire the fast calls all in parallel and set each state as its own
       // promise resolves. The Safe-to-Spend tile and brief never wait for
       // siblings, and Recent Transactions gets its own small search-endpoint
       // request here instead of reading off the heavy 90-day bulk fetch
       // (that one is now lazy — see the homePinnedWidget effect below).
-      const accsP = getAccountsCached();
-      const invP = api.getInvestmentAccounts();
-      const safeP = api.safeToSpend();
-      const todayP = api.getToday();
+      const live = (fn: () => void) => { if (requestId === loadRequestRef.current) fn(); };
+      const applyToday = (v: Awaited<ReturnType<typeof api.getToday>>) => {
+        setCompanionItems(v.items);
+        setAccountEligibility(v.account_eligibility ?? undefined);
+        setTodayStatus("ready");
+        setAvailabilityFresh(true);
+      };
+      const accsP = getAccountsCached(force);
+      const invP = cachedEndpoint(ENDPOINT.investmentAccounts.key, () => api.getInvestmentAccounts(), { force, ttlMs: ENDPOINT.investmentAccounts.ttlMs, onUpdate: (v) => live(() => setInvestmentAccounts(v)) });
+      const safeP = cachedEndpoint(ENDPOINT.safeToSpend.key, () => api.safeToSpend(), { force, ttlMs: ENDPOINT.safeToSpend.ttlMs, onUpdate: (v) => live(() => setSafeToSpend(v)) });
+      const todayP = cachedEndpoint(ENDPOINT.today.key, () => api.getToday(), { force, ttlMs: ENDPOINT.today.ttlMs, onUpdate: (v) => live(() => applyToday(v)) });
       // Awaited with the rest below so the page never settles (and
       // isFreshUser is never computed) against a stale "idle".
-      const syncP = api.getSyncStatus()
+      const syncP = cachedEndpoint(ENDPOINT.syncStatus.key, () => api.getSyncStatus(), { force, ttlMs: ENDPOINT.syncStatus.ttlMs, onUpdate: (v) => live(() => setSyncStatus(v)) })
         .then((v) => { if (requestId === loadRequestRef.current) setSyncStatus(v); })
         .catch(() => {});
       // Over-fetch to 12 rather than 6: the micro-pot-shuffle filter below
       // (round-ups, penny transfers) can drop rows, and asking the server
       // for exactly 6 could leave fewer than 6 on screen after filtering.
-      const recentTxP = api.transactionsSearch({ page: 1, page_size: 12, activity_order: true });
+      const recentTxP = cachedEndpoint(ENDPOINT.recentTransactions.key, () => api.transactionsSearch({ page: 1, page_size: 12, activity_order: true }), {
+        force,
+        ttlMs: ENDPOINT.recentTransactions.ttlMs,
+        onUpdate: (r) => live(() => {
+          setRecentTxns(r.items);
+          setRecentPendingTxns(r.pending_items ?? []);
+          setRecentPendingTotal(r.pending_total ?? 0);
+          setRecentActivityError(null);
+        }),
+      });
       // This is where the old code kicked off the 90-day bulk fetch
       // directly. It's lazy now (see the homePinnedWidget effect below), but
       // every loadData call — mount and every sync retry — still needs to
       // trigger a refresh of it when the widget is pinned, so bump the nonce
       // that effect is keyed on instead of awaiting the fetch here.
+      // G425: an explicit refresh also re-reads the transfers count.
+      if (force) invalidateMiscategorisedCount();
       setBulkNonce((n) => n + 1);
 
       invP.then((v) => {
@@ -440,17 +475,10 @@ export default function HomePage() {
         });
       todayP
         .then((v) => {
-          if (requestId === loadRequestRef.current) {
-            setCompanionItems(v.items);
-            // May genuinely be undefined: a payload from a server, or a
-            // response cache, older than G110 carries no eligibility at
-            // all. That case is no longer silent (see `todayStatus` above
-            // and lib/spendFromAccount.ts's `SpendFromUnavailableReason`),
-            // which is the whole point of recording "ready" alongside it.
-            setAccountEligibility(v.account_eligibility ?? undefined);
-            setTodayStatus("ready");
-            setAvailabilityFresh(true);
-          }
+          // account_eligibility may genuinely be undefined (payload older
+          // than G110): applyToday records "ready" alongside it, see
+          // `todayStatus` above and lib/spendFromAccount.ts.
+          if (requestId === loadRequestRef.current) applyToday(v);
         })
         .catch(() => {
           // Still swallowed on purpose: Home has its own load-error path
@@ -548,7 +576,8 @@ export default function HomePage() {
   const refetchToday = useCallback(() => {
     const requestId = ++loadRequestRef.current;
     setAvailabilityFresh(false);
-    api.getToday()
+    // G425: an explicit refresh, always a network read (and it refreshes the cache).
+    cachedEndpoint(ENDPOINT.today.key, () => api.getToday(), { force: true })
       .then((v) => {
         if (requestId !== loadRequestRef.current) return;
         setCompanionItems(v.items);
@@ -561,7 +590,7 @@ export default function HomePage() {
       });
   }, []);
 
-  useEffect(() => { loadData(); }, [loadData]);
+  useEffect(() => { void loadData({ allowCache: true }); }, [loadData]);
 
   // A121: the app-lock request gate (lib/api.ts) refuses any of the fetches
   // above while the biometric lock is engaged. Nothing here currently

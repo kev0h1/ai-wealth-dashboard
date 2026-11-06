@@ -7,6 +7,7 @@ import { createSerialQueue } from "@/lib/serialQueue";
 import { DEFAULT_PAY_SPLIT_REFERENCE, fetchGatedSnapshot, applyWholeDocument, makeFieldReconcile, paySplitReferenceFromSnapshot } from "@/lib/preferencesSnapshot";
 import { shouldAcceptPreferencesSnapshot } from "@/lib/preferencesVersion";
 import { invalidateVerdictCache } from "@/lib/verdictCache";
+import { invalidateEndpoint, TRANSACTIONS_CHANGED_KEYS } from "@/lib/endpointCache";
 import { invalidateMoneyShapeCache } from "@/lib/moneyShape";
 import { todayIso } from "@/lib/calendar";
 import type { GuideId } from "@/lib/paySplitReference";
@@ -403,6 +404,8 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
   const invalidateSpendCaches = useCallback(() => {
     invalidateVerdictCache();
     invalidateMoneyShapeCache();
+    // G425: the money endpoints Home and friends cache client-side.
+    invalidateEndpoint(...TRANSACTIONS_CHANGED_KEYS);
   }, []);
 
   const hideNetWorthSaver = useRef(createPreferenceSaver<boolean>({

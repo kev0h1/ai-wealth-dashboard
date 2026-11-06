@@ -1,6 +1,7 @@
 import { Capacitor } from "@capacitor/core";
 import { getToken } from "./auth";
 import { isAppLocked } from "./appLock";
+import { invalidateEndpoint, TRANSACTIONS_CHANGED_KEYS } from "./endpointCache";
 import { LEGACY_BANK_AVAILABLE, LEGACY_BANK_ID } from "./legacyBankProvider";
 import type { AccountRefreshResult } from "./accountRefresh";
 import type { GoLiveItem, GoLiveQuestion, GoLiveOwner } from "./goLive";
@@ -2115,7 +2116,23 @@ function fetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> 
     return Promise.reject(new Error("Preview only. Nothing has been saved."));
   }
   if (isAppLocked() && !isAppLockExemptPath(input)) return Promise.reject(new AppLockedError());
-  return globalThis.fetch(input, init);
+  return globalThis.fetch(input, init).then((r) => { if (r.ok && isEndpointCacheWrite(input, init)) invalidateEndpoint(...TRANSACTIONS_CHANGED_KEYS); return r; });
+}
+
+// G425: the client endpoint cache (lib/endpointCache.ts) mirrors the server's
+// data version: any successful write drops the money endpoints, so a dismissal,
+// edit, set-aside or sync can never be followed by a cached pre-write payload.
+// Excluded: reads, preferences (PreferencesContext invalidates only for the
+// money fields, matching the server), Penny chat turns and chips, auth and
+// push registration, and the read-only POSTs (can-i, the cashflow, commitment,
+// schedule and spend-intent previews, card payment-match preview, receipt
+// scan), none of which move a cached figure.
+const ENDPOINT_CACHE_WRITE_EXEMPT = /\/(?:preferences|penny\/(?:chat|stream|history|chip)|auth|push|telemetry|analytics\/event|can-i|cashflow\/preview-rule|commitments\/(?:schedule-)?preview|spend\/intent-preview|card-terms\/[^/?]+\/payment-match-preview|baskets\/scan-receipt)(?:[/?]|$)/;
+function isEndpointCacheWrite(input: RequestInfo | URL, init?: RequestInit): boolean {
+  const method = (init?.method ?? (typeof Request !== "undefined" && input instanceof Request ? input.method : "GET")).toUpperCase();
+  if (method === "GET" || method === "HEAD" || method === "OPTIONS") return false;
+  const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+  return !ENDPOINT_CACHE_WRITE_EXEMPT.test(url);
 }
 
 // Test-only escape hatch: scripts/app-lock.test.mjs exercises the gate
@@ -3207,6 +3224,8 @@ export type DismissedSeriesResponse = {
   engine: DismissedEngineRow[];
 };
 
+export type MiscategorisedCount = { count: number; ids: string[]; pair_count?: number; review_total?: number };
+
 export type SyncStatus = {
   state: "idle" | "syncing" | "stalled" | "failed";
   /** True only when no connection has ever synced (a genuine first sync). */
@@ -3839,7 +3858,7 @@ export const api = {
   // shows (series + pairs, uncapped-series-count + capped-pairs-count).
   // Authoritative for the Spend banner when present; older cached payloads
   // without it fall back to the period-scoped count/pair_count above.
-  getMiscategorisedCount: (offset = 0) => get<{ count: number; ids: string[]; pair_count?: number; review_total?: number }>(`/transactions/miscategorised-count?offset=${offset}`),
+  getMiscategorisedCount: (offset = 0) => get<MiscategorisedCount>(`/transactions/miscategorised-count?offset=${offset}`),
   getMiscategorised: () =>
     get<{ items: import("@/lib/transferReview").MiscategorisedItem[]; separate_items?: import("@/lib/transferReview").MiscategorisedItem[] }>("/transactions/miscategorised"),
   dismissMiscategorised: (id: string) => post<{ ok: boolean }>(`/transactions/${id}/dismiss-miscategorised`, {}),
