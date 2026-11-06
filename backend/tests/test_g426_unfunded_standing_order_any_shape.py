@@ -120,3 +120,56 @@ def test_savings_orders_into_a_spendable_account_keep_the_unfunded_move_item(mon
     items, elig = _go(monkeypatch, [_sto(300.0, days_away=0, pending=True, spendable=True)], _main())
     assert [i for i in items if i.get("type") == "unfunded_move"]
     assert "savings_at_risk" not in elig["barclays"]
+
+
+def test_funded_order_that_drains_the_account_so_a_later_bill_bounces_is_skippable(monkeypatch):
+    # £400: the £300 order is funded (100 left), then a £150 bill bounces (-50).
+    # Payments alone: 400 - 150 = +250, so the whole £50 is the savings part and
+    # the funded order is the one to let skip.
+    bills = [_sto(300.0, days_away=3), _bill("Phone", 5, 150.0, "barclays", 400.0)]
+    items, elig = _go(monkeypatch, bills, _main(balance=400.0))
+    fact = elig["barclays"]["savings_at_risk"]
+    assert fact["amount"] == 50.0
+    assert [o["name"] for o in fact["orders"]] == ["STO SAVER"]
+    card = _cards(items)[0]
+    row = next(b for b in card["plan_dest"]["bills"] if b.get("key") == "STO SAVER")
+    assert row["can_skip"] is True and row["savings"] is True
+
+
+def test_funded_earlier_order_and_bounced_later_order_both_skippable(monkeypatch):
+    # £500: order A £300 funded (200 left), order B £400 bounces (-200). Removing
+    # either raises the low point, so both contribute to the £200 gap.
+    a = _sto(300.0, days_away=2)
+    b = _sto(400.0, days_away=4)
+    b["name"] = "STO SAVER TWO"
+    items, elig = _go(monkeypatch, [a, b], _main(balance=500.0))
+    fact = elig["barclays"]["savings_at_risk"]
+    assert fact["amount"] == 200.0
+    assert sorted(o["name"] for o in fact["orders"]) == ["STO SAVER", "STO SAVER TWO"]
+    card = _sav_cards(items)[0]
+    assert sorted(b.get("key") for b in card["plan_dest"]["bills"]) == ["STO SAVER", "STO SAVER TWO"]
+
+
+def test_payments_short_on_their_own_keep_the_payment_part_beside_the_savings_part(monkeypatch):
+    # £100: Rent £300 is £200 short on its own; the later £20 order adds £20 more.
+    bills = [_bill("Rent", 2, 300.0, "barclays", 100.0), _sto(20.0, days_away=4)]
+    _items, elig = _go(monkeypatch, bills, _main(balance=100.0))
+    # Walk low -220; payments alone -200, so the savings part is 20.
+    assert elig["barclays"]["savings_at_risk"]["amount"] == 20.0
+
+
+def test_at_risk_counts_a_cascaded_bill_only_when_it_also_bounces_without_the_order():
+    from app.services.account_walk import payment_only_walk, walk_events
+
+    sto = {"kind": MOVEMENT, "dest_account_id": "sav", "dest_account_spendable": False, "amount": 300, "name": "o"}
+    phone = {"kind": "commitment", "amount": 100, "name": "phone"}
+    gas = {"kind": "commitment", "amount": 200, "name": "gas"}
+    events = [(1, "a", 300.0, False, sto), (2, "a", 100.0, False, phone), (3, "a", 200.0, False, gas)]
+    _r, _m, _s, bounced = walk_events(events, {"a": 150.0})
+    _pm, po = payment_only_walk(events, {"a": 150.0})
+    assert count_at_risk(bounced) == 2          # the old badge: both cascade
+    assert count_at_risk(bounced, po) == 1      # only gas bounces on its own
+    repay = {"kind": MOVEMENT, "is_card_repayment": True, "amount": 500, "name": "card"}
+    ev2 = [(1, "a", 300.0, False, sto), (2, "a", 500.0, False, repay)]
+    _r, _m, _s, b2 = walk_events(ev2, {"a": 150.0})
+    assert count_at_risk(b2, payment_only_walk(ev2, {"a": 150.0})[1]) == 1  # a card repayment always counts

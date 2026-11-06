@@ -1723,28 +1723,38 @@ SAVINGS_NO_COVER_NOTE = (
 SAVINGS_UNSIZED_NOTE = "Savings at risk. This account may not have enough to fund the transfer this period."
 
 
-def _is_savings_order(b: dict) -> bool:
-    """PURE. A recurring transfer into the user's OWN non-spendable (savings or
-    investment) account: a movement with a learned own destination that is not
-    a pooled spendable account. A card repayment is a payment at risk, never
-    savings."""
-    return bool(
-        b.get("kind") == MOVEMENT
-        and b.get("dest_account_id")
-        and b.get("dest_account_spendable") is not True
-        and not b.get("is_card_repayment")
-        and not b.get("is_credit_card")
-    )
+from app.services.account_walk import is_savings_order as _is_savings_order  # noqa: E402
 
 
 def _payment_only_minimums(events: list, seed: dict[str, float]) -> dict[str, float]:
-    """G426. Re-walk the window with every own-savings standing order left out
-    and return each account's low point. What the real walk adds below this is
-    what the savings transfers explain; this much is what the payments alone
-    would be short by. The same `_walk_events` loop, never a second walk."""
-    kept = [e for e in events if e[3] or not _is_savings_order(e[4] or {})]
-    _r, mins, _sb, _bb = _walk_events(kept, dict(seed))
-    return mins
+    """G426. Each account's low point with every own-savings standing order
+    left out: what the payments alone would be short by. The same
+    `_walk_events` loop, never a second walk."""
+    from app.services.account_walk import payment_only_walk
+
+    return payment_only_walk(events, seed)[0]
+
+
+def _contributing_savings_orders(
+    events: list, seed: dict[str, float], min_running: dict[str, float],
+) -> dict[str, list[dict]]:
+    """G426. For each short account, every own-savings standing order whose
+    removal alone raises the account's low point (a funded order that drains
+    the account so a later bill bounces counts, as does a bounced one; an order
+    that falls after the low point does not). Same walk, one order left out."""
+    out: dict[str, list[dict]] = {}
+    for acct, min_bal in min_running.items():
+        if min_bal >= -0.005 or acct == "__unknown__":
+            continue
+        mine = [e for e in events if e[1] == acct]
+        for e in mine:
+            if e[3] or not _is_savings_order(e[4] or {}):
+                continue
+            rest = [x for x in mine if x is not e]
+            _r, mins, _sb, _bb = _walk_events(rest, {acct: seed[acct]} if acct in seed else {})
+            if mins.get(acct, 0.0) > float(min_bal) + 0.005:
+                out.setdefault(acct, []).append(e[4])
+    return out
 
 
 def _savings_order_gaps(
@@ -1752,9 +1762,13 @@ def _savings_order_gaps(
     bounced_bills: dict[str, list[dict]],
     skip_accounts: set[str],
     payment_only_min: dict[str, float] | None = None,
+    contributing: dict[str, list[dict]] | None = None,
 ) -> dict[str, dict]:
     """PURE. {account_id: {"gap", "payment_gap", "orders"}} for every account
-    where at least one own-savings standing order bounced, whether or not other
+    where at least one own-savings standing order contributes to the deficit
+    (`contributing`, from `_contributing_savings_orders`: a funded order that
+    drains the account so a later bill bounces counts too; without it, the
+    bounced orders), whether or not other
     items on the account are short and whether the order is still to come or
     pending (G426; G422 only spoke for an account whose only bounced items
     were upcoming savings orders).
@@ -1763,14 +1777,17 @@ def _savings_order_gaps(
     the savings orders left out, `payment_only_min`); `gap` is the rest of the
     deficit, the part the savings transfers explain, which is never a payment
     shortfall. With no `payment_only_min` the whole deficit is savings.
-    `orders` are the bounced savings orders (the ones the user can let skip).
+    `orders` are every savings order that contributes (the ones the user can let skip).
     `skip_accounts` carries the accounts another path already speaks for
     (overdrafts, payday standing orders funded by the salary)."""
     out: dict[str, dict] = {}
     for acct, min_bal in min_running.items():
         if min_bal >= -0.005 or acct == "__unknown__" or acct in skip_accounts:
             continue
-        orders = [b for b in (bounced_bills.get(acct) or []) if _is_savings_order(b)]
+        if contributing is not None:
+            orders = list(contributing.get(acct) or [])
+        else:
+            orders = [b for b in (bounced_bills.get(acct) or []) if _is_savings_order(b)]
         if not orders:
             continue
         deficit = abs(float(min_bal))
@@ -3062,6 +3079,7 @@ async def compute_today_items(
             _sav_gaps = _savings_order_gaps(
                 min_running, bounced_bills, set(_overdraft_today) | _payday_funds_accts,
                 _payment_only_minimums(events, _walk_seed),
+                _contributing_savings_orders(events, _walk_seed, min_running),
             )
         except Exception:
             log.warning("savings order gaps failed for %s", uid, exc_info=True)

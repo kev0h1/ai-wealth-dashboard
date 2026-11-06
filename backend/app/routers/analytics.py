@@ -3488,10 +3488,13 @@ async def at_risk_count(user: dict = Depends(current_user)):
     # late-income line for one (see the comment block above `walk_sort_key`
     # in services/companion.py). G360: an inflow counts only when its SOURCE
     # account is covered that day. G163: same-day, credits before debits.
-    from app.services.account_walk import count_at_risk, walk_events, window_events
+    from app.services.account_walk import count_at_risk, payment_only_walk, walk_events, window_events
 
     events, seed, _credited = window_events(_wi)
     _running, _min_running, _shortfall, bounced = walk_events(events, seed)
+    # G426: a bill that bounces only because an own-savings order went first
+    # is savings at risk, not a payment at risk.
+    _po_min, _po_bounced = payment_only_walk(events, seed)
 
     # A deficit cascades (a bounced bill still debits the balance, so every
     # later bill on a short account counts until income recovers it), but a
@@ -3499,7 +3502,7 @@ async def at_risk_count(user: dict = Depends(current_user)):
     # is the user's own plan for their own money, matching the Planning page's
     # own at-risk simulation (PlanningPage.tsx), which this badge must agree
     # with. A commitment/discretionary bill a movement starves still counts.
-    at_risk = count_at_risk(bounced)
+    at_risk = count_at_risk(bounced, _po_bounced)
 
     return {"count": at_risk}
 
