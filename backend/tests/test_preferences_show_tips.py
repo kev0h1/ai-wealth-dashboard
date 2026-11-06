@@ -68,11 +68,13 @@ def test_show_tips_defaults_to_true_with_and_without_a_document(monkeypatch):
     assert asyncio.run(preferences.get_preferences({"email": UID}))["show_tips"] is True
 
 
-def test_patch_round_trips_and_invalidates_the_cache(monkeypatch):
+def test_patch_round_trips_and_leaves_the_cache_alone(monkeypatch):
     col, spy = _setup(monkeypatch, {"user_id": UID, "version": 1})
     out = asyncio.run(preferences.update_preferences({"show_tips": False}, {"email": UID}))
     assert out["show_tips"] is False
-    assert spy.invalidated == [UID]
+    # E15: show_tips is cosmetic (read live by savings_insights, never cached),
+    # so changing it must not wipe the per-user response cache.
+    assert spy.invalidated == []
     assert asyncio.run(preferences.get_preferences({"email": UID}))["show_tips"] is False
     out = asyncio.run(preferences.update_preferences({"show_tips": True}, {"email": UID}))
     assert out["show_tips"] is True
