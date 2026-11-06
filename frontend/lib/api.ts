@@ -2116,8 +2116,7 @@ function fetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> 
     return Promise.reject(new Error("Preview only. Nothing has been saved."));
   }
   if (isAppLocked() && !isAppLockExemptPath(input)) return Promise.reject(new AppLockedError());
-  const res = globalThis.fetch(input, init);
-  return isEndpointCacheWrite(input, init) ? res.then((r) => { if (r.ok) invalidateEndpoint(...TRANSACTIONS_CHANGED_KEYS); return r; }) : res;
+  return globalThis.fetch(input, init).then((r) => { if (r.ok && isEndpointCacheWrite(input, init)) invalidateEndpoint(...TRANSACTIONS_CHANGED_KEYS); return r; });
 }
 
 // G425: the client endpoint cache (lib/endpointCache.ts) mirrors the server's
