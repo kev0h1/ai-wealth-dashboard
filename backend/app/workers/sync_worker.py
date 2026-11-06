@@ -83,6 +83,23 @@ async def _enqueue_weekly_insight_refresh(ctx, user_id: str) -> None:
         logging.getLogger(__name__).warning("could not enqueue insights refresh for %s", user_id)
 
 
+def _no_warm_enqueue(fn):
+    """E16: a sync task already warms the user itself (`_warm_after_sync`), so
+    its internal data-version bumps must not also queue a deferred warm job."""
+    import functools
+
+    @functools.wraps(fn)
+    async def wrapper(*args, **kwargs):
+        from app.services import data_version
+        token = data_version.warm_enqueue_suppressed.set(True)
+        try:
+            return await fn(*args, **kwargs)
+        finally:
+            data_version.warm_enqueue_suppressed.reset(token)
+
+    return wrapper
+
+
 async def _warm_after_sync(user_id: str) -> None:
     """Best-effort post-sync cache warm-up (see app.services.warmup) — never
     lets a warm-up hiccup fail the sync task that just ran.
@@ -102,6 +119,7 @@ async def _warm_after_sync(user_id: str) -> None:
         logging.getLogger(__name__).exception("warm_user failed after sync for %s", user_id)
 
 
+@_no_warm_enqueue
 async def task_sync_truelayer(ctx, connection_id: str, user_id: str):
     # B45: webhook-driven and retried jobs reach here without passing the
     # reconcile cron's tier check, so the pause is enforced at the task too.
@@ -123,6 +141,7 @@ async def task_sync_truelayer(ctx, connection_id: str, user_id: str):
     return {"synced": len(ids), "new_transactions": new_count}
 
 
+@_no_warm_enqueue
 async def task_sync_finexer(ctx, consent_id: str, user_id: str, event_id: str | None = None, event_account_id: str | None = None):
     # B45: webhook-driven and retried jobs reach here without passing the
     # reconcile cron's tier check, so the pause is enforced at the task too.
@@ -218,6 +237,7 @@ def _spread_offsets(
     return offsets, overflow
 
 
+@_no_warm_enqueue
 async def task_reconcile_truelayer(ctx):
     """Keep every connection fresh (at its tier's own cadence) and catch
     missed webhooks.
@@ -783,6 +803,7 @@ async def task_retention_sweep(ctx):
     return summary
 
 
+@_no_warm_enqueue
 async def task_reconcile_finexer_events(ctx):
     """Nightly: compare Finexer's List events with the webhook deliveries we
     stored and replay anything missed (A184, services/finexer_event_reconcile).
@@ -822,6 +843,36 @@ async def task_recompute_cashflow(ctx, user_id: str, reason: str | None = None):
     ok = await compute_and_cache_cashflow(user_id, clear_ai_cache=reason != "model_work")
     logger.info("cashflow recompute task done for %s: %s", user_id, "ok" if ok else "not written")
     return {"recomputed": bool(ok)}
+
+
+async def task_warm_user(ctx, user_id: str, again: bool = False):
+    """E16: warm one user's response cache on the worker, enqueued by every
+    data_version bump as `warm:<user_id>` (deferred a few seconds so a burst
+    of writes warms once). Includes the cover plan. A write that lands while
+    this runs cannot enqueue (arq refuses the live job id) and makes the
+    pinned cache writes skip, so if the version moved by the end we queue one
+    follow-up (`again`), which never chains further."""
+    from app.services import data_version
+    from app.services.warmup import warm_user
+    out = await warm_user(user_id, include_cover_plan=True)
+    if not again and await data_version.current(user_id, fresh=True) != out.get("version"):
+        # queue.enqueue (not ctx["redis"]) on purpose: it keeps H148's
+        # test-mode recording guard in force, so tests never reach Redis.
+        from app.workers import queue
+        await queue.enqueue("task_warm_user", user_id, True,
+                            job_id=f"warm:{user_id}:again",
+                            _defer_by=data_version.WARM_DEFER_SECONDS)
+    return {"warmed": len(out.get("warmed", [])), "failed": len(out.get("failed", []))}
+
+
+async def task_warm_rollover(ctx, now_utc: datetime | None = None):
+    """E16: shortly after midnight Europe/London, warm users active in the
+    last 7 days. Cron runs at 23:05 and 00:05 UTC and only the one that is
+    00:05 London does anything, so BST and GMT both work."""
+    from app.services import warm_schedule
+    if not warm_schedule.is_london_rollover(now_utc):
+        return {"skipped": "not_london_midnight"}
+    return await warm_schedule.warm_recent_users(now_utc)
 
 
 async def _engine_refresh_on_startup() -> None:
@@ -904,7 +955,11 @@ class WorkerSettings:
                  task_reconcile_finexer_events, task_safe_to_spend_snapshot, task_health_samples,
                  # keep_result=0: the job id dedupes a burst while queued or
                  # running, and must not block the next enqueue afterwards.
-                 arq_func(task_recompute_cashflow, keep_result=0)]
+                 arq_func(task_recompute_cashflow, keep_result=0),
+                 # E16: same job-id dedupe reasoning; keep_result=0 so the
+                 # next write can enqueue a fresh warm straight after.
+                 arq_func(task_warm_user, keep_result=0),
+                 task_warm_rollover]
     cron_jobs = [
         cron(task_reconcile_truelayer, hour={0, 4, 8, 12, 16, 20}, minute=0, run_at_startup=False),
         cron(task_refresh_investment_prices, hour=6, minute=30, run_at_startup=False),
@@ -927,6 +982,9 @@ class WorkerSettings:
         cron(task_trial_reminder, hour=9, minute=0, run_at_startup=False),
         # E7: every 5 minutes, the /ops/health trend samples (capped store).
         cron(task_health_samples, minute=set(range(0, 60, 5)), run_at_startup=False),
+        # E16: day-rollover warm, 00:05 Europe/London (23:05 UTC in BST,
+        # 00:05 UTC in GMT; the task checks London time and skips the other).
+        cron(task_warm_rollover, hour={23, 0}, minute=5, run_at_startup=False),
     ]
     redis_settings = RedisSettings.from_dsn(REDIS_URL)
     max_jobs = 5
