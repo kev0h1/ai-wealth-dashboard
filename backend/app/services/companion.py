@@ -1723,34 +1723,64 @@ SAVINGS_NO_COVER_NOTE = (
 SAVINGS_UNSIZED_NOTE = "Savings at risk. This account may not have enough to fund the transfer this period."
 
 
+def _is_savings_order(b: dict) -> bool:
+    """PURE. A recurring transfer into the user's OWN non-spendable (savings or
+    investment) account: a movement with a learned own destination that is not
+    a pooled spendable account. A card repayment is a payment at risk, never
+    savings."""
+    return bool(
+        b.get("kind") == MOVEMENT
+        and b.get("dest_account_id")
+        and b.get("dest_account_spendable") is not True
+        and not b.get("is_card_repayment")
+        and not b.get("is_credit_card")
+    )
+
+
+def _payment_only_minimums(events: list, seed: dict[str, float]) -> dict[str, float]:
+    """G426. Re-walk the window with every own-savings standing order left out
+    and return each account's low point. What the real walk adds below this is
+    what the savings transfers explain; this much is what the payments alone
+    would be short by. The same `_walk_events` loop, never a second walk."""
+    kept = [e for e in events if e[3] or not _is_savings_order(e[4] or {})]
+    _r, mins, _sb, _bb = _walk_events(kept, dict(seed))
+    return mins
+
+
 def _savings_order_gaps(
     min_running: dict[str, float],
     bounced_bills: dict[str, list[dict]],
     skip_accounts: set[str],
+    payment_only_min: dict[str, float] | None = None,
 ) -> dict[str, dict]:
-    """PURE. {account_id: {"gap": pounds, "orders": [bounced standing orders]}}
-    for every account whose ONLY bounced items are own-savings standing orders
-    that are still to come. An account with any real bounce is a payment
-    shortfall and keeps its existing path (its cover already counts the
-    standing orders). A pending (due or overdue, unseen) order belongs to the
-    G42 `unfunded_move` item, so such an account is left to it. A card
-    repayment is a payment at risk, never savings. `skip_accounts` carries the
-    accounts another path already speaks for (shortfalls, overdrafts, payday
-    standing orders funded by the salary)."""
+    """PURE. {account_id: {"gap", "payment_gap", "orders"}} for every account
+    where at least one own-savings standing order bounced, whether or not other
+    items on the account are short and whether the order is still to come or
+    pending (G426; G422 only spoke for an account whose only bounced items
+    were upcoming savings orders).
+
+    `payment_gap` is what the payments alone would be short by (the walk with
+    the savings orders left out, `payment_only_min`); `gap` is the rest of the
+    deficit, the part the savings transfers explain, which is never a payment
+    shortfall. With no `payment_only_min` the whole deficit is savings.
+    `orders` are the bounced savings orders (the ones the user can let skip).
+    `skip_accounts` carries the accounts another path already speaks for
+    (overdrafts, payday standing orders funded by the salary)."""
     out: dict[str, dict] = {}
     for acct, min_bal in min_running.items():
         if min_bal >= -0.005 or acct == "__unknown__" or acct in skip_accounts:
             continue
-        bounced = bounced_bills.get(acct) or []
-        if not bounced:
+        orders = [b for b in (bounced_bills.get(acct) or []) if _is_savings_order(b)]
+        if not orders:
             continue
-        if any(
-            b.get("kind") != MOVEMENT or b.get("is_card_repayment") or b.get("is_credit_card")
-            or b.get("pending") or not b.get("dest_account_id") or b.get("dest_account_spendable") is True
-            for b in bounced
-        ):
+        deficit = abs(float(min_bal))
+        payment_gap = 0.0
+        if payment_only_min is not None:
+            payment_gap = min(deficit, max(0.0, -float(payment_only_min.get(acct, 0.0))))
+        gap = round(deficit - payment_gap, 2)
+        if gap <= 0.005:
             continue
-        out[acct] = {"gap": round(abs(float(min_bal)), 2), "orders": list(bounced)}
+        out[acct] = {"gap": gap, "payment_gap": round(payment_gap, 2), "orders": orders}
     return out
 
 
@@ -2898,6 +2928,7 @@ async def compute_today_items(
     # G366: each walked account's AccountWalk (the same loop `_walk_events`
     # runs), so account positions read After payments from the walk itself.
     _closing_walks = _account_walks(events, running)
+    _walk_seed = dict(running)  # G426: the opening balances, for the payment-only re-walk
     running, min_running, shortfall_bill, bounced_bills = _walk_events(events, running)
 
     # ── 4b. OVERDRAFT SEEDING ────────────────────────────────────────────────
@@ -3019,6 +3050,23 @@ async def compute_today_items(
         _days_away, _amt, _bill = _result
         shortfalls.append((_days_away, _amt, dest_acct, _bill))
     shortfalls.sort(key=lambda t: (t[0], -t[1]))  # most urgent, then largest
+
+    # G426: own-savings standing orders the source cannot fund, split from what
+    # the payments alone would be short by. Computed once here so the payment
+    # card (section 6), the unfunded-move item (5d) and the savings card (6b2)
+    # all read the same figure. A pending order and an account that also has a
+    # real bounce are covered too; the account keeps one combined cover move.
+    _sav_gaps: dict[str, dict] = {}
+    if not payday_preview:
+        try:
+            _sav_gaps = _savings_order_gaps(
+                min_running, bounced_bills, set(_overdraft_today) | _payday_funds_accts,
+                _payment_only_minimums(events, _walk_seed),
+            )
+        except Exception:
+            log.warning("savings order gaps failed for %s", uid, exc_info=True)
+            _sav_gaps = {}
+    _sav_in_payment_path: set[str] = {_sd for _, _, _sd, _ in shortfalls}
 
     # Step 2: Track remaining source capacity across successive moves.
     # SOURCE SAFETY — capacity is min-running-based, not sum-based: simulate the
@@ -3428,6 +3476,14 @@ async def compute_today_items(
         and not _movement_bill.get("is_card_repayment")
     }
 
+    # G426: the bounced own-savings standing orders, by occurrence identity, so
+    # the card row can say "savings transfer" and offer the skip.
+    _savings_order_occurrences: set[tuple[str, str, str | None]] = {
+        (_sa, str(_so.get("name") or ""), _so.get("original_date") or _so.get("expected_date"))
+        for _sa, _sg in _sav_gaps.items()
+        for _so in _sg["orders"]
+    }
+
     def _plan_dest_bill(b: dict, account_id: str) -> dict:
         """Return one regular-card payment row with safe optional metadata."""
         _expected_date = b.get("expected_date")
@@ -3447,6 +3503,14 @@ async def compute_today_items(
                 "expected_date": _original_date,
                 "days_past_due": int(b.get("days_past_due") or 0),
                 "can_skip": True,
+            })
+        if (account_id, str(b.get("name") or ""), _original_date) in _savings_order_occurrences:
+            _row.update({
+                "key": b.get("name", ""),
+                "expected_date": _original_date,
+                "days_past_due": int(b.get("days_past_due") or 0),
+                "can_skip": True,
+                "savings": True,
             })
         return _row
 
@@ -3594,7 +3658,14 @@ async def compute_today_items(
         # across destinations. This call site is unchanged behaviourally by
         # the G42 extraction; only the per-destination display fields below
         # are attached locally rather than baked into the shared function.
-        legs = _find_legs_for_destination(dest_acct, amount_needed, _build_move_map)
+        legs = _find_legs_for_destination(
+            dest_acct, amount_needed, _build_move_map,
+            # G426: the saver an unfunded standing order pays into is never
+            # the source that funds its own transfer.
+            exclude_sources=frozenset(
+                str(_o.get("dest_account_id")) for _o in (_sav_gaps.get(dest_acct) or {}).get("orders", [])
+            ),
+        )
         for _leg in legs:
             _leg["dest_name"] = dest_name
             _leg["bill_name"] = bill_name
@@ -4701,6 +4772,10 @@ async def compute_today_items(
                 # would double-describe the same move.
                 if _um_bill.get("dest_account_id") in _pp_dest_ids_final:
                     continue
+                # G426: an own-savings order is spoken for by the savings cover
+                # move (or its plain no-cover line), never "may stay put".
+                if any(_um_bill is _so for _so in (_sav_gaps.get(_um_acct) or {}).get("orders", [])):
+                    continue
                 _um_qualifying.append((_um_acct, _um_bill))
 
         # The regular move card is the canonical account-level calculation:
@@ -5104,6 +5179,29 @@ async def compute_today_items(
             continue
         dest_legs = legs_by_dest.get(dest_acct) or []
 
+        # G426: an own-savings standing order on an account that ALSO has a real
+        # shortfall. The one combined cover move below already funds the whole
+        # walk deficit (the walk counts the order); this splits out the savings
+        # part as the amber `savings_at_risk` fact every surface reads, and the
+        # payment part stays the only payment shortfall.
+        _mx_gap = _sav_gaps.get(dest_acct)
+        _mx_fact: dict | None = None
+        if _mx_gap:
+            _mx_total = round(sum(float(_l["amount"]) for _l in dest_legs), 2)
+            _mx_covered = max(0.0, min(float(_mx_gap["gap"]), _mx_total - float(_mx_gap["payment_gap"])))
+            _mx_fact = _savings_at_risk_fact(
+                gap=float(_mx_gap["gap"]),
+                orders=_savings_order_rows(_mx_gap["orders"], {a["_str_id"]: a for a in all_uk_accounts + offline_accounts}),
+                covered=_mx_covered,
+                from_label=(dest_legs[0]["move_map"]["from"].get("display_label") or dest_legs[0]["move_map"]["from"]["name"]) if dest_legs else None,
+                from_count=len({_l["move_map"]["from"]["account_id"] for _l in dest_legs}),
+                no_cover=not dest_legs,
+                unsized=bool(dest_legs) and not _regular_move_gate.will_emit_by_dest.get(dest_acct),
+            )
+            _mx_entry = (account_eligibility_out or {}).get(dest_acct)
+            if _mx_entry is not None:
+                _mx_entry["savings_at_risk"] = _mx_fact
+
         # ── (a) No viable source for this destination: the "no easy cover" card ──
         if not dest_legs:
             u = uncovered_by_dest.get(dest_acct)
@@ -5291,6 +5389,31 @@ async def compute_today_items(
         else:
             body = f"£{total:,} across {n_rows} moves covers most of what {dest_name} needs."
 
+        if _mx_gap and n_rows == 1 and not _is_overdraft_dest:
+            # G426: say which part is payments and which is the savings transfer.
+            _ds_b = (dest_summaries.get(dest_acct) or {}).get("bills") or []
+            _pay_b = [b for b in _ds_b if not b.get("savings")]
+            _sav_b = [b for b in _ds_b if b.get("savings")]
+            if _pay_b and _sav_b:
+                _sav_amt = int(round(sum(float(b["amount"]) for b in _sav_b)))
+                _pay_amt = int(round(sum(float(b["amount"]) for b in _pay_b)))
+                _pay_ph = f"{len(_pay_b)} payment{'s' if len(_pay_b) != 1 else ''} (£{_pay_amt:,})"
+                _sav_ph = (
+                    f"a £{_sav_amt:,} savings transfer" if len(_sav_b) == 1
+                    else f"{len(_sav_b)} savings transfers (£{_sav_amt:,})"
+                )
+                _bal_b = float((dest_summaries.get(dest_acct) or {}).get("balance", 0) or 0)
+                _held_b = f"it's £{_fmt_overdrawn(_bal_b)} overdrawn" if _bal_b < 0 else f"it holds {_gbp(_bal_b)}"
+                _r0 = rows[0]
+                _spare_b = int(round(total - _r0["shortfall"]))
+                body = (
+                    f"{_pay_ph} and {_sav_ph} leave {dest_name} before period end and {_held_b}. "
+                    f"{_gbp(int(round(_r0['shortfall'])))} short. "
+                    f"Moving £{total:,} from {_r0['move_map']['from']['name']} "
+                    f"{'covers all of them' if dest_covered else 'covers most of it'}"
+                    f"{(', with about ' + _gbp(_spare_b) + ' spare.') if (dest_covered and _spare_b >= 2) else '.'}"
+                )
+
         # G163/G167 interim lapse signal: this destination is short partly
         # because a confirmed income stream, or a reliable DETECTED
         # pattern, expected into it has lapsed (expected date passed, no
@@ -5403,6 +5526,8 @@ async def compute_today_items(
             "envelope_reserved": envelope_reserved,
             "assumed_incomes": assumed_incomes,
         }
+        if _mx_fact is not None:
+            emit["savings_at_risk"] = _mx_fact
         if n_rows == 1:
             emit["move_map"] = rows[0]["move_map"]
         if residual is not None:
@@ -5442,13 +5567,7 @@ async def compute_today_items(
     # G422: own-savings standing orders the source cannot fund. They ride the
     # same combined cover move as a plan gap on the same account (below), or
     # get their own card in 6b2 when the account has no plan gap.
-    _sav_gaps: dict[str, dict] = {}
     _sav_handled: set[str] = set()
-    if not payday_preview:
-        _sav_gaps = _savings_order_gaps(
-            min_running, bounced_bills,
-            {_sd for _, _, _sd, _ in shortfalls} | set(_overdraft_today) | _payday_funds_accts,
-        )
     _ap_plans: list[dict] = []
     _ap_ctx: tuple | None = None
     _plan_gap_seen = False
@@ -5524,7 +5643,9 @@ async def compute_today_items(
                     _plan_slots = max(0, min(_MOVE_CARD_CAP - len(items), 3 - len(items) - len(unfunded_move_items[:1])))
                     if _existing_move is None and len(allocation_items) >= _plan_slots:
                         continue
-                    _sav_gap = float((_sav_gaps.get(_pay_id) or {}).get("gap") or 0.0)
+                    # G426: an account already in the payment path has its savings
+                    # part inside `dest_shortfall` (the walk counts the order).
+                    _sav_gap = 0.0 if _pay_id in _sav_in_payment_path else float((_sav_gaps.get(_pay_id) or {}).get("gap") or 0.0)
                     # G422: an unfunded own-savings standing order on this
                     # account is part of the same combined target, so it is
                     # one cover move, never a second card for one account.
@@ -5587,7 +5708,9 @@ async def compute_today_items(
                         "needs_by_last": "",
                         "needs_by_date": None,
                         "needs_by_last_date": None,
-                        "bills": [],
+                        # G426: an own-savings standing order folded into this
+                        # card is listed (and can be let skip) like any payment.
+                        "bills": [_plan_dest_bill(_o, _pay_id) for _o in (_sav_gaps.get(_pay_id) or {}).get("orders", [])] if _sav_gap > 0 else [],
                         "is_overdraft": False,
                         "plans": _plans,
                     }
@@ -5702,7 +5825,7 @@ async def compute_today_items(
         try:
             _sv_accts = {a["_str_id"]: a for a in all_uk_accounts + offline_accounts}
             for _sv_id in sorted(_sav_gaps, key=lambda a: (-_sav_gaps[a]["gap"], a)):
-                if _sv_id in _sav_handled:
+                if _sv_id in _sav_handled or _sv_id in _sav_in_payment_path:
                     continue
                 _sv_acc = _sv_accts.get(_sv_id)
                 if _sv_acc is None:
@@ -5787,7 +5910,8 @@ async def compute_today_items(
                         "balance": float(live_balances.get(_sv_id, float(_sv_acc.get("balance") or 0))),
                         "needs_total": round(_sv_gap, 2),
                         "needs_by": "", "needs_by_last": "", "needs_by_date": None, "needs_by_last_date": None,
-                        "bills": [], "is_overdraft": False,
+                        "bills": [_plan_dest_bill(_o, _sv_id) for _o in _sav_gaps[_sv_id]["orders"]],
+                        "is_overdraft": False,
                     },
                     "moves": [{"amount": l["amount"], "move_map": l["move_map"]} for l in _sv_legs],
                     "covered": bool(_sv_covered + 1e-6 >= _sv_gap),

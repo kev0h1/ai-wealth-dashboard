@@ -86,17 +86,24 @@ def test_standing_order_that_fits_is_left_alone(monkeypatch):
     assert "savings_at_risk" not in elig["barclays"]
 
 
-def test_payment_shortfall_keeps_its_own_path(monkeypatch):
+def test_payment_shortfall_account_gets_one_combined_move_with_the_savings_part_split_out(monkeypatch):
+    # G426 supersedes G422's "keeps its own path": the account still has ONE
+    # cover move, but the savings part is the amber fact, not a payment gap.
     bills = [_bill("Phone", 3, 100.0, "barclays", 50.0), _sto(250.0)]
     items, elig = _go(monkeypatch, bills, _world(1000.0))
-    assert _sav_cards(items) == []
-    assert "savings_at_risk" not in elig["barclays"]
+    cards = [i for i in items if i.get("type") == "move"]
+    assert len(cards) == 1 and cards[0]["savings_at_risk"]["amount"] == 250.0
+    # Walk deficit 50 + 100 + 250 - 50 = 300; the payments alone (50 - 100) are £50 short.
+    assert elig["barclays"]["savings_at_risk"]["amount"] == 250.0
 
 
-def test_pending_order_is_left_to_the_unfunded_move_item(monkeypatch):
+def test_pending_order_gets_the_savings_card_not_the_unfunded_move_item(monkeypatch):
+    # G426: a pending (due or overdue, unseen) own-savings order is spoken for
+    # by the savings cover move, never the G42 "may stay put" item.
     items, elig = _go(monkeypatch, [_sto(pending=True, days_away=0)], _world(500.0))
-    assert _sav_cards(items) == []
-    assert "savings_at_risk" not in elig["barclays"]
+    assert [i for i in items if i.get("type") == "unfunded_move"] == []
+    assert len(_sav_cards(items)) == 1
+    assert elig["barclays"]["savings_at_risk"]["amount"] == 200.0
 
 
 def test_transfer_into_a_spendable_account_is_not_savings(monkeypatch):
@@ -121,10 +128,12 @@ def test_plan_gap_and_savings_gap_share_one_combined_move(monkeypatch):
 def test_pure_gap_helper_ignores_card_repayments_and_mixed_bounces():
     base = {"kind": MOVEMENT, "dest_account_id": "sav", "dest_account_spendable": False, "amount": 100}
     mins = {"a": -50.0}
-    assert companion._savings_order_gaps(mins, {"a": [base]}, set()) == {"a": {"gap": 50.0, "orders": [base]}}
+    assert companion._savings_order_gaps(mins, {"a": [base]}, set()) == {"a": {"gap": 50.0, "payment_gap": 0.0, "orders": [base]}}
     assert companion._savings_order_gaps(mins, {"a": [base]}, {"a"}) == {}
     assert companion._savings_order_gaps(mins, {"a": [{**base, "is_card_repayment": True}]}, set()) == {}
-    assert companion._savings_order_gaps(mins, {"a": [base, {"kind": "commitment", "amount": 5}]}, set()) == {}
+    # G426: a real bounce on the same account no longer hides the savings part.
+    mixed = companion._savings_order_gaps(mins, {"a": [base, {"kind": "commitment", "amount": 5}]}, set(), {"a": -20.0})
+    assert mixed == {"a": {"gap": 30.0, "payment_gap": 20.0, "orders": [base]}}
     assert companion._savings_order_gaps(mins, {"a": [{**base, "dest_account_id": None}]}, set()) == {}
 
 
