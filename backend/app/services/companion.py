@@ -5541,7 +5541,7 @@ async def compute_today_items(
         # G428: current accounts could not cover it alone, so one savings
         # account is suggested for the rest (amber, a recommendation).
         _cover_split = split_cover_note(
-            [(r["_src_name"], float(r["amount"]), r.get("source_kind") == "savings") for r in rows],
+            [(r["move_map"]["from"].get("display_label") or r["_src_name"], float(r["amount"]), r.get("source_kind") == "savings") for r in rows],
             gap=_uncovered_amt,
         )
         if _cover_split is not None:
@@ -5864,7 +5864,7 @@ async def compute_today_items(
                             if not _existing_move["covered"] else None
                         )
                         _sp = split_cover_note(
-                            [(m["move_map"]["from"]["name"], float(m["amount"]), m["move_map"]["from"].get("source_kind") == "savings") for m in _existing_move["moves"]],
+                            [(m["move_map"]["from"].get("display_label") or m["move_map"]["from"]["name"], float(m["amount"]), m["move_map"]["from"].get("source_kind") == "savings") for m in _existing_move["moves"]],
                             gap=max(0.0, _combined_gap - float(_existing_move["amount"])),
                         )
                         if _sp is not None:
@@ -5921,7 +5921,7 @@ async def compute_today_items(
                         **({"savings_at_risk": _sav_fact} if _sav_fact else {}),
                     })
                     _sp = split_cover_note(
-                        [(l["move_map"]["from"]["name"], float(l["amount"]), l["move_map"]["from"].get("source_kind") == "savings") for l in _legs],
+                        [(l["move_map"]["from"].get("display_label") or l["move_map"]["from"]["name"], float(l["amount"]), l["move_map"]["from"].get("source_kind") == "savings") for l in _legs],
                         gap=max(0.0, _gap + _sav_gap - _covered),
                     )
                     if _sp is not None:
@@ -6041,7 +6041,7 @@ async def compute_today_items(
                     ),
                 })
                 _sp = split_cover_note(
-                    [(l["move_map"]["from"]["name"], float(l["amount"]), l["move_map"]["from"].get("source_kind") == "savings") for l in _sv_legs],
+                    [(l["move_map"]["from"].get("display_label") or l["move_map"]["from"]["name"], float(l["amount"]), l["move_map"]["from"].get("source_kind") == "savings") for l in _sv_legs],
                     gap=max(0.0, _sv_gap - _sv_covered),
                 )
                 if _sp is not None:

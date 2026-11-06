@@ -54,8 +54,8 @@ def test_current_accounts_first_then_one_savings_for_the_rest(monkeypatch):
         assert elig[sid]["earmarks_out"][0]["to_account_id"] == "dest"
     assert "earmarked_total" not in elig["c"]
     move = _find(items, "move")
-    assert move["cover_note"] == "Your other accounts can cover £150. A move of £1,140 from Meadow Savings would cover the rest."
-    assert move["cover_split"] == {"current_amount": 150.0, "savings_amount": 1140.0, "savings_name": "Meadow Savings", "uncovered": 0.0}
+    assert move["cover_note"] == "Your other accounts can cover £150. A move of £1,140 from Barclays Meadow Savings would cover the rest."
+    assert move["cover_split"] == {"current_amount": 150.0, "savings_amount": 1140.0, "savings_name": "Barclays Meadow Savings", "uncovered": 0.0}
     assert move.get("residual") is None and move["covered"] is True
     kinds = {m["move_map"]["from"]["account_id"]: m["move_map"]["from"].get("source_kind") for m in move["moves"]}
     assert kinds == {"a": None, "b": None, "sv": "savings"}
@@ -65,7 +65,7 @@ def test_savings_alone_covers_when_no_current_account_has_room(monkeypatch):
     items, elig = _go(monkeypatch, [_dest(), _acc("a", 12.0), _sav("sv", 5000.0)])
     assert list(_legs(elig)) == ["sv"]
     move = _find(items, "move")
-    assert move["cover_note"] == "A move of £1,290 from Meadow Savings would cover it."
+    assert move["cover_note"] == "A move of £1,290 from Barclays Meadow Savings would cover it."
 
 
 def test_the_largest_savings_account_is_the_single_savings_source(monkeypatch):
@@ -81,7 +81,7 @@ def test_savings_not_enough_gives_the_plain_uncovered_line_with_options(monkeypa
     assert elig["dest"]["short_after_cover"] == 736.0
     move = _find(items, "move")
     assert move["cover_note"] == (
-        "Your other accounts can cover £150. A move of £390 from Meadow Savings would cover more, "
+        "Your other accounts can cover £150. A move of £390 from Barclays Meadow Savings would cover more, "
         "but £736 is still uncovered. You could edit a plan or skip a payment on Upcoming instead."
     )
     assert move["cover_split"]["uncovered"] == 736.0 and move["covered"] is False

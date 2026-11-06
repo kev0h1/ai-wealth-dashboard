@@ -32,6 +32,7 @@ import { isPlansOnlyShort } from "@/lib/pennyScreenViews";
 import { initialsOf } from "@/lib/displayName";
 import ActionLabel from "@/components/ActionLabel";
 import { actionHref } from "@/lib/actionRoutes";
+import CoverNote from "@/components/CoverNote";
 import { MoveAccountIcon, MoveRouteSummary, MoveSourcesDisclosure, moveMoney, resolveBankChip, type MoveLedgerLeg } from "@/components/MoveRoute";
 
 export { MoveAccountIcon };
@@ -1333,7 +1334,7 @@ export function MoveCard({ item, hideNetWorth: hideNetWorthProp, maskAmounts, hi
         )}
         {(assurance || item.residual || item.cover_note || savingsNote || item.income_note || item.overflow_note) && (
           <div className="mt-3 space-y-1.5">
-            {item.cover_note && <p data-cover-note className="text-[12px] leading-snug text-amber-800 dark:text-amber-200"><MoneyText text={maskAmounts(item.cover_note)} /></p>}
+            {item.cover_note && <CoverNote data-cover-note><MoneyText text={maskAmounts(item.cover_note)} /></CoverNote>}
             {assurance && <p className="text-[12px] leading-snug text-slate-500 dark:text-slate-400">{assurance}</p>}
             {item.residual && <p className="text-[12px] leading-snug text-slate-400 dark:text-slate-500"><MoneyText text={maskAmounts(String(item.residual))} /></p>}
             {savingsNote && <p data-savings-at-risk className="text-[12px] leading-snug text-slate-500 dark:text-slate-400">{savingsNote}</p>}
@@ -1447,7 +1448,7 @@ export function MoveCard({ item, hideNetWorth: hideNetWorthProp, maskAmounts, hi
               : null;
             return (
               <div className="mt-3 space-y-1.5">
-                {item.cover_note && <p data-cover-note className="text-[12px] text-amber-800 dark:text-amber-200 leading-snug"><MoneyText text={maskAmounts(item.cover_note)} /></p>}
+                {item.cover_note && <CoverNote data-cover-note><MoneyText text={maskAmounts(item.cover_note)} /></CoverNote>}
                 {assurance && (
                   <p data-move-assurance className="text-[12px] text-slate-500 dark:text-slate-400 leading-snug">{assurance}</p>
                 )}

@@ -96,7 +96,7 @@ export function accountCoverLine(reading: ReturnType<typeof accountActionReading
   const uncovered = reading.remainingGap / 100;
   if (savingsPence > 0) {
     const named = reading.moves.filter(move => move.amount > 0 && move.savings).sort((a, b) => b.amount - a.amount)[0];
-    return coverSplitSentence({ currentAmount: (reading.incoming - savingsPence) / 100, savingsAmount: savingsPence / 100, savingsName: upFirst(named.counterpartName) }, uncovered);
+    return coverSplitSentence({ currentAmount: (reading.incoming - savingsPence) / 100, savingsAmount: savingsPence / 100, savingsName: named.counterpartName }, uncovered);
   }
   return uncovered > 0.5 && reading.gap > 0 ? uncoveredSentence(uncovered) : null;
 }

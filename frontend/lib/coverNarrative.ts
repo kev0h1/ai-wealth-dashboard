@@ -12,6 +12,7 @@ export type CoverSplit = { currentAmount: number; savingsAmount: number; savings
 export function coverSplitSentence(split: CoverSplit, uncovered = 0): string {
   const open = uncovered > 0.5;
   const lead = split.currentAmount > 0 ? `Your other accounts can cover ${pounds(split.currentAmount)}. ` : "";
+  // The name is a label used as is ("your Barclays savings"); never capitalised inside a sentence.
   const move = `A move of ${pounds(split.savingsAmount)} from ${split.savingsName}`;
   if (split.currentAmount > 0) {
     return open ? `${lead}${move} would cover more, but ${pounds(uncovered)} is still uncovered. ${UNCOVERED_OPTIONS}` : `${lead}${move} would cover the rest.`;

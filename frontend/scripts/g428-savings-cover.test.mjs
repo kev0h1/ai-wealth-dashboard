@@ -10,6 +10,7 @@ import { suggestedMovesFor } from "../lib/coverSuggestion.ts";
 import { coverSplitSentence, uncoveredSentence } from "../lib/coverNarrative.ts";
 import { accountAvailability } from "../lib/accountAvailability.ts";
 import { BalancesHiddenContext } from "../lib/balancesHidden.tsx";
+import CoverNote from "../components/CoverNote.tsx";
 import UpcomingAccountsCard from "../components/upcoming/UpcomingAccountsCard.tsx";
 import { accounts, plans } from "./fixtures/g417-upcoming-shortfall.ts";
 
@@ -28,19 +29,19 @@ assert.equal(uncoveredSentence(1049), "£1,049 is still uncovered. You could edi
 for (const text of [coverSplitSentence({ currentAmount: 1, savingsAmount: 2, savingsName: "X" }, 5), uncoveredSentence(5)]) assert.doesNotMatch(text, /—|–/);
 
 // Savings covers the rest: rows are current first, savings last and flagged; the note names it.
-const covered = withLegs([leg("a", 100, "your Barclays account"), leg("sv", 170, "Meadow Savings", true)]);
+const covered = withLegs([leg("a", 100, "your Barclays account"), leg("sv", 170, "your Barclays savings", true)]);
 const moves = suggestedMovesFor(covered);
-assert.deepEqual(moves.map((m) => [m.counterpartName, m.savings === true]), [["your Barclays account", false], ["Meadow Savings", true]]);
+assert.deepEqual(moves.map((m) => [m.counterpartName, m.savings === true]), [["your Barclays account", false], ["your Barclays savings", true]]);
 const rows = accountMoveRows(moves);
-assert.deepEqual(rows, [{ name: "Your Barclays account", amount: "£100" }, { name: "Meadow Savings", amount: "£170", savings: true }]);
+assert.deepEqual(rows, [{ name: "Your Barclays account", amount: "£100" }, { name: "Your Barclays savings", amount: "£170", savings: true }]);
 const reading = accountActionReading(covered, plans, "ready");
-assert.equal(accountCoverLine(reading), "Your other accounts can cover £100. A move of £170 from Meadow Savings would cover the rest.");
+assert.equal(accountCoverLine(reading), "Your other accounts can cover £100. A move of £170 from your Barclays savings would cover the rest.");
 assert.equal(accountActionNote(covered, reading), accountCoverLine(reading));
 
 // Savings not enough: the plain uncovered line with the options.
-const short = withLegs([leg("a", 100, "your Barclays account"), leg("sv", 80, "Meadow Savings", true)]);
+const short = withLegs([leg("a", 100, "your Barclays account"), leg("sv", 80, "your Barclays savings", true)]);
 const shortReading = accountActionReading(short, plans, "ready");
-assert.match(accountCoverLine(shortReading), /Your other accounts can cover £100\. A move of £80 from Meadow Savings would cover more, but £79 is still uncovered\. You could edit a plan or skip a payment on Upcoming instead\./);
+assert.match(accountCoverLine(shortReading), /Your other accounts can cover £100\. A move of £80 from your Barclays savings would cover more, but £79 is still uncovered\. You could edit a plan or skip a payment on Upcoming instead\./);
 
 // Current accounts only, partly covered: the existing note stays and the plain uncovered line follows.
 const partial = withLegs([leg("a", 100, "your Barclays account")]);
@@ -55,8 +56,11 @@ function render(hidden) {
 const shown = render(false);
 assert.match(shown, /data-savings-source/);
 assert.match(shown, /From savings, a suggestion/);
-assert.match(shown, /text-amber-800/);
-assert.ok(shown.indexOf("Your Barclays account") < shown.lastIndexOf("Meadow Savings"), "savings listed after current accounts");
+assert.match(shown, /text-amber-800/); // the short signifier only
+assert.match(shown, /data-cover-note|data-move-rows/);
+assert.match(shown, /Your Barclays savings/);
+assert.doesNotMatch(shown, /from Your Barclays/);
+assert.ok(shown.indexOf("Your Barclays account") < shown.lastIndexOf("Your Barclays savings"), "savings listed after current accounts");
 const masked = render(true);
 const rowsMarkup = masked.slice(masked.indexOf("data-move-rows"), masked.indexOf("data-move-rows") + 1200);
 assert.doesNotMatch(rowsMarkup, /£100|£170/, "row amounts are masked");
@@ -79,5 +83,10 @@ assert.equal(reading2?.kind, "ready", JSON.stringify(reading2));
   assert.match(reading2.note, /Your other accounts can cover £100\. A move of £170 from Meadow Savings would cover the rest\./);
   assert.equal(reading2.coveredByMove.split.savingsName, "Meadow Savings");
 }
+
+// A watch sentence is ink with a small amber dot, never amber prose.
+const note = renderToStaticMarkup(h(CoverNote, { "data-cover-note": true }, "A move of £80 from your Barclays savings would cover it."));
+assert.match(note, /bg-amber-500/);
+assert.doesNotMatch(note, /text-amber/);
 
 console.log("g428-savings-cover: ok");

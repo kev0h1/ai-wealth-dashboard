@@ -12,6 +12,7 @@ import { useBalancesHidden, maskMoneyText } from "@/lib/balancesHidden";
 import { AccountMoney, AccountSignal } from "./accountPresentation";
 import styles from "./UpcomingAccounts.module.css";
 import MoneyText from "@/components/MoneyText";
+import CoverNote from "@/components/CoverNote";
 
 export interface UpcomingAccountDetailsProps {
   account: UpcomingAccountSummary;
@@ -118,7 +119,7 @@ export default function UpcomingAccountDetails({ account, periodLabel, plans = [
     {moves.length > 0 && <section data-verdict data-covered-by-move={reading.incoming > 0 || undefined} className={styles.moveBridge} aria-label="Effect of suggested moves">
       <div className={styles.afterMove}><p className={styles.metricLabel}>Balance after the suggested {moves.length === 1 ? "move" : "moves"}</p><strong data-after-move><AccountMoney pence={afterMove} /></strong></div>
     </section>}
-    {coverLine && <p data-cover-line data-cover-savings={moves.some(move => move.savings) || undefined} className={`${styles.note} text-amber-800 dark:text-amber-200`}><MoneyText text={maskMoneyText(coverLine, hidden)} /></p>}
+    {coverLine && <CoverNote data-cover-line data-cover-savings={moves.some(move => move.savings) ? "true" : undefined} className="text-[13px]"><MoneyText text={maskMoneyText(coverLine, hidden)} /></CoverNote>}
     <Verdict account={account} plans={plans} plansStatus={plansStatus} />
     {plansStatus !== "ready" && <p className={styles.note} role="status">{plansStatus === "loading" ? "Checking goals and set-asides. The account’s full result is not known yet." : "Goals and set-asides could not be checked. Close this sheet and try again."}</p>}
     <details data-g417-working data-g416-working className={styles.working}><summary>How this adds up<ChevronDown size={16} aria-hidden="true" /></summary><dl className={styles.ledger}>
