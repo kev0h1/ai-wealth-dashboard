@@ -32,17 +32,6 @@ type PreviewRoute = {
 
 const ROUTES: PreviewRoute[] = [
   {
-    slug: "upcoming-account-rows",
-    name: "Upcoming account rows · G429",
-    description: "Two layout proposals using the same financial readings, figures, source rows and sentences as the current By account card. A Aligned summary, B Reading line. Existing bank marks, a common amount edge, long names, savings, uncovered gaps, both themes and local Hide balances. Fictional accounts only; includes the current layout for comparison.",
-    variants: [{ label: "A · Aligned summary", value: "a" }, { label: "B · Reading line", value: "b" }],
-    states: [{ label: "Suggested moves", value: "moves" }, { label: "Still uncovered", value: "uncovered" }, { label: "Long names", value: "long" }, { label: "Checking plans", value: "pending" }, { label: "Plans unavailable", value: "error" }, { label: "No accounts", value: "empty" }],
-    group: "current",
-  },
-
-
-
-  {
     slug: "statements-house-ads",
     name: "Statements house ads · B58",
     description:
