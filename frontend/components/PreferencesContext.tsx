@@ -396,7 +396,7 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
   //
   // E15 (2026-11-06): the server now bumps its data version only for fields
   // that feed money figures (backend/app/routers/preferences.py,
-  // MONEY_FEEDING_PREFERENCE_FIELDS), so the cosmetic savers (hide_net_worth,
+  // PREFERENCE_CACHE_IMPACT), so the cosmetic savers (hide_net_worth,
   // dark_mode, show_tips, pay_split_reference, penny_appearance,
   // open_last_chat) no longer clear these client caches; the three money
   // savers (pay_period_config, debt_target_months, debt_tracking_start) do.
