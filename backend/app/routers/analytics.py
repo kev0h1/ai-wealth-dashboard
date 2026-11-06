@@ -393,7 +393,7 @@ async def _ai_recurring_predict(candidates: list[dict], user_id: str) -> list[di
     """
     _sig = _ai_candidate_sig(candidates)
     cached = _ai_recurring_cache.get(user_id)
-    if cached and cached[2] == _sig and (datetime.now() - cached[0]).total_seconds() < 86400:
+    if cached and cached[2] == _sig and (datetime.now() - cached[0]).total_seconds() < 86400:  # naive-ok: in-process 24 h cache stamp
         return cached[1]
 
     if not OPENROUTER_API_KEY or not candidates:
@@ -465,7 +465,7 @@ async def _ai_recurring_predict(candidates: list[dict], user_id: str) -> list[di
             "account_id":   c.get("account_id"),
         })
 
-    _ai_recurring_cache[user_id] = (datetime.now(), result, _sig)
+    _ai_recurring_cache[user_id] = (datetime.now(), result, _sig)  # naive-ok: in-process 24 h cache stamp
     return result
 
 
