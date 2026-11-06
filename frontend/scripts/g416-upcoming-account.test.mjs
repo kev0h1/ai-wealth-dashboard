@@ -135,7 +135,14 @@ assert.ok(html.indexOf("data-pre-move") < html.indexOf("data-after-move") && htm
 assert.match(html, /data-g417-account/);
 assert.doesNotMatch(html, /Spend from|Available/);
 assert.match(html, /data-suggested-move=/, "suggested move has a separate non-payment row");
-assert.match(html, /data-suggested-bridge=/, "the move effect is separately bridged before activity");
+for (const markup of [sourceSheet(), destinationSheet(), sourceSheet(true), destinationSheet(true)]) {
+  assert.doesNotMatch(markup, /data-suggested-bridge=/, "G427 removes the duplicate row beneath the balance");
+  assert.equal((markup.match(/<li data-suggested-move=/g) || []).length, 1, "each source/receiver shows the dated suggestion once");
+  const activityStart = markup.indexOf("Payments &amp; income");
+  assert.ok(markup.indexOf("data-suggested-move=") > activityStart, "the retained suggestion belongs to Payments & income");
+  assert.doesNotMatch(text(markup.slice(0, markup.indexOf("How this adds up"))), /Move (to|from)|This includes the amount set aside for the other account|The suggestion covers this gap/, "the balance block has neither a repeated move nor its old caption");
+  assert.match(text(markup), /Suggested moves are for you to make\. They are not scheduled payments\./);
+}
 assert.doesNotMatch(html, /data-flow-focus="event-[^"]*suggest/, "suggested move never opens a payment editor");
 assert.match(text(html), /£700\.03/, "the pre-move ledger retains exact authoritative pence");
 assert.match(text(destinationSheet()), /Suggested/, "the receiver shows its corresponding Suggested row");

@@ -95,7 +95,7 @@ function LedgerLine({ label, pence, total = false, positive = false, suggested =
 export default function UpcomingAccountDetails({ account, periodLabel, plans = [], plansStatus = "ready", onPlan, onEvent, editableEventIds }: UpcomingAccountDetailsProps) {
   const id = useId();
   const reading = accountActionReading(account, plans, plansStatus);
-  const { result, headline, combinedKnown, earlierGap, futureIncome, moves, afterMove, signal, remainingGap, ready } = reading;
+  const { result, headline, combinedKnown, earlierGap, futureIncome, moves, afterMove, signal, ready } = reading;
   const opening = account.opening === null ? null : Math.round(account.opening * 100);
   const listedPayments = opening !== null && [account.opening, account.income, account.transfersIn, account.outgoing].every(Number.isFinite)
     ? opening + Math.round(account.income * 100) + Math.round(account.transfersIn * 100) - Math.round(account.outgoing * 100) : null;
@@ -114,8 +114,6 @@ export default function UpcomingAccountDetails({ account, periodLabel, plans = [
     </section>
     {moves.length > 0 && <section data-verdict data-covered-by-move={reading.incoming > 0 || undefined} className={styles.moveBridge} aria-label="Effect of suggested moves">
       <div className={styles.afterMove}><p className={styles.metricLabel}>Balance after the suggested {moves.length === 1 ? "move" : "moves"}</p><strong data-after-move><AccountMoney pence={afterMove} /></strong></div>
-      {moves.map(move => <div key={move.id} data-suggested-bridge={move.id} className={styles.suggestedEvent}><SuggestedContent move={move} /></div>)}
-      <p className={styles.note}>{afterMove === null ? "The full result still needs checking." : remainingGap > 0 ? afterMove < 0 ? "The suggestion leaves a gap. More money is still needed." : "The later balance does not cover the earlier gap. More money is still needed." : reading.outgoing > 0 ? "This includes the amount set aside for the other account." : "The suggestion covers this gap. You still need to make the move."}</p>
     </section>}
     <Verdict account={account} plans={plans} plansStatus={plansStatus} />
     {plansStatus !== "ready" && <p className={styles.note} role="status">{plansStatus === "loading" ? "Checking goals and set-asides. The account’s full result is not known yet." : "Goals and set-asides could not be checked. Close this sheet and try again."}</p>}

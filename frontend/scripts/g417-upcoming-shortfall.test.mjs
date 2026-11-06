@@ -134,7 +134,7 @@ assert.match(natwestSheet, /data-pre-move[^>]*>.*?−£259/s);
 assert.match(natwestSheet, /data-after-move[^>]*>.*?£11/s);
 assert.match(barclaysSheet, /data-pre-move[^>]*>.*?£582/s);
 assert.match(barclaysSheet, /data-after-move[^>]*>.*?£312/s);
-assert.match(barclaysSheet, /data-suggested-bridge=/);
+assert.doesNotMatch(barclaysSheet, /data-suggested-bridge=/, "G427 keeps the move in activity without a duplicate beneath the balance");
 assert.match(barclaysSheet, /<li data-suggested-move=/);
 assert.doesNotMatch(barclaysSheet, /data-flow-focus="event-[^"]*suggest/, "recommendations never become editable payment events");
 assert.match(barclaysSheet, /data-flow-focus="event-council"/, "actual payment callbacks remain available");

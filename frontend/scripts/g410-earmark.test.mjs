@@ -52,7 +52,8 @@ assert.equal(coveredByMoveSentence("£190", { ...suggestion, fromCount: 2 }), "S
 const sheet = (hidden, entry) => renderToStaticMarkup(h(BalancesHiddenContext.Provider, { value: hidden }, h(UpcomingAccountDetails, { account: summarise(entry)[0], periodLabel: "Payments through Wed 25 Nov", plans: [], plansStatus: "ready" })));
 let html = sheet(false, covered);
 assert.match(html, /data-covered-by-move/);
-assert.match(html, /The suggestion covers this gap\. You still need to make the move\./);
+assert.match(html, /Suggested moves are for you to make\. They are not scheduled payments\./);
+assert.doesNotMatch(html, /data-suggested-bridge=/, "the suggestion appears only in activity, not beneath the balance");
 assert.match(html, /lucide-info/);
 assert.doesNotMatch(html, /lucide-triangle-alert/);
 assert.ok(!html.includes("—"));
