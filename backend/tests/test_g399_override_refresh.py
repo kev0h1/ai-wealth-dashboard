@@ -74,8 +74,9 @@ def harness(monkeypatch):
         calls.append(("recompute", uid, new_count, trigger))
         return {"recomputed": True, "reason": "test"}
 
-    async def warm(uid):
+    async def warm(uid, include_cover_plan=True):
         calls.append(("warm_user", uid))
+        snapshots["include_cover_plan"] = include_cover_plan
         snapshots["overrides_at_warm"] = list(overrides.docs)
         return {"warmed": [], "failed": []}
 
@@ -156,8 +157,15 @@ def test_not_a_bill_refreshes_after_its_own_rebuild(harness):
 
 
 def test_warm_failure_never_fails_the_write(harness, monkeypatch):
-    async def boom(uid):
+    async def boom(uid, include_cover_plan=True):
         raise RuntimeError("warm failed")
     monkeypatch.setattr(warmup, "warm_user", boom)
     out = asyncio.run(analytics.skip_occurrence({"key": "NETFLIX", "date": "2026-11-05"}, USER))
     assert out == {"ok": True}
+
+
+def test_request_path_warm_leaves_the_cover_plan_out(harness):
+    """E17: the override refresh must not pay the cover-plan compute."""
+    _overrides, _calls, snapshots = harness
+    asyncio.run(analytics.skip_occurrence({"key": "NETFLIX", "date": "2026-11-05"}, USER))
+    assert snapshots["include_cover_plan"] is False

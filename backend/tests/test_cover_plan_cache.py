@@ -86,3 +86,75 @@ def test_warm_user_populates_cover_plan(monkeypatch):
         assert len(calls) == before  # warm hit, no recompute
 
     asyncio.run(go())
+
+
+def _stub_other_steps(monkeypatch):
+    async def ok(uid):
+        return {"status": "ok"}
+
+    for n in ("_compute_today", "_compute_safe_to_spend", "_compute_spend_verdict",
+              "_compute_miscategorised_count", "_compute_miscategorised_list",
+              "_compute_grow", "_compute_commitments"):
+        monkeypatch.setattr(warmup, n, ok)
+
+
+def test_warm_without_cover_plan_does_not_compute_it_but_worker_warm_does(monkeypatch):
+    _patch_cols(monkeypatch)
+    _patch_day(monkeypatch)
+    calls = _stub_compute(monkeypatch)
+    _stub_other_steps(monkeypatch)
+
+    async def go():
+        result = await warmup.warm_user(UID, include_cover_plan=False)
+        assert "cover_plan" not in result["warmed"]
+        assert calls == []
+        result = await warmup.warm_user(UID)
+        assert "cover_plan" in result["warmed"]
+        assert len(calls) == 1
+
+    asyncio.run(go())
+
+
+def test_worker_warm_does_not_join_an_inflight_warm_without_cover_plan(monkeypatch):
+    _patch_cols(monkeypatch)
+    _patch_day(monkeypatch)
+    calls = _stub_compute(monkeypatch)
+    _stub_other_steps(monkeypatch)
+    gate = asyncio.Event()
+
+    async def slow_today(uid):
+        await gate.wait()
+        return {"status": "ok"}
+
+    monkeypatch.setattr(warmup, "_compute_today", slow_today)
+
+    async def go():
+        first = asyncio.ensure_future(warmup.warm_user(UID, include_cover_plan=False))
+        await asyncio.sleep(0.01)
+        second = asyncio.ensure_future(warmup.warm_user(UID))
+        await asyncio.sleep(0.01)
+        gate.set()
+        r1, r2 = await asyncio.gather(first, second)
+        assert "cover_plan" not in r1["warmed"]
+        assert "cover_plan" in r2["warmed"]
+        assert len(calls) == 1
+
+    asyncio.run(go())
+
+
+def test_version_bump_during_compute_is_not_cached_under_new_version(monkeypatch):
+    _patch_cols(monkeypatch)
+    _patch_day(monkeypatch)
+
+    async def compute(uid, payday_preview=False, persist=True, account_eligibility_out=None):
+        await data_version.bump(uid)  # a write lands mid-compute
+        return [{"id": "m1", "type": "move"}]
+
+    monkeypatch.setattr(companion_router, "compute_today_items", compute)
+
+    async def go():
+        out = await companion_router.get_cover_plan(USER)
+        assert out["items"]  # the caller still gets the result
+        assert await response_cache.aget("cover_plan", UID) is None
+
+    asyncio.run(go())

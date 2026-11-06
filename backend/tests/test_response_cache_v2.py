@@ -299,9 +299,9 @@ def test_memory_and_mongo_hits_return_identical_encoded_shape(monkeypatch):
     asyncio.run(go())
 
 
-# ── warm_user writes the six entries under the new version ─────────────────
+# ── warm_user writes every entry under the new version ─────────────────
 
-def test_warm_user_writes_six_entries_under_new_version(monkeypatch):
+def test_warm_user_writes_every_entry_under_new_version(monkeypatch):
     _patch_cols(monkeypatch)
     _patch_day(monkeypatch)
 

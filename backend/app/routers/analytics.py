@@ -3834,7 +3834,7 @@ async def _refresh_after_override(uid: str) -> None:
     await response_cache.ainvalidate(uid)
     try:
         from app.services.warmup import warm_user
-        await warm_user(uid)
+        await warm_user(uid, include_cover_plan=False)  # E17: keep the cover-plan compute off the request path
     except Exception:
         logger.exception("override refresh: warm_user failed for %s", uid)
 
