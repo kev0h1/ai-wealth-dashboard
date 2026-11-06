@@ -928,6 +928,8 @@ export default function PlanningPage() {
           const atRiskMatch = item.type === "bill"
             ? accountWalk?.riskByBill.get(item.source)
             : undefined;
+          // G422: the engine's note for an own-savings standing order its account cannot fund.
+          const savingsRisk = item.type === "bill" && item.isMovement ? accountPositions[item.account_id ?? ""]?.savingsAtRisk : null;
           const isSettling = item.type === "bill" && !!item.observed_pending;
           const rowKey = `${item.type}-${item.name}-${item.expected_date}`;
           const highlighted = highlightTarget === rowKey;
@@ -953,6 +955,7 @@ export default function PlanningPage() {
             daysPastDue: item.days_past_due,
             amountBasis: item.type === "bill" ? item.amount_basis : null,
             ...upcomingAccountAssessment(item.source, accountWalk!),
+            savingsNote: savingsRisk?.orders.some((order) => order.name === item.name) ? savingsRisk.note : undefined,
             highlighted,
             why: atRiskMatch?.movementCulprit ? {
               open: false,

@@ -1,0 +1,106 @@
+{
+  "name": "Own-savings standing order the salary account cannot fund, no spare money anywhere (G422)",
+  "today": "2026-11-25",
+  "pay_period_config": {
+    "type": "last_friday"
+  },
+  "confirmed_income_streams": [],
+  "accounts": [
+    {
+      "_id": "acc-bc",
+      "name": "Barclays Current",
+      "provider": "barclays",
+      "type": "BANK",
+      "subtype": "TRANSACTION",
+      "balance": 50.0,
+      "currency": "GBP",
+      "status": "connected",
+      "include_in_safe_to_spend": true
+    },
+    {
+      "_id": "acc-mz",
+      "name": "Monzo Current",
+      "provider": "monzo",
+      "type": "BANK",
+      "subtype": "TRANSACTION",
+      "balance": 0.0,
+      "currency": "GBP",
+      "status": "connected",
+      "include_in_safe_to_spend": true
+    },
+    {
+      "_id": "acc-sav",
+      "name": "Barclays Saver",
+      "provider": "barclays",
+      "type": "BANK",
+      "subtype": "SAVINGS",
+      "balance": 1000.0,
+      "currency": "GBP",
+      "status": "connected",
+      "include_in_safe_to_spend": true
+    }
+  ],
+  "manual_accounts": [],
+  "cashflow_cache": {
+    "recurring_spend": [
+      {
+        "key": "SAVER STANDING ORDER",
+        "avg_amount": 250.0,
+        "avg_interval": 30,
+        "next_date": "2026-11-26",
+        "account_id": "acc-bc",
+        "account_name": "Barclays Current",
+        "account_bank": "barclays",
+        "account_balance": 50.0,
+        "is_credit_card": false,
+        "category": "Transfer",
+        "dest_account_id": "acc-sav",
+        "dest_account_name": "Barclays Saver",
+        "dest_account_bank": "barclays",
+        "dest_account_spendable": false
+      }
+    ],
+    "recurring_income": [],
+    "bnpl_commitments": [],
+    "avg_daily_spend": 0
+  },
+  "transactions": [],
+  "commitments": [],
+  "allocations": [],
+  "card_terms": [],
+  "expected": {
+    "left_to_spend": -200.0,
+    "spendable_balance": 50.0,
+    "not_spendable": [
+      "acc-sav"
+    ],
+    "accounts": {
+      "acc-bc": {
+        "after_payments": -200.0,
+        "low_point": -200.0,
+        "verdict": "short",
+        "no_earmark": true,
+        "savings_at_risk": {
+          "amount": 200.0,
+          "no_cover": true
+        },
+        "spend_from": 0.0
+      },
+      "acc-mz": {
+        "after_payments": 0.0,
+        "low_point": 0.0,
+        "verdict": "covered",
+        "no_earmark": true,
+        "savings_at_risk": null,
+        "spend_from": 0.0
+      }
+    },
+    "cover_plan": {
+      "moves_total": 0,
+      "moves": []
+    },
+    "payday_plan": null,
+    "at_risk_count": 0,
+    "notes": "G422 (Kevin 2026-11-06). The same day, accounts and standing order as the covered scenario, but Monzo Current holds 0, so no account anywhere can spare anything. Barclays: 50 - 250 = -200 after payments and at the low point, short, and the only bounced item is a movement into savings (never a payment at risk, at risk count 0). Gap 200, target 210. The finder needs a source with at least 5 of headroom above its 10 cushion: Monzo has 0 - 10 = -10, Barclays Saver is the account the order pays into so it is never a source, so there are no legs: no move card, no earmark, no covered-by-move. The account carries the savings at risk fact with no_cover true, whose note reads 'There may not be enough to fund this savings transfer this period. You could pause or cancel the standing order with your bank for this month.' (recommendation in words only). Left to spend: pool 50 + 0 = 50, less the 250 leaving it = -200. Nothing is spendable so Spend from is 0 on both current accounts. The payday plan is unchanged (null)."
+  }
+}

@@ -1233,6 +1233,15 @@ export function MoveCard({ item, hideNetWorth: hideNetWorthProp, maskAmounts, hi
     paymentCopy.clearClause = item.covered ? paymentBills.length ? "Covers the payments and plans" : "Covers the plans" : null;
     paymentCopy.tilePaymentCopy = paymentBills.length ? "needed for payments and plans" : "needed for plans this pay period";
   }
+  // G422: an own-savings standing order the account cannot fund. Same card, amber, never a payment shortfall.
+  const savingsRisk = item.savings_at_risk ?? null;
+  if (paymentCopy && savingsRisk) {
+    paymentCopy.dueCopy = item.plan_shortfall ? "For plans and savings this pay period" : "For savings this pay period";
+    paymentCopy.clearClause = item.covered ? item.plan_shortfall ? "Covers the plans and savings" : "Covers the savings transfer" : null;
+    paymentCopy.tilePaymentCopy = item.plan_shortfall ? "needed for plans and savings this pay period" : "needed for savings this pay period";
+  }
+  // The note says what would cover it or that nothing can; a fully covered card already says so in its own words.
+  const savingsNote = savingsRisk && !item.covered ? savingsRisk.note : null;
   async function handleSkip(bill: PlanDestBill) {
     if (!bill.key || !bill.expected_date || skippingKey) return;
     const identity = `${bill.key}:${bill.expected_date}`;
@@ -1273,7 +1282,7 @@ export function MoveCard({ item, hideNetWorth: hideNetWorthProp, maskAmounts, hi
       <div data-move-card="compact-handoff" className={`${BRIEF_CARD} p-4`}>
         <div className="pr-9">
           <div className="min-w-0 flex-1">
-            <PennyKindLabel hideAttribution={hideAttribution} tone={hasOverdueBills ? "watch" : "neutral"}>Cover plan</PennyKindLabel>
+            <PennyKindLabel hideAttribution={hideAttribution} tone={hasOverdueBills || savingsRisk ? "watch" : "neutral"}>Cover plan</PennyKindLabel>
             <p className="mt-1 text-pretty text-[15px] font-bold leading-6 text-slate-900 dark:text-slate-100">A move that would cover this</p>
           </div>
         </div>
@@ -1307,10 +1316,11 @@ export function MoveCard({ item, hideNetWorth: hideNetWorthProp, maskAmounts, hi
             <span className="money"><AmountText text={moveMoney(Math.abs(destination.balance), hideNetWorth)} /></span> overdrawn right now.
           </p>
         )}
-        {(assurance || item.residual || item.income_note || item.overflow_note) && (
+        {(assurance || item.residual || savingsNote || item.income_note || item.overflow_note) && (
           <div className="mt-3 space-y-1.5">
             {assurance && <p className="text-[12px] leading-snug text-slate-500 dark:text-slate-400">{assurance}</p>}
             {item.residual && <p className="text-[12px] leading-snug text-slate-400 dark:text-slate-500"><MoneyText text={maskAmounts(String(item.residual))} /></p>}
+            {savingsNote && <p data-savings-at-risk className="text-[12px] leading-snug text-slate-500 dark:text-slate-400">{savingsNote}</p>}
             {item.income_note && <p className="text-[12px] leading-snug text-slate-400 dark:text-slate-500"><MoneyText text={maskAmounts(item.income_note)} /></p>}
             {item.overflow_note && <p className="text-[12px] leading-snug text-slate-400 dark:text-slate-500">{item.overflow_note}</p>}
           </div>
@@ -1332,7 +1342,7 @@ export function MoveCard({ item, hideNetWorth: hideNetWorthProp, maskAmounts, hi
           adviser identity on either Home or Penny. */}
       <div className="pr-9">
         <div className="min-w-0 flex-1">
-          <PennyKindLabel hideAttribution={hideAttribution} tone={paymentCopy?.hasOverdueBills ? "watch" : "neutral"}>Cover plan</PennyKindLabel>
+          <PennyKindLabel hideAttribution={hideAttribution} tone={paymentCopy?.hasOverdueBills || savingsRisk ? "watch" : "neutral"}>Cover plan</PennyKindLabel>
           <p className="mt-1 text-pretty text-[15px] font-bold leading-6 text-slate-900 dark:text-slate-100">
             <MoneyText text={maskAmounts(item.headline)} />
           </p>
@@ -1426,6 +1436,9 @@ export function MoveCard({ item, hideNetWorth: hideNetWorthProp, maskAmounts, hi
                 )}
                 {item.residual && (
                   <p className="text-[12px] text-slate-400 dark:text-slate-500 leading-snug"><MoneyText text={maskAmounts(String(item.residual))} /></p>
+                )}
+                {savingsNote && (
+                  <p data-savings-at-risk className="text-[12px] text-slate-500 dark:text-slate-400 leading-snug">{savingsNote}</p>
                 )}
                 {item.income_note && (
                   <p className="text-[12px] text-slate-400 dark:text-slate-500 leading-snug"><MoneyText text={maskAmounts(item.income_note)} /></p>
