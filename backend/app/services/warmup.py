@@ -44,6 +44,12 @@ async def _compute_today(uid: str) -> dict:
     return await build_today_payload(uid, payday_preview=False)
 
 
+async def _compute_cover_plan(uid: str) -> dict:
+    # E17: shared with GET /today/cover-plan (read-only, persist=False).
+    from app.routers.companion import build_cover_plan_payload
+    return await build_cover_plan_payload(uid)
+
+
 async def _compute_safe_to_spend(uid: str) -> dict:
     # Shared with GET /safe-to-spend (app.routers.analytics.get_safe_to_spend)
     # so the two call sites can never drift on this endpoint's shape.
@@ -180,6 +186,7 @@ async def _warm_user_impl(uid: str) -> dict:
             failed.append(name)
 
     await _step("today", _compute_today, self_caching=False)
+    await _step("cover_plan", _compute_cover_plan, self_caching=False)
     await _step("safe_to_spend", _compute_safe_to_spend, self_caching=False)
     await _step("spend_verdict:0", _compute_spend_verdict, self_caching=False)
     await _step("miscategorised_list", _compute_miscategorised_list, self_caching=True)

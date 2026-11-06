@@ -24,7 +24,7 @@ def _run(monkeypatch, today_payload):
     monkeypatch.setattr(warmup.response_cache, "aput", aput)
     monkeypatch.setattr(warmup.data_version, "bump", bump)
     monkeypatch.setattr(warmup, "_compute_today", today)
-    for n in ("_compute_safe_to_spend", "_compute_spend_verdict", "_compute_miscategorised_count", "_compute_miscategorised_list", "_compute_grow", "_compute_commitments"):
+    for n in ("_compute_cover_plan", "_compute_safe_to_spend", "_compute_spend_verdict", "_compute_miscategorised_count", "_compute_miscategorised_list", "_compute_grow", "_compute_commitments"):
         monkeypatch.setattr(warmup, n, other)
     asyncio.run(warmup._warm_user_impl(UID))
     return puts
