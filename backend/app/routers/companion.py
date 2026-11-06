@@ -113,6 +113,24 @@ async def get_today(payday_preview: int = 0, user: dict = Depends(current_user))
     return payload
 
 
+COVER_PLAN_CACHE = "cover_plan"
+
+
+async def build_cover_plan_payload(uid: str) -> dict:
+    """The ONE definition of `GET /today/cover-plan`'s body (shared with
+    `app.services.warmup`). Read-only: persist=False. Does not touch the
+    response cache; callers own the version-pinned write."""
+    account_eligibility: dict = {}
+    items = await compute_today_items(
+        uid=uid, persist=False, account_eligibility_out=account_eligibility,
+    )
+    return {
+        "status": "ok",
+        "items": [item for item in items if item.get("type") == "move"],
+        "account_eligibility": account_eligibility,
+    }
+
+
 @router.get("/today/cover-plan")
 async def get_cover_plan(user: dict = Depends(current_user)):
     """Return the current cover-plan cards without advancing Home state.
@@ -132,15 +150,18 @@ async def get_cover_plan(user: dict = Depends(current_user)):
     in memory only, nothing is written.
     """
     uid = user["email"]
-    account_eligibility: dict = {}
-    items = await compute_today_items(
-        uid=uid, persist=False, account_eligibility_out=account_eligibility,
-    )
-    return {
-        "status": "ok",
-        "items": [item for item in items if item.get("type") == "move"],
-        "account_eligibility": account_eligibility,
-    }
+    # E17: same version-pinned aget/aput contract as GET /today (snapshot
+    # BEFORE the compute, aput pinned to it). Not shared with the `today`
+    # entry: that one is computed with persist=True and capped to the pooled
+    # Safe to Spend, this one is read-only and uncapped, so the two bodies
+    # differ and each gets its own entry. No query parameters.
+    cached = await response_cache.aget(COVER_PLAN_CACHE, uid)
+    if cached is not None:
+        return cached
+    v = await response_cache.snapshot(uid)
+    payload = await build_cover_plan_payload(uid)
+    await response_cache.aput(COVER_PLAN_CACHE, uid, payload, version=v)
+    return payload
 
 
 @router.post("/today/dismiss")
@@ -152,6 +173,7 @@ async def dismiss_today_item(body: dict, user: dict = Depends(current_user)):
         raise HTTPException(400, "item_id required")
     await dismiss_item(uid, item_id)
     response_cache.invalidate(uid, "today")
+    response_cache.invalidate(uid, COVER_PLAN_CACHE)
     return {"ok": True}
 
 

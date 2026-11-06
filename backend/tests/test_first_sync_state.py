@@ -330,7 +330,7 @@ def test_warmup_skips_caching_syncing(monkeypatch):
     monkeypatch.setattr(warmup.response_cache, "aput", aput)
     monkeypatch.setattr(warmup.data_version, "bump", bump)
     monkeypatch.setattr(warmup, "_compute_safe_to_spend", syncing)
-    for n in ("_compute_today", "_compute_spend_verdict", "_compute_miscategorised_count", "_compute_miscategorised_list", "_compute_grow", "_compute_commitments"):
+    for n in ("_compute_today", "_compute_cover_plan", "_compute_spend_verdict", "_compute_miscategorised_count", "_compute_miscategorised_list", "_compute_grow", "_compute_commitments"):
         monkeypatch.setattr(warmup, n, other)
     asyncio.run(warmup._warm_user_impl(UID))
     assert "today" in puts and "safe_to_spend" not in puts
