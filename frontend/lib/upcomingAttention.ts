@@ -31,6 +31,10 @@ export function getUpcomingStatus(model: UpcomingRowModel): UpcomingStatus {
   if (assessed && isMove && (verified ? shortfall! > 0 : model.movementCalm || model.unfundedMovement)) {
     return { kind: "issue", label: "unfunded", tone: "caution", shortfall: shortfall && shortfall > 0 ? shortfall : undefined };
   }
+  // G426: short only because an own-savings standing order leaves first. Amber, hedged, never a payment at risk.
+  if (assessed && !isMove && model.coverage?.savingsOnly && (shortfall ?? 0) > 0) {
+    return { kind: "issue", label: "short if the savings transfer leaves first", tone: "caution", shortfall };
+  }
   if (assessed && !isMove && (verified ? shortfall! > 0 : model.flagged || model.accountShort || model.atRisk)) {
     return {
       kind: "issue", tone: "risk",
@@ -58,7 +62,10 @@ export function upcomingStatusText(status: UpcomingStatus) {
 }
 
 export function canDismissUpcomingOccurrence(model: UpcomingRowModel) {
-  return model.type === "bill" && !model.isSettling && Boolean(model.pending) && (
+  if (model.type !== "bill" || model.isSettling) return false;
+  // G426: an own-savings standing order the account cannot fund can be let skip this month, due yet or not.
+  if (model.isMovement && model.savingsNote) return true;
+  return Boolean(model.pending) && (
     (model.isMovement && (model.unfundedMovement || (model.coverage?.shortfall ?? 0) > 0)) ||
     (model.daysPastDue ?? 0) >= 5
   );

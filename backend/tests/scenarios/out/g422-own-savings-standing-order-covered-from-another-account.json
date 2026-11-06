@@ -258,7 +258,17 @@
       "plan_dest": {
         "account_id": "acc-bc",
         "balance": 50.0,
-        "bills": [],
+        "bills": [
+          {
+            "amount": 250,
+            "can_skip": true,
+            "days_past_due": 0,
+            "expected_date": "2026-11-26",
+            "key": "SAVER STANDING ORDER",
+            "label": "Saver Standing Order",
+            "savings": true
+          }
+        ],
         "is_overdraft": false,
         "name": "Barclays Current",
         "needs_by": "",

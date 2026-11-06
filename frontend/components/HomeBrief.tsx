@@ -215,10 +215,11 @@ function MovePaymentEvidence({
     const billOverdue = bill.overdue || (bill.days_past_due ?? 0) > 0;
     const isSkipping = skippingKey === billIdentity(bill);
     return (
+      <>
       <div data-payment-evidence className="mt-3 flex min-h-14 items-center gap-2 rounded-xl bg-slate-50 px-3 py-1.5 dark:bg-slate-900/35">
         <div className="min-w-0 flex-1">
           <p className="truncate text-[13px] font-semibold text-slate-800 dark:text-slate-100">{bill.label}</p>
-          <p className="text-[12px] leading-4 text-slate-500 dark:text-slate-400">Payment {billOverdue ? "was due" : "due"} {bill.due ?? due}</p>
+          <p className="text-[12px] leading-4 text-slate-500 dark:text-slate-400">{bill.savings ? "Savings transfer" : "Payment"} {billOverdue ? "was due" : "due"} {bill.due ?? due}</p>
         </div>
         <span className="money shrink-0 text-[13px] font-semibold text-slate-900 dark:text-slate-100"><AmountText text={moveMoney(bill.amount, hideNetWorth)} /></span>
         {canSkip(bill) && (
@@ -228,10 +229,12 @@ function MovePaymentEvidence({
             disabled={isSkipping}
             className="inline-flex min-h-11 shrink-0 touch-manipulation items-center rounded-lg px-2 text-[12px] font-medium text-slate-500 underline-offset-2 [-webkit-tap-highlight-color:transparent] [@media(hover:hover)]:hover:bg-slate-100 [@media(hover:hover)]:hover:underline active:scale-95 transition-[transform,background-color] duration-150 motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 disabled:cursor-wait disabled:no-underline disabled:opacity-60 dark:text-slate-400 dark:[@media(hover:hover)]:hover:bg-slate-700"
           >
-            {isSkipping ? "Skipping…" : "Skip this month"}
+            {isSkipping ? "Skipping…" : bill.savings ? "Let it skip this month" : "Skip this month"}
           </button>
         )}
       </div>
+      {bills.some(b => b.savings && canSkip(b)) && <p className="mt-1 text-[12px] leading-4 text-slate-500 dark:text-slate-400">Only stops Sorted planning for it this month. Your bank still decides.</p>}
+      </>
     );
   }
 
@@ -240,7 +243,7 @@ function MovePaymentEvidence({
     <details data-payment-disclosure className="group mt-3 rounded-xl border border-slate-100 bg-slate-50 dark:border-slate-700 dark:bg-slate-900/35">
       <summary className="flex min-h-14 cursor-pointer list-none touch-manipulation items-center justify-between gap-3 rounded-xl px-3 py-2 [-webkit-tap-highlight-color:transparent] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 [&::-webkit-details-marker]:hidden">
         <span className="min-w-0">
-          <span className="block text-[13px] font-semibold text-slate-800 dark:text-slate-100">Protects {bills.length} payments</span>
+          <span className="block text-[13px] font-semibold text-slate-800 dark:text-slate-100">{bills.every(bill => bill.savings) ? `${bills.length} savings transfers` : bills.some(bill => bill.savings) ? `Protects ${bills.filter(bill => !bill.savings).length} ${bills.filter(bill => !bill.savings).length === 1 ? "payment" : "payments"} and ${bills.filter(bill => bill.savings).length === 1 ? "a savings transfer" : `${bills.filter(bill => bill.savings).length} savings transfers`}` : `Protects ${bills.length} payments`}</span>
           <span className="block text-[12px] leading-4 text-slate-500 dark:text-slate-400">
             {hasOverdue ? (hasCurrent ? "Overdue and upcoming" : "Overdue") : coverPlanProtectsHeader(dueRange ?? { needs_by: due }, bills.length)}
           </span>
@@ -272,13 +275,14 @@ function MovePaymentEvidence({
                   disabled={isSkipping}
                   className="inline-flex min-h-11 shrink-0 touch-manipulation items-center rounded-lg px-2 text-[12px] font-medium text-slate-500 underline-offset-2 [-webkit-tap-highlight-color:transparent] [@media(hover:hover)]:hover:bg-slate-100 [@media(hover:hover)]:hover:underline active:scale-95 transition-[transform,background-color] duration-150 motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 disabled:cursor-wait disabled:no-underline disabled:opacity-60 dark:text-slate-400 dark:[@media(hover:hover)]:hover:bg-slate-700"
                 >
-                  {isSkipping ? "Skipping…" : "Skip this month"}
+                  {isSkipping ? "Skipping…" : bill.savings ? "Let it skip this month" : "Skip this month"}
                 </button>
               )}
             </div>
           );
         })}
       </div>
+      {bills.some(b => b.savings && canSkip(b)) && <p className="mt-1 px-1 text-[12px] leading-4 text-slate-500 dark:text-slate-400">Only stops Sorted planning for it this month. Your bank still decides.</p>}
     </details>
   );
 }
@@ -1225,20 +1229,29 @@ export function MoveCard({ item, hideNetWorth: hideNetWorthProp, maskAmounts, hi
       : undefined,
     overdue: (bill.days_past_due ?? 0) > 0,
   }));
+  // G426: counts and copy for payments leave the savings transfers out; they are named separately.
+  const payOnlyBills = paymentBills.filter(bill => !bill.savings);
   const paymentCopy = destination
-    ? movePaymentCopy(destination, paymentBills, Boolean(item.covered))
+    ? movePaymentCopy(destination, payOnlyBills, Boolean(item.covered))
     : null;
   if (paymentCopy && item.plan_shortfall) {
-    paymentCopy.dueCopy = paymentBills.length ? `${paymentCopy.dueCopy} · includes plans` : "For plans this pay period";
-    paymentCopy.clearClause = item.covered ? paymentBills.length ? "Covers the payments and plans" : "Covers the plans" : null;
-    paymentCopy.tilePaymentCopy = paymentBills.length ? "needed for payments and plans" : "needed for plans this pay period";
+    paymentCopy.dueCopy = payOnlyBills.length ? `${paymentCopy.dueCopy} · includes plans` : "For plans this pay period";
+    paymentCopy.clearClause = item.covered ? payOnlyBills.length ? "Covers the payments and plans" : "Covers the plans" : null;
+    paymentCopy.tilePaymentCopy = payOnlyBills.length ? "needed for payments and plans" : "needed for plans this pay period";
   }
   // G422: an own-savings standing order the account cannot fund. Same card, amber, never a payment shortfall.
   const savingsRisk = item.savings_at_risk ?? null;
   if (paymentCopy && savingsRisk) {
-    paymentCopy.dueCopy = item.plan_shortfall ? "For plans and savings this pay period" : "For savings this pay period";
-    paymentCopy.clearClause = item.covered ? item.plan_shortfall ? "Covers the plans and savings" : "Covers the savings transfer" : null;
-    paymentCopy.tilePaymentCopy = item.plan_shortfall ? "needed for plans and savings this pay period" : "needed for savings this pay period";
+    if (payOnlyBills.length) {
+      // G426: payments and an own-savings transfer share one combined move.
+      paymentCopy.dueCopy = `${paymentCopy.dueCopy} · includes savings`;
+      paymentCopy.clearClause = item.covered ? "Covers the payments and the savings transfer" : null;
+      paymentCopy.tilePaymentCopy = "needed for payments and savings this pay period";
+    } else {
+      paymentCopy.dueCopy = item.plan_shortfall ? "For plans and savings this pay period" : "For savings this pay period";
+      paymentCopy.clearClause = item.covered ? item.plan_shortfall ? "Covers the plans and savings" : "Covers the savings transfer" : null;
+      paymentCopy.tilePaymentCopy = item.plan_shortfall ? "needed for plans and savings this pay period" : "needed for savings this pay period";
+    }
   }
   // The note says what would cover it or that nothing can; a fully covered card already says so in its own words.
   const savingsNote = savingsRisk && !item.covered ? savingsRisk.note : null;

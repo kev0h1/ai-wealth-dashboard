@@ -1,0 +1,141 @@
+{
+  "name": "Own-savings standing order then a bill on the same account, 500 spare elsewhere (G426)",
+  "today": "2026-11-24",
+  "pay_period_config": {
+    "type": "last_friday"
+  },
+  "confirmed_income_streams": [],
+  "accounts": [
+    {
+      "_id": "acc-bc",
+      "name": "Barclays Current",
+      "provider": "barclays",
+      "type": "BANK",
+      "subtype": "TRANSACTION",
+      "balance": 150.0,
+      "currency": "GBP",
+      "status": "connected",
+      "include_in_safe_to_spend": true
+    },
+    {
+      "_id": "acc-mz",
+      "name": "Monzo Current",
+      "provider": "monzo",
+      "type": "BANK",
+      "subtype": "TRANSACTION",
+      "balance": 500.0,
+      "currency": "GBP",
+      "status": "connected",
+      "include_in_safe_to_spend": true
+    },
+    {
+      "_id": "acc-sav",
+      "name": "Barclays Saver",
+      "provider": "barclays",
+      "type": "BANK",
+      "subtype": "SAVINGS",
+      "balance": 1000.0,
+      "currency": "GBP",
+      "status": "connected",
+      "include_in_safe_to_spend": true
+    }
+  ],
+  "manual_accounts": [],
+  "cashflow_cache": {
+    "recurring_spend": [
+      {
+        "key": "SAVER STANDING ORDER",
+        "avg_amount": 300.0,
+        "avg_interval": 30,
+        "next_date": "2026-11-25",
+        "account_id": "acc-bc",
+        "account_name": "Barclays Current",
+        "account_bank": "barclays",
+        "account_balance": 150.0,
+        "is_credit_card": false,
+        "category": "Transfer",
+        "dest_account_id": "acc-sav",
+        "dest_account_name": "Barclays Saver",
+        "dest_account_bank": "barclays",
+        "dest_account_spendable": false
+      },
+      {
+        "key": "PHONE CONTRACT",
+        "avg_amount": 100.0,
+        "avg_interval": 30,
+        "next_date": "2026-11-26",
+        "account_id": "acc-bc",
+        "account_name": "Barclays Current",
+        "account_bank": "barclays",
+        "account_balance": 150.0,
+        "is_credit_card": false,
+        "category": "Bills"
+      }
+    ],
+    "recurring_income": [],
+    "bnpl_commitments": [],
+    "avg_daily_spend": 0
+  },
+  "transactions": [],
+  "commitments": [],
+  "allocations": [],
+  "card_terms": [],
+  "expected": {
+    "left_to_spend": 250.0,
+    "spend_from_total": 250.0,
+    "spendable_balance": 650.0,
+    "not_spendable": [
+      "acc-sav"
+    ],
+    "accounts": {
+      "acc-bc": {
+        "spend_from": 10.0,
+        "after_payments": -250.0,
+        "low_point": -250.0,
+        "verdict": "short",
+        "covered_by_move": {
+          "amount": 260.0,
+          "from": [
+            {
+              "account_id": "acc-mz",
+              "amount": 260.0
+            }
+          ]
+        },
+        "short_after_cover": 0.0,
+        "spend_from_requires_move": true,
+        "savings_at_risk": {
+          "amount": 250.0,
+          "no_cover": false
+        }
+      },
+      "acc-mz": {
+        "spend_from": 240.0,
+        "after_payments": 500.0,
+        "low_point": 500.0,
+        "verdict": "covered",
+        "earmarked_total": 260.0,
+        "earmarks_out": [
+          {
+            "to": "acc-bc",
+            "amount": 260.0
+          }
+        ],
+        "savings_at_risk": null
+      }
+    },
+    "cover_plan": {
+      "moves_total": 260.0,
+      "moves": [
+        {
+          "from": "acc-mz",
+          "to": "acc-bc",
+          "amount": 260.0
+        }
+      ]
+    },
+    "payday_plan": null,
+    "at_risk_count": 0,
+    "notes": "G426 (Kevin 2026-11-06). Today Tue 24 Nov 2026, pay period last Friday, so payday is Fri 27 Nov and the window is 24 to 26 Nov. Barclays Current holds 150. Its own-savings standing order of 300 into Barclays Saver (savings, in no pool) is dated Wed 25 Nov, then a Phone bill of 100 on Thu 26 Nov. Walk: 150 - 300 = -150 on the 25th (the order bounces), 150 - 300 - 100 = -250 on the 26th (the Phone bill cascades). After payments and low point are -250, so the verdict is short. Payments alone, with the order left out: 150 - 100 = +50, so the Phone bill would have cleared; none of the -250 is a payment shortfall. Savings part = 250 - 0 = 250 (amber, never red). The cover plan funds the whole walk deficit once: ceil5(250) + 10 cushion = 260. Monzo Current holds 500 with nothing due, headroom 500 - 10 = 490, so one move of 260 from Monzo to Barclays; the saver is never a source. Earmarks: Monzo set aside 260, Spend from 500 - 260 = 240; Barclays Spend from is its 10 cushion (spendable only after the move). Short after cover = max(0, 250 - 260) = 0. At risk count 0: the Phone bill bounces only because the order went first. In the payment-only walk (order left out) 150 - 100 = +50, so it clears; it is savings at risk, not a payment at risk, until the order is skipped. The order itself is a movement and never counts. Left to spend: pool 150 + 500 = 650, minus the 300 order (destination not pooled) and the 100 bill = 250, and 240 + 10 = 250 exactly. Skipping the order this month (an occurrence override) removes the move, the earmark and the savings fact: the Phone bill then clears from 150 and nothing is short. The payday plan is unchanged (null, G402)."
+  }
+}

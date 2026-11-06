@@ -277,6 +277,10 @@ def _capture_at_risk(monkeypatch):
     seen: list = []
 
     def spy_walk(events, balances):
+        # G426: at_risk_count walks a second time with own-savings orders left
+        # out; the golden is the first (real) walk only.
+        if seen:
+            return real_walk(events, balances)
         # the old inline loop carried (kind, is_card_repayment) as the item
         seen.extend(
             (d, a, amt, inc, None if inc else (it.get("kind"), bool(it.get("is_card_repayment"))))

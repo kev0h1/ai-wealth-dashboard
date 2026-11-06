@@ -372,19 +372,58 @@ def walk_events(
     return running, min_running, shortfall_bill, bounced_bills
 
 
-def count_at_risk(bounced_bills: dict[str, list[dict]]) -> int:
+def is_savings_order(b: dict) -> bool:
+    """G426. A recurring transfer into the user's OWN non-spendable (savings or
+    investment) account: a movement with a learned own destination that is not
+    a pooled spendable account. A card repayment is a payment at risk, never
+    savings."""
+    from app.services.categories import MOVEMENT
+
+    return bool(
+        b.get("kind") == MOVEMENT
+        and b.get("dest_account_id")
+        and b.get("dest_account_spendable") is not True
+        and not b.get("is_card_repayment")
+        and not b.get("is_credit_card")
+    )
+
+
+def payment_only_walk(events: list, seed: dict, *, drop: Callable[[dict], bool] = is_savings_order):
+    """G426. The same walk with every own-savings standing order left out
+    (`drop` is the predicate). Returns (min_running, bounced_bills): what the
+    payments alone would do. A debit only; an inflow is always kept."""
+    kept = [e for e in events if e[3] or not drop(e[4] or {})]
+    _r, mins, _sb, bounced = walk_events(kept, dict(seed))
+    return mins, bounced
+
+
+def count_at_risk(
+    bounced_bills: dict[str, list[dict]],
+    payment_only_bounced: dict[str, list[dict]] | None = None,
+) -> int:
     """The at-risk badge count (WD9): every bounced bill except a `movement`
     one (the user's own plan for their own money) unless it is a card
     repayment (G266). A deficit cascades, so every later bill on a short
-    account counts until income recovers it."""
+    account counts until income recovers it.
+
+    G426: with `payment_only_bounced` (the walk with own-savings orders left
+    out) a bill that bounces only because a savings order went first is
+    savings at risk, not a payment at risk: it counts only if it also bounces
+    in the payment-only walk. A card repayment always counts."""
     from app.services.categories import MOVEMENT
 
-    return sum(
-        1
-        for bills in bounced_bills.values()
-        for b in bills
-        if b.get("kind") != MOVEMENT or bool(b.get("is_card_repayment"))
-    )
+    still = None
+    if payment_only_bounced is not None:
+        still = {id(b) for bills in payment_only_bounced.values() for b in bills}
+    n = 0
+    for bills in bounced_bills.values():
+        for b in bills:
+            if b.get("kind") == MOVEMENT and not b.get("is_card_repayment"):
+                continue
+            if still is not None and not b.get("is_card_repayment") and id(b) not in still:
+                continue
+            n += 1
+    return n
 
 
 # ── G367: the pooled Left to spend walk ──────────────────────────────────────
