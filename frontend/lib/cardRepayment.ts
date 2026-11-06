@@ -15,6 +15,11 @@ export function isOptionalMove(item: { kind?: string; is_card_repayment?: boolea
   return item.kind === "movement" && !isCardRepayment(item);
 }
 
+/** G426: a recurring transfer into the user's own non-spendable (savings or investment) account. Mirrors the backend `is_savings_order`. */
+export function isSavingsOrder(item: { kind?: string; is_card_repayment?: boolean | null; dest_account_id?: string | null; dest_account_spendable?: boolean | null }): boolean {
+  return isOptionalMove(item) && Boolean(item.dest_account_id) && item.dest_account_spendable !== true;
+}
+
 /** "NW World Mastercard repayment", without doubling the word when the series already says it. */
 export function repaymentLabel(item: { name: string; display_name?: string | null }): string {
   const name = upcomingDisplayName(item);

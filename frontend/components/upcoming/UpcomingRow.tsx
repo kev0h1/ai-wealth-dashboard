@@ -59,6 +59,8 @@ export type UpcomingRowModel = {
   coverage?: {
     shortfall: number;
     optionalMove?: boolean;
+    /** G426: short only because an own-savings standing order leaves first. */
+    savingsOnly?: boolean;
     before?: number;
     after?: number;
   };
@@ -263,7 +265,7 @@ function CurrentSupportingCopy({
           const showDismiss = Boolean(model.unfundedMovement) || daysPastDue >= 5;
           return (
             <div>
-              {model.unfundedMovement ? (
+              {model.unfundedMovement && !model.savingsNote ? (
                 <p className="flex min-w-0 items-center gap-1.5 text-xs leading-snug text-slate-500 dark:text-slate-400">
                   <span aria-hidden className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-600 dark:bg-amber-400" />
                   <span className="truncate">Planned for {pendingDate}, hasn&apos;t left. {model.accountLabel || "The account"} may not have the funds for it.</span>
@@ -280,7 +282,7 @@ function CurrentSupportingCopy({
                   }}
                   className="pointer-events-auto mt-0.5 text-xs font-medium text-slate-500 underline-offset-2 hover:underline focus:outline-none focus-visible:underline dark:text-slate-400"
                 >
-                  Dismiss for this month
+                  {model.savingsNote ? "Let it skip this month" : "Dismiss for this month"}
                 </button>
               )}
             </div>

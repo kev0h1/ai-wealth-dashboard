@@ -215,6 +215,7 @@ function MovePaymentEvidence({
     const billOverdue = bill.overdue || (bill.days_past_due ?? 0) > 0;
     const isSkipping = skippingKey === billIdentity(bill);
     return (
+      <>
       <div data-payment-evidence className="mt-3 flex min-h-14 items-center gap-2 rounded-xl bg-slate-50 px-3 py-1.5 dark:bg-slate-900/35">
         <div className="min-w-0 flex-1">
           <p className="truncate text-[13px] font-semibold text-slate-800 dark:text-slate-100">{bill.label}</p>
@@ -232,6 +233,8 @@ function MovePaymentEvidence({
           </button>
         )}
       </div>
+      {bills.some(b => b.savings && canSkip(b)) && <p className="mt-1 text-[12px] leading-4 text-slate-500 dark:text-slate-400">Only stops Sorted planning for it this month. Your bank still decides.</p>}
+      </>
     );
   }
 
@@ -279,6 +282,7 @@ function MovePaymentEvidence({
           );
         })}
       </div>
+      {bills.some(b => b.savings && canSkip(b)) && <p className="mt-1 px-1 text-[12px] leading-4 text-slate-500 dark:text-slate-400">Only stops Sorted planning for it this month. Your bank still decides.</p>}
     </details>
   );
 }

@@ -31,6 +31,10 @@ export function getUpcomingStatus(model: UpcomingRowModel): UpcomingStatus {
   if (assessed && isMove && (verified ? shortfall! > 0 : model.movementCalm || model.unfundedMovement)) {
     return { kind: "issue", label: "unfunded", tone: "caution", shortfall: shortfall && shortfall > 0 ? shortfall : undefined };
   }
+  // G426: short only because an own-savings standing order leaves first. Amber, hedged, never a payment at risk.
+  if (assessed && !isMove && model.coverage?.savingsOnly && (shortfall ?? 0) > 0) {
+    return { kind: "issue", label: "short if the savings transfer leaves first", tone: "caution", shortfall };
+  }
   if (assessed && !isMove && (verified ? shortfall! > 0 : model.flagged || model.accountShort || model.atRisk)) {
     return {
       kind: "issue", tone: "risk",

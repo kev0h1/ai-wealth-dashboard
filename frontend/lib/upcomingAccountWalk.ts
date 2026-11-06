@@ -3,9 +3,10 @@ import { displayAccountName } from "./accountName";
 import type { UpcomingAccountEvent, UpcomingAccountSummary } from "./upcomingAccounts";
 import type { UpcomingRowModel } from "../components/upcoming/UpcomingRow";
 import { upcomingDisplayName } from "./upcomingDisplayName";
-import { isCardRepayment, isOptionalMove, repaymentLabel } from "./cardRepayment";
+import { isCardRepayment, isOptionalMove, isSavingsOrder, repaymentLabel } from "./cardRepayment";
 
-export type AccountCoverage = { before: number; after: number; shortfall: number };
+/** `savingsOnly` (G426): the bill is short only because an own-savings standing order went first; with the order left out it clears. Savings at risk, not a payment at risk. */
+export type AccountCoverage = { before: number; after: number; shortfall: number; savingsOnly?: boolean };
 type Movement = { name: string; amount: number; expected_date: string };
 type RiskBill = UpcomingBill & { movementCulprit?: Movement };
 export type UpcomingAccountWalk = {
@@ -101,6 +102,8 @@ export function walkUpcomingAccounts(
     ].sort(compareUpcomingEvents);
     const knownWorking = balanceKnown && rawEvents.every((item) => Number.isFinite(item.amount));
     let running = knownWorking ? pennies(opening!) : null;
+    // G426: the same walk with every own-savings standing order left out, as the server's payment-only walk.
+    let runningPaymentsOnly = running;
     let gap = 0;
     let billGap = 0;
     let firstShortDate: string | null = null;
@@ -110,11 +113,14 @@ export function walkUpcomingAccounts(
     const events = rawEvents.map((event): UpcomingAccountEvent => {
       const before = running;
       if (running !== null && event.credited !== false) running += event.amount;
+      if (runningPaymentsOnly !== null && event.credited !== false && !(event.bill && isSavingsOrder(event.bill))) runningPaymentsOnly += event.amount;
       if (running !== null && event.bill) {
         const shortfall = Math.max(0, -running);
         gap = Math.max(gap, shortfall);
         if (shortfall > 0) firstShortDate ??= event.expected_date;
-        if (event.kind === "payment" && shortfall > 0) {
+        // G426: a real bill that bounces only because a savings order went first clears without it. A card repayment never gets this.
+        const savingsOnly = event.kind === "payment" && shortfall > 0 && runningPaymentsOnly !== null && runningPaymentsOnly >= 0 && !isCardRepayment(event.bill);
+        if (event.kind === "payment" && shortfall > 0 && !savingsOnly) {
           if (shortfall > billGap) {
             const cardRepayment = isCardRepayment(event.bill);
             shortFor = { label: cardRepayment ? repaymentLabel(event.bill) : upcomingDisplayName(event.bill), date: event.expected_date, cardRepayment };
@@ -126,8 +132,8 @@ export function walkUpcomingAccounts(
         // unverified in BOTH views; cash sufficient without it still proves
         // coverage. The pooled forecast cannot override this evidence.
         if (!unknownIncome || shortfall === 0) {
-          coverage.set(event.bill, { before: before! / 100, after: running / 100, shortfall: shortfall / 100 });
-          if (event.kind === "payment" && shortfall > 0) {
+          coverage.set(event.bill, { before: before! / 100, after: running / 100, shortfall: shortfall / 100, ...(savingsOnly ? { savingsOnly: true } : {}) });
+          if (event.kind === "payment" && shortfall > 0 && !savingsOnly) {
             const culprit = [...movementsSince].sort((a, b) => b.amount - a.amount)[0];
             const risk = culprit ? { ...event.bill, movementCulprit: culprit } : event.bill;
             atRisk.push(risk);
@@ -175,7 +181,8 @@ export function upcomingAccountAssessment(
     assessment: future ? "future" : coverage ? undefined : "unverified",
     coverage: coverage ? { ...coverage, optionalMove } : undefined,
     isSettling, isCreditCard,
-    flagged: short && !optionalMove, accountShort: short && !optionalMove, atRisk: short && !optionalMove,
+    // G426: a bill short only because an own-savings order went first is amber savings at risk, not a payment at risk.
+    flagged: short && !optionalMove && !coverage?.savingsOnly, accountShort: short && !optionalMove && !coverage?.savingsOnly, atRisk: short && !optionalMove && !coverage?.savingsOnly,
     timingRisk: false, accountTiming: false,
     movementCalm: short && optionalMove, unfundedMovement: short && optionalMove,
   };
