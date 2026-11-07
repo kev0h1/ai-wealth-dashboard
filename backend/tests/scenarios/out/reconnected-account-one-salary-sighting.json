@@ -1,11 +1,8 @@
 {
   "account_eligibility": {
     "acc-bc": {
-      "account_headroom_raw": 10.0,
       "after_payments": -900.0,
       "after_payments_and_plans": -900.0,
-      "allocation_order": 0,
-      "allocation_unassigned": 1100.0,
       "covered_by_move": {
         "amount": 910.0,
         "from": [
@@ -23,20 +20,17 @@
       "is_current_account": true,
       "low_point": -900.0,
       "low_point_and_plans": -900.0,
+      "moves_in_total": 910.0,
       "plans_reserved": 0.0,
       "short": true,
       "short_after_cover": 0.0,
-      "spend_from_capped": false,
       "spend_from_headroom": 10.0,
       "spend_from_requires_move": true,
       "uncertain": false
     },
     "acc-st": {
-      "account_headroom_raw": 1090.0,
       "after_payments": 2000.0,
       "after_payments_and_plans": 2000.0,
-      "allocation_order": 1,
-      "allocation_unassigned": 1100.0,
       "earmarked_total": 910.0,
       "earmarks_out": [
         {
@@ -52,7 +46,6 @@
       "low_point_and_plans": 2000.0,
       "plans_reserved": 0.0,
       "short": false,
-      "spend_from_capped": false,
       "spend_from_headroom": 1090.0,
       "uncertain": false
     }
@@ -217,6 +210,14 @@
     "allocations_reserved": 0.0,
     "calculation_status": "complete",
     "commitments_reserved": 0,
+    "left_to_spend_lines": {
+      "accounts_total": 1100.0,
+      "buffer": 0.0,
+      "plans_total": 0,
+      "unattributed_bills": 0.0,
+      "uncredited_income": 1100.0
+    },
+    "lowest_projected_balance": 2200.0,
     "safe_to_spend": 2200.0,
     "safe_to_spend_cash": 2200.0
   },

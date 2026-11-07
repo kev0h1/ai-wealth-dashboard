@@ -35,8 +35,19 @@ export function buildLeftToSpendEvidence(data: Forecast, summaryAmount: number):
   const rows: EvidenceRow[] = [];
   let ledgerNote: string | null = null;
 
+  // G436: Left to spend is each counted current account's own lowest point added up
+  // (negatives included), plus income and payments no account carries, on their own lines.
+  const lines = data.left_to_spend_lines;
+  const byAccount = reconciledLow && !!lines && [lines.accounts_total, lines.uncredited_income, lines.unattributed_bills].every(finite)
+    && pennies(lines.accounts_total) + pennies(lines.uncredited_income) + pennies(lines.unattributed_bills) === pennies(low!);
+
   if (reconciledHold) {
-    if (reconciledEnd) {
+    if (byAccount && lines) {
+      rows.push({ label: "Your current accounts, each at its lowest before payday", value: lines.accounts_total });
+      if (pennies(lines.uncredited_income) !== 0) rows.push({ label: "Income not tied to one account", value: lines.uncredited_income });
+      if (pennies(lines.unattributed_bills) !== 0) rows.push({ label: "Payments not tied to one account", value: lines.unattributed_bills });
+      ledgerNote = "Each current account's own lowest cash before payday, added up. A move between your own accounts does not change it.";
+    } else if (reconciledEnd) {
       rows.push({ label: "Cash now", value: data.spendable_now! });
       if (data.bills_total > 0) rows.push({ label: "Bills before payday", value: -data.bills_total });
       if (income > 0) rows.push({ label: "Income before payday", value: income });

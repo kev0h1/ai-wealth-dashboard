@@ -409,11 +409,15 @@ def _check_expected(snap: dict, spec: dict) -> None:
     if "allocations_reserved" in exp:
         chk.check("allocations_reserved", _r2(snap["safe_to_spend"].get("allocations_reserved") or 0), _r2(exp["allocations_reserved"]))
     elig = snap["account_eligibility"]
+    if "lines" in exp:
+        # G436: what Left to spend is made of, hand-derived in the notes.
+        got_lines = snap["safe_to_spend"].get("left_to_spend_lines") or {}
+        for key, want in exp["lines"].items():
+            chk.check(f"lines {key}", _r2(got_lines.get(key)), _r2(want))
     if "spend_from_total" in exp:
-        # G414: this fixture names every eligible current account. Unlike the
-        # former independent ceilings, the amounts are a real allocation and
-        # must reconcile to the pooled verdict exactly, including any small
-        # conditional surplus left by a live suggested move.
+        # G436: this fixture names every eligible current account. Each figure is
+        # that account's own, and they add up to the named total (with Left to
+        # spend when no explicit line applies), moves between accounts netting to zero.
         ids = set((exp.get("accounts") or {}).keys())
         got_total = sum(float(elig[acct_id].get("spend_from_headroom") or 0) for acct_id in ids)
         chk.check("spend_from total", _r2(got_total), _r2(exp["spend_from_total"]))
@@ -543,16 +547,19 @@ def _verdict(position: dict) -> str:
 
 def _check_invariants(snap: dict, spec: dict) -> None:
     where = f"[{spec['name']}]"
-    pool = snap["safe_to_spend"]["safe_to_spend"]
-    pool_shown = max(0.0, float(pool or 0.0))
     for acct_id, pos in snap["account_eligibility"].items():
-        # 1. Spend from never exceeds the pooled Left to spend.
-        assert pos["spend_from_headroom"] <= pool_shown + 0.005, f"{where} {acct_id} spend_from above pooled Left to spend"
         # 2. A short verdict is exactly: after payments or low point below zero.
         assert (_verdict(pos) == "short") == (
             (pos.get("after_payments") is not None and pos["after_payments"] < 0)
             or (pos.get("low_point") is not None and pos["low_point"] < 0)
         ), f"{where} {acct_id} verdict rule"
+        # G436: nothing is shared out, so none of the retired allocation fields exist.
+        for gone in ("allocation_order", "allocation_unassigned", "spend_from_capped"):
+            assert gone not in pos, f"{where} {acct_id} carries the retired field {gone}"
+    # 1. G436: Left to spend is exactly the per-account figures added up plus its explicit
+    #    lines. An account that is not shown (uncertain) contributes its own estimate
+    #    (lowest of After payments and Lowest after payments, less its plans).
+    _check_headline_is_the_sum(snap, where)
     # 3. Each cover-plan card's headline total equals the sum of its moves.
     for item in snap["items"]:
         # A192: a "nothing can cover this" card (no source) carries no moves.
@@ -577,6 +584,40 @@ def _check_invariants(snap: dict, spec: dict) -> None:
     from app.routers.analytics import _account_pool_kind
     counted = sum(a["balance"] for a in snap["accounts"] if _account_pool_kind(a) == "spendable" and a["balance"] >= 0)
     assert _r2(snap["cashflow"]["spendable_balance"]) == _r2(counted), f"{where} spendable balance includes a non-spendable account"
+
+
+def _check_headline_is_the_sum(snap: dict, where: str) -> None:
+    from app.routers.analytics import _account_pool_kind
+
+    sts = snap["safe_to_spend"]
+    lines = sts.get("left_to_spend_lines")
+    if sts.get("calculation_status") != "complete" or not lines:
+        return
+    counted = {
+        a["id"] for a in snap["accounts"]
+        if _account_pool_kind(a) == "spendable"
+        and snap["account_eligibility"].get(a["id"], {}).get("is_current_account", False)
+    }
+    total = 0.0
+    plans_on_counted = 0.0
+    for aid in counted:
+        pos = snap["account_eligibility"][aid]
+        plans_on_counted += float(pos.get("plans_reserved") or 0.0)
+        if pos.get("uncertain"):
+            basis = min(v for v in (pos.get("after_payments"), pos.get("low_point")) if v is not None)
+            total += basis - float(pos.get("plans_reserved") or 0.0)
+        else:
+            total += float(pos["spend_from_headroom"])
+    plans_off = float(lines["plans_total"]) - plans_on_counted
+    expected = round(
+        total + float(lines["uncredited_income"]) + float(lines["unattributed_bills"]) - plans_off - float(lines["buffer"]), 2,
+    )
+    assert abs(expected - float(sts["safe_to_spend"])) < 0.015, (
+        f"{where} Left to spend {sts['safe_to_spend']} is not the account figures added up ({round(total, 2)}) plus its lines "
+        f"{lines} less plans not on an account ({round(plans_off, 2)}): {expected}"
+    )
+    assert abs(float(lines["accounts_total"]) + float(lines["uncredited_income"]) + float(lines["unattributed_bills"])
+               - float(sts["lowest_projected_balance"])) < 0.015, f"{where} lowest_projected_balance is not the lines added up"
 
 
 def _in_walk_window(snap: dict, bill: dict) -> bool:

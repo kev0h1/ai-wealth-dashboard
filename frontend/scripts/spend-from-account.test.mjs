@@ -35,7 +35,7 @@
 // all, this proves the frontend does not quietly re-admit one via a
 // stale/malformed payload either).
 
-import { bestSpendAccount, spendFromHeroLine, spendFromAlternativeLine, spendFromTreatmentPlan, spendFromCombinedLine, spendFromCombinedParts, SPEND_FROM_HEADROOM_FLOOR } from "../lib/spendFromAccount";
+import { bestSpendAccount, spendFromHeroLine, spendFromAlternativeLine, spendFromTreatmentPlan, spendFromCombinedLine, spendFromCombinedParts, topSpendFromAccounts, SPEND_FROM_HEADROOM_FLOOR } from "../lib/spendFromAccount";
 import { hasFundedCoverMove, visibleCoverMoveDestinations, visibleCoverMoveReserves } from "../lib/companionItems";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -86,12 +86,12 @@ function account(overrides) {
   check(
     "hero line names the account and its own headroom, distinct from any pooled figure (no bank label passed)",
     spendFromHeroLine(result, amount),
-    "In Barclays Current: £142 of your estimate.",
+    "In Barclays Current: £142 left to spend.",
   );
   check(
     "hero line folds a caller-resolved bank label into the same sentence, variant A's shape",
     spendFromHeroLine(result, amount, "Barclays"),
-    "In Barclays Current (Barclays): £142 of your estimate.",
+    "In Barclays Current (Barclays): £142 left to spend.",
   );
   check(
     "alternative line names the second account",
@@ -122,7 +122,7 @@ function account(overrides) {
   check(
     "the copy names the current account only, no mention of the savings pot",
     spendFromHeroLine(resultWithCurrent, amount),
-    "In Barclays Current: £25 of your estimate.",
+    "In Barclays Current: £25 left to spend.",
   );
 
   // 2b. No current account qualifies at all, but the savings pot has plenty:
@@ -231,8 +231,8 @@ check("hero line is omitted (not a fallback sentence) while data is unavailable"
     amount,
     "Chase",
   );
-  check("bank-qualified account line ties itself to the estimate", /of your estimate/.test(withBank ?? ""), true);
-  check("bank-qualified account line names the bank in parentheses", withBank, "In A (Chase): £120 of your estimate.");
+  check("bank-qualified account line says it is left to spend", /left to spend/.test(withBank ?? ""), true);
+  check("bank-qualified account line names the bank in parentheses", withBank, "In A (Chase): £120 left to spend.");
   check("bank-qualified account line uses no em dash (DESIGN.md)", (withBank ?? "").includes("—"), false);
 
   const alt = spendFromAlternativeLine(
@@ -271,7 +271,7 @@ check("hero line is omitted (not a fallback sentence) while data is unavailable"
   check(
     "G114: the honest 'nothing spare' line is shown rather than naming Monzo off its standing £23.74",
     spendFromHeroLine(result, amount),
-    "In Kevin Mbithi Maingi: £4 of your estimate.",
+    "In Kevin Mbithi Maingi: £4 left to spend.",
   );
 }
 
@@ -602,109 +602,48 @@ const NEVER_BRANDED = () => false;
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-// G234 (2026-10-08): the backend caps spend_from_headroom at the pooled Safe
-// to Spend. The client reads the capped value as is, carries the `capped`
-// flag, and never shows a figure above the hero. Kevin's numbers: Safe to
-// Spend 110.36, Barclays raw 127 -> shown 110.36.
+// G436 (Kevin 2026-11-07): each figure is the account's OWN Available, signed.
+// There is no pool, no cap and no allocation: the client reads
+// spend_from_headroom as it arrives, ranks the positive ones and shows the top
+// two; an account in shortfall is shown where it is acted on, never here.
 // ════════════════════════════════════════════════════════════════════════════
 {
   const accounts = [
     account({ id: "barclays", name: "Barclays Current", subtype: "CURRENT", cover_source_eligible: true }),
     account({ id: "hsbc", name: "HSBC Current", subtype: "CURRENT", cover_source_eligible: true }),
+    account({ id: "monzo", name: "Monzo Current", subtype: "CURRENT", cover_source_eligible: true }),
   ];
-  const POOL = 110.36;
   const eligibility = {
-    barclays: { short: false, headroom: 127, spend_from_headroom: 110.36, account_headroom_raw: 127, spend_from_capped: true },
-    hsbc: { short: false, headroom: 60, spend_from_headroom: 60, account_headroom_raw: 60, spend_from_capped: false },
+    barclays: { short: false, headroom: 646, spend_from_headroom: 646 },
+    hsbc: { short: false, headroom: 116, spend_from_headroom: 116 },
+    monzo: { short: false, headroom: 175, spend_from_headroom: 175 },
   };
   const result = bestSpendAccount(eligibility, accounts);
-  check("G234: the capped figure is what ranks and shows (not the raw 127)", result.best?.headroom, 110.36);
-  check("G234: the capped flag is carried through", result.best?.capped, true);
-  check("G234: an uncapped alternative is not flagged", result.alternative?.capped, false);
-  check("G234: no shown figure exceeds the pooled Safe to Spend", [result.best, result.alternative].every((e) => e.headroom <= POOL), true);
-  check(
-    "G234: the capped hero line says it is part of the estimate",
-    spendFromHeroLine(result, amount, "Barclays"),
-    "In Barclays Current (Barclays): £110 of your estimate.",
-  );
-  check(
-    "G234: the capped hero line no longer carries the old 'not your full Safe to Spend' disclaimer",
-    /not your full Safe to Spend/.test(spendFromHeroLine(result, amount) ?? ""),
-    false,
-  );
-  check("G234: an uncapped alternative keeps the plain wording", spendFromAlternativeLine(result, amount), "Also in HSBC Current: £60.");
+  check("G436: the account's own figure ranks and shows (healthy HSBC is never 0)", result.entries?.map((e) => [e.accountId, e.headroom]), [["barclays", 646], ["monzo", 175], ["hsbc", 116]]);
+  check("G436: nothing is flagged as capped, there is no cap", result.best && "capped" in result.best, false);
+  check("G436: the hero line names the account and says it is left to spend",
+    spendFromHeroLine(result, amount, "Barclays"), "In Barclays Current (Barclays): £646 left to spend.");
+  check("G436: the alternative is that account's own figure", spendFromAlternativeLine(result, amount), "Also in Monzo Current: £175.");
+  check("G436: Home shows the top two by this figure", topSpendFromAccounts(result.entries).map((e) => e.accountId), ["barclays", "monzo"]);
 
-  // Pool at or below zero: the backend sends 0 for every account, so the
-  // client lands on the existing no-room line, never an empty rail.
-  const zeroPool = {
-    barclays: { short: false, headroom: 127, spend_from_headroom: 0, account_headroom_raw: 127, spend_from_capped: true },
-    hsbc: { short: false, headroom: 60, spend_from_headroom: 0, account_headroom_raw: 60, spend_from_capped: true },
-  };
-  const none = bestSpendAccount(zeroPool, accounts);
-  check("G234: a zero pool gives the no-room result, not a rail", none.kind, "none");
-  check("G234: the no-room line is rendered text", spendFromHeroLine(none, amount), "No single account has spare cash towards this estimate right now.");
-  check("G234: a null account_eligibility (pool unknown) is unavailable, not an uncapped rail", bestSpendAccount(null, accounts).kind, "unavailable");
-}
+  // A shortfall no current account covers stays negative on its account: it is not a Spend from row.
+  const withShortfall = { ...eligibility, hsbc: { short: true, headroom: 0, spend_from_headroom: -1050 } };
+  const r2 = bestSpendAccount(withShortfall, accounts);
+  check("G436: a negative account is not offered to spend from", r2.entries?.map((e) => e.accountId), ["barclays", "monzo"]);
 
-// ════════════════════════════════════════════════════════════════════════════
-// G300 (Kevin 2026-10-20): the per-account figures must never read as adding
-// up to more than the pooled Safe to Spend.
-// ════════════════════════════════════════════════════════════════════════════
-{
-  const accounts = [
-    account({ id: "barclays", name: "Barclays", subtype: "CURRENT", cover_source_eligible: true }),
-    account({ id: "hsbc", name: "HSBC", subtype: "CURRENT", cover_source_eligible: true }),
-  ];
-  const E = (v, capped) => ({ short: false, headroom: v, spend_from_headroom: v, spend_from_capped: capped });
-  const plan = (elig, pool) => spendFromTreatmentPlan(bestSpendAccount(elig, accounts), () => true, pool);
-  const hero = (elig, pool) => spendFromHeroLine(bestSpendAccount(elig, accounts), amount, null, pool);
-  const alt = (elig, pool) => spendFromAlternativeLine(bestSpendAccount(elig, accounts), amount, pool);
-
-  // Pool binds for both: £9 each against a £9 pool.
-  const both = { barclays: E(9, true), hsbc: E(9, true) };
-  check("G414: allocation keeps both account rows", plan(both, 9).combined, false);
-  check("G414: first allocation is named", hero(both, 9), "In Barclays: £9 of your estimate.");
-  check("G414: second allocation is disclosed", alt(both, 9), "Also in HSBC: £9.");
-  check("G300: combined line never carries a per-account figure twice", (hero(both, 9).match(/£9/g) ?? []).length, 1);
-  check("G300: plan carries the pool", plan(both, 9).pool, 9);
-
-  // Mixed: one at the pool, one below it.
-  const mixed = { barclays: E(6, false), hsbc: E(9, true) };
-  check("G414: mixed allocation is additive", plan(mixed, 9).combined, false);
-  check(
-    "G300: mixed hero line adds a clause for the account below the pool",
-    hero(mixed, 9),
-    "In HSBC: £9 of your estimate.",
-  );
-  check("G414: mixed alternative is named", alt(mixed, 9), "Also in Barclays: £6.");
-
-  // Rounding: compare displayed whole pounds.
-  const rounded = { barclays: E(9.6, false), hsbc: E(9.6, false) };
-  check("G414: pence allocations remain additive", plan(rounded, 19.4).combined, false);
-  const edge = { barclays: E(9, true), hsbc: E(8.6, false) };
-  check("G414: pence allocations do not combine", plan(edge, 9).combined, false);
-  check("G414: first allocation remains explicit", hero(edge, 9), "In Barclays: £9 of your estimate.");
-
-  // Two below the pool whose sum fits: unchanged.
-  const fits = { barclays: E(40, false), hsbc: E(30, false) };
-  check("G300: figures that fit inside the pool are not combined", plan(fits, 100).combined, false);
-  check("G414: fitting figures keep today's hero line", hero(fits, 100), "In Barclays: £40 of your estimate.");
-  check("G300: fitting figures keep today's alternative line", alt(fits, 100), "Also in HSBC: £30.");
-
-  // Single account: unchanged even when capped.
-  const single = { barclays: E(9, true) };
-  check("G300: a single account is never combined", plan(single, 9).combined, false);
-  check("G414: a single allocated account keeps today's line", hero(single, 9), "In Barclays: £9 of your estimate.");
-
-  // No account with room: unchanged.
-  const noRoom = { barclays: { short: true, headroom: 0 }, hsbc: { short: true, headroom: 0 } };
-  check("G300: no room keeps the no-single-account line", hero(noRoom, 9), "No single account has spare cash towards this estimate right now.");
-  check("G300: no room plan is not combined", plan(noRoom, 9).combined, false);
-
-  // Pool unknown: today's behaviour.
-  check("G300: unknown pool is not combined", plan(both, null).combined, false);
-  check("G414: undefined pool keeps its account line", hero(both, undefined), "In Barclays: £9 of your estimate.");
-  check("G414: unknown pool keeps its alternative line", alt(both, null), "Also in HSBC: £9.");
+  // Nothing positive anywhere: the existing no-room result, never an empty rail.
+  const none = bestSpendAccount({
+    barclays: { short: true, headroom: 0, spend_from_headroom: -40 },
+    hsbc: { short: false, headroom: 0, spend_from_headroom: 0 },
+  }, accounts);
+  check("G436: no positive figure gives the no-room result", none.kind, "none");
+  check("G436: the no-room line is rendered text", spendFromHeroLine(none, amount), "No single account has spare cash towards this estimate right now.");
+  check("G436: a null account_eligibility (headline unreadable) is unavailable, not a rail", bestSpendAccount(null, accounts).kind, "unavailable");
+  check("G436: a move in that makes the figure positive is flagged as after the move",
+    spendFromHeroLine(bestSpendAccount({ barclays: { short: false, headroom: 0, spend_from_headroom: 10, spend_from_requires_move: true } }, accounts), amount),
+    "In Barclays Current: £10 left to spend, after the suggested move.");
+  const plan = spendFromTreatmentPlan(bestSpendAccount(eligibility, accounts), () => true);
+  check("G436: the plan carries no unallocated amount", "unallocated" in plan, false);
 }
 
 // G303: the combined line names banks (injected labelFor), never accounts.

@@ -18,21 +18,22 @@ assert.equal(formatAvailabilityAmount(0.4), "£0.40", "a non-zero amount under a
 const account = (id, provider) => ({ id, provider, name: `${provider} Current`, type: "BANK", subtype: "TRANSACTION", currency: "GBP", balance: 1000, status: "connected" });
 const accounts = [account("a", "barclays"), account("b", "hsbc"), account("c", "monzo")];
 const amounts = [287.29, 142.65, 14.1];
-const eligibility = Object.fromEntries(accounts.map((a, i) => [a.id, { headroom: 1000, short: false, spend_from_headroom: amounts[i], allocation_order: i, allocation_unassigned: 0 }]));
+const eligibility = Object.fromEntries(accounts.map((a, i) => [a.id, { headroom: 1000, short: false, spend_from_headroom: amounts[i], is_current_account: true }]));
 const plan = spendFromTreatmentPlan(bestSpendAccount(eligibility, accounts), () => true, 444.04);
-const list = renderToStaticMarkup(h(SpendFromAccountList, { entries: plan.entries, pool: 444.04, unallocated: 0, amount: formatAvailabilityAmount, coverMoveVisible: false, onLogoError() {}, kind: "bank-rail" }));
+const list = renderToStaticMarkup(h(SpendFromAccountList, { entries: plan.entries, amount: formatAvailabilityAmount, coverMoveVisible: false, onLogoError() {}, kind: "bank-rail" }));
 assert.ok(list.includes("£287") && list.includes("£143"), "Spend from rows are whole pounds");
 assert.ok(!/£\d[\d,]*\.\d\d/.test(list), "no pence in the Spend from summary");
-assert.ok(list.includes("Your other accounts make up the rest."), "the remainder line is kept");
+assert.ok(list.includes("Showing your top 2. See them all in Your accounts."), "the top-two line is kept");
 assert.ok(!/add up|adds up|total|exactly|sum/i.test(list), "rounded rows never claim an exact sum");
 
-const reading = { kind: "ready", value: 287.29 };
+const working = (basis, extra = {}) => ({ basis, lowest: false, movesOut: [], movesIn: [], savingsMove: null, ...extra });
+const reading = { kind: "ready", value: 287.29, working: working(287.29) };
 const position = { after_payments: 287.29, plans_reserved: 0, after_payments_and_plans: 287.29 };
 const detail = renderToStaticMarkup(h(AccountAvailabilityDetail, { reading, position, hidden: false, layout: "calm" }));
 const summary = detail.match(/<summary[\s\S]*?<\/summary>/)[0];
 assert.ok(summary.includes("£287") && !/£287\.\d\d/.test(summary), "account page summary line is whole pounds");
 assert.ok(detail.includes("£287.29"), "the account working ledger keeps pence");
-const short = renderToStaticMarkup(h(AccountAvailabilityDetail, { reading: { kind: "ready", value: 0, warning: "payments" }, position: { after_payments: -289.4, low_point: -289.4, plans_reserved: 0 }, hidden: false, layout: "calm" }));
+const short = renderToStaticMarkup(h(AccountAvailabilityDetail, { reading: { kind: "ready", value: -289.4, warning: "payments", working: working(-289.4) }, position: { after_payments: -289.4, low_point: -289.4, plans_reserved: 0 }, hidden: false, layout: "calm" }));
 const shortSummary = short.match(/<summary[\s\S]*?<\/summary>/)[0].replace(/<[^>]+>/g, "").replace(/<!-- -->/g, "");
 assert.ok(shortSummary.includes("£289 short") && !/£289\.\d\d/.test(shortSummary) && short.includes("−£289.40"), "short summary whole pounds, ledger pence");
 console.log("g418-whole-pounds ok");

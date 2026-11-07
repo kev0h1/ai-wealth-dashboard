@@ -1,11 +1,8 @@
 {
   "account_eligibility": {
     "acc-bc": {
-      "account_headroom_raw": 200.0,
       "after_payments": 200.0,
       "after_payments_and_plans": 200.0,
-      "allocation_order": 0,
-      "allocation_unassigned": 0.0,
       "estimated": false,
       "headroom": 190.0,
       "is_current_account": true,
@@ -13,16 +10,12 @@
       "low_point_and_plans": 200.0,
       "plans_reserved": 0.0,
       "short": false,
-      "spend_from_capped": false,
       "spend_from_headroom": 200.0,
       "uncertain": false
     },
     "acc-hsbc": {
-      "account_headroom_raw": 60.0,
       "after_payments": 60.0,
       "after_payments_and_plans": 60.0,
-      "allocation_order": 1,
-      "allocation_unassigned": 0.0,
       "estimated": false,
       "headroom": 50.0,
       "is_current_account": true,
@@ -30,16 +23,12 @@
       "low_point_and_plans": 60.0,
       "plans_reserved": 0.0,
       "short": false,
-      "spend_from_capped": false,
       "spend_from_headroom": 60.0,
       "uncertain": false
     },
     "acc-nw": {
-      "account_headroom_raw": 40.0,
       "after_payments": 40.0,
       "after_payments_and_plans": 40.0,
-      "allocation_order": 2,
-      "allocation_unassigned": 0.0,
       "estimated": false,
       "headroom": 30.0,
       "is_current_account": true,
@@ -47,7 +36,6 @@
       "low_point_and_plans": 40.0,
       "plans_reserved": 0.0,
       "short": false,
-      "spend_from_capped": false,
       "spend_from_headroom": 40.0,
       "uncertain": false
     }
@@ -468,6 +456,14 @@
     "allocations_reserved": 0.0,
     "calculation_status": "complete",
     "commitments_reserved": 0,
+    "left_to_spend_lines": {
+      "accounts_total": 300.0,
+      "buffer": 0.0,
+      "plans_total": 0,
+      "unattributed_bills": 0.0,
+      "uncredited_income": 0.0
+    },
+    "lowest_projected_balance": 300.0,
     "safe_to_spend": 300.0,
     "safe_to_spend_cash": 300.0
   },

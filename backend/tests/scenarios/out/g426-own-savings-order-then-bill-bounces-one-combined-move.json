@@ -1,11 +1,8 @@
 {
   "account_eligibility": {
     "acc-bc": {
-      "account_headroom_raw": 10.0,
       "after_payments": -250.0,
       "after_payments_and_plans": -250.0,
-      "allocation_order": 0,
-      "allocation_unassigned": 0.0,
       "covered_by_move": {
         "amount": 260.0,
         "from": [
@@ -23,6 +20,7 @@
       "is_current_account": true,
       "low_point": -250.0,
       "low_point_and_plans": -250.0,
+      "moves_in_total": 260.0,
       "plans_reserved": 0.0,
       "savings_at_risk": {
         "amount": 250.0,
@@ -41,17 +39,13 @@
       },
       "short": true,
       "short_after_cover": 0.0,
-      "spend_from_capped": false,
       "spend_from_headroom": 10.0,
       "spend_from_requires_move": true,
       "uncertain": false
     },
     "acc-mz": {
-      "account_headroom_raw": 240.0,
       "after_payments": 500.0,
       "after_payments_and_plans": 500.0,
-      "allocation_order": 1,
-      "allocation_unassigned": 0.0,
       "earmarked_total": 260.0,
       "earmarks_out": [
         {
@@ -67,7 +61,6 @@
       "low_point_and_plans": 500.0,
       "plans_reserved": 0.0,
       "short": false,
-      "spend_from_capped": false,
       "spend_from_headroom": 240.0,
       "uncertain": false
     },
@@ -75,8 +68,6 @@
       "account_headroom_raw": 990.0,
       "after_payments": 1000.0,
       "after_payments_and_plans": 1000.0,
-      "allocation_order": 2,
-      "allocation_unassigned": 0.0,
       "estimated": false,
       "headroom": 990.0,
       "is_current_account": false,
@@ -84,7 +75,6 @@
       "low_point_and_plans": 1000.0,
       "plans_reserved": 0.0,
       "short": false,
-      "spend_from_capped": false,
       "spend_from_headroom": 0.0,
       "uncertain": false
     }
@@ -354,6 +344,14 @@
     "allocations_reserved": 0.0,
     "calculation_status": "complete",
     "commitments_reserved": 0,
+    "left_to_spend_lines": {
+      "accounts_total": 250.0,
+      "buffer": 0.0,
+      "plans_total": 0,
+      "unattributed_bills": 0.0,
+      "uncredited_income": 0.0
+    },
+    "lowest_projected_balance": 250.0,
     "safe_to_spend": 250.0,
     "safe_to_spend_cash": 250.0
   },

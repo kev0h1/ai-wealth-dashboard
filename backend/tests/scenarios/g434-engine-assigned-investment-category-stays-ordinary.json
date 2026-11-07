@@ -75,7 +75,7 @@
     "spendable_balance": 950.0,
     "accounts": {
       "acc-a": {
-        "spend_from": 0.0,
+        "spend_from": -150.0,
         "after_payments": -150.0,
         "low_point": -150.0,
         "verdict": "short",
@@ -89,7 +89,7 @@
         "savings_at_risk": null
       },
       "acc-c": {
-        "spend_from": 50.0,
+        "spend_from": 200.0,
         "after_payments": 200.0,
         "low_point": 200.0,
         "verdict": "covered",
@@ -102,6 +102,6 @@
     },
     "payday_plan": null,
     "at_risk_count": 0,
-    "notes": "G434 control. Same accounts and 300 order as the other G434 scenarios (Chase Current A 150, B 600, C 200, order dated Thu 26 Nov, today Wed 25 Nov), but the series is a third-party platform the ENGINE filed as Investment: no destination, no own-savings stamp, no user choice, so the category alone does not make it own savings and it stays an ordinary movement, as before G434. A: 150 - 300 = -150, verdict short; movement-only so at risk count 0 and no cover engine: no savings fact, no move. Left to spend 950 - 300 = 650. Allocation in listed order: A 0 (negative), B min(600, 650) = 600, C min(200, 50) = 50; total 650."
+    "notes": "G434 control. Same accounts and 300 order as the other G434 scenarios (Chase Current A 150, B 600, C 200, order dated Thu 26 Nov, today Wed 25 Nov), but the series is a third-party platform the ENGINE filed as Investment: no destination, no own-savings stamp, no user choice, so the category alone does not make it own savings and it stays an ordinary movement, as before G434. A: 150 - 300 = -150, verdict short; movement-only so at risk count 0 and no cover engine: no savings fact, no move. Left to spend 950 - 300 = 650. Allocation in listed order: A 0 (negative), B min(600, 650) = 600, C min(200, 50) = 50; total 650. G436 (Kevin 2026-11-07), which supersedes the Left to spend and Spend from figures worked above where they differ: Each figure is the account's own, nothing is filled in a preferred order: acc-a is short 150 with no cover, so -150 (after payments -150, low point -150); acc-b 600; acc-c 200 (G414 gave it 50 because the allocation ran out). -150 + 600 + 200 = 650 = Left to spend."
   }
 }

@@ -29,7 +29,7 @@ export function accountEntries(example: AccountExample, pool: number): SpendFrom
   const best = ACCOUNTS.best;
   const alternative = ACCOUNTS.alternative;
   if (example === "one") return [best];
-  if (example === "whole") return [{ ...best, headroom: pool, capped: true, account: { ...best.account, balance: 10000 } }];
+  if (example === "whole") return [{ ...best, headroom: pool, account: { ...best.account, balance: 10000 } }];
   if (example === "unknown") return [{ ...best, provider: "Community Credit Union", account: { ...best.account, provider: "Community Credit Union", provider_id: "community_credit_union" } }];
   if ((example === "same-bank" || example === "long") && alternative) {
     const firstName = example === "long" ? "Joint household bills and weekly spending account" : "Everyday spending";

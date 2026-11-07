@@ -832,6 +832,13 @@ export type SafeToSpend =
       /** Lowest projected balance after scheduled bills and pre-payday income,
        * before buffer, plans and allocations. */
       lowest_projected_balance?: number;
+      /** G436: what Left to spend is made of. `accounts_total` is every counted current
+       * account's own figure before its plans, added up (negatives included);
+       * `uncredited_income` income no counted account's walk credits and
+       * `unattributed_bills` payments with no counted paying account (both kept in
+       * explicitly); then `plans_total` and `buffer` come off. Null/absent when the
+       * per-account figures could not be read (degraded). */
+      left_to_spend_lines?: { accounts_total: number; uncredited_income: number; unattributed_bills: number; plans_total: number; buffer: number } | null;
       /** Positive net card-balance growth observed this pay period (all
        * debits minus all credits, includes balance transfers). An information
        * fact only (G413): never subtracted from cash. */
@@ -1921,28 +1928,35 @@ export type CompanionItem = {
 // older cached payloads (pre-G114) degrade to the standing figure rather
 // than breaking; see spendFromAccount.ts's rankByHeadroom for the fallback.
 //
-// G234 (2026-10-08): on GET /today, `spend_from_headroom` is ALREADY capped
-// by the backend at the pooled Safe to Spend (floored at 0, so 0 for every
-// account when the pool is 0 or below), because a single account's figure
-// does not deduct envelopes and plans and could exceed the headline. The
-// client reads it as-is and never re-derives. `account_headroom_raw` is the
-// uncapped figure (explanations only, never ranked or shown as spare) and
-// `spend_from_capped` says the pool is what bound it.
+// G436 (Kevin 2026-11-07): `spend_from_headroom` is the account's OWN Available,
+// signed: its lowest point before payday (min of After payments and Lowest after
+// payments, G238), less its own goals and set-asides, less any move set aside out
+// of it (G410), plus any suggested move in from another CURRENT account. A
+// suggested move from savings (G428) is shown on the destination
+// (`covered_by_move`) but never added. It is negative when no current account
+// covers the shortfall. No pool, no preference order, no allocation: the figures
+// of every counted current account add up to Left to spend (less the lines in
+// `left_to_spend_lines`). The client reads it as-is and never re-derives.
 export type AccountEligibility = {
   short: boolean;
   headroom: number;
   spend_from_headroom?: number;
-  /** G414: this allocation is spendable after completing the suggested move. */
+  /** G436: positive only because of a suggested move in from another current account. */
   spend_from_requires_move?: boolean;
-  /** Forecast money that cannot yet be safely allocated to a named account. */
+  /** G436: the amount counted from suggested moves in from other current accounts (absent when none). */
+  moves_in_total?: number;
+  /** RETIRED by G436 (G414's preference-filled allocation); never sent now. Optional so old payloads and /design fixtures still type-check. */
   allocation_unassigned?: number;
+  /** RETIRED by G436, see above. */
   allocation_order?: number;
   is_current_account?: boolean;
+  /** G436: only sent for a non-current account (its protected move capacity). */
   account_headroom_raw?: number;
+  /** RETIRED by G436 (there is no pool cap). */
   spend_from_capped?: boolean;
   // G238: the ONE per-account position (backend services/account_position.py),
   // the same figures Upcoming's account sheet shows. `spend_from_headroom`
-  // is min(after_payments_and_plans, pooled Safe to Spend); it is 0 (not
+  // is min(after_payments_and_plans, low_point_and_plans) less moves; it is 0 (not
   // shown) when `uncertain`. Pounds; null when unknown or uncertain.
   after_payments?: number | null;
   plans_reserved?: number;

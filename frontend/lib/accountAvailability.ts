@@ -3,9 +3,24 @@ import { isCountedInLeftToSpend } from "@/lib/accountCounted";
 import { accountKind } from "@/lib/accountKind";
 import { coverSplitSentence, uncoveredSentence, type CoverSplit } from "@/lib/coverNarrative";
 
+/** G436: the working behind Available, one line each. `basis` is the account's own
+ * lowest point after payments and plans (`lowest` says the lowest point, not the
+ * closing balance, is what it is); `movesOut` are moves set aside out of it and
+ * `movesIn` moves counted in from other current accounts. `savingsMove` is a
+ * suggested move from savings: shown, never counted until it is made. When
+ * basis + movesIn - movesOut does not equal `value` (an old payload) the
+ * working is withheld rather than shown unbalanced. */
+export type AvailabilityWorking = {
+  basis: number;
+  lowest: boolean;
+  movesOut: { label: string; amount: number }[];
+  movesIn: { label: string; amount: number }[];
+  savingsMove: { label: string; amount: number } | null;
+};
+
 export type AccountAvailabilityReading =
   | { kind: "checking" | "unavailable" }
-  | { kind: "ready"; value: number; warning?: "payments" | "plans"; note?: string; requiresMove?: boolean; coveredByMove?: { fromLabel: string; shortAfterCover: number; coversPlans?: boolean; split?: CoverSplit } };
+  | { kind: "ready"; value: number; warning?: "payments" | "plans"; note?: string; requiresMove?: boolean; working: AvailabilityWorking | null; coveredByMove?: { fromLabel: string; shortAfterCover: number; coversPlans?: boolean; split?: CoverSplit } };
 
 export type AccountAvailabilitySnapshot = {
   status: "loading" | "ready" | "failed";
@@ -29,7 +44,28 @@ export function formatAvailabilityAmount(value: number): string {
   })}`;
 }
 
-/** Read the same conservative server limit as Spend from; never derive from bank balances or substitute the payday closing projection. */
+const fromLabel = (row: { name: string; display_label?: string | null }) => row.display_label?.trim() || row.name;
+
+/** G436: build the working from the server position. Reads server figures only. */
+function workingFor(position: AccountEligibility, value: number): AvailabilityWorking | null {
+  const afterPlans = position.after_payments_and_plans;
+  if (typeof afterPlans !== "number" || !Number.isFinite(afterPlans)) return null;
+  const lowPlans = position.low_point_and_plans;
+  const lowest = typeof lowPlans === "number" && Number.isFinite(lowPlans) && lowPlans < afterPlans - 0.005;
+  const basis = lowest ? (lowPlans as number) : afterPlans;
+  const movesOut = (position.earmarks_out ?? []).map((e) => ({ label: `Set aside for the move to ${e.to_name}`, amount: e.amount }));
+  const rows = position.covered_by_move?.from ?? [];
+  const movesIn = rows.filter((f) => f.source_kind !== "savings").map((f) => ({ label: `Suggested move in from ${fromLabel(f)}`, amount: f.amount }));
+  const savings = rows.filter((f) => f.source_kind === "savings");
+  const savingsAmount = savings.reduce((sum, f) => sum + f.amount, 0);
+  const savingsMove = savings.length ? { label: fromLabel(savings[0]), amount: savingsAmount } : null;
+  const inTotal = typeof position.moves_in_total === "number" ? position.moves_in_total : movesIn.reduce((sum, m) => sum + m.amount, 0);
+  const outTotal = movesOut.reduce((sum, m) => sum + m.amount, 0);
+  if (Math.abs(basis + inTotal - outTotal - value) > 0.011) return null;
+  return { basis, lowest, movesOut, movesIn, savingsMove };
+}
+
+/** Read the same conservative server figure as Spend from; never derive from bank balances or substitute the payday closing projection. */
 export function accountAvailability(
   account: Account,
   snapshot: AccountAvailabilitySnapshot,
@@ -39,8 +75,10 @@ export function accountAvailability(
   if (snapshot.status !== "ready" || (account.status !== "connected" || account.paused)) return { kind: "unavailable" };
   const position = snapshot.positions?.[account.id];
   if (!position || position.uncertain || typeof position.after_payments_and_plans !== "number" || !Number.isFinite(position.after_payments_and_plans)) return { kind: "unavailable" };
+  // G436: Available is the account's own figure and can be negative (a shortfall no
+  // current account covers stays on the account, shortfall first).
   const value = position.spend_from_headroom;
-  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) return { kind: "unavailable" };
+  if (typeof value !== "number" || !Number.isFinite(value)) return { kind: "unavailable" };
   // G422: what an own-savings standing order explains is neither a payment nor
   // a plan shortfall. It is amber, carries the engine's own note, and never
   // shows the red payments warning.
@@ -70,6 +108,7 @@ export function accountAvailability(
     : undefined;
   return {
     kind: "ready", value,
+    working: workingFor(position, value),
     warning,
     requiresMove: position.spend_from_requires_move === true,
     coveredByMove: covered,
@@ -81,6 +120,6 @@ export function accountAvailability(
       : paymentGap ? "Payments look short this pay period. Open the account for the working."
       : plansGap ? "Short after plans this pay period. Open the account for the working."
       : savings ? savings.note
-      : `Allocated from your shared Left to spend after known payments and plans this pay period${position.estimated ? "; some plan sources are estimated" : ""}${position.spend_from_requires_move ? ". This amount is available after the suggested move." : "."}`,
+      : `Left after known payments, goals and set-asides this pay period${position.estimated ? "; some plan sources are estimated" : ""}${position.spend_from_requires_move ? ". This amount is available after the suggested move." : "."}`,
   };
 }
