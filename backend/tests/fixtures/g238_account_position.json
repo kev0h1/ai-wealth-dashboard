@@ -1,9 +1,8 @@
 {
-  "_comment": "G238: shared by backend/tests/test_account_position.py and frontend/scripts/g238-account-position.test.mjs so the server and client arithmetic cannot drift. Amounts in pounds. spend_from is the shown Spend from after the pooled cap (0 = not shown). low_point is the account's mid-period minimum running balance (source_min_run); spend_from = min(after_payments_and_plans, low_point_and_plans), then the pool cap.",
+  "_comment": "G238: shared by backend/tests/test_account_position.py and frontend/scripts/g238-account-position.test.mjs so the server and client arithmetic cannot drift. Amounts in pounds. spend_from is the account's own figure (G436: no pooled cap, nothing is shared out; 0 = not shown because the figure is uncertain). low_point is the account's mid-period minimum running balance (source_min_run); spend_from = min(after_payments_and_plans, low_point_and_plans).",
   "cases": [
     {
       "name": "kevin_barclays_japan",
-      "pool": 108,
       "closing": {
         "barclays": 141.04
       },
@@ -66,7 +65,6 @@
     },
     {
       "name": "no_plans_keeps_after_payments",
-      "pool": 108,
       "closing": {
         "barclays": 90.5
       },
@@ -89,8 +87,7 @@
       }
     },
     {
-      "name": "pool_cap_binds",
-      "pool": 40,
+      "name": "own_figure_is_not_capped_by_any_pool",
       "closing": {
         "barclays": 141.04
       },
@@ -120,7 +117,7 @@
           "after_payments_and_plans": 61.04,
           "uncertain": false,
           "estimated": true,
-          "spend_from": 40,
+          "spend_from": 61.04,
           "low_point": 141.04,
           "low_point_and_plans": 61.04
         }
@@ -131,7 +128,6 @@
     },
     {
       "name": "chosen_allocation_is_not_estimated",
-      "pool": 500,
       "closing": {
         "barclays": 300
       },
@@ -172,7 +168,6 @@
     },
     {
       "name": "unassigned_plan_is_not_deducted_per_account",
-      "pool": 108,
       "closing": {
         "barclays": 141.04
       },
@@ -202,7 +197,7 @@
           "after_payments_and_plans": 141.04,
           "uncertain": false,
           "estimated": false,
-          "spend_from": 108,
+          "spend_from": 141.04,
           "low_point": 141.04,
           "low_point_and_plans": 141.04
         }
@@ -213,7 +208,6 @@
     },
     {
       "name": "unreadable_amount_is_uncertain_and_not_shown",
-      "pool": 108,
       "closing": {
         "barclays": 141.04
       },
@@ -254,7 +248,6 @@
     },
     {
       "name": "transfer_to_plan_pot_is_overlap_uncertain",
-      "pool": 108,
       "closing": {
         "barclays": 141.04
       },
@@ -303,7 +296,6 @@
     },
     {
       "name": "unknown_destination_near_slice_is_overlap_uncertain",
-      "pool": 108,
       "closing": {
         "barclays": 141.04
       },
@@ -352,7 +344,6 @@
     },
     {
       "name": "shared_receiving_pot_is_uncertain",
-      "pool": 108,
       "closing": {
         "barclays": 400
       },
@@ -409,7 +400,6 @@
     },
     {
       "name": "pending_near_slice_move_is_overlap_uncertain",
-      "pool": 108,
       "closing": {
         "barclays": 141.04
       },
@@ -459,7 +449,6 @@
     },
     {
       "name": "credit_destination_is_card_repayment_not_overlap",
-      "pool": 108,
       "closing": {
         "barclays": 141.04
       },
@@ -511,7 +500,6 @@
     },
     {
       "name": "kevin_barclays_dips_before_income",
-      "pool": 108,
       "closing": {
         "barclays": 141.04
       },
@@ -552,7 +540,6 @@
     },
     {
       "name": "dip_lower_than_closing_150_bill_100_salary_1000",
-      "pool": 500,
       "closing": {
         "acc": 1050
       },
@@ -577,7 +564,6 @@
     },
     {
       "name": "g256_fulfilled_goal_releases_reservation",
-      "pool": 200,
       "closing": {
         "barclays": 141.04
       },
@@ -626,7 +612,6 @@
     },
     {
       "name": "g256_partial_goal_reserves_only_the_unmet_remainder",
-      "pool": 200,
       "closing": {
         "barclays": 141.04
       },

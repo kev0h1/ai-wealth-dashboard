@@ -212,6 +212,8 @@ def test_safe_to_spend_returns_lowest_projected_balance_and_reconciles_cash(monk
                     "expected_date": due_date,
                     "kind": analytics.MOVEMENT,
                     "card_dest_account_id": "card1",
+                    # G436: the payment sits on the one counted account, so its walk carries it.
+                    "account_id": "acc1", "account_balance": 100.0,
                 },
                 {
                     "days_away": 1,
@@ -224,7 +226,7 @@ def test_safe_to_spend_returns_lowest_projected_balance_and_reconciles_cash(monk
         }
 
     async def accounts(_uid):
-        return [{"balance": 100.0, "type": "bank", "subtype": "CURRENT", "currency": "GBP"}]
+        return [{"_id": "acc1", "balance": 100.0, "type": "bank", "subtype": "CURRENT", "currency": "GBP"}]
 
     async def commitments(_uid):
         return 5, 1
@@ -286,7 +288,7 @@ def test_safe_to_spend_never_reserves_card_growth_without_a_learned_repayment(mo
         return {"upcoming_bills": [], "upcoming_income": []}
 
     async def accounts(_uid):
-        return [{"balance": 100.0, "type": "bank", "subtype": "CURRENT", "currency": "GBP"}]
+        return [{"_id": "acc1", "balance": 100.0, "type": "bank", "subtype": "CURRENT", "currency": "GBP"}]
 
     async def no_commitments(_uid):
         return 0, 0
@@ -335,7 +337,7 @@ def test_safe_to_spend_card_growth_fact_failure_never_degrades_the_cash_figure(m
         return {"upcoming_bills": [], "upcoming_income": []}
 
     async def accounts(_uid):
-        return [{"balance": 100.0, "type": "bank", "subtype": "CURRENT", "currency": "GBP"}]
+        return [{"_id": "acc1", "balance": 100.0, "type": "bank", "subtype": "CURRENT", "currency": "GBP"}]
 
     async def no_commitments(_uid):
         return 0, 0
@@ -379,7 +381,7 @@ def test_safe_to_spend_marks_a_known_reserve_failure_degraded(monkeypatch):
         return {"upcoming_bills": [], "upcoming_income": []}
 
     async def accounts(_uid):
-        return [{"balance": 100.0, "type": "bank", "subtype": "CURRENT", "currency": "GBP"}]
+        return [{"_id": "acc1", "balance": 100.0, "type": "bank", "subtype": "CURRENT", "currency": "GBP"}]
 
     async def unavailable_commitments(_uid):
         raise RuntimeError("commitments store unavailable")
@@ -486,9 +488,9 @@ def test_safe_to_spend_pins_against_a_fixed_transaction_fixture(monkeypatch):
     # LEARNED repayment series (its growth is a fact only, never reserved)
     # and one with no learned series (its growth fails closed as a reserve).
     accounts = [
-        {"name": "Current Account", "balance": 1000.0, "type": "bank",
+        {"_id": "acc-cur", "name": "Current Account", "balance": 1000.0, "type": "bank",
          "subtype": "CURRENT", "currency": "GBP"},
-        {"name": "Rainy Day Savings", "balance": 500.0, "type": "bank",
+        {"_id": "acc-sav", "name": "Rainy Day Savings", "balance": 500.0, "type": "bank",
          "subtype": "SAVINGS", "currency": "GBP"},
         {"name": "Card A (learned repayment)", "balance": -400.0,
          "type": "credit card", "subtype": "CREDIT", "currency": "GBP"},
@@ -499,8 +501,13 @@ def test_safe_to_spend_pins_against_a_fixed_transaction_fixture(monkeypatch):
     # pool entirely by _account_pool_kind); card_debt = 400 + 150 = 550.0.
 
     bills = [
-        {"name": "Rent", "days_away": 3, "amount": 600.0, "kind": "commitment"},
-        {"name": "Council Tax", "days_away": 10, "amount": 150.0, "kind": "commitment"},
+        # G436: every payment sits on the counted current account (account_id and its
+        # balance), so its own walk carries it; the pooled-transfer bill below keeps
+        # no paying account on purpose (the pooled walk drops it either way).
+        {"name": "Rent", "days_away": 3, "amount": 600.0, "kind": "commitment",
+         "account_id": "acc-cur", "account_balance": 1000.0},
+        {"name": "Council Tax", "days_away": 10, "amount": 150.0, "kind": "commitment",
+         "account_id": "acc-cur", "account_balance": 1000.0},
         # A pooled transfer into an account already counted in spendable_now
         # must be excluded from bills_total AND the lowest-balance walk —
         # this is the G19/pooled-transfers guard, exercised here.
@@ -509,7 +516,8 @@ def test_safe_to_spend_pins_against_a_fixed_transaction_fixture(monkeypatch):
         # A movement to savings is a real outflow from the spendable pool
         # (not pooled-excluded) — stays in the walk.
         {"name": "Move to savings", "days_away": 6, "amount": 100.0,
-         "kind": analytics.MOVEMENT, "dest_account_spendable": False},
+         "kind": analytics.MOVEMENT, "dest_account_spendable": False,
+         "account_id": "acc-cur", "account_balance": 1000.0},
     ]
     # window_bills (pooled transfer excluded) = Rent(600) + Council Tax(150)
     #   + Move to savings(100) = 850.0; pooled_transfers_excluded = 200.0.

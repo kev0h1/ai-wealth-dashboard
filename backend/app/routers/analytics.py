@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 # Persisted response-cache entries outlive deployments. Bump this whenever
 # Safe-to-Spend arithmetic or response semantics change so an older payload
 # cannot briefly contradict the current Home card after a release.
-SAFE_TO_SPEND_CALCULATION_VERSION = 2
+SAFE_TO_SPEND_CALCULATION_VERSION = 3
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
@@ -5442,8 +5442,16 @@ async def compute_safe_to_spend(uid: str) -> dict:
 
     _excluded_ids = {a["id"] for a in _excluded_accounts}
 
+    # G436: the rows also hand the window each account's own balance, so the
+    # per-account walks below (the headline's basis) run on this same window with
+    # no second query. The pooled walk never reads `live_balances`.
+    _row_balances = {
+        str(a["_id"]): float(a.get("balance") or 0.0)
+        for a in all_accs_raw if a.get("_id") is not None
+    }
+
     async def _pool_rows_loader(_assessable_bills: list[dict]) -> LoadedAccounts:
-        return LoadedAccounts(excluded_account_ids=_excluded_ids)
+        return LoadedAccounts(live_balances=dict(_row_balances), excluded_account_ids=_excluded_ids)
 
     wi = await build_window_inputs(
         uid, resp, _prefs,
@@ -5517,6 +5525,35 @@ async def compute_safe_to_spend(uid: str) -> dict:
         logger.exception("allocations reserve failed for %s", uid)
         unavailable_components.append("allocations_reserve")
         allocations_reserved, allocations_count = 0.0, 0
+
+    # ── 6b-3. Account by account (G436) ───────────────────────────────────────
+    # Kevin 2026-11-07: Left to spend is what is left after payments, goals and
+    # set-asides, account by account, not a pooled low point shared out. The
+    # headline is the sum of every counted current account's own lowest point
+    # before payday (its own walk, negatives included), less the goals and
+    # set-asides reserved above and the buffer, plus the explicit lines for what
+    # no counted account carries (income no account walk credits, payments with
+    # no counted paying account), kept in so the move to the per-account basis
+    # never silently drops them. Moves between current accounts net to zero, so
+    # the headline never depends on the cover plan;
+    # `companion.finalise_account_available` makes the shown per-account
+    # Available add up to it. Fail closed: if the per-account figures cannot be
+    # read the result is "degraded" and clamped below.
+    lowest_projected = min_running
+    accounts_total = None
+    uncredited_income = 0.0
+    unattributed_bills = 0.0
+    plans_total = round((commitments_reserved or 0) + (allocations_reserved or 0), 2)
+    try:
+        from app.services.account_available import account_bases, counted_current_ids, pooled_only_effects
+        _counted = counted_current_ids(all_accs_raw)
+        accounts_total = round(sum(account_bases(wi, _counted).values()), 2)
+        uncredited_income, unattributed_bills = pooled_only_effects(wi, _counted, spendable_cash)
+        lowest_projected = round(accounts_total + uncredited_income + unattributed_bills, 2)
+        safe_to_spend = round(lowest_projected - buffer - plans_total, 2)
+    except Exception:
+        logger.exception("account-by-account left to spend failed for %s", uid)
+        unavailable_components.append("account_positions")
 
     # ── 6c. Card growth fact (information only) ────────────────────────────────
     # G413 (Kevin, 2026-11-04): a card repayment is an ordinary payment. It is
@@ -5626,7 +5663,7 @@ async def compute_safe_to_spend(uid: str) -> dict:
     # amber, not red, on every surface; derived once, here.
     from app.services.net_position import plans_only_short_for
     plans_only_short = (not unavailable_components) and plans_only_short_for(
-        state, short_reason, safe_to_spend_cash, round(min_running, 2), buffer,
+        state, short_reason, safe_to_spend_cash, round(lowest_projected, 2), buffer,
         commitments_reserved, allocations_reserved,
     )
 
@@ -5707,7 +5744,16 @@ async def compute_safe_to_spend(uid: str) -> dict:
         # The actual floor reached by the date-ordered bill/income walk.
         # This (rather than aggregate bills/income totals) is the missing
         # reconciling bridge from spendable_now to safe_to_spend_cash.
-        "lowest_projected_balance": round(min_running, 2),
+        "lowest_projected_balance": round(lowest_projected, 2),
+        # G436: the explicit lines the headline is made of. Each current account's
+        # own figure adds up to `accounts_total`; the rest cannot sit on one account.
+        "left_to_spend_lines": (None if accounts_total is None else {
+            "accounts_total": accounts_total,
+            "uncredited_income": uncredited_income,
+            "unattributed_bills": unattributed_bills,
+            "plans_total": plans_total,
+            "buffer": buffer,
+        }),
         "payday_income":       payday_income,
         "card_debt":           card_debt,
         "card_growth_total":   card_growth_total,

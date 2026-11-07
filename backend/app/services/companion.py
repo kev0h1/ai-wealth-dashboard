@@ -2616,85 +2616,75 @@ def trajectory_copy(plan: dict, today: date) -> dict:
     }
 
 
-def cap_spend_from_to_pool(
-    account_eligibility: dict, pooled_safe_to_spend: float | None, *, preferred_account_ids: list[str] | None = None,
-) -> dict:
-    """Allocate the pooled Left to spend across individual accounts.
+def finalise_account_available(account_eligibility: dict) -> dict:
+    """G436: each current account's Available, account by account.
 
-    `spend_from_headroom` (seeded and corrected inside `compute_today_items`)
-    deducts only that account's own bills, reserved moves and buffer. The
-    pooled Left to spend headline also deducts envelopes and plans.  The old
-    G234 implementation capped every row independently, so the rows could
-    add up to far more than the headline.  G414 makes this an allocation:
-    accounts are filled in the engine's stable preference order until the
-    pooled amount is exhausted.  Thus the displayed rows are real, additive
-    spending amounts rather than overlapping maxima.
+    Replaces G414's `cap_spend_from_to_pool` (a preference-filled allocation of
+    the pooled figure). Kevin 2026-11-07: Left to spend is what is left after
+    payments, goals and set-asides, account by account, never a total shared out.
 
-    A live earmarked move is part of that forecast.  Its source has already
-    had the move deducted from ``spend_from_headroom``; its destination can
-    receive the small cushion left after its shortfall is covered.  Including
-    that cushion is what makes the account allocation reconcile to the same
-    Left to spend figure after the recommendation, without changing the
-    cover-move safety buffer itself.
+    `spend_from_headroom` arrives as the account's own figure after its
+    payments, its goals and set-asides (`seed_spend_from`, G238) less any
+    earmarked move out of it (G410), exactly what the account page calls After
+    payments and plans, then moves. This adds the suggested moves INTO it from
+    another current account and leaves the figure signed: an account no current
+    account covers keeps its shortfall as a negative, shortfall-first (G417).
+    A suggested move from savings (G428) is shown on the destination
+    (`covered_by_move`) but never added: it counts once the move is made.
+    Moves between current accounts net to zero, so the sum of the Available
+    figures is the same with or without the cover plan; the pooled Left to
+    spend (`analytics.compute_safe_to_spend`) is that sum plus its explicit
+    lines. No preference order, no cap, no allocation step.
 
-    The uncapped figure is kept as `account_headroom_raw` for Penny's
-    explanations; `spend_from_capped` says whether the pool is what bound.
-    `headroom` (the standing cover-plan figure) is left untouched. Mutates and
-    returns `account_eligibility`. `pooled_safe_to_spend` must be the final
-    pooled figure (after G231 exclusions and G227 plans); None means unknown
-    and is the caller's problem, not guessed here.
+    `moves_in_total` is the amount counted from other current accounts (absent
+    when none). `spend_from_requires_move` marks a positive figure that exists
+    only because of a suggested move in. A non-current account (savings) gets
+    no spending figure, but an explicitly requested consolidation may still
+    read its protected move capacity as `account_headroom_raw`; the figure for
+    a current account is `spend_from_headroom` itself. `headroom` (the standing
+    cover-plan figure) is untouched. Mutates and returns `account_eligibility`.
     """
-    pool = round(max(0.0, float(pooled_safe_to_spend or 0.0)), 2)
-    remaining = pool
-    preferred = list(dict.fromkeys(str(a) for a in (preferred_account_ids or [])))
-    ordered_ids = [aid for aid in preferred if aid in account_eligibility]
-    ordered_ids += [aid for aid in account_eligibility if aid not in set(ordered_ids)]
-    for allocation_order, account_id in enumerate(ordered_ids):
-        entry = account_eligibility[account_id]
-        entry["allocation_order"] = allocation_order
-        # Available and Spend from are current-account figures.  Savings may
-        # be a safe source for a cover recommendation, but it is never an
-        # everyday-spending allocation.
+    moves_in: dict[str, float] = {}
+    for entry in account_eligibility.values():
+        # The earmark out is only taken from a current, readable source (the same
+        # guard the earmark itself uses), so a move in is credited exactly when
+        # its source gave it up and the two always net to zero.
         if not entry.get("is_current_account", True) or entry.get("uncertain"):
-            # Savings get no spending allocation, but an explicitly requested
-            # consolidation may still read their protected move capacity.
-            entry["account_headroom_raw"] = 0.0 if entry.get("uncertain") else round(max(0.0, min(
-                float(entry.get("account_headroom_raw", entry.get("spend_from_headroom", entry.get("headroom", 0.0))) or 0.0),
-                float(entry.get("headroom", 0.0) or 0.0) - float(entry.get("earmarked_total", 0.0) or 0.0),
-            )), 2)
+            continue
+        for row in entry.get("earmarks_out") or []:
+            dest = str(row.get("to_account_id") or "")
+            moves_in[dest] = round(moves_in.get(dest, 0.0) + float(row.get("amount") or 0.0), 2)
+    for account_id, entry in account_eligibility.items():
+        entry.pop("allocation_order", None)
+        entry.pop("allocation_unassigned", None)
+        entry.pop("spend_from_capped", None)
+        # Available and Spend from are current-account figures. Savings may be a
+        # safe source for a cover recommendation, never an everyday-spending figure.
+        if not entry.get("is_current_account", True) or entry.get("uncertain"):
+            entry.pop("account_headroom_raw", None)
+            if not entry.get("uncertain"):
+                entry["account_headroom_raw"] = round(max(0.0, min(
+                    float(entry.get("spend_from_headroom", entry.get("headroom", 0.0)) or 0.0),
+                    float(entry.get("headroom", 0.0) or 0.0) - float(entry.get("earmarked_total", 0.0) or 0.0),
+                )), 2)
+            else:
+                entry["account_headroom_raw"] = 0.0
             entry["spend_from_headroom"] = 0.0
-            entry["spend_from_capped"] = False
             entry.pop("spend_from_requires_move", None)
             continue
-        already_seeded = "account_headroom_raw" in entry
-        raw = float(entry.get("account_headroom_raw", entry.get("spend_from_headroom", entry.get("headroom", 0.0))) or 0.0)
-        # The destination's available amount is conditional on the proposed
-        # move, just as the source's earmark is.  Never manufacture surplus
-        # when the move only partly covered its actual shortfall.
-        covered = entry.get("covered_by_move") or {}
-        covered_surplus = 0.0
-        try:
-            covered_surplus = max(0.0, float(covered.get("amount") or 0.0) - float(covered.get("shortfall") or 0.0))
-            # The seed retains the signed deficit. Credit the move once,
-            # rather than adding its surplus to an already negative seed.
-            if covered.get("from") and not already_seeded:
-                raw += float(covered.get("amount") or 0.0)
-        except (TypeError, ValueError):
-            pass
-        raw = round(raw, 2)
-        shown = round(max(0.0, min(raw, remaining)), 2)
-        entry["account_headroom_raw"] = raw
-        entry["spend_from_headroom"] = shown
-        entry["spend_from_capped"] = bool(raw > shown)
-        if covered_surplus > 0 and shown > 0:
+        entry.pop("account_headroom_raw", None)
+        before_move = round(float(entry.get("spend_from_headroom") or 0.0), 2)
+        incoming = round(moves_in.get(str(account_id), 0.0), 2)
+        value = round(before_move + incoming, 2)
+        entry["spend_from_headroom"] = value
+        if incoming > 0:
+            entry["moves_in_total"] = incoming
+        else:
+            entry.pop("moves_in_total", None)
+        if incoming > 0 and value > 0 and before_move < 0:
             entry["spend_from_requires_move"] = True
         else:
             entry.pop("spend_from_requires_move", None)
-        remaining = round(max(0.0, remaining - shown), 2)
-    # Some legacy pooled forecasts count income that cannot yet underwrite
-    # a named account. Keep that residual explicit; never invent spendable cash.
-    for entry in account_eligibility.values():
-        entry["allocation_unassigned"] = remaining
     return account_eligibility
 
 
@@ -3285,12 +3275,17 @@ async def compute_today_items(
             }
         # G238: the ONE per-account "after payments and plans" figure (the
         # same one Upcoming's account sheet shows). `spend_from_headroom` is
-        # re-based on it: Home's Spend from = min(this, pooled Safe to Spend,
-        # applied in `cap_spend_from_to_pool`), hidden when uncertain. The
+        # re-based on it: Home's Spend from = min(after payments and plans,
+        # low point and plans), then adjusted by moves in
+        # `finalise_account_available` (G436: the account's own figure, no pool
+        # cap), and 0 (not shown) when uncertain. The
         # standing `headroom` above stays the move finder's figure unchanged.
         try:
             from app.services.account_position import compute_account_positions_from_walks, seed_spend_from
             _gp_plans = await _load_account_plans(uid, goals=True, strict=True)
+            # G436: a set-aside with no resolvable paying account takes the one the
+            # cover engine uses for it, so it comes off that account's Available.
+            _gp_plans = await _attribute_unsourced_set_asides(uid, _gp_plans, _account_map, resp["internal_inflows"])
             _gp_credit = {
                 a["_str_id"] for a in all_uk_accounts + offline_accounts if is_credit_card_account(a)
             }
@@ -7160,6 +7155,7 @@ async def compute_today_items(
         + intent_pace_items
     )
     if account_eligibility_out is not None:
+        finalise_account_available(account_eligibility_out)
         # Reuse the explicit Home pin preference already loaded by this
         # computation, so route and worker builders share the same ordering.
         _pins = list(dict.fromkeys(str(a) for a in prefs.get("home_pinned_accounts") or []))
@@ -7306,6 +7302,60 @@ async def _load_account_plans(uid: str, *, goals: bool = False, strict: bool = F
             raise
         log.warning("allocation shortfall: account plans unavailable for %s", uid, exc_info=True)
         return []
+
+
+async def _attribute_unsourced_set_asides(
+    uid: str, plans: list[dict], account_map: dict[str, dict], internal_inflows: list[dict],
+) -> list[dict]:
+    """G436: give an active set-aside with no resolvable paying account the one
+    the cover engine already uses for it (`_allocation_funding_source`: learned
+    transfers into its fill account first, then direct fill-leg pairing), so its
+    money comes off that account's Available instead of floating in the pool.
+
+    Only a LEGACY plan is looked at (the field never stored): a deliberate "Not
+    set" (`source_set` with no account) or an explicit account that is no longer
+    usable is never guessed, exactly as `_plan_source_needs` leaves them. The
+    cover engine's last resort (assume the salary account, flagged) is NOT
+    applied here: with no evidence the amount stays off every account and is
+    reported as its own line in Left to spend. Goals are not touched: their
+    sources are already resolved by `resolve_goal_source` in the plan list. The
+    result is flagged `recent-transfers` (estimated), and nothing is persisted.
+    """
+    from app.services.allocation_shortfall import _remaining_pence, has_plan_source
+
+    wanted = [
+        p for p in plans
+        if p.get("kind") == "allocation" and p.get("active") and not has_plan_source(p)
+        and (_remaining_pence(p) or 0) > 0
+    ]
+    if not wanted:
+        return plans
+    try:
+        docs = {str(a.get("id")): a for a in await list_active_allocations(uid)}
+    except Exception:
+        log.warning("set-aside source attribution: allocations unavailable for %s", uid, exc_info=True)
+        return plans
+    out: list[dict] = []
+    for p in plans:
+        if not any(p is w for w in wanted):
+            out.append(p)
+            continue
+        alloc = docs.get(str(p.get("record_id")))
+        if alloc is None or alloc.get("source_set") is True:
+            out.append(p)
+            continue
+        try:
+            src = await _allocation_funding_source(uid, alloc, internal_inflows, account_map)
+        except Exception:
+            log.warning("set-aside source attribution failed for %s", uid, exc_info=True)
+            src = None
+        dest = str(alloc.get("fill_account_id") or "")
+        src_acc = account_map.get(str(src or ""))
+        if not src or str(src) == dest or src_acc is None or is_credit_card_account(src_acc):
+            out.append(p)
+            continue
+        out.append({**p, "source_account_id": str(src), "source_basis": "recent-transfers", "inferred": True})
+    return out
 
 
 async def _get_dismissed(uid: str) -> set[str]:

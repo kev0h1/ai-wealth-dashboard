@@ -10,7 +10,7 @@ import pathlib
 import pytest
 
 from app.services.account_position import compute_account_positions, seed_spend_from
-from app.services.companion import cap_spend_from_to_pool
+from app.services.companion import finalise_account_available
 
 CASES = json.loads(
     (pathlib.Path(__file__).parent / "fixtures" / "g238_account_position.json").read_text()
@@ -26,7 +26,7 @@ def test_fixture_positions_and_spend_from(case):
     elig = {}
     for sid, pos in positions.items():
         elig[sid] = {"headroom": 999.0, "spend_from_headroom": seed_spend_from(pos)}
-    cap_spend_from_to_pool(elig, case["pool"])
+    finalise_account_available(elig)
     for sid, want in case["expected"].items():
         got = positions[sid]
         for key in ("after_payments", "plans_reserved", "after_payments_and_plans", "uncertain", "estimated", "low_point", "low_point_and_plans"):
@@ -38,7 +38,7 @@ def test_kevins_barclays_is_61_04_not_108():
     case = next(c for c in CASES if c["name"] == "kevin_barclays_japan")
     positions = compute_account_positions(case["plans"], case["closing"], movements=case["movements"], low_point_by_account=case["low_point"])
     elig = {"barclays": {"headroom": 124.0, "spend_from_headroom": seed_spend_from(positions["barclays"])}}
-    cap_spend_from_to_pool(elig, 108)
+    finalise_account_available(elig)
     assert elig["barclays"]["spend_from_headroom"] == 61.04
 
 

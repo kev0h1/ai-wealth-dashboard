@@ -262,8 +262,6 @@ async def _compute(spec: dict, uid: str) -> dict:
     at_risk = await analytics.at_risk_count({"email": uid})
     elig: dict = {}
     items = await companion.compute_today_items(uid, persist=False, account_eligibility_out=elig)
-    pool = sts.get("safe_to_spend")
-    companion.cap_spend_from_to_pool(elig, pool)
     plans = (await list_account_plans({"email": uid})).get("items") or []
     accounts = [
         {k: v for k, v in (a | {"id": str(a["_id"])}).items() if k not in ("_id", "user_id")}
@@ -279,6 +277,7 @@ async def _compute(spec: dict, uid: str) -> dict:
         "safe_to_spend": {k: sts.get(k) for k in (
             "safe_to_spend", "safe_to_spend_cash",
             "commitments_reserved", "allocations_reserved", "calculation_status",
+            "lowest_projected_balance", "left_to_spend_lines",
         )},
         "at_risk_count": at_risk["count"],
         "cashflow": {

@@ -32,7 +32,7 @@ its low point from the source low-point walk's `AccountWalk` (W3,
 warning are all read from one pair of objects instead of two hand-built maps.
 `compute_account_positions` is unchanged: it stays the one kernel (the
 frontend parity fixture calls it with plain numbers), and
-`cap_spend_from_to_pool` stays the one pool cap. NO behaviour change: where the
+`finalise_account_available` stays the one place moves are applied (G436 replaced the old pool cap there). NO behaviour change: where the
 old hand assembly and the walk results differ, the difference is a keyword
 whose default is the OLD behaviour (PD1 to PD4 below), not unified silently.
 
@@ -237,9 +237,9 @@ def compute_account_positions_from_walks(
 
 def seed_spend_from(position: dict) -> float:
     """The per-account figure the G114 live-move reserve and then
-    `cap_spend_from_to_pool` act on: min(after payments and plans, low point
-    and plans), or 0 (not shown) when it is uncertain or unknown. Negative
-    values are floored later by the pool cap."""
+    `finalise_account_available` act on: min(after payments and plans, low point
+    and plans), or 0 (not shown) when it is uncertain or unknown. It stays
+    signed: a negative figure is the account's shortfall (G436), never floored."""
     if position.get("uncertain") or position.get("after_payments_and_plans") is None:
         return 0.0
     values = [float(position["after_payments_and_plans"])]

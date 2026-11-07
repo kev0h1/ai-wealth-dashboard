@@ -648,12 +648,13 @@ def test_clamp_holds_spend_from_at_the_low_point(monkeypatch):
     assert e["spend_from_headroom"] == 50.0
 
 
-def test_clamp_survives_a_pool_cap_above_it(monkeypatch):
-    from app.services.companion import cap_spend_from_to_pool
+def test_clamp_is_each_accounts_own_figure_and_nothing_is_shared_out(monkeypatch):
+    # G436: the engine's figure is final. A's low point holds it at 50 and B,
+    # untouched, shows its own 2,000: no pool, no preference fill, no cap.
     elig = _dip_run(monkeypatch, extra_accounts=[_account("B", 2000.0, provider="monzo")])
-    cap_spend_from_to_pool(elig, 2500.0)
     assert elig["A"]["spend_from_headroom"] == 50.0
     assert elig["B"]["spend_from_headroom"] == 2000.0
+    assert not any(k in e for e in elig.values() for k in ("allocation_order", "allocation_unassigned", "spend_from_capped"))
 
 
 def test_clamp_subtracts_a_chosen_goal_from_the_low_point(monkeypatch):
