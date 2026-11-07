@@ -9,6 +9,7 @@
     "check:g430-move-summary": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g430-move-summary.test.mjs",
     "check:e18-stale-cashflow-retry": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/e18-stale-cashflow-retry.test.mjs",
     "check:g428-savings-cover": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g428-savings-cover.test.mjs",
+    "check:g434-savings-order-recognition": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g434-savings-order-recognition.test.mjs",
     "check:g426-savings-order": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g426-savings-order-any-shape.test.mjs",
     "check:g422-savings-at-risk": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g422-savings-at-risk.test.mjs",
     "check:g424-tutorial-icons": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g424-tutorial-icons.test.mjs",
