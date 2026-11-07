@@ -7,21 +7,35 @@ sync or undoes an authorised consent, the server-side pending lookup, and the
 callback error path. No real Finexer calls: create_consent is mocked.
 """
 import asyncio
+from types import SimpleNamespace
 from datetime import datetime, timedelta
 
 import app.routers.finexer as finexer_module
 
 
 class _FakeCol:
+    """find_one/update_one stand-in that honours $ne / $nin / $gte filters and
+    reports matched_count, like Motor."""
+
     def __init__(self, docs=None):
         self.docs = list(docs or [])
 
     @staticmethod
     def _match(d, q):
         for k, v in (q or {}).items():
-            if isinstance(v, dict) and "$gte" in v:
-                if not (d.get(k) is not None and d[k] >= v["$gte"]):
-                    return False
+            if isinstance(v, dict):
+                for op, arg in v.items():
+                    if op == "$gte":
+                        if not (d.get(k) is not None and d[k] >= arg):
+                            return False
+                    elif op == "$ne":
+                        if d.get(k) == arg:
+                            return False
+                    elif op == "$nin":
+                        if d.get(k) in arg:
+                            return False
+                    else:
+                        raise AssertionError(f"unsupported operator {op}")
             elif d.get(k) != v:
                 return False
         return True
@@ -31,17 +45,23 @@ class _FakeCol:
         if sort:
             key, direction = sort[0]
             hits.sort(key=lambda d: d.get(key) or datetime.min, reverse=direction < 0)
-        return hits[0] if hits else None
+        # Like Motor: a snapshot copy taken at read time, so a later write by
+        # another request is not seen ...
+        snap = dict(hits[0]) if hits else None
+        # ... and a yield, so two callbacks can both read before either writes.
+        await asyncio.sleep(0)
+        return snap
 
     async def update_one(self, filt, update, upsert=False):
         for d in self.docs:
             if self._match(d, filt):
                 d.update(update.get("$set") or {})
-                return
+                return SimpleNamespace(matched_count=1)
         if upsert:
             new_doc = dict(filt)
             new_doc.update(update.get("$set") or {})
             self.docs.append(new_doc)
+        return SimpleNamespace(matched_count=0)
 
 
 async def _noop(email):
@@ -175,3 +195,63 @@ def test_return_with_unknown_state_and_no_fx_consent_stays_an_error_page(monkeyp
     out = asyncio.run(finexer_module.finexer_callback(state="nope"))
     assert out.status_code == 400
     assert col.docs[0]["status"] == "pending"
+
+
+def test_two_interleaved_callbacks_spawn_exactly_one_sync(monkeypatch):
+    col, syncs = _setup_callback(monkeypatch, _consent())
+
+    async def both():
+        return await asyncio.gather(
+            finexer_module.finexer_callback(fx_consent="cst_1", state="s1"),
+            finexer_module.finexer_callback(fx_consent="cst_1", state="s1"),
+        )
+
+    a, b = asyncio.run(both())
+    assert a.status_code == b.status_code == 200
+    assert syncs == ["cst_1"]
+    assert col.docs[0]["status"] == "authorized"
+
+
+def test_error_racing_a_success_leaves_the_consent_authorised(monkeypatch):
+    col, syncs = _setup_callback(monkeypatch, _consent())
+
+    async def both():
+        return await asyncio.gather(
+            finexer_module.finexer_callback(fx_consent="cst_1", state="s1"),
+            finexer_module.finexer_callback(fx_consent="cst_1", state="s1", error="access_denied"),
+        )
+
+    asyncio.run(both())
+    assert col.docs[0]["status"] == "authorized"
+    assert "error" not in col.docs[0]
+    assert syncs == ["cst_1"]
+
+
+def test_success_racing_an_error_never_resurrects_a_canceled_consent_twice(monkeypatch):
+    # Error first, then success: authorised only if the filter allows it ($ne authorized).
+    col, syncs = _setup_callback(monkeypatch, _consent())
+
+    async def both():
+        return await asyncio.gather(
+            finexer_module.finexer_callback(fx_consent="cst_1", state="s1", error="access_denied"),
+            finexer_module.finexer_callback(fx_consent="cst_1", state="s1"),
+        )
+
+    asyncio.run(both())
+    assert col.docs[0]["status"] == "authorized"
+    assert syncs == ["cst_1"]
+
+
+def test_new_state_is_long_and_urlsafe_and_old_short_states_still_match(monkeypatch):
+    col, created = _setup_link(monkeypatch)
+    asyncio.run(finexer_module.finexer_link(provider="chase", native=True, user=USER))
+    import re
+    assert re.fullmatch(r"[A-Za-z0-9_-]{22,}", created[0]["state"])
+    # An in-flight consent created before this change has a 16 hex char state.
+    col2, syncs = _setup_callback(monkeypatch, _consent(state="0123456789abcdef"))
+    out = asyncio.run(finexer_module.finexer_callback(fx_consent="cst_1", state="0123456789abcdef"))
+    assert out.status_code == 200 and syncs == ["cst_1"]
+    # A non-ASCII state is a clean 400, not a 500.
+    col3, _ = _setup_callback(monkeypatch, _consent())
+    bad = asyncio.run(finexer_module.finexer_callback(fx_consent="cst_1", state="é"))
+    assert bad.status_code == 400

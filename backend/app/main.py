@@ -27,7 +27,7 @@ from app.db.collections import (
     statement_transactions_col,
     savings_insights_col, savings_labels_col,
     subscriptions_col, subscription_usage_col, statement_uploads_col,
-    yapily_consents_col, yapily_accounts_col, yapily_transactions_col,
+    finexer_consents_col, yapily_consents_col, yapily_accounts_col, yapily_transactions_col,
     cashflow_cache_col, webhook_events_col,
     checkpoints_col, category_intent_col, commitments_col,
     teaching_events_col, allocations_col, penny_proposals_col, penny_conversations_col,
@@ -411,6 +411,11 @@ async def _forbid_model_passes_in_api():
 
 @app.on_event("startup")
 async def _create_indexes():
+    # A193: the Finexer callback can look a consent up by our `state` alone
+    # (a return with no fx_consent) on an unauthenticated route. Plain and not
+    # unique: nothing guarantees uniqueness, and a partial index would not be
+    # chosen for an equality query by the planner.
+    await _ensure_index(finexer_consents_col, "state", name="finexer_consents_state")
     await _ensure_index(transactions_col, "account_id")
     await _ensure_index(transactions_col, "date")
     await _ensure_index(transactions_col, "user_id")

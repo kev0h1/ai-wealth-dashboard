@@ -195,7 +195,7 @@ async def finexer_link(
     await check_open_banking_allowed(user["email"])
     await check_connection_limit(user["email"])
 
-    state = secrets.token_hex(8)
+    state = secrets.token_urlsafe(16)
     try:
         customer_id = await get_or_create_customer(user)
         consent     = await create_consent(
@@ -336,7 +336,7 @@ async def finexer_callback(
     # rejected a *mismatched* state, letting an omitted one straight
     # through to authorise the consent and trigger a sync.
     stored_state = doc.get("state")
-    if not state or not stored_state or not hmac.compare_digest(state, stored_state):
+    if not state or not stored_state or not hmac.compare_digest(state.encode(), str(stored_state).encode()):
         # A88 semantics unchanged (missing or mismatched state never authorises);
         # G215: the user sees the hand-off error page, not JSON.
         return bank_error_response("finexer", "", status_code=400,
@@ -352,9 +352,13 @@ async def finexer_callback(
             return _bank_page(True, "finexer", consent_id, auto_return=True)
         return RedirectResponse(f"{APP_URL}/accounts?syncing=1&connection={_urlquote(consent_id, safe='')}", status_code=303)
 
+    # A193: the status writes below are filter-level compare-and-set, so the
+    # guarantee holds even when two callbacks interleave after both read
+    # "pending": an error can never overwrite an authorised consent, and only
+    # the callback whose write matched spawns the sync.
     if error:
         await finexer_consents_col.update_one(
-            {"_id": consent_id},
+            {"_id": consent_id, "status": {"$nin": ["authorized"]}},
             {"$set": {"status": "canceled", "canceled_at": datetime.utcnow(), "error": error}},
         )
         if doc.get("native"):
@@ -363,15 +367,16 @@ async def finexer_callback(
 
 
     authed_at = datetime.utcnow()  # naive-ok: matches last_synced convention
-    await finexer_consents_col.update_one(
-        {"_id": consent_id},
+    res = await finexer_consents_col.update_one(
+        {"_id": consent_id, "status": {"$ne": "authorized"}},
         {"$set": {"status": "authorized", "authed_at": authed_at,
                   "next_reconfirm_by": next_reconfirm_by(authed_at, None, doc.get("expiry_date"))}},
     )
 
-    user_id = doc["user_id"]
-    # A176: the first sync after connect asks Finexer to refresh from the bank.
-    asyncio.create_task(finexer_sync_pipeline(consent_id, user_id, request_bank_sync=True))
+    if res.matched_count == 1:
+        user_id = doc["user_id"]
+        # A176: the first sync after connect asks Finexer to refresh from the bank.
+        asyncio.create_task(finexer_sync_pipeline(consent_id, user_id, request_bank_sync=True))
 
     if doc.get("native"):
         return _bank_page(True, "finexer", consent_id, auto_return=True)
