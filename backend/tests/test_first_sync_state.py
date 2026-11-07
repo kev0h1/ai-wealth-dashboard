@@ -210,7 +210,7 @@ def _stub_sts(monkeypatch, state, first=True):
         return {"upcoming_bills": [], "upcoming_income": []}
 
     async def accounts(_uid):
-        return [{"balance": 100.0, "type": "bank", "subtype": "CURRENT", "currency": "GBP"}]
+        return [{"_id": "acc1", "balance": 100.0, "type": "bank", "subtype": "CURRENT", "currency": "GBP"}]
 
     async def zero(_uid):
         return 0, 0

@@ -183,7 +183,7 @@ def test_a_charge_on_a_credit_card_does_not_reduce_the_walk(monkeypatch):
         "expected_date": (today + timedelta(days=2)).isoformat(), "kind": "discretionary",
         "account_id": "amex", "is_credit_card": True,
     }]
-    accounts = [{"balance": 603.0, "type": "bank", "subtype": "CURRENT", "currency": "GBP"}]
+    accounts = [{"_id": "barclays", "balance": 603.0, "type": "bank", "subtype": "CURRENT", "currency": "GBP"}]
     _wire_bills_and_accounts(monkeypatch, bills, accounts)
 
     async def no_growth(_uid, _start, _today, _bills, _excluded=None):
@@ -228,10 +228,10 @@ def test_a_repayment_to_that_card_does_reduce_the_walk(monkeypatch):
     bills = [{
         "name": "Amex repayment", "days_away": 2, "amount": 180.0,
         "expected_date": (today + timedelta(days=2)).isoformat(), "kind": analytics.MOVEMENT,
-        "account_id": "barclays", "is_credit_card": False,
+        "account_id": "barclays", "account_balance": 603.0, "is_credit_card": False,
         "card_dest_account_id": "amex", "dest_account_spendable": None,
     }]
-    accounts = [{"balance": 603.0, "type": "bank", "subtype": "CURRENT", "currency": "GBP"}]
+    accounts = [{"_id": "barclays", "balance": 603.0, "type": "bank", "subtype": "CURRENT", "currency": "GBP"}]
     _wire_bills_and_accounts(monkeypatch, bills, accounts)
 
     async def no_growth(_uid, _start, _today, _bills, _excluded=None):
@@ -281,11 +281,11 @@ def test_charge_and_its_repayment_together_reduce_cash_only_once(monkeypatch):
         {
             "name": "Amex repayment", "days_away": 3, "amount": 180.0,
             "expected_date": (today + timedelta(days=3)).isoformat(), "kind": analytics.MOVEMENT,
-            "account_id": "barclays", "is_credit_card": False,
+            "account_id": "barclays", "account_balance": 603.0, "is_credit_card": False,
             "card_dest_account_id": "amex", "dest_account_spendable": None,
         },
     ]
-    accounts = [{"balance": 603.0, "type": "bank", "subtype": "CURRENT", "currency": "GBP"}]
+    accounts = [{"_id": "barclays", "balance": 603.0, "type": "bank", "subtype": "CURRENT", "currency": "GBP"}]
     _wire_bills_and_accounts(monkeypatch, bills, accounts)
 
     async def no_growth(_uid, _start, _today, _bills, _excluded=None):
@@ -333,11 +333,11 @@ def test_a_movement_between_two_pooled_accounts_does_not_reduce_cash(monkeypatch
         {
             "name": "To ISA saver", "days_away": 1, "amount": 50.0,
             "expected_date": (today + timedelta(days=1)).isoformat(), "kind": analytics.MOVEMENT,
-            "account_id": "barclays", "is_credit_card": False,
+            "account_id": "barclays", "account_balance": 603.0, "is_credit_card": False,
             "dest_account_spendable": True,
         },
     ]
-    accounts = [{"balance": 603.0, "type": "bank", "subtype": "CURRENT", "currency": "GBP"}]
+    accounts = [{"_id": "barclays", "balance": 603.0, "type": "bank", "subtype": "CURRENT", "currency": "GBP"}]
     _wire_bills_and_accounts(monkeypatch, bills, accounts)
 
     async def no_growth(_uid, _start, _today, _bills, _excluded=None):
@@ -348,8 +348,12 @@ def test_a_movement_between_two_pooled_accounts_does_not_reduce_cash(monkeypatch
     result = asyncio.run(analytics.compute_safe_to_spend(UID))
 
     assert result["bills_total"] == 0.0
-    assert result["pooled_transfers_excluded"] == 50.0
-    assert result["safe_to_spend"] == 603.0
+    assert result["pooled_transfers_excluded"] == 50.0  # the pooled walk still reports what it dropped
+    # G436: the headline is account by account. Barclays' own walk keeps the 50 leaving it, and in
+    # this fixture no counted account receives it (the destination has no row and no inflow leg), so
+    # nothing arrives to offset it: 603 - 50. (With a counted destination the credit only lifts that
+    # account's figure after its own lowest point, see scenarios/hsbc-incoming-transfer-*.)
+    assert result["safe_to_spend"] == 553.0
 
 
 def test_no_reserve_is_held_for_growth_with_no_predicted_repayment(monkeypatch):
@@ -414,7 +418,7 @@ def test_no_reserve_is_held_for_growth_with_no_predicted_repayment(monkeypatch):
         "expected_date": (today + timedelta(days=10)).isoformat(), "kind": "discretionary",
         "account_id": "amex", "is_credit_card": True,
     }]
-    accounts = [{"balance": 100.0, "type": "bank", "subtype": "CURRENT", "currency": "GBP"}]
+    accounts = [{"_id": "barclays", "balance": 100.0, "type": "bank", "subtype": "CURRENT", "currency": "GBP"}]
     _wire_bills_and_accounts(monkeypatch, bills, accounts)
 
     async def fake_card_ids(_uid):
@@ -478,7 +482,7 @@ def test_a_not_yet_posted_card_charge_is_not_held_back_either(monkeypatch):
         "expected_date": (today + timedelta(days=3)).isoformat(), "kind": "commitment",
         "account_id": "newcard", "is_credit_card": True,
     }]
-    accounts = [{"balance": 200.0, "type": "bank", "subtype": "CURRENT", "currency": "GBP"}]
+    accounts = [{"_id": "barclays", "balance": 200.0, "type": "bank", "subtype": "CURRENT", "currency": "GBP"}]
     _wire_bills_and_accounts(monkeypatch, bills, accounts)
 
     async def fake_card_ids(_uid):
