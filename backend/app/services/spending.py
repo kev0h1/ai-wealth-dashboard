@@ -23,6 +23,8 @@ DOES NOT COUNT
       rather than being income,
     * income (kind ``income``).
 
+USER CATEGORY (G437): a category the user chose that is not a movement kind (Groceries, Gifts) stops every automatic own-account evidence below; only Business and Other keep the option (b) behaviour that follows.
+
 BUSINESS (Kevin's option b): a payment to the user's OWN account (for example
 "AURIQ AURIQ TIDE" to his Tide business account) is a movement; a Business
 payment to a third party is spending. That is decided per transaction by
@@ -32,7 +34,9 @@ whatever kind it has for third-party payments.
 Own-account detection (``find_own_move_ids``), strongest evidence first:
     1. the row is linked to an offline account or a goal (the user's own
        resolve-movement answer),
-    2. its text carries the number or sort code of ANOTHER of the user's
+    2. its counterparty sort code AND account number (the bank's own fields)
+       match an account on file other than its own (G437, Kevin's rule), or
+       its text carries the number or sort code of ANOTHER of the user's
        accounts,
     3. a transfer-pair match: a credit of the same amount (within 2p), on a
        DIFFERENT account of the user's, within five days (the closest date
@@ -69,6 +73,7 @@ from app.services.categories import (
     normalise_name,
 )
 from app.services.categorisation import own_transfer_evidence, user_identity
+from app.services.own_account_transfers import counterparty_key
 
 logger = logging.getLogger(__name__)
 
@@ -91,7 +96,7 @@ _PROJECTION = {
     "amount": 1, "date": 1, "category": 1, "custom_category": 1,
     "transaction_type": 1, "description": 1, "merchant_name": 1,
     "account_id": 1, "linked_offline_account_id": 1, "linked_goal_id": 1,
-    "currency": 1,
+    "currency": 1, "party_sort_code": 1, "party_number": 1,
 }
 
 
@@ -167,6 +172,14 @@ def _is_debit(doc: dict) -> bool:
 
 def _text(doc: dict) -> str:
     return f"{doc.get('merchant_name') or ''} {doc.get('description') or ''}".strip()
+
+
+def _user_category_blocks_own_move(doc: dict, kinds) -> bool:
+    """G437: a user custom category that is not a movement kind blocks every
+    automatic own-move evidence, except Business and Other, which are decided
+    per transaction by own-account detection (option b)."""
+    cc = doc.get("custom_category")
+    return bool(cc) and kind_of(kinds, cc) != MOVEMENT and normalise_name(cc) not in NAME_EVIDENCE_CATEGORIES
 
 
 def find_own_move_ids(docs: list[dict], kinds, identity: dict | None = None) -> set[str]:
@@ -253,6 +266,19 @@ def find_own_move_ids(docs: list[dict], kinds, identity: dict | None = None) -> 
             own.add(did)
             continue
 
+        # G437: the user's own category outranks every automatic evidence
+        # below. A custom category that is not a movement kind (declared kinds,
+        # never a literal list) says what the row is, so it is never an own move.
+        if _user_category_blocks_own_move(d, kinds):
+            continue
+
+        # G437 evidence (a): the bank's counterparty sort code and account
+        # number equal an account on file other than this row's own account.
+        _party = counterparty_key(d.get("party_sort_code"), d.get("party_number"))
+        if _party is not None and (identity.get("own_keys") or {}).get(_party, set()) - {str(d.get("account_id") or "")}:
+            own.add(did)
+            continue
+
         evidence = own_transfer_evidence(_text(d), identity, own_account_id=d.get("account_id"))
         if evidence is not None and evidence["kind"] == "account":
             own.add(did)
@@ -275,7 +301,7 @@ def find_own_move_ids(docs: list[dict], kinds, identity: dict | None = None) -> 
             continue  # the user's name alone never flags a row
         used.add(_txn_id(partner))
         own.add(did)
-        if kind_of(kinds, _effective_category(partner)) not in (INCOME, MOVEMENT):
+        if kind_of(kinds, _effective_category(partner)) not in (INCOME, MOVEMENT) and not _user_category_blocks_own_move(partner, kinds):
             own.add(_txn_id(partner))  # an unplaced credit leg is a move too, not a refund
     return own
 

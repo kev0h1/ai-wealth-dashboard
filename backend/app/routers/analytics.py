@@ -2819,7 +2819,8 @@ async def _compute_cashflow_patterns(uid: str) -> dict:
     proj = {"merchant_name": 1, "description": 1, "amount": 1, "date": 1,
             "transaction_type": 1, "category": 1, "custom_category": 1,
             "custom_category_at": 1, "account_id": 1, "own_transfer_match": 1,
-            "currency": 1, "is_pending": 1}
+            "currency": 1, "is_pending": 1,
+            "party_sort_code": 1, "party_number": 1}
     raw: list[dict] = await transactions_col.find(
         {"user_id": uid, "date": {"$gte": cutoff180}}, proj
     ).to_list(None)
@@ -2896,6 +2897,12 @@ async def _compute_cashflow_patterns(uid: str) -> dict:
         _own_name_tokens = (await user_identity(uid)).get("name_tokens") or []
     except Exception:
         _own_name_tokens = []
+    # G437 evidence (a): accounts on file by sort code and account number.
+    try:
+        from app.services.own_account_transfers import load_own_account_index
+        _own_index = await load_own_account_index(uid, account_collection=accounts_col)
+    except Exception:
+        _own_index = {}
     _movement_debits_by_key: dict[str, list[dict]] = defaultdict(list)
     for _t in raw:
         if _t.get("transaction_type") == "debit" and kind_of(kind_map, _t.get("custom_category") or _t.get("category")) == MOVEMENT:
@@ -3143,6 +3150,7 @@ async def _compute_cashflow_patterns(uid: str) -> dict:
             and detect_savings_elsewhere(
                 _movement_debits_by_key.get(r["key"]) or [], name_tokens=_own_name_tokens,
                 account_name=acct.get("name"), provider=acct.get("provider"),
+                own_index=_own_index, source_account_id=str(r.get("account_id") or ""),
             )
         )
         avg_amount = r["avg_amount"]
