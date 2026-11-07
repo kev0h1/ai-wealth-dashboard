@@ -1163,3 +1163,83 @@ def test_regular_move_gate_failure_does_not_crash_the_whole_brief(monkeypatch):
     )
 
 
+
+
+def test_not_excluded_when_destination_is_outside_the_payday_plan():
+    """Same payday window, but the transfer's destination is NOT one the
+    live plan is funding this period (an unknown/untracked pot) — the
+    overlap exclusion must not over-fire and swallow every movement during
+    the payday window."""
+    import pytest
+    mp = pytest.MonkeyPatch()
+    try:
+        accounts = [_account("barclays", 20.0)]
+        bills = [
+            _mv_bill("KEVIN MAINGI HSBC FT", 81.67, "barclays",
+                     pending=True, days_past_due=9, dest_account_id="not_a_tracked_account",
+                     original_date="2026-08-18"),
+        ]
+        window_income = [{
+            "name": "Salary", "amount": 2000.0, "days_away": 10, "account_id": "barclays",
+            "account_name": "Barclays Current",
+        }]
+        items, _ = _run(
+            mp, bills, accounts=accounts, payday_window=True,
+            income_streams=[{"key": "Salary", "status": "confirmed"}],
+            window_income=window_income, show_regular_card=False,
+        )
+        assert _find(items, "unfunded_move") is not None
+    finally:
+        mp.undo()
+
+
+def test_tie_break_is_deterministic_regardless_of_account_order(monkeypatch):
+    """Two current accounts with EQUAL headroom can each cover the £70 need
+    alone — the picker must resolve this the same way every time (headroom
+    descending, then account id, so it never falls back on incidental dict/
+    list ordering), regardless of which order the accounts happen to load
+    in from the database."""
+    def _accounts(order):
+        base = {
+            "hsbc": _account("hsbc", 500.0, name="HSBC Current", provider="hsbc"),
+            "natwest": _account("natwest", 500.0, name="Natwest Current", provider="natwest"),
+        }
+        premier = _account("premier", 44.68, name="Premier Current Account")
+        return [premier] + [base[k] for k in order]
+
+    bills = [_mv_bill("AMERICAN EXPRESS", 100.0, "premier",
+                       pending=True, days_past_due=2, original_date="2026-09-09")]
+
+    items_a, _ = _run(monkeypatch, bills, accounts=_accounts(["hsbc", "natwest"]))
+    items_b, _ = _run(monkeypatch, bills, accounts=_accounts(["natwest", "hsbc"]))
+
+    # G438: a bounced own transfer now gets the ordinary move card, so the
+    # tie-break is read off its legs (the same source finder).
+    legs_a = _find(items_a, "move")["moves"]
+    legs_b = _find(items_b, "move")["moves"]
+    assert len(legs_a) == 1
+    name_a = legs_a[0]["move_map"]["from"]["name"]
+    assert name_a == legs_b[0]["move_map"]["from"]["name"]
+    # "hsbc" sorts before "natwest" by account id — the documented tie-break.
+    assert name_a == "HSBC Current"
+
+
+def test_g428_unfunded_move_reaches_one_savings_account_and_says_so(monkeypatch):
+    """G428: two small current accounts (£25 headroom each) cannot cover the
+    £70 need; one savings account covers the rest, is flagged savings and
+    named in a plain cover note."""
+    accounts = [
+        _account("premier", 44.68, name="Premier Current Account"),
+        _account("accta", 35.0, name="Acct A", provider="natwest"),
+        _account("acctb", 35.0, name="Acct B", provider="monzo"),
+        _account("halifax", 5000.0, name="Halifax Savings", provider="halifax", subtype="SAVINGS"),
+    ]
+    bills = [_mv_bill("AMERICAN EXPRESS", 100.0, "premier",
+                       pending=True, days_past_due=2, original_date="2026-09-09")]
+    # G438: the ordinary move card carries the cover (no own-account exemption).
+    card = _find(_run(monkeypatch, bills, accounts=accounts)[0], "move")
+    legs = card["moves"]
+    assert [l["move_map"]["from"]["account_id"] for l in legs if l["move_map"]["from"].get("source_kind") == "savings"] == ["halifax"]
+    assert sum(l["amount"] for l in legs) == card["amount"] == 70
+    assert card["cover_note"].startswith("Your other accounts can cover £50. A move of £20 from ")
+    assert card["cover_note"].endswith("would cover the rest.")
