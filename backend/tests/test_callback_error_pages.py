@@ -19,7 +19,9 @@ class _Col:
         return self.doc
 
     async def update_one(self, *a, **k):
-        return None
+        # A193: the Finexer callback reads matched_count from its CAS writes.
+        from types import SimpleNamespace
+        return SimpleNamespace(matched_count=1, modified_count=1)
 
 
 class _Resp:

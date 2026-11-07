@@ -15,6 +15,7 @@ function directly with a plain-dict-backed fake collection, rather than
 going through TestClient + dependency_overrides.
 """
 import asyncio
+from types import SimpleNamespace
 
 
 import app.routers.finexer as finexer_module
@@ -28,7 +29,16 @@ class _FakeCol:
 
     @staticmethod
     def _match(d, q):
-        return all(d.get(k) == v for k, v in (q or {}).items())
+        # A193: honour the $ne / $nin compare-and-set filters the callback uses.
+        for k, v in (q or {}).items():
+            if isinstance(v, dict):
+                if "$ne" in v and d.get(k) == v["$ne"]:
+                    return False
+                if "$nin" in v and d.get(k) in v["$nin"]:
+                    return False
+            elif d.get(k) != v:
+                return False
+        return True
 
     async def find_one(self, query=None, projection=None):
         query = query or {}
@@ -41,11 +51,12 @@ class _FakeCol:
         for d in self.docs:
             if self._match(d, filt):
                 d.update(update.get("$set") or {})
-                return
+                return SimpleNamespace(matched_count=1)
         if upsert:
             new_doc = dict(filt)
             new_doc.update(update.get("$set") or {})
             self.docs.append(new_doc)
+        return SimpleNamespace(matched_count=0)
 
 
 def _setup(monkeypatch, consent_doc, sync_calls):

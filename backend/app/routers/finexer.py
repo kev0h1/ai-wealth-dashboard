@@ -6,7 +6,7 @@ import logging
 import re
 import time
 from urllib.parse import quote as _urlquote
-from datetime import datetime
+from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse
 from typing import Optional
@@ -195,7 +195,7 @@ async def finexer_link(
     await check_open_banking_allowed(user["email"])
     await check_connection_limit(user["email"])
 
-    state = secrets.token_hex(8)
+    state = secrets.token_urlsafe(16)
     try:
         customer_id = await get_or_create_customer(user)
         consent     = await create_consent(
@@ -237,6 +237,33 @@ async def finexer_link(
         if dark_id:
             consent_url = _with_template(consent_url, dark_id)
     return {"auth_url": consent_url, "connection_id": consent_id}
+
+
+# A193: how long a started consent is still "the one the user is doing".
+_PENDING_WINDOW = timedelta(minutes=30)
+
+
+@router.get("/auth/finexer/pending")
+async def finexer_pending(user: dict = Depends(current_user)):
+    """A193: the signed-in user's most recent consent started inside the last 30
+    minutes, so an app the phone closed while the user was at the bank can find
+    out how that consent ended on its next launch. Server-side state, keyed by
+    the consent id, scoped to the caller; nothing here calls Finexer. The client
+    never re-opens an old consent URL: a retry always goes through
+    /auth/finexer/link, which creates a fresh consent. Additive: old app
+    binaries never call it."""
+    cutoff = datetime.utcnow() - _PENDING_WINDOW  # naive-ok: created_at is stored naive
+    doc = await finexer_consents_col.find_one(
+        {"user_id": user["email"], "created_at": {"$gte": cutoff}},
+        sort=[("created_at", -1)],
+    )
+    if not doc:
+        return {"connection_id": None, "status": None, "provider": None}
+    return {
+        "connection_id": doc["_id"],
+        "status": doc.get("status") or "pending",
+        "provider": doc.get("provider"),
+    }
 
 
 _RECONFIRM_FAILED = {"code": "RECONFIRM_FAILED", "message": RECONFIRM_FAILED_MESSAGE}
@@ -285,6 +312,15 @@ async def finexer_callback(
     """
     # Accept both `consent` and `fx_consent` param names
     consent_id = fx_consent or consent
+    if not consent_id and state:
+        # A193: a bank app that could not open (restricted battery) can send the
+        # user back with our own `state` but no fx_consent. The state identifies
+        # the consent we created, so it ends as an error the app can explain
+        # (and offer a fresh Try again), instead of a dead-end page.
+        by_state = await finexer_consents_col.find_one({"state": state})
+        if by_state:
+            consent_id = by_state["_id"]
+            error = error or "missing_consent"
     if not consent_id:
         return bank_error_response("finexer", "", status_code=400,
                                    message="That link is missing its connection details. Close this window and try again in Sorted.")
@@ -300,32 +336,55 @@ async def finexer_callback(
     # rejected a *mismatched* state, letting an omitted one straight
     # through to authorise the consent and trigger a sync.
     stored_state = doc.get("state")
-    if not state or not stored_state or not hmac.compare_digest(state, stored_state):
+    if not state or not stored_state or not hmac.compare_digest(state.encode(), str(stored_state).encode()):
         # A88 semantics unchanged (missing or mismatched state never authorises);
         # G215: the user sees the hand-off error page, not JSON.
         return bank_error_response("finexer", "", status_code=400,
                                    message="We couldn’t confirm that this connection started in Sorted. Close this window and try again in Sorted.")
 
+    # A193: a callback can be loaded twice (a Custom Tab recreated after the
+    # phone closed the app, a reload on resume, the bank app and the browser
+    # both following the return link). The second load must never undo or
+    # repeat the first: an authorised consent stays authorised, with no
+    # second sync, and a late error does not cancel it.
+    if doc.get("status") == "authorized":
+        if doc.get("native"):
+            return _bank_page(True, "finexer", consent_id, auto_return=True)
+        return RedirectResponse(f"{APP_URL}/accounts?syncing=1&connection={_urlquote(consent_id, safe='')}", status_code=303)
+
+    # A193: the status writes below are filter-level compare-and-set, so the
+    # guarantee holds even when two callbacks interleave after both read
+    # "pending": an error can never overwrite an authorised consent, and only
+    # the callback whose write matched spawns the sync.
     if error:
-        await finexer_consents_col.update_one(
-            {"_id": consent_id},
+        res = await finexer_consents_col.update_one(
+            {"_id": consent_id, "status": {"$nin": ["authorized"]}},
             {"$set": {"status": "canceled", "canceled_at": datetime.utcnow(), "error": error}},
         )
+        if res.matched_count == 0:
+            # A racing genuine callback authorised it first. Confirm, then answer
+            # with the success hand-off (no sync here: that callback owns it).
+            now_doc = await finexer_consents_col.find_one({"_id": consent_id})
+            if now_doc and now_doc.get("status") == "authorized":
+                if doc.get("native"):
+                    return _bank_page(True, "finexer", consent_id, auto_return=True)
+                return RedirectResponse(f"{APP_URL}/accounts?syncing=1&connection={_urlquote(consent_id, safe='')}", status_code=303)
         if doc.get("native"):
             return _bank_page(False, "finexer", consent_id, auto_return=False)
         return RedirectResponse(f"{APP_URL}/accounts?connect=cancelled", status_code=303)
 
 
     authed_at = datetime.utcnow()  # naive-ok: matches last_synced convention
-    await finexer_consents_col.update_one(
-        {"_id": consent_id},
+    res = await finexer_consents_col.update_one(
+        {"_id": consent_id, "status": {"$ne": "authorized"}},
         {"$set": {"status": "authorized", "authed_at": authed_at,
                   "next_reconfirm_by": next_reconfirm_by(authed_at, None, doc.get("expiry_date"))}},
     )
 
-    user_id = doc["user_id"]
-    # A176: the first sync after connect asks Finexer to refresh from the bank.
-    asyncio.create_task(finexer_sync_pipeline(consent_id, user_id, request_bank_sync=True))
+    if res.matched_count == 1:
+        user_id = doc["user_id"]
+        # A176: the first sync after connect asks Finexer to refresh from the bank.
+        asyncio.create_task(finexer_sync_pipeline(consent_id, user_id, request_bank_sync=True))
 
     if doc.get("native"):
         return _bank_page(True, "finexer", consent_id, auto_return=True)
