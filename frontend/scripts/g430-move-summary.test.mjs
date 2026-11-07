@@ -54,6 +54,18 @@ assert.equal(natwest.headline, -25900);
 assert.equal(natwest.incoming, 27000);
 assert.equal(accountMoveSummary(byId("natwest"), natwest), "£270 to move in by 6 Nov");
 const card = render(false);
+const splitGroups = markup => {
+  const at = markup.indexOf("data-fine-group");
+  return at < 0 ? { lead: markup, folded: "" } : { lead: markup.slice(0, at), folded: markup.slice(at) };
+};
+const rowIds = markup => [...markup.matchAll(/data-account-row="([^"]+)"/g)].map(match => match[1]);
+const groups = splitGroups(card);
+assert.deepEqual(rowIds(groups.lead), ["hsbc", "natwest", "monzo"], "only real gaps lead, with payment risk first");
+assert.deepEqual(rowIds(groups.folded), ["barclays", "fine-a", "fine-b"], "a healthy funding source folds with the other accounts");
+assert.match(groups.folded, /3 accounts are fine/);
+assert.match(groups.folded, /aria-expanded="false"/);
+assert.match(groups.folded, /data-fine-region="true" inert="" class="grid[^\"]*grid-rows-\[0fr\]/);
+assert.equal(natwest.remainingGap, 0, "even a fully suggested cover keeps its actual pre-move shortfall visible");
 const natwestRow = row(card, "natwest");
 assert.match(natwestRow, /−£259/);
 assert.match(natwestRow, /data-account-summary/);
@@ -90,12 +102,22 @@ const barclays = read("barclays");
 assert.equal(barclays.outgoing, 27000);
 assert.equal(accountMoveSummary(byId("barclays"), barclays), null);
 assert.doesNotMatch(row(card, "barclays"), /data-account-summary|set aside for|Bills account/);
+const sourceOnly = render(false, [byId("barclays")]);
+assert.deepEqual(rowIds(splitGroups(sourceOnly).lead), [], "a source-only card has no short accounts to lead");
+assert.deepEqual(rowIds(splitGroups(sourceOnly).folded), ["barclays"]);
+assert.match(sourceOnly, /Every account covers its payments and linked plans\./);
+assert.match(sourceOnly, /Suggested moves are for you to make\. Nothing has been moved\./, "the reminder still applies when suggestions sit in the fold");
 
 // Unknown, payment-only and estimated readings retain their honest existing
 // qualifications. No plan or cover total is presented while plans are absent.
 const unknown = { ...byId("natwest"), opening: null, closing: null, shortfall: null, status: "unknown", position: undefined, events: [] };
 const unknownReading = accountActionReading(unknown, plans, "ready");
 assert.equal(accountMoveSummary(unknown, unknownReading), "This account’s balance needs checking.");
+assert.deepEqual(rowIds(splitGroups(render(false, [unknown])).lead), ["natwest"], "an unknown balance is never hidden as fine");
+const unknownPlans = { ...byId("barclays"), position: { ...byId("barclays").position, uncertain: true, afterPaymentsAndPlans: null, lowPointAndPlans: null, spendFrom: null } };
+assert.ok(accountActionReading(unknownPlans, plans, "ready").headline > 0);
+assert.deepEqual(rowIds(splitGroups(render(false, [unknownPlans])).lead), ["barclays"], "a positive payment balance cannot make uncertain plans fine");
+assert.doesNotMatch(render(false, [unknownPlans]), /data-all-clear/);
 const uncertain = { ...byId("natwest"), position: { ...byId("natwest").position, uncertain: true } };
 assert.equal(accountMoveSummary(uncertain, accountActionReading(uncertain, plans, "ready")), "Payments only. Plans need checking.");
 for (const status of ["loading", "error"]) {
