@@ -32,6 +32,14 @@ type PreviewRoute = {
 
 const ROUTES: PreviewRoute[] = [
   {
+    slug: "upcoming-move-summary",
+    name: "Upcoming move summary · G430",
+    description: "Two summary layouts keeping the G417 figures and G429 account header. A Account-aligned, B Full-width. One aggregate move amount, a proven deadline and any uncovered balance, with the full detail in the existing account sheet. Current card for comparison, fictional accounts, both themes and Hide balances.",
+    variants: [{ label: "A · Account-aligned", value: "a" }, { label: "B · Full-width", value: "b" }],
+    states: [{ label: "Suggested moves", value: "moves" }, { label: "Partly covered", value: "partial" }, { label: "No deadline", value: "no-date" }, { label: "Long names", value: "long" }, { label: "Checking plans", value: "pending" }, { label: "Plans unavailable", value: "error" }],
+    group: "current",
+  },
+  {
     slug: "statements-house-ads",
     name: "Statements house ads · B58",
     description:
