@@ -125,9 +125,11 @@ def _headline(monkeypatch, **kw):
 
 def test_headline_is_each_counted_accounts_own_closing_figure_added_up(monkeypatch):
     out = _headline(monkeypatch)
-    # Main 1,000 - 400 - 150 (transfer out, no inflow leg in this fake) - 30 - 60 = 360; Joint 300; Overdrawn -150.
-    assert out["left_to_spend_lines"] == {"accounts_total": 510.0, "plans_total": 0, "buffer": 0.0}
-    assert out["safe_to_spend"] == 510.0 == out["lowest_projected_balance"]
+    # Main 1,000 - 400 - 150 (transfer out, no inflow leg in this fake) - 30 - 60 + 140 (Side gig: two
+    # sightings, attributed to Main, due after today, so predicted; Refund has none and does not count)
+    # = 500; Joint 300; Overdrawn -150.
+    assert out["left_to_spend_lines"] == {"accounts_total": 650.0, "plans_total": 0, "buffer": 0.0}
+    assert out["safe_to_spend"] == 650.0 == out["lowest_projected_balance"]
     assert out["calculation_status"] == "complete"
 
 
@@ -145,10 +147,10 @@ def _with_inflow(monkeypatch):
 
 
 def test_a_standing_order_between_two_counted_accounts_leaves_the_total_unchanged(monkeypatch):
-    # No transfer at all: Main 1,000 - 400 - 30 - 60 = 510, Joint 300, Overdrawn -150 = 660.
+    # No transfer at all: Main 1,000 - 400 - 30 - 60 + 140 = 650, Joint 300, Overdrawn -150 = 800.
     no_transfer = [b for b in _bills() if b["name"] != "Move to Joint"]
     plain = _headline(monkeypatch, bills=no_transfer)["safe_to_spend"]
-    assert plain == 660.0
+    assert plain == 800.0
     # The same standing order: out of Main (-150) and in on Joint (+150) on its date, no special handling.
     _wire(monkeypatch)
     _with_inflow(monkeypatch)
@@ -405,3 +407,47 @@ def test_a_dip_below_zero_before_money_arrives_is_a_warning_with_its_date_and_no
     assert a["dips_below_zero"] == {"money_in_date": (TODAY + timedelta(days=8)).isoformat()}
     assert a["spend_from_headroom"] == 800.0 and a["after_payments_and_money_in"] == 800.0  # 100 - 300 + 1,000: the dip is not in it
     assert a["low_point"] == -200.0  # still reported, and the cover engine still sees the account short
+
+
+# ── Money in counts only after today, and only when predicted ────────────────
+
+def _salary_world(monkeypatch, days_away, *, occurrences=3):
+    """One counted account holding 1,000 with a 3,000 salary due `days_away` days from today."""
+    inc = {**_incomes()[0], "name": "Salary", "amount": 3000.0, "days_away": days_away, "account_id": "cur",
+           "occurrences": occurrences, "amounts_recent": [3000.0] * max(occurrences, 1)}
+    accounts = [a for a in _accounts() if a["_id"] == "cur"]
+    return _headline(monkeypatch, accounts=accounts, bills=[], incomes=[inc])
+
+
+def test_a_salary_due_today_and_already_in_the_balance_counts_once(monkeypatch):
+    out = _salary_world(monkeypatch, 0)
+    # The 1,000 balance already holds it (landed, no posted credit yet): the occurrence dated today is not money in.
+    assert out["left_to_spend_lines"]["accounts_total"] == 1000.0 and out["safe_to_spend"] == 1000.0
+
+
+def test_a_salary_due_tomorrow_counts(monkeypatch):
+    assert _salary_world(monkeypatch, 1)["safe_to_spend"] == 4000.0
+
+
+def test_an_overdue_unobserved_salary_does_not_count(monkeypatch):
+    # An occurrence dated before today is not in the window at all (a lapsed expectation drops out).
+    assert _salary_world(monkeypatch, -1)["safe_to_spend"] == 1000.0
+
+
+def test_two_sightings_count_but_one_does_not(monkeypatch):
+    assert _salary_world(monkeypatch, 3, occurrences=2)["safe_to_spend"] == 4000.0
+    assert _salary_world(monkeypatch, 3, occurrences=1)["safe_to_spend"] == 1000.0
+
+
+def test_the_same_rule_holds_for_the_account_page_figure_through_the_engine(monkeypatch):
+    from datetime import timedelta
+    from test_cover_plan_account_eligibility import _salary
+
+    def run(days):
+        elig = {}
+        sal = {**_salary("A"), "days_away": days, "expected_date": "2030-01-01", "occurrences": 3, "amounts_recent": [1000.0] * 3}
+        _run(monkeypatch, [], accounts=[_account("A", 150.0)], account_eligibility_out=elig,
+             income_streams=[{"key": "Salary", "status": "confirmed"}], window_income=[sal])
+        return elig["A"]["spend_from_headroom"]
+
+    assert run(0) == 150.0 and run(2) == 1150.0

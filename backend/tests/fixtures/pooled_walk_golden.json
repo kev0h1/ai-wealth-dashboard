@@ -59,11 +59,11 @@
   "income_before_payday": 240.0,
   "last_synced": null,
   "left_to_spend_lines": {
-   "accounts_total": 510.0,
+   "accounts_total": 650.0,
    "buffer": 0.0,
    "plans_total": 0
   },
-  "lowest_projected_balance": 510.0,
+  "lowest_projected_balance": 650.0,
   "next_payday": "2026-10-22",
   "payday_income": 2000.0,
   "period": {
@@ -81,8 +81,8 @@
   },
   "plans_only_short": false,
   "pooled_transfers_excluded": 150.0,
-  "safe_to_spend": 510.0,
-  "safe_to_spend_cash": 510.0,
+  "safe_to_spend": 650.0,
+  "safe_to_spend_cash": 650.0,
   "short_reason": null,
   "spendable_now": 1300.0,
   "state": "comfortable",

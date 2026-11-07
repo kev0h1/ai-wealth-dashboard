@@ -44,26 +44,58 @@ def counted_current_ids(accounts: list[dict]) -> set[str]:
     }
 
 
+def predicted_money_in(item: dict, account_id: str, confirmed_keys: Any = frozenset()) -> bool:
+    """Money in that counts in Available (Kevin 2026-11-07): predicted, meaning attributed to the
+    account and either a confirmed stream, a pattern the engine already trusts (reliable or steady),
+    or simply seen two or more times (G438 rule 1). One sighting is not predicted. This replaces the
+    stricter `income_credit_ok` reliability gate for this figure only."""
+    from app.routers.analytics import income_credit_basis
+
+    if not account_id or str(item.get("account_id") or "") != str(account_id):
+        return False
+    if income_credit_basis(item, account_id, confirmed_keys) is not None:
+        return True
+    try:
+        return int(item.get("occurrences") or 0) >= 2
+    except (TypeError, ValueError):
+        return False
+
+
 def money_in_out_window(window: Any) -> Any:
     """The window the per-account Available is read from (Kevin 2026-11-07, "every account in
-    isolation, money in vs money out"): the same inputs, but an own-account transfer's destination
-    leg is credited on its date whether or not its source can afford it (no G360 gate). Whether the
-    source can afford it is the source's shortfall, flagged and given a move by the cover engine.
+    isolation, money in vs money out"): the same inputs, with two differences from the gated walks.
+
+      1. An own-account transfer's destination leg is credited on its date whether or not its source
+         can afford it (no G360 gate). Whether the source can afford it is the source's shortfall,
+         flagged and given a move by the cover engine. The transfer's debit leg is a payment out on
+         the source that counts, so keeping the credit keeps a transfer between counted accounts at
+         zero in the total.
+      2. Expected INCOME counts only when its date is after today. An occurrence dated today that has
+         not been observed (G362 closes one only once its credit has posted) may already be in the
+         balance, so counting it would credit it twice, the dangerous direction; if it has not landed
+         yet the figure is briefly lower until it posts. (Occurrences before today are never in the
+         window: a lapsed expectation drops out.)
+
     Only what feeds Available and the headline uses this; the cover engine and every other walk keep
-    the gated `funded_window_inflows`."""
+    the gated `funded_window_inflows` and the unfiltered income."""
     import dataclasses
 
-    return dataclasses.replace(window, funded_window_inflows=list(window.window_inflows))
+    return dataclasses.replace(
+        window,
+        funded_window_inflows=list(window.window_inflows),
+        window_income=[i for i in window.window_income if int(i.get("days_away", 0)) > 0],
+    )
 
 
 def available_walk(window: Any, sid: str, opening: float):
     """One account's own walk for Available: its balance, plus every predicted credit attributed to
-    it (reliable or confirmed income, expected inbound transfers), less every predicted debit on it,
-    credits before debits on a shared day (G163). Nothing is dropped for being a transfer, a saving
-    or a bill: labels are intention only. `window` comes from `money_in_out_window`."""
+    it (`predicted_money_in`, expected inbound transfers), less every predicted debit on it, credits
+    before debits on a shared day (G163). Nothing is dropped for being a transfer, a saving or a
+    bill: labels are intention only. `window` comes from `money_in_out_window`."""
     from app.services.account_walk import walk_account
 
-    return walk_account(sid, window, opening=opening, income_admit="any", inflow_admit="any", same_day_key="is_income")
+    return walk_account(sid, window, opening=opening, income_admit="any", inflow_admit="any",
+                        same_day_key="is_income", income_credit=predicted_money_in)
 
 
 def dip_before_money_in(walk: Any, today: Any) -> dict | None:

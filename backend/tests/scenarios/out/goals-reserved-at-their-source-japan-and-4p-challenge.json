@@ -46,7 +46,7 @@
     },
     "acc-prem": {
       "after_payments": 5100.0,
-      "after_payments_and_money_in": 5100.0,
+      "after_payments_and_money_in": 2100.0,
       "after_payments_and_plans": 4900.0,
       "estimated": false,
       "headroom": 2790.0,
@@ -55,7 +55,7 @@
       "low_point_and_plans": 2800.0,
       "plans_reserved": 200.0,
       "short": false,
-      "spend_from_headroom": 4900.0,
+      "spend_from_headroom": 1900.0,
       "uncertain": false
     }
   },
@@ -370,13 +370,13 @@
     "calculation_status": "complete",
     "commitments_reserved": 554.48,
     "left_to_spend_lines": {
-      "accounts_total": 5470.0,
+      "accounts_total": 2470.0,
       "buffer": 0.0,
       "plans_total": 554.48
     },
-    "lowest_projected_balance": 5470.0,
-    "safe_to_spend": 4915.52,
-    "safe_to_spend_cash": 4915.52
+    "lowest_projected_balance": 2470.0,
+    "safe_to_spend": 1915.52,
+    "safe_to_spend_cash": 1915.52
   },
   "today": "2026-10-30"
 }

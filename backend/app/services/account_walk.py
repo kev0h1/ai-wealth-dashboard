@@ -184,6 +184,7 @@ def account_events(
     preview_salary: dict | None = None,
     extra_income: dict | None = None,
     same_day_key: str = "is_income",
+    income_credit: Callable[[dict, str, Any], bool] | None = None,
 ) -> tuple[list[tuple[Event, tuple]], list[dict]]:
     """Events one account's walk consumes, sorted, as (event, order) pairs,
     plus the incomes credited (WD7). `inputs` is a `WindowInputs`. See the
@@ -202,7 +203,7 @@ def account_events(
         for pos, i in enumerate(inputs.window_income):
             # `income_credit_ok` requires the income to be attributed to `sid`,
             # so only those are asked.
-            if str(i.get("account_id") or "") == sid and income_credit_ok(i, sid, inputs.confirmed_income_keys):
+            if str(i.get("account_id") or "") == sid and (income_credit or income_credit_ok)(i, sid, inputs.confirmed_income_keys):
                 entries.append(((i["days_away"], sid, float(i["amount"]), True, i), (_P_INCOME, pos)))
                 credited.append(i)
     if inflow_admit == "any":
@@ -237,12 +238,14 @@ def walk_account(
     preview_salary: dict | None = None,
     extra_income: dict | None = None,
     same_day_key: str = "is_income",
+    income_credit: Callable[[dict, str, Any], bool] | None = None,
 ) -> AccountWalk:
     """Walk one account from `opening` over its events. Defaults are the
     at-risk badge's rules; the other callers pass their own (module docstring)."""
     entries, credited = account_events(
         sid, inputs, income_admit=income_admit, inflow_admit=inflow_admit,
         preview_salary=preview_salary, extra_income=extra_income, same_day_key=same_day_key,
+        income_credit=income_credit,
     )
     walk = _run_account(sid, opening, entries)
     walk.credited_incomes = credited

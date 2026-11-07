@@ -24,7 +24,7 @@
     },
     "acc-nw": {
       "after_payments": -288.65,
-      "after_payments_and_money_in": -288.65,
+      "after_payments_and_money_in": 315.27,
       "after_payments_and_plans": -288.65,
       "covered_by_move": {
         "amount": 300.0,
@@ -47,8 +47,7 @@
       "plans_reserved": 0.0,
       "short": true,
       "short_after_cover": 0.0,
-      "spend_from_headroom": 11.35,
-      "spend_from_requires_move": true,
+      "spend_from_headroom": 615.27,
       "uncertain": false
     }
   },
@@ -580,13 +579,13 @@
     "calculation_status": "complete",
     "commitments_reserved": 0,
     "left_to_spend_lines": {
-      "accounts_total": 1711.35,
+      "accounts_total": 2315.27,
       "buffer": 0.0,
       "plans_total": 0
     },
-    "lowest_projected_balance": 1711.35,
-    "safe_to_spend": 1711.35,
-    "safe_to_spend_cash": 1711.35
+    "lowest_projected_balance": 2315.27,
+    "safe_to_spend": 2315.27,
+    "safe_to_spend_cash": 2315.27
   },
   "today": "2026-11-02"
 }
