@@ -74,7 +74,7 @@
 .planList,.events { margin-top:12px; }
 .planList li,.events li { display:block; border-bottom:1px solid var(--sheet-line); }
 .planList li:last-child,.events li:last-child { border-bottom:0; }
-.eventIcon { display:flex; justify-content:flex-start; color:var(--sheet-muted); }
+.eventIcon { display:flex; justify-content:center; color:var(--sheet-muted); }
 .eventIdentity,.planIdentity { min-width:0; overflow-wrap:anywhere; }
 .eventIdentity strong,.planIdentity { font-size:13px; font-weight:500; line-height:1.5; }
 .eventIdentity strong { display:block; }
@@ -86,6 +86,8 @@
 :global(.dark) .suggestionLabel,:global(.dark) .suggestedEvent .eventIcon { color:#a5b4fc; }
 .eventRow,.planRow { display:grid; grid-template-columns:24px minmax(0,1fr) auto; gap:10px; align-items:center; width:100%; padding-block:16px; text-align:left; }
 .eventEditable,.planEditable { grid-template-columns:24px minmax(0,1fr) auto 14px; }
+.eventRow { grid-template-columns:32px minmax(0,1fr) auto; }
+.eventEditable { grid-template-columns:32px minmax(0,1fr) auto 14px; }
 .eventEditable:hover,.planEditable:hover { background:#64748b0a; }
 .events li:has(+ li.suggestedEvent) { border-bottom:0; }
 .planRow { min-height:44px; font-size:13px; }

@@ -8,6 +8,8 @@ export type UpcomingAccountEvent = {
   name: string;
   date: string;
   kind: "income" | "inflow" | "payment" | "movement";
+  /** The same category as the originating dated-list row, for its identity tile. */
+  category?: string | null;
   /** Signed pounds: incoming positive, outgoing negative. */
   amount: number;
   after: number | null;
