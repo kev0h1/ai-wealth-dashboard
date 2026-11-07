@@ -55,7 +55,7 @@ export type UpcomingRowModel = {
   assessment?: "unverified" | "future";
   coverage?: {
     shortfall: number;
-    /** Read only by the retired g176 design preview fixtures; production never sets it (G438). */
+    /** Set only by the g176-upcoming-rows design preview fixtures to show a planned move to savings; no production code sets or reads it, because an own-account move is an ordinary payment (G438). */
     optionalMove?: boolean;
     before?: number;
     after?: number;

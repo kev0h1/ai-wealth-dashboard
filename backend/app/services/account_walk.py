@@ -43,7 +43,7 @@ numbers below are the differences between the four walks of this step):
 | WD6 | One extra income event at its own day | `extra_income` | none | none | none | one candidate excluded income per call |
 | WD7 | Credited-incomes disclosure | `AccountWalk.credited_incomes` / `window_events` third result | read (the payday plan's `assumed_incomes`, the excluded-income notes) | not read | not read | reads the closing walk's list |
 | WD8 | Same-day ordering shape | `same_day_key` | `"is_income"` (`walk_sort_key`) | `"is_income"` | `"positive_delta"`: an inline `(day, delta)` sort; it differs from `"is_income"` for a non-positive-amount income (sorted as a debit) and for a negative-amount debit (a positive delta, so sorted first), and reproduces the old inline key exactly | `"positive_delta"` |
-| WD9 | What the walk is asked for | result field | `closing`, `low_point`, `first_short`, `bounced` | `bounced` filtered by kind: a bounced `movement` bill is not counted unless it is a card repayment (`count_at_risk`); every later bill on a short account still counts (a deficit cascades) | `low_point` | `low_point` |
+| WD9 | What the walk is asked for | result field | `closing`, `low_point`, `first_short`, `bounced` | `bounced`, every item counted (`count_at_risk`): a bounced own-account `movement` counts like any payment (G438), and every later bill on a short account still counts (a deficit cascades) | `low_point` | `low_point` |
 
 `first_short` (bill, day, shortfall) is the head of `bounced`; the at-risk
 count is over every bounced non-movement bill (its old rule), not only the

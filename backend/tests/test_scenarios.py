@@ -453,15 +453,6 @@ def _check_expected(snap: dict, spec: dict) -> None:
             chk.check(f"{acct_id} short_after_cover", _r2(got.get("short_after_cover")), _r2(want["short_after_cover"]))
         if "spend_from_requires_move" in want:
             chk.check(f"{acct_id} spend_from_requires_move", bool(got.get("spend_from_requires_move")), bool(want["spend_from_requires_move"]))
-        # G422: the own-savings standing order the account cannot fund.
-        if "savings_at_risk" in want:
-            risk = got.get("savings_at_risk")
-            if want["savings_at_risk"] is None:
-                assert risk is None, f"{where} {acct_id} must carry no savings_at_risk"
-            else:
-                assert risk is not None, f"{where} {acct_id} carries no savings_at_risk"
-                chk.check(f"{acct_id} savings_at_risk amount", _r2(risk["amount"]), _r2(want["savings_at_risk"]["amount"]))
-                chk.check(f"{acct_id} savings_at_risk no_cover", bool(risk["no_cover"]), bool(want["savings_at_risk"]["no_cover"]))
         if want.get("no_earmark"):
             for key in ("earmarks_out", "earmarked_total", "covered_by_move", "short_after_cover"):
                 assert key not in got, f"{where} {acct_id} must carry no {key} when nothing is earmarked"
