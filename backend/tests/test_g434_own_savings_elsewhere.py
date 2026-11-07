@@ -85,7 +85,7 @@ class _Col:
     async def find_one(self, *_a, **_k): return None
 
 
-def _patterns(monkeypatch, descriptions_by_account, *, name_tokens=None, custom_category=None):
+def _patterns(monkeypatch, descriptions_by_account, *, name_tokens=None, custom_category=None, category="Transfer"):
     """Run the REAL pattern builder over four monthly £300 own-account debits."""
     from app.routers import analytics
     from app.services.categories import BUILTIN_CATEGORY_KINDS, CategoryKinds
@@ -96,7 +96,7 @@ def _patterns(monkeypatch, descriptions_by_account, *, name_tokens=None, custom_
         for i in range(4):
             rows.append({
                 "_id": f"{acct}-{i}", "account_id": acct, "amount": 300.0, "date": now - timedelta(days=30 * i),
-                "transaction_type": "debit", "category": "Transfer", "description": desc, "currency": "GBP",
+                "transaction_type": "debit", "category": category, "description": desc, "currency": "GBP",
                 **({"custom_category": custom_category} if custom_category else {}),
             })
     accounts = [{"_id": a, "name": "Everyday Main" if a == "source" else a, "provider": "chase", "currency": "GBP",
@@ -135,4 +135,15 @@ def test_pattern_builder_leaves_words_without_evidence_alone(monkeypatch):
 
 def test_pattern_builder_respects_the_users_own_category(monkeypatch):
     got = _patterns(monkeypatch, {"source": "JORDAN BLAKE REGULAR SAVER"}, name_tokens=TOKENS, custom_category="Transfer")
+    assert [r.get("own_savings_elsewhere", False) for r in got.values()] == [False]
+
+
+def test_pattern_builder_stamps_a_user_savings_choice_without_wording(monkeypatch):
+    got = _patterns(monkeypatch, {"source": "ACME STANDING ORDER"}, custom_category="Savings")
+    assert [r.get("own_savings_elsewhere") for r in got.values()] == [True]
+
+
+def test_pattern_builder_ignores_an_engine_assigned_investment_category(monkeypatch):
+    got = _patterns(monkeypatch, {"source": "VANGUARD ASSET MGMT"}, category="Investment")
+    assert got
     assert [r.get("own_savings_elsewhere", False) for r in got.values()] == [False]

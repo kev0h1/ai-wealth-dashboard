@@ -14,8 +14,9 @@ evidence that the money stays with the user, one of
 The user outranks the engine both ways. A category the user chose on the
 series (`custom_category`) that is not Savings or Investment switches the
 heuristic off for it; Savings or Investment chosen by the user (the "Savings
-or investments" choice on the teaching sheet) is recognised by category alone
-in `account_walk.is_savings_order`, with no wording needed.
+or investments" choice on the teaching sheet) is recognised with no wording
+needed. An engine-assigned category (for example Investment for a third-party
+platform) never counts on its own.
 
 No user-specific text lives here: names come from the profile and the
 accounts, the wording list is generic.
@@ -76,6 +77,8 @@ def detect_savings_elsewhere(
         user_cat = t.get("custom_category")
         if user_cat and user_cat not in USER_SAVINGS_CATEGORIES:
             return False  # the user said what it is; the engine does not argue
+    if any(t.get("custom_category") in USER_SAVINGS_CATEGORIES for t in series_txns):
+        return True  # the user filed it as Savings or Investment (G376): their choice, no wording needed
     texts = [f"{t.get('description') or ''} {t.get('merchant_name') or ''}".strip() for t in series_txns]
     if not any(has_savings_words(x) for x in texts):
         return False

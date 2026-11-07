@@ -31,11 +31,13 @@ def _world():
     ]
 
 
-def _unlinked(category="Savings", **kw):
+def _unlinked(category="Savings", stamped=True, **kw):
     bill = _sto(300.0, account="a", days_away=3, **kw)
     bill["dest_account_id"] = None
     bill["dest_account_spendable"] = None
     bill["category"] = category
+    if stamped:
+        bill["own_savings_elsewhere"] = True  # the pattern builder's stamp: the user filed it as Savings (G376)
     return bill
 
 
@@ -43,7 +45,7 @@ def _cards(items):
     return [i for i in items if i.get("type") == "move"]
 
 
-def test_unconnected_saver_with_savings_category_gets_the_amber_cover_move(monkeypatch):
+def test_unconnected_saver_filed_as_savings_by_the_user_gets_the_amber_cover_move(monkeypatch):
     items, elig = _go(monkeypatch, [_unlinked()], _world())
     cards = _cards(items)
     assert len(cards) == 1 and cards[0]["savings_at_risk"]["amount"] == 150.0
@@ -73,12 +75,12 @@ def test_connected_saver_with_a_learned_destination_behaves_the_same(monkeypatch
 
 def test_other_category_without_a_learned_destination_keeps_the_stay_put_exemption(monkeypatch):
     # "Transfer" with no learned destination may be to anyone: not own savings.
-    items, elig = _go(monkeypatch, [_unlinked("Transfer")], _world())
+    items, elig = _go(monkeypatch, [_unlinked("Transfer", stamped=False)], _world())
     assert _cards(items) == []
     assert "savings_at_risk" not in elig["a"]
 
 
-def test_savings_category_with_nothing_to_cover_it_gives_the_plain_line(monkeypatch):
+def test_user_savings_choice_with_nothing_to_cover_it_gives_the_plain_line(monkeypatch):
     world = _world()
     world[1]["balance"] = 5.0
     world[2]["balance"] = 5.0
@@ -88,24 +90,31 @@ def test_savings_category_with_nothing_to_cover_it_gives_the_plain_line(monkeypa
     assert fact["no_cover"] is True and fact["note"] == companion.SAVINGS_NO_COVER_NOTE
 
 
+def test_engine_assigned_investment_category_alone_stays_an_ordinary_movement(monkeypatch):
+    # A third-party platform the engine auto-files as Investment, no destination, no evidence:
+    # no savings fact, no cover move (the old behaviour), never amber with a skip option.
+    items, elig = _go(monkeypatch, [_unlinked("Investment", stamped=False)], _world())
+    assert _cards(items) == []
+    assert "savings_at_risk" not in elig["a"]
+
+
 def test_savings_order_predicate():
-    base = {"kind": MOVEMENT, "dest_account_id": None, "dest_account_spendable": None, "category": "Savings"}
-    assert is_savings_order(base)
-    assert is_savings_order({**base, "category": "Investment"})
-    assert not is_savings_order({**base, "category": "Transfer"})
-    # G434: the engine's own-savings-held-elsewhere recognition (savings wording plus own-money evidence).
-    assert is_savings_order({**base, "category": "Transfer", "own_savings_elsewhere": True})
-    assert not is_savings_order({**base, "category": "Transfer", "own_savings_elsewhere": False})
-    assert not is_savings_order({**base, "is_card_repayment": True})
-    assert not is_savings_order({**base, "is_credit_card": True})
-    assert not is_savings_order({**base, "kind": "commitment"})
-    assert is_savings_order({**base, "category": "Transfer", "dest_account_id": "sav", "dest_account_spendable": False})
-    # A learned spendable destination is a pooled move whatever the category says.
-    assert not is_savings_order({**base, "dest_account_id": "cur", "dest_account_spendable": True})
+    base = {"kind": MOVEMENT, "dest_account_id": None, "dest_account_spendable": None, "category": "Transfer"}
+    assert is_savings_order({**base, "own_savings_elsewhere": True})
+    assert not is_savings_order({**base, "own_savings_elsewhere": False})
+    # An engine-assigned category never counts on its own.
+    assert not is_savings_order({**base, "category": "Investment"})
+    assert not is_savings_order({**base, "category": "Savings"})
+    assert not is_savings_order({**base, "is_card_repayment": True, "own_savings_elsewhere": True})
+    assert not is_savings_order({**base, "is_credit_card": True, "own_savings_elsewhere": True})
+    assert not is_savings_order({**base, "kind": "commitment", "own_savings_elsewhere": True})
+    assert is_savings_order({**base, "dest_account_id": "sav", "dest_account_spendable": False})
+    # A learned spendable destination is a pooled move whatever the stamp says.
+    assert not is_savings_order({**base, "dest_account_id": "cur", "dest_account_spendable": True, "own_savings_elsewhere": True})
 
 
 def test_savings_category_order_is_not_a_bill_at_risk():
-    sto = {"kind": MOVEMENT, "category": "Savings", "amount": 300, "name": "o"}
+    sto = {"kind": MOVEMENT, "own_savings_elsewhere": True, "amount": 300, "name": "o"}
     phone = {"kind": "commitment", "amount": 100, "name": "phone"}
     events = [(1, "a", 300.0, False, sto), (2, "a", 100.0, False, phone)]
     _r, _m, _s, bounced = walk_events(events, {"a": 150.0})

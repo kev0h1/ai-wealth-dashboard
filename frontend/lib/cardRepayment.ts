@@ -15,11 +15,11 @@ export function isOptionalMove(item: { kind?: string; is_card_repayment?: boolea
   return item.kind === "movement" && !isCardRepayment(item);
 }
 
-/** G426/G434: a recurring transfer into the user's own non-spendable (savings or investment) account: a learned own destination that is not spendable; with none learned, a Savings or Investment category or the engine's own-savings-held-elsewhere recognition. Mirrors the backend `is_savings_order`. */
+/** G426/G434: a recurring transfer into the user's own non-spendable (savings or investment) account: a learned own destination that is not spendable; with none learned, the server's own-savings-held-elsewhere stamp (user filed it as Savings or Investment, or wording plus own-money evidence). An engine-assigned category alone never counts. Mirrors the backend `is_savings_order`. */
 export function isSavingsOrder(item: { kind?: string; category?: string | null; own_savings_elsewhere?: boolean | null; is_card_repayment?: boolean | null; dest_account_id?: string | null; dest_account_spendable?: boolean | null }): boolean {
   if (!isOptionalMove(item)) return false;
   if (item.dest_account_id) return item.dest_account_spendable !== true;
-  return item.own_savings_elsewhere === true || item.category === "Savings" || item.category === "Investment";
+  return item.own_savings_elsewhere === true;
 }
 
 /** "NW World Mastercard repayment", without doubling the word when the series already says it. */

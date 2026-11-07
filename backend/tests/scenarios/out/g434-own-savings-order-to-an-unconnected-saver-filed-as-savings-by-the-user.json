@@ -167,6 +167,7 @@
         "name": "REGULAR SAVER STANDING ORDER",
         "observed_pending": false,
         "original_date": null,
+        "own_savings_elsewhere": true,
         "pending": false,
         "rule_label": null
       },
@@ -195,6 +196,7 @@
         "name": "REGULAR SAVER STANDING ORDER",
         "observed_pending": false,
         "original_date": "2026-12-26",
+        "own_savings_elsewhere": true,
         "pending": false,
         "rule_label": null
       }
@@ -256,7 +258,7 @@
       "type": "move"
     }
   ],
-  "name": "Own-savings standing order to a saver that is not connected (Savings category, no learned destination), two other current accounts with room (G434)",
+  "name": "Own-savings standing order to a saver that is not connected, filed as Savings by the user (G376 choice), two other current accounts with room (G434)",
   "period": {
     "end": "2026-11-26",
     "start": "2026-10-30"

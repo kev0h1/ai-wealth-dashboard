@@ -1,7 +1,7 @@
 // G434: recognition of an own-savings standing order mirrors the backend
 // `is_savings_order`: a learned own destination that is not spendable; with none
-// learned, a Savings or Investment category (the user's "Savings or investments"
-// choice, or the engine's) or the engine's own-savings-held-elsewhere stamp.
+// learned, only the server's own-savings-held-elsewhere stamp (the user's "Savings or
+// investments" choice, or wording plus own-money evidence); an engine category alone never counts.
 // Once recognised, the server's savings_at_risk fact keeps the gap amber and out
 // of the payment shortfall (reconcileWithServerPosition, accountPaymentGap).
 import assert from "node:assert/strict";
@@ -9,16 +9,15 @@ import { accountPaymentGap, positionsFromToday, reconcileWithServerPosition } fr
 import { statusFor } from "../lib/upcomingAccountStatus.ts";
 import { isSavingsOrder } from "../lib/cardRepayment.ts";
 
-const base = { kind: "movement", dest_account_id: null, dest_account_spendable: null, category: "Savings" };
-assert.equal(isSavingsOrder(base), true, "Savings category with no learned destination");
-assert.equal(isSavingsOrder({ ...base, category: "Investment" }), true, "Investment filed by the user or the engine");
-assert.equal(isSavingsOrder({ ...base, category: "Transfer" }), false);
-assert.equal(isSavingsOrder({ ...base, category: "Transfer", own_savings_elsewhere: true }), true, "recognised from wording plus own-money evidence");
-assert.equal(isSavingsOrder({ ...base, category: "Transfer", own_savings_elsewhere: false }), false);
-assert.equal(isSavingsOrder({ ...base, is_card_repayment: true }), false);
-assert.equal(isSavingsOrder({ ...base, kind: "commitment" }), false);
+const base = { kind: "movement", dest_account_id: null, dest_account_spendable: null, category: "Transfer" };
+assert.equal(isSavingsOrder({ ...base, own_savings_elsewhere: true }), true, "the server's own-savings stamp (user choice, or wording plus own-money evidence)");
+assert.equal(isSavingsOrder({ ...base, own_savings_elsewhere: false }), false);
+assert.equal(isSavingsOrder({ ...base, category: "Investment" }), false, "an engine-assigned Investment category alone never counts");
+assert.equal(isSavingsOrder({ ...base, category: "Savings" }), false, "nor does an engine-assigned Savings category");
+assert.equal(isSavingsOrder({ ...base, own_savings_elsewhere: true, is_card_repayment: true }), false);
+assert.equal(isSavingsOrder({ ...base, own_savings_elsewhere: true, kind: "commitment" }), false);
 assert.equal(isSavingsOrder({ ...base, category: "Transfer", dest_account_id: "sav", dest_account_spendable: false }), true);
-assert.equal(isSavingsOrder({ ...base, dest_account_id: "cur", dest_account_spendable: true }), false);
+assert.equal(isSavingsOrder({ ...base, own_savings_elsewhere: true, dest_account_id: "cur", dest_account_spendable: true }), false);
 
 // The production shape: a saver the bank never shares. The server recognised it, so the 150 gap is savings at risk.
 const walk = {
