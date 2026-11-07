@@ -64,6 +64,11 @@ const ALLOWED_UNREACHABLE = [
     "per-user 'has completed onboarding' marker (D12), not account- or transaction-derived data; it is cleared only on account deletion, because an ordinary account mutation clearing it would send an existing user back through onboarding.",
   ],
   [
+    "lib/pendingConsent.ts",
+    "clearPendingConsent",
+    "A193: a connection-attempt marker, not account- or transaction-derived data. It holds only a consent id (and provider id) that the user-scoped /auth/finexer/pending resolves. invalidateAllAccountData() also runs in establishSession on a signed-in cold start, which is exactly when the marker must still be there to be resolved, so clearing it there would erase it. It is cleared by the return deep link, by browserFinished, by resolvePendingConsent and at sign-out, and it expires after 30 minutes.",
+  ],
+  [
     "lib/pendingLogin.ts",
     "clearPendingLogin",
     "pre-auth sign-in hand-off (A133), not account-derived; cleared by the login flow itself on every terminal path. An account mutation clearing it would strand a sign-in in progress.",

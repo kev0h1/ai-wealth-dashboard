@@ -19,6 +19,7 @@ import { hasPendingReturn } from "@/lib/bankConnectReturn";
 import { shouldShowOnboarding, markOnboarded } from "@/lib/onboardingGate";
 import { postSignInDestination } from "@/lib/postSignInRoute";
 import { invalidateAllAccountData } from "@/lib/accountMutations";
+import { clearPendingConsent } from "@/lib/pendingConsent";
 import { clearHomeDismissedAdvice } from "@/lib/homeDismissedAdvice";
 import { resolveFullName } from "@/lib/displayName";
 import { FINE_FOLD_KEY } from "@/lib/upcomingAccountStatus";
@@ -439,6 +440,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // See the logout audit for the full list and reasoning.
     try {
       localStorage.removeItem("reconnect_expected"); // holds a provider, an account id, and a masked last-4 only
+      clearPendingConsent(localStorage); // A193: an unfinished bank-connect marker must not outlive the session
       localStorage.removeItem("wd_bracket"); // income tax bracket
       localStorage.removeItem("tax_checklist_done"); // per-user tax checklist progress
       sessionStorage.removeItem(FINE_FOLD_KEY); // G229: Upcoming "By account" fold memory
