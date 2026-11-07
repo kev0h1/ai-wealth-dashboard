@@ -23,21 +23,6 @@
       "low_point_and_plans": -200.0,
       "moves_in_total": 210.0,
       "plans_reserved": 0.0,
-      "savings_at_risk": {
-        "amount": 200.0,
-        "covered": 210.0,
-        "no_cover": false,
-        "note": "Savings at risk. A suggested move from Monzo Current would cover it. Nothing has been moved.",
-        "orders": [
-          {
-            "amount": 250.0,
-            "expected_date": "2026-11-26",
-            "label": "Saver Standing Order",
-            "name": "SAVER STANDING ORDER",
-            "to_name": "Barclays Saver"
-          }
-        ]
-      },
       "short": true,
       "short_after_cover": 0.0,
       "spend_from_headroom": 10.0,
@@ -222,12 +207,13 @@
   "days_to_payday": 2,
   "items": [
     {
-      "amount": 210.0,
+      "amount": 210,
       "covered": true,
-      "id": "savings_shortfall:acc-bc:2026-11-27",
+      "id": "plan:2026-11-27:9d79332887",
       "moves": [
         {
-          "amount": 210.0,
+          "amount": 210,
+          "headline": "Move \u00a3210 from Monzo Current",
           "move_map": {
             "from": {
               "account_id": "acc-mz",
@@ -236,12 +222,13 @@
               "name": "Monzo Current",
               "provider": "monzo",
               "reserved_for_allocations": 0.0,
-              "safe_note": "Nothing due from this account right now"
+              "safe_note": "Nothing due from this account before tomorrow"
             },
             "to": {
               "account_id": "acc-bc",
               "balance": 50.0,
-              "incoming": "savings transfer",
+              "display_label": "Barclays Current",
+              "incoming": "\u00a3250 Saver Standing Order expected tomorrow",
               "name": "Barclays Current",
               "provider": "barclays"
             }
@@ -254,21 +241,18 @@
         "bills": [
           {
             "amount": 250,
-            "can_skip": true,
-            "days_past_due": 0,
             "expected_date": "2026-11-26",
-            "key": "SAVER STANDING ORDER",
-            "label": "Saver Standing Order",
-            "savings": true
+            "label": "Saver Standing Order"
           }
         ],
+        "display_label": "Barclays Current",
         "is_overdraft": false,
         "name": "Barclays Current",
-        "needs_by": "",
-        "needs_by_date": null,
-        "needs_by_last": "",
-        "needs_by_last_date": null,
-        "needs_total": 200.0,
+        "needs_by": "tomorrow",
+        "needs_by_date": "2026-11-26",
+        "needs_by_last": "tomorrow",
+        "needs_by_last_date": "2026-11-26",
+        "needs_total": 250,
         "provider": "barclays"
       },
       "type": "move"

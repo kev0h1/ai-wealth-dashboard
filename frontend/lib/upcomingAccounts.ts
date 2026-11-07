@@ -40,8 +40,6 @@ export type UpcomingAccountPosition = {
   /** G410: set aside in this account for a suggested move out of it (already excluded from `spendFrom`). */
   earmarkedTotal?: number | null;
   earmarksOut?: { toAccountId: string; toName: string; amount: number }[] | null;
-  /** G422: an own-savings standing order this account cannot fund. `amount` is the part of the negative figures it explains; it is never a payment shortfall and never red. */
-  savingsAtRisk?: { amount: number; covered: number; noCover: boolean; note: string; orders: { name: string; label: string; amount: number; expectedDate: string | null; toName: string }[] } | null;
 };
 
 export type UpcomingAccountSummary = {
@@ -110,13 +108,6 @@ export function reconcileWithServerPosition(account: UpcomingAccountSummary, pos
   const figures = [position.afterPayments, position.lowPoint].filter((value): value is number => typeof value === "number" && Number.isFinite(value));
   if (figures.length === 0) return { ...account, position };
   const lowest = Math.min(...figures);
-  // G422: a gap wholly explained by an own-savings standing order is amber and
-  // never a payment shortfall, whatever the server's walk figures say.
-  const savings = position.savingsAtRisk?.amount ?? 0;
-  // G426: also when the client walk calls it short because a later real bill cascades off the order; the server's payment-only walk says the payments alone clear.
-  if (lowest < 0 && savings > 0 && -lowest <= savings + 0.005) {
-    return { ...account, position, status: "unfunded", shortfall: Math.max(account.shortfall ?? 0, -lowest), firstShortDate: account.firstShortDate ?? account.events.find((event) => event.after !== null && event.after < 0)?.date ?? null, shortFor: null };
-  }
   if (lowest < 0) {
     // G372: a negative server figure is short even when the server flags the
     // position uncertain (an uncertain plan overlap says nothing about payments).
@@ -136,10 +127,7 @@ export function reconcileWithServerPosition(account: UpcomingAccountSummary, pos
  * After payments whatever path built the summary. */
 export function accountPaymentGap(account: UpcomingAccountSummary): number | null {
   const figures = [account.position?.afterPayments, account.position?.lowPoint].filter((value): value is number => typeof value === "number" && Number.isFinite(value));
-  // G422: what an own-savings standing order explains is not a payment gap.
-  const savings = account.position?.savingsAtRisk?.amount ?? 0;
-  const rawGap = figures.length ? Math.max(0, -Math.min(...figures)) : 0;
-  const serverGap = savings > 0 ? (rawGap - savings > 0.005 ? rawGap - savings : 0) : rawGap;
+  const serverGap = figures.length ? Math.max(0, -Math.min(...figures)) : 0;
   const walkGap = account.status === "short" && account.shortfall !== null ? account.shortfall : 0;
   const gap = Math.max(serverGap, walkGap);
   return gap > 0 ? gap : null;
@@ -178,9 +166,6 @@ export function positionsFromToday(
       shortAfterCover: typeof entry.short_after_cover === "number" ? entry.short_after_cover : null,
       earmarkedTotal: typeof entry.earmarked_total === "number" ? entry.earmarked_total : null,
       earmarksOut: entry.earmarks_out ? entry.earmarks_out.map((e) => ({ toAccountId: e.to_account_id, toName: e.to_name, amount: e.amount })) : null,
-      savingsAtRisk: entry.savings_at_risk && typeof entry.savings_at_risk.amount === "number" && typeof entry.savings_at_risk.note === "string"
-        ? { amount: entry.savings_at_risk.amount, covered: entry.savings_at_risk.covered ?? 0, noCover: entry.savings_at_risk.no_cover === true, note: entry.savings_at_risk.note, orders: (entry.savings_at_risk.orders ?? []).map((o) => ({ name: o.name, label: o.label, amount: o.amount, expectedDate: o.expected_date ?? null, toName: o.to_name })) }
-        : null,
     };
   }
   return out;

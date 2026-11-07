@@ -125,8 +125,7 @@ export function accountActionNote(account: UpcomingAccountSummary, reading: Retu
     const when = date && Number.isFinite(date.getTime()) ? ` by ${date.toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "UTC" })}` : "";
     return `Payments need more money${when}. Tap to see the gap.`;
   }
-  // G426: an own-savings standing order says so in the engine's plain wording; the "may stay put" line is for a move into another own spendable account.
-  if (reading.transferGap > 0) return account.position?.savingsAtRisk?.note ?? "A planned move is not fully funded when it leaves. It may stay put, with no fee.";
+  if (reading.transferGap > 0) return "A planned move is not fully funded when it leaves. It may stay put, with no fee.";
   if (gap > 0) return `Payments are covered. More money is needed for ${result.assigned.length === 1 ? result.assigned[0].name : "your plans"}.${result.estimated ? " Paying account based on recent transfers." : ""}`;
   return result.estimated ? "Paying account based on recent transfers." : "";
 }

@@ -375,58 +375,19 @@ def walk_events(
     return running, min_running, shortfall_bill, bounced_bills
 
 
-def is_savings_order(b: dict) -> bool:
-    """G426/G434. A recurring transfer into the user's OWN non-spendable
-    (savings or investment) account, recognised three ways: a movement with a
-    learned own destination that is not a pooled spendable account; with no
-    destination (the savings account is held at a bank that does not share it)
-    the pattern builder's `own_savings_elsewhere` stamp: the user filed the
-    series as Savings or Investment, or the engine found savings wording plus
-    own-money evidence (app.services.own_savings). An engine-assigned category
-    alone never counts. A card repayment is a
-    payment at risk, never savings."""
-    from app.services.categories import MOVEMENT
-
-    if b.get("kind") != MOVEMENT or b.get("is_card_repayment") or b.get("is_credit_card"):
-        return False
-    if b.get("dest_account_id"):
-        return b.get("dest_account_spendable") is not True
-    return b.get("own_savings_elsewhere") is True
-
-
-def payment_only_walk(events: list, seed: dict, *, drop: Callable[[dict], bool] = is_savings_order):
-    """G426. The same walk with every own-savings standing order left out
-    (`drop` is the predicate). Returns (min_running, bounced_bills): what the
-    payments alone would do. A debit only; an inflow is always kept."""
-    kept = [e for e in events if e[3] or not drop(e[4] or {})]
-    _r, mins, _sb, bounced = walk_events(kept, dict(seed))
-    return mins, bounced
-
-
-def count_at_risk(
-    bounced_bills: dict[str, list[dict]],
-    payment_only_bounced: dict[str, list[dict]] | None = None,
-) -> int:
+def count_at_risk(bounced_bills: dict[str, list[dict]]) -> int:
     """The at-risk badge count (WD9): every bounced bill except a `movement`
     one (the user's own plan for their own money) unless it is a card
     repayment (G266). A deficit cascades, so every later bill on a short
-    account counts until income recovers it.
-
-    G426: with `payment_only_bounced` (the walk with own-savings orders left
-    out) a bill that bounces only because a savings order went first is
-    savings at risk, not a payment at risk: it counts only if it also bounces
-    in the payment-only walk. A card repayment always counts."""
+    account counts until income recovers it. (G438: a savings order that
+    starves a later bill no longer gets that bill discounted; it is an
+    ordinary payment ahead of it.)"""
     from app.services.categories import MOVEMENT
 
-    still = None
-    if payment_only_bounced is not None:
-        still = {id(b) for bills in payment_only_bounced.values() for b in bills}
     n = 0
     for bills in bounced_bills.values():
         for b in bills:
             if b.get("kind") == MOVEMENT and not b.get("is_card_repayment"):
-                continue
-            if still is not None and not b.get("is_card_repayment") and id(b) not in still:
                 continue
             n += 1
     return n

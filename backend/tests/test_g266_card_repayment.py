@@ -90,14 +90,13 @@ def test_at_risk_count_counts_a_short_card_repayment_but_not_a_short_transfer(mo
     assert _run_at_risk(monkeypatch, [saving], []) == 0
 
 
-def test_gate_recommendation_keeps_a_bounced_card_repayment():
+def test_gate_recommendation_no_longer_drops_own_transfers():
+    # G438: the first bounced item represents the account, whatever it is.
     repay = {"name": "NW WORLD MASTERCAR", "kind": MOVEMENT, "is_card_repayment": True, "days_away": 5, "amount": 62.22}
     saving = {"name": "Savings pot", "kind": MOVEMENT, "days_away": 4, "amount": 10.0}
-    args = dict(dest_acct="cur", min_bal=-13.72, shortfall_bill={"cur": saving}, bounced_bills={"cur": [saving, repay]})
-    result = _gate_recommendation(**{k: v for k, v in args.items() if k in _gate_recommendation.__code__.co_varnames})
-    assert result is repay
-    only_saving = _gate_recommendation(**{**{k: v for k, v in args.items() if k in _gate_recommendation.__code__.co_varnames}, "bounced_bills": {"cur": [saving]}})
-    assert only_saving is None
+    assert _gate_recommendation("cur", -13.72, {"cur": saving}, {"cur": [saving, repay]}) is saving
+    assert _gate_recommendation("cur", -13.72, {"cur": saving}, {"cur": [saving]}) is saving
+    assert _gate_recommendation("cur", -13.72, {"cur": repay}, {"cur": [repay]}) is repay
 
 
 # ── never spending, never double counted ────────────────────────────────────

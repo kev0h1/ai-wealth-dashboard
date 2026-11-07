@@ -10,21 +10,6 @@
       "low_point": -200.0,
       "low_point_and_plans": -200.0,
       "plans_reserved": 0.0,
-      "savings_at_risk": {
-        "amount": 200.0,
-        "covered": 0.0,
-        "no_cover": true,
-        "note": "There may not be enough to fund this savings transfer this period. You could pause or cancel the standing order with your bank for this month.",
-        "orders": [
-          {
-            "amount": 250.0,
-            "expected_date": "2026-11-26",
-            "label": "Saver Standing Order",
-            "name": "SAVER STANDING ORDER",
-            "to_name": "Barclays Saver"
-          }
-        ]
-      },
       "short": true,
       "spend_from_headroom": -200.0,
       "uncertain": false
@@ -197,7 +182,32 @@
     "upcoming_income": []
   },
   "days_to_payday": 2,
-  "items": [],
+  "items": [
+    {
+      "id": "move:acc-bc:2026-11-27:9d79332887",
+      "plan_dest": {
+        "account_id": "acc-bc",
+        "balance": 50.0,
+        "bills": [
+          {
+            "amount": 250,
+            "expected_date": "2026-11-26",
+            "label": "Saver Standing Order"
+          }
+        ],
+        "display_label": "Barclays Current",
+        "is_overdraft": false,
+        "name": "Barclays Current",
+        "needs_by": "tomorrow",
+        "needs_by_date": "2026-11-26",
+        "needs_by_last": "tomorrow",
+        "needs_by_last_date": "2026-11-26",
+        "needs_total": 250,
+        "provider": "barclays"
+      },
+      "type": "move"
+    }
+  ],
   "name": "Own-savings standing order the salary account cannot fund, no spare money anywhere (G422)",
   "period": {
     "end": "2026-11-26",

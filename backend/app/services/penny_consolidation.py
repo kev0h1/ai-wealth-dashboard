@@ -432,8 +432,8 @@ async def exec_plan_consolidation(
         ),
     }
     _facts = earmark_facts(eligibility=eligibility, accounts=accounts, name_tokens=tokens)
-    if _facts["earmarked"] or _facts["covered_by_move"] or _facts.get("savings_at_risk"):
-        result["suggested_moves"] = {k: _facts[k] for k in ("earmarked", "covered_by_move", "savings_at_risk") if k in _facts}
+    if _facts["earmarked"] or _facts["covered_by_move"]:
+        result["suggested_moves"] = {k: _facts[k] for k in ("earmarked", "covered_by_move") if k in _facts}
     if plan["legs"] and _card_ok:
         result["_move_plan"] = {
             "kind": "move_plan",
@@ -464,7 +464,6 @@ def earmark_facts(*, eligibility: dict, accounts: list[dict], name_tokens: list[
     labels = {str(a.get("id")): _label(a, name_tokens)[0] for a in accounts}
     earmarked: list[dict] = []
     covered: list[dict] = []
-    savings: list[dict] = []
     by_account: dict[str, dict] = {}
     for aid, entry in (eligibility or {}).items():
         if not isinstance(entry, dict):
@@ -493,18 +492,7 @@ def earmark_facts(*, eligibility: dict, accounts: list[dict], name_tokens: list[
                    "short_after_cover": _money(after), "from": froms, "sentence": sentence}
             covered.append(row)
             by_account.setdefault(str(aid), {})["covered_by_move"] = row
-        risk = entry.get("savings_at_risk")
-        if isinstance(risk, dict) and risk.get("note"):
-            # G422: an own-savings standing order this account cannot fund. The
-            # engine's own sentence, a recommendation in words only: the app
-            # never moves, pauses or cancels anything.
-            row = {"name": name, "amount": _money(risk.get("amount") or 0.0),
-                   "no_cover": bool(risk.get("no_cover")), "sentence": f"{name}: {risk['note']}"}
-            savings.append(row)
-            by_account.setdefault(str(aid), {})["savings_at_risk"] = row
     out = {"earmarked": earmarked, "covered_by_move": covered, "by_account": by_account}
-    if savings:
-        out["savings_at_risk"] = savings  # G422: only present when an own-savings order is unfunded
     return out
 
 
@@ -529,26 +517,6 @@ async def attach_suggested_move_facts(uid: str, rows: list[dict]) -> None:
                 row["suggested_move"] = extra
     except Exception:
         logger.warning("get_accounts: earmark facts failed for %s", uid, exc_info=True)
-
-
-async def savings_at_risk_facts(uid: str) -> list[dict]:
-    """G422: the engine's own `savings_at_risk` sentences (an own-savings
-    standing order an account cannot fund this period), for Penny's upcoming
-    answer. Read from the cached eligibility, never recomputed; never raises."""
-    try:
-        from app.services.notifications import _user_name_tokens
-
-        payload = await _load_today(uid)
-        eligibility = payload.get("account_eligibility") if isinstance(payload, dict) else None
-        if not isinstance(eligibility, dict):
-            return []
-        facts = earmark_facts(
-            eligibility=eligibility, accounts=await _load_accounts(uid), name_tokens=await _user_name_tokens(uid),
-        )
-        return list(facts.get("savings_at_risk") or [])
-    except Exception:
-        logger.warning("get_upcoming_bills: savings facts failed for %s", uid, exc_info=True)
-        return []
 
 
 async def spend_from_extras(uid: str) -> dict:
@@ -584,9 +552,9 @@ async def spend_from_extras(uid: str) -> dict:
         for k in skipped if k["reason"] in ("set_aside_pot", "savings", "credit_card")
     ]
     facts = earmark_facts(eligibility=eligibility, accounts=accounts, name_tokens=tokens)
-    if facts["earmarked"] or facts["covered_by_move"] or facts.get("savings_at_risk"):
+    if facts["earmarked"] or facts["covered_by_move"]:
         # G410: the same fields the cards read; Left to spend is unchanged by them.
-        out["suggested_moves"] = {k: facts[k] for k in ("earmarked", "covered_by_move", "savings_at_risk") if k in facts}
+        out["suggested_moves"] = {k: facts[k] for k in ("earmarked", "covered_by_move") if k in facts}
     return out
 
 

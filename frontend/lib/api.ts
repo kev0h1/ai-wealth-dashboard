@@ -204,8 +204,6 @@ export type UpcomingBill = {
    */
   dest_account_id?: string | null;
   dest_account_spendable?: boolean | null;
-  /** G434: an own-savings standing order whose savings account is held at a bank that does not share it. */
-  own_savings_elsewhere?: boolean;
   /**
    * G266: true for a recurring credit card repayment (category Debt, or a
    * learned card destination). Kind stays "movement" so it is never spend,
@@ -1464,10 +1462,8 @@ export type PlanDestBill = {
   /** ISO date for this individual payment, rather than the plan's earliest date. */
   expected_date?: string | null;
   days_past_due?: number;
-  /** Only overdue own-transfer occurrences, and an own-savings standing order the account cannot fund (G426), expose the per-month skip action. */
+  /** Only overdue own-transfer occurrences expose the per-month skip action. */
   can_skip?: boolean;
-  /** G426: an own-savings standing order, named as a savings transfer rather than a payment. */
-  savings?: boolean;
 };
 export type PlanDest = {
   account_id: string;
@@ -1823,8 +1819,6 @@ export type CompanionItem = {
   /** G359: set on the ask that carries a hedged income prompt ("confirm_salary" or "payday_funds_moves"). */
   income_note_kind?: "confirm_salary" | "payday_funds_moves";
   plan_dest?: PlanDest;
-  /** G422: set on a cover move that exists for an own-savings standing order the account cannot fund. */
-  savings_at_risk?: SavingsAtRisk;
   /** G212: account row for a cover plan card with no transfer source (readable name, balance and payments in one line). */
   dest_row?: { title: string; detail: string };
   covered?: boolean;
@@ -1980,17 +1974,6 @@ export type AccountEligibility = {
   earmarked_total?: number;
   covered_by_move?: { amount: number; shortfall?: number; savings_amount?: number; current_amount?: number; from: { account_id: string; name: string; amount: number; display_label?: string | null; source_kind?: "savings" }[] };
   short_after_cover?: number;
-  /** G422: an own-savings standing order this account cannot fund this period. `amount` is the part of the negative figures it explains (never a payment shortfall, never red); `note` is the engine's own sentence, a recommendation in words only. */
-  savings_at_risk?: SavingsAtRisk;
-};
-
-export type SavingsAtRisk = {
-  amount: number;
-  covered: number;
-  /** True only when no other account could spare anything. */
-  no_cover: boolean;
-  note: string;
-  orders: { name: string; label: string; amount: number; expected_date?: string | null; to_name: string }[];
 };
 
 export type TodayResponse = {

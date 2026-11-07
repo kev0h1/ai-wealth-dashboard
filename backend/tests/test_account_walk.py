@@ -464,6 +464,9 @@ def test_caller_output_equals_pre_extraction_golden(monkeypatch, name):
         for entry in (got.get("eligibility") or {}).values():
             for row in (entry.get("covered_by_move") or {}).get("from", []):
                 row.pop("display_label", None)
+        # G438 (Kevin 2026-11-07): no own-account exemption, so the card's representative bill is the
+        # FIRST bounced item. On lowsrc that is the 90 standing order out tomorrow (it used to name the
+        # later 40 card repayment because own-account orders were skipped); the golden text was updated.
         # G436 (Kevin 2026-11-07, every account in isolation, money in vs money out): the golden stays
         # the old output except these keys, one reason each.
         #   after_payments_and_money_in: new display-only key, the closing figure of the account's own walk.

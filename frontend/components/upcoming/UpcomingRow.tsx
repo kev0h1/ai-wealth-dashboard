@@ -54,7 +54,6 @@ export type UpcomingRowModel = {
   movementCalm?: boolean;
   unfundedMovement?: boolean;
   /** G422: the engine's own sentence for an own-savings standing order its account cannot fund (what would cover it, or that nothing can). Replaces the generic calm line. */
-  savingsNote?: string;
   highlighted?: boolean;
   assessment?: "unverified" | "future";
   coverage?: {
@@ -218,25 +217,7 @@ function CurrentSupportingCopy({
         </>
       )}
 
-      {model.savingsNote && (
-        <p data-savings-at-risk className="flex items-start gap-1.5 text-xs leading-snug text-slate-500 dark:text-slate-400">
-          <span aria-hidden className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-amber-600 dark:bg-amber-400" />
-          <span>{model.savingsNote}</span>
-        </p>
-      )}
-      {model.savingsNote && model.isMovement && !model.pending && onSkipOccurrence && (
-        <button
-          type="button"
-          onClick={(event) => {
-            event.stopPropagation();
-            onSkipOccurrence();
-          }}
-          className="pointer-events-auto mt-0.5 text-xs font-medium text-slate-500 underline-offset-2 hover:underline focus:outline-none focus-visible:underline dark:text-slate-400"
-        >
-          Let it skip this month
-        </button>
-      )}
-      {model.movementCalm && !model.savingsNote && (
+      {model.movementCalm && (
         <p className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
           <span aria-hidden className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-600 dark:bg-amber-400" />
           May not go through if the balance is tight. No fee either way.
@@ -246,7 +227,7 @@ function CurrentSupportingCopy({
       {model.isCreditCard && hasAccount && !model.flagged && !model.timingRisk && (
         <p className="truncate text-xs text-slate-500 dark:text-slate-400">{model.accountLabel}</p>
       )}
-      {model.type === "bill" && !model.accountShort && !model.accountTiming && !model.isCreditCard && !model.atRisk && !model.movementCalm && !model.savingsNote && hasAccount && (
+      {model.type === "bill" && !model.accountShort && !model.accountTiming && !model.isCreditCard && !model.atRisk && !model.movementCalm && hasAccount && (
         <p className="truncate text-xs text-slate-400 dark:text-slate-500">{model.accountLabel}</p>
       )}
 
@@ -257,7 +238,7 @@ function CurrentSupportingCopy({
           const showDismiss = Boolean(model.unfundedMovement) || daysPastDue >= 5;
           return (
             <div>
-              {model.unfundedMovement && !model.savingsNote ? (
+              {model.unfundedMovement ? (
                 <p className="flex min-w-0 items-center gap-1.5 text-xs leading-snug text-slate-500 dark:text-slate-400">
                   <span aria-hidden className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-600 dark:bg-amber-400" />
                   <span className="truncate">Planned for {pendingDate}, hasn&apos;t left. {model.accountLabel || "The account"} may not have the funds for it.</span>
@@ -274,7 +255,7 @@ function CurrentSupportingCopy({
                   }}
                   className="pointer-events-auto mt-0.5 text-xs font-medium text-slate-500 underline-offset-2 hover:underline focus:outline-none focus-visible:underline dark:text-slate-400"
                 >
-                  {model.savingsNote ? "Let it skip this month" : "Dismiss for this month"}
+                  Dismiss for this month
                 </button>
               )}
             </div>

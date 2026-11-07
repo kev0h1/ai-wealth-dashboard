@@ -23,21 +23,6 @@
       "low_point_and_plans": -250.0,
       "moves_in_total": 260.0,
       "plans_reserved": 0.0,
-      "savings_at_risk": {
-        "amount": 250.0,
-        "covered": 250.0,
-        "no_cover": false,
-        "note": "Savings at risk. A suggested move from Monzo Current would cover it. Nothing has been moved.",
-        "orders": [
-          {
-            "amount": 300.0,
-            "expected_date": "2026-11-25",
-            "label": "Saver Standing Order",
-            "name": "SAVER STANDING ORDER",
-            "to_name": "Barclays Saver"
-          }
-        ]
-      },
       "short": true,
       "short_after_cover": 0.0,
       "spend_from_headroom": 10.0,
@@ -118,7 +103,7 @@
       "type": "BANK"
     }
   ],
-  "at_risk_count": 0,
+  "at_risk_count": 1,
   "cashflow": {
     "internal_inflows": [
       {
@@ -293,13 +278,13 @@
               "name": "Monzo Current",
               "provider": "monzo",
               "reserved_for_allocations": 0.0,
-              "safe_note": "Nothing due from this account before Thursday"
+              "safe_note": "Nothing due from this account before tomorrow"
             },
             "to": {
               "account_id": "acc-bc",
               "balance": 150.0,
               "display_label": "Barclays Current",
-              "incoming": "\u00a3100 Phone Contract expected Thursday",
+              "incoming": "\u00a3300 Saver Standing Order expected tomorrow",
               "name": "Barclays Current",
               "provider": "barclays"
             }
@@ -312,12 +297,8 @@
         "bills": [
           {
             "amount": 300,
-            "can_skip": true,
-            "days_past_due": 0,
             "expected_date": "2026-11-25",
-            "key": "SAVER STANDING ORDER",
-            "label": "Saver Standing Order",
-            "savings": true
+            "label": "Saver Standing Order"
           },
           {
             "amount": 100,

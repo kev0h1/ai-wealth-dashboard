@@ -46,7 +46,6 @@ from app.services.own_account_transfers import (  # G413: IssuerFallback*: saved
     IssuerFallbackDict, IssuerFallbackSet, saved_key_applies, series_key, repayment_display_name,
 )  # G403: per-card key for a linked repayment
 from app.services.categorisation import series_key as _base_series_key
-from app.services.own_savings import detect_savings_elsewhere
 from app.services.categorisation import (
     has_date_fragment, own_transfer_evidence, user_identity,
     canonical_merchant_key, refine_transfer_target, _byte_desc_key,
@@ -2889,25 +2888,6 @@ async def _compute_cashflow_patterns(uid: str) -> dict:
     # `_card_repayment_projection` (the balance-aware cap and classifier) and
     # carried through `_serialise_pattern` on `card_dest_*` fields.
     card_dest_by_key = _learn_card_repayment_destinations(raw, account_map, kind_map)
-    # G434: an own-savings standing order at a bank that never shares the savings
-    # account has no learnable destination. Recognise it from wording PLUS
-    # independent own-money evidence (see app.services.own_savings); the user's
-    # own category choice outranks it. Read once here, stamped per series below.
-    try:
-        _own_name_tokens = (await user_identity(uid)).get("name_tokens") or []
-    except Exception:
-        _own_name_tokens = []
-    # G437 evidence (a): accounts on file by sort code and account number.
-    try:
-        from app.services.own_account_transfers import load_own_account_index
-        _own_index = await load_own_account_index(uid, account_collection=accounts_col)
-    except Exception:
-        _own_index = {}
-    _movement_debits_by_key: dict[str, list[dict]] = defaultdict(list)
-    for _t in raw:
-        if _t.get("transaction_type") == "debit" and kind_of(kind_map, _t.get("custom_category") or _t.get("category")) == MOVEMENT:
-            _movement_debits_by_key[series_key(_t)].append(_t)
-
     # Debits are NOT filtered by category (Transfer included): anything that
     # regularly leaves the account on a date belongs in the projection
     # regardless of what it's called, because it consumes balance and can
@@ -3144,15 +3124,6 @@ async def _compute_cashflow_patterns(uid: str) -> dict:
         # repayments in it.
         card_dest = card_dest_by_key.get(r["key"])
         card_proj = card_repayment_projection.get(r["key"])
-        own_savings_elsewhere = bool(
-            not dest and not card_dest and acct and not acct.get("is_credit_card")
-            and kind_of(kind_map, r.get("category")) == MOVEMENT
-            and detect_savings_elsewhere(
-                _movement_debits_by_key.get(r["key"]) or [], name_tokens=_own_name_tokens,
-                account_name=acct.get("name"), provider=acct.get("provider"),
-                own_index=_own_index, source_account_id=str(r.get("account_id") or ""),
-            )
-        )
         avg_amount = r["avg_amount"]
         amount_basis = None
         suppressed = False
@@ -3189,7 +3160,6 @@ async def _compute_cashflow_patterns(uid: str) -> dict:
             "dest_account_bank": dest["dest_account_bank"] if dest else None,
             "dest_account_spendable": dest["dest_account_spendable"] if dest else None,
             # G434: an own-savings standing order whose savings account is held elsewhere.
-            **({"own_savings_elsewhere": True} if own_savings_elsewhere else {}),
             # Card-repayment destination (Step 1) -- DELIBERATELY separate
             # fields from dest_account_id/spendable above: those feed
             # `internal_inflows` (see `_build_cashflow_response`), and a
@@ -3519,13 +3489,10 @@ async def at_risk_count(user: dict = Depends(current_user)):
     # late-income line for one (see the comment block above `walk_sort_key`
     # in services/companion.py). G360: an inflow counts only when its SOURCE
     # account is covered that day. G163: same-day, credits before debits.
-    from app.services.account_walk import count_at_risk, payment_only_walk, walk_events, window_events
+    from app.services.account_walk import count_at_risk, walk_events, window_events
 
     events, seed, _credited = window_events(_wi)
     _running, _min_running, _shortfall, bounced = walk_events(events, seed)
-    # G426: a bill that bounces only because an own-savings order went first
-    # is savings at risk, not a payment at risk.
-    _po_min, _po_bounced = payment_only_walk(events, seed)
 
     # A deficit cascades (a bounced bill still debits the balance, so every
     # later bill on a short account counts until income recovers it), but a
@@ -3533,7 +3500,7 @@ async def at_risk_count(user: dict = Depends(current_user)):
     # is the user's own plan for their own money, matching the Planning page's
     # own at-risk simulation (PlanningPage.tsx), which this badge must agree
     # with. A commitment/discretionary bill a movement starves still counts.
-    at_risk = count_at_risk(bounced, _po_bounced)
+    at_risk = count_at_risk(bounced)
 
     return {"count": at_risk}
 
@@ -4742,7 +4709,6 @@ async def _build_cashflow_response(cached: dict, uid: str | None = None, prefs: 
                 # leaves both fields None.
                 "dest_account_id":        r.get("dest_account_id") if _occ_kind == MOVEMENT else None,
                 "dest_account_spendable": r.get("dest_account_spendable") if _occ_kind == MOVEMENT else None,
-                **({"own_savings_elsewhere": True} if _occ_kind == MOVEMENT and r.get("own_savings_elsewhere") else {}),
                 # Display name/bank for the two `_serialise_pattern` destination
                 # pairs (self-transfer and card-repayment, kept deliberately
                 # separate -- see the doctrine on `card_dest_account_id` above)

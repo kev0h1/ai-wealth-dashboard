@@ -529,7 +529,7 @@
               "account_id": "acc-bc",
               "balance": 600.0,
               "display_label": "Barclays Current",
-              "incoming": "\u00a3150 Council Tax expected tomorrow",
+              "incoming": "\u00a3900 Test Owner Hsbc expected tomorrow",
               "name": "Barclays Current",
               "provider": "barclays"
             }
@@ -552,7 +552,7 @@
               "account_id": "acc-bc",
               "balance": 600.0,
               "display_label": "Barclays Current",
-              "incoming": "\u00a3150 Council Tax expected tomorrow",
+              "incoming": "\u00a3900 Test Owner Hsbc expected tomorrow",
               "name": "Barclays Current",
               "provider": "barclays"
             }

@@ -113,7 +113,10 @@ _MAX_TIME_MS = 500
 # allocation_unassigned, spend_from_capped and (current accounts') account_headroom_raw
 # are gone, moves_in_total is new, and the Left to spend payload gained
 # left_to_spend_lines and a new lowest_projected_balance basis.
-SHAPE_VERSION = 11
+# 12: G438 removed the savings at risk state (account_eligibility no longer carries
+# savings_at_risk, bills no longer carry savings or own_savings_elsewhere); an own-account
+# transfer that bounces is an ordinary shortfall with a normal cover move.
+SHAPE_VERSION = 12
 
 # UK users; this cache pins its day boundary to Europe/London (DST-aware,
 # via app.core.timeutil) so the API and worker processes, even if their
