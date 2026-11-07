@@ -49,21 +49,18 @@ const partialNote = accountActionNote(partial, accountActionReading(partial, pla
 assert.match(partialNote, /after the move, still short\./);
 assert.match(partialNote, /£159 is still uncovered\. You could edit a plan or skip a payment/);
 
-// The card renders the savings row flagged in the watch tone, and masks amounts when hidden.
+// G430 keeps the savings-source working in account detail. The compact card
+// carries only the total move summary and masks that total under Hide balances.
 function render(hidden) {
   return renderToStaticMarkup(h(BalancesHiddenContext.Provider, { value: hidden }, h(UpcomingAccountsCard, { accounts: [covered], periodLabel: "this pay period", onOpen() {}, plans, plansStatus: "ready" })));
 }
 const shown = render(false);
-assert.match(shown, /data-savings-source/);
-assert.match(shown, /From savings, a suggestion/);
-assert.match(shown, /text-amber-800/); // the short signifier only
-assert.match(shown, /data-cover-note|data-move-rows/);
-assert.match(shown, /Your Barclays savings/);
-assert.doesNotMatch(shown, /from Your Barclays/);
-assert.ok(shown.indexOf("Your Barclays account") < shown.lastIndexOf("Your Barclays savings"), "savings listed after current accounts");
+assert.match(shown, /data-account-summary/);
+assert.match(shown.replace(/<[^>]+>/g, ""), /£270 to move in/);
+assert.doesNotMatch(shown, /data-move-rows|data-source-bank|data-source-name|data-savings-source|From savings, a suggestion/);
+assert.doesNotMatch(shown, /Your Barclays account|Your Barclays savings/);
 const masked = render(true);
-const rowsMarkup = masked.slice(masked.indexOf("data-move-rows"), masked.indexOf("data-move-rows") + 1200);
-assert.doesNotMatch(rowsMarkup, /£100|£170/, "row amounts are masked");
+assert.doesNotMatch(masked, /£270|£100|£170/, "the card summary and accessible label are masked");
 
 // Account sheet and Accounts list: the engine's split drives the note (server position shape).
 const position = {

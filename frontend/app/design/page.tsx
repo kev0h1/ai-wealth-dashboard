@@ -32,14 +32,6 @@ type PreviewRoute = {
 
 const ROUTES: PreviewRoute[] = [
   {
-    slug: "upcoming-move-summary",
-    name: "Upcoming move summary · G430",
-    description: "Alignment refinements of A1. A3 shares bank/balance and name/status baselines; A4 places the status cue beside the amount. A1 is kept for comparison, with earlier links preserved. Fictional accounts, both themes, Hide balances and the full account sheet.",
-    variants: [{ label: "A3 · Aligned", value: "a3" }, { label: "A4 · Cue by amount", value: "a4" }, { label: "A1 · Balance", value: "a1" }],
-    states: [{ label: "Suggested moves", value: "moves" }, { label: "Partly covered", value: "partial" }, { label: "No deadline", value: "no-date" }, { label: "Long names", value: "long" }, { label: "Checking plans", value: "pending" }, { label: "Plans unavailable", value: "error" }],
-    group: "current",
-  },
-  {
     slug: "statements-house-ads",
     name: "Statements house ads · B58",
     description:
