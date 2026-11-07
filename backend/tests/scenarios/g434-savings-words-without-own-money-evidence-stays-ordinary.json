@@ -1,5 +1,5 @@
 {
-  "name": "Standing order with savings wording but no own-name, own-account-name or pair evidence stays an ordinary own-account movement (G434)",
+  "name": "Standing order with savings wording but no own-name, counterparty-account or pair evidence stays an ordinary own-account movement (G434)",
   "today": "2026-11-25",
   "pay_period_config": {
     "type": "last_friday"
@@ -102,6 +102,6 @@
     },
     "payday_plan": null,
     "at_risk_count": 0,
-    "notes": "G434 (Kevin 2026-11-07). The same account and standing order as the recognised scenario (Chase Current A 150, a 300 order dated Thu 26 Nov, Barclays Current B 600, Monzo Current C 200, today Wed 25 Nov, payday Fri 27 Nov), but the description carries savings wording only (Regular Saver) with no evidence the money stays with the user: no own name tokens, not the shape of this account's own name, no pair, no learned destination, no Savings category. Words alone are never enough, so the engine does not call it own savings and the series stays an ordinary own-account movement (kind movement, category Transfer). A: 150 - 300 = -150 after payments and at the low point, verdict short. A movement-only deficit is not a bill at risk (at risk count 0) and the movement-only gate keeps it out of the cover engine: no savings at risk fact, no cover move (moves total 0). Left to spend: pool 150 + 600 + 200 = 950 less the 300 leaving = 650. Allocation fills the current accounts in their listed order until 650 is used: A has no positive headroom (-150, shows 0), B takes min(600, 650) = 600, C takes the 50 that remains (min(200, 50)). 0 + 600 + 50 = 650. Nothing is moved by the app."
+    "notes": "G434 (Kevin 2026-11-07). The same account and standing order as the recognised scenario (Chase Current A 150, a 300 order dated Thu 26 Nov, Barclays Current B 600, Monzo Current C 200, today Wed 25 Nov, payday Fri 27 Nov), but the description carries savings wording only (Regular Saver) with no evidence the money stays with the user: no own name tokens, no pair, no learned destination, no Savings category. Words alone are never enough, so the engine does not call it own savings and the series stays an ordinary own-account movement (kind movement, category Transfer). A: 150 - 300 = -150 after payments and at the low point, verdict short. A movement-only deficit is not a bill at risk (at risk count 0) and the movement-only gate keeps it out of the cover engine: no savings at risk fact, no cover move (moves total 0). Left to spend: pool 150 + 600 + 200 = 950 less the 300 leaving = 650. Allocation fills the current accounts in their listed order until 650 is used: A has no positive headroom (-150, shows 0), B takes min(600, 650) = 600, C takes the 50 that remains (min(200, 50)). 0 + 600 + 50 = 650. Nothing is moved by the app."
   }
 }

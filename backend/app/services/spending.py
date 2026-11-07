@@ -32,7 +32,9 @@ whatever kind it has for third-party payments.
 Own-account detection (``find_own_move_ids``), strongest evidence first:
     1. the row is linked to an offline account or a goal (the user's own
        resolve-movement answer),
-    2. its text carries the number or sort code of ANOTHER of the user's
+    2. its counterparty sort code AND account number (the bank's own fields)
+       match an account on file other than its own (G437, Kevin's rule), or
+       its text carries the number or sort code of ANOTHER of the user's
        accounts,
     3. a transfer-pair match: a credit of the same amount (within 2p), on a
        DIFFERENT account of the user's, within five days (the closest date
@@ -69,6 +71,7 @@ from app.services.categories import (
     normalise_name,
 )
 from app.services.categorisation import own_transfer_evidence, user_identity
+from app.services.own_account_transfers import counterparty_key
 
 logger = logging.getLogger(__name__)
 
@@ -91,7 +94,7 @@ _PROJECTION = {
     "amount": 1, "date": 1, "category": 1, "custom_category": 1,
     "transaction_type": 1, "description": 1, "merchant_name": 1,
     "account_id": 1, "linked_offline_account_id": 1, "linked_goal_id": 1,
-    "currency": 1,
+    "currency": 1, "party_sort_code": 1, "party_number": 1,
 }
 
 
@@ -250,6 +253,13 @@ def find_own_move_ids(docs: list[dict], kinds, identity: dict | None = None) -> 
         did = _txn_id(d)
 
         if d.get("linked_offline_account_id") or d.get("linked_goal_id"):
+            own.add(did)
+            continue
+
+        # G437 evidence (a): the bank's counterparty sort code and account
+        # number equal an account on file other than this row's own account.
+        _party = counterparty_key(d.get("party_sort_code"), d.get("party_number"))
+        if _party is not None and (identity.get("own_keys") or {}).get(_party, set()) - {str(d.get("account_id") or "")}:
             own.add(did)
             continue
 

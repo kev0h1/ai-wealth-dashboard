@@ -300,10 +300,16 @@ async def user_identity(user_id: str) -> dict:
     name_tokens = profile.get("name_tokens", [])
     own_ids: set[str] = set()
     own_map: dict[str, dict] = {}
+    # G437 evidence (a): (sort code, account number) -> account ids on file.
+    own_keys: dict[tuple[str, str], set[str]] = {}
+    from app.services.own_account_transfers import counterparty_key
     async for a in accounts_col.find(
         {"user_id": user_id},
         {"account_number": 1, "sort_code": 1, "type": 1, "subtype": 1},
     ):
+        _key = counterparty_key(a.get("sort_code"), a.get("account_number"))
+        if _key is not None:
+            own_keys.setdefault(_key, set()).add(str(a["_id"]))
         for field in ("account_number", "sort_code"):
             digits = re.sub(r"\D", "", str(a.get(field) or ""))
             if len(digits) >= 6:
@@ -313,7 +319,7 @@ async def user_identity(user_id: str) -> dict:
                     "type": a.get("type"),
                     "subtype": a.get("subtype"),
                 }
-    return {"name_tokens": name_tokens, "own_ids": own_ids, "own_map": own_map}
+    return {"name_tokens": name_tokens, "own_ids": own_ids, "own_map": own_map, "own_keys": own_keys}
 
 
 def _name_token_hits(description: str, name_tokens: list[str]) -> set:

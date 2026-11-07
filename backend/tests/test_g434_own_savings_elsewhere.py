@@ -10,7 +10,7 @@ import pytest
 
 import app.routers.card_terms  # noqa: F401  (H143: pre-import before any collection patching)
 import app.services.debt_plan  # noqa: F401
-from app.services.own_savings import detect_savings_elsewhere, has_savings_words, own_account_to_shape
+from app.services.own_savings import detect_savings_elsewhere, has_savings_words
 
 TOKENS = ["jordan", "blake"]
 
@@ -32,16 +32,13 @@ def test_words_plus_the_users_own_name_tokens():
     assert not detect_savings_elsewhere([_t("BLAKE REGULAR SAVER")], name_tokens=TOKENS, account_name="Main", provider="chase")
 
 
-def test_words_plus_the_source_accounts_own_name_shape():
-    # "<this account's own name> to <savings name>", the shape a bank prints on an own-account transfer.
+def test_account_name_shape_is_no_longer_evidence():
+    # G437: "<this account's own name> to <savings name>" says nothing about
+    # whose money the payee holds, so it never counts (words alone, no evidence).
     series = [_t("Everyday Main to Regular Saver")]
-    assert detect_savings_elsewhere(series, name_tokens=[], account_name="Chase Uk Everyday Main", provider="chase")
-    assert detect_savings_elsewhere(series, name_tokens=[], account_name="Everyday Main", provider="chase")
-    # Another account's name is not evidence.
-    assert not detect_savings_elsewhere(series, name_tokens=[], account_name="Holiday Fund", provider="chase")
-    assert own_account_to_shape("Everyday Main to Regular Saver", "Everyday Main")
-    assert not own_account_to_shape("Everyday Mainstream to Regular Saver", "Everyday Main")
-    assert not own_account_to_shape("Regular Saver from Everyday Main", "Everyday Main")
+    assert has_savings_words("Everyday Main to Regular Saver")
+    assert not detect_savings_elsewhere(series, name_tokens=[], account_name="Chase Uk Everyday Main", provider="chase")
+    assert not detect_savings_elsewhere(series, name_tokens=[], account_name="Everyday Main", provider="chase")
 
 
 def test_words_plus_the_engines_own_pair_evidence():
@@ -145,5 +142,12 @@ def test_pattern_builder_stamps_a_user_savings_choice_without_wording(monkeypatc
 
 def test_pattern_builder_ignores_an_engine_assigned_investment_category(monkeypatch):
     got = _patterns(monkeypatch, {"source": "VANGUARD ASSET MGMT"}, category="Investment")
+    assert got
+    assert [r.get("own_savings_elsewhere", False) for r in got.values()] == [False]
+
+
+def test_pattern_builder_ignores_the_account_name_shape(monkeypatch):
+    # G437: "<source account name> to <savings name>" is words only, no evidence.
+    got = _patterns(monkeypatch, {"source": "Everyday Main to Regular Saver"})
     assert got
     assert [r.get("own_savings_elsewhere", False) for r in got.values()] == [False]
