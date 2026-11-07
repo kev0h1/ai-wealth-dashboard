@@ -75,7 +75,7 @@ from app.services.categories import (
     normalise_name,
 )
 from app.services.categorisation import own_transfer_evidence, user_identity
-from app.services.own_account_transfers import counterparty_key
+from app.services.own_account_transfers import account_name_in_text, counterparty_key
 
 logger = logging.getLogger(__name__)
 
@@ -236,6 +236,17 @@ def _scan_own_moves(docs: list[dict], kinds, identity: dict | None = None) -> tu
 
     used: set[str] = set()
 
+    names = identity.get("account_names") or {}
+
+    def pair_named(d: dict, cr: dict) -> bool:
+        """G438 (b): either leg carries the user's name or an account on file, or
+        one leg names the other leg's account or pot."""
+        for leg in (d, cr):
+            if own_transfer_evidence(_text(leg), identity, own_account_id=leg.get("account_id")) is not None:
+                return True
+        return (account_name_in_text(_text(d), {"name": names.get(str(cr.get("account_id")))})
+                or account_name_in_text(_text(cr), {"name": names.get(str(d.get("account_id")))}))
+
     def closest_partner(d: dict, allow_income: bool, need_evidence: bool, income_with_text: bool = False) -> dict | None:
         amt = abs(float(d.get("amount") or 0))
         cents = round(amt * 100)
@@ -245,7 +256,7 @@ def _scan_own_moves(docs: list[dict], kinds, identity: dict | None = None) -> tu
                 if _txn_id(cr) in used or cr.get("account_id") == d.get("account_id"):
                     continue
                 if not allow_income and kind_of(kinds, _effective_category(cr)) == INCOME:
-                    if not (income_with_text and own_transfer_evidence(_text(cr), identity, own_account_id=cr.get("account_id")) is not None):
+                    if not (income_with_text and pair_named(d, cr)):
                         continue
                 if abs(abs(float(cr.get("amount") or 0)) - amt) >= PAIR_AMOUNT_TOLERANCE:
                     continue
@@ -317,16 +328,23 @@ def _scan_own_moves(docs: list[dict], kinds, identity: dict | None = None) -> tu
         need = True  # a name-bearing debit still needs the credit's own evidence
         partner = closest_partner(d, allow_income=False, need_evidence=need)
         if partner is None:
-            # G438: a credit that arrives as Income but whose own text names the
-            # user (or one of their accounts) is now only a question, so it can be
-            # the other leg of a pending pair. Salary and refunds carry no such text.
-            partner = closest_partner(d, allow_income=False, need_evidence=need, income_with_text=True)
+            # G438: a credit that arrives as Income can be the other leg of a pair
+            # when the pair carries a name (the user's, or an account or pot on
+            # file). Salary and refunds carry no such name.
+            partner = closest_partner(d, allow_income=False, need_evidence=False, income_with_text=True)
         if partner is None:
             continue  # the user's name alone never flags a row
         used.add(_txn_id(partner))
         if d.get("custom_category"):
             continue  # the user answered this row: a pair never overrides it
-        # G438: opposite-direction legs are a question, not a decision.
+        # G438 (b): a pair where either leg carries the user's name, or the other
+        # leg's account or pot name on file, is decided. A pair with no name is a
+        # question (pending): Spend leaves it out as before but it is not own.
+        if pair_named(d, partner):
+            own.add(did)
+            if kind_of(kinds, _effective_category(partner)) not in (INCOME, MOVEMENT) and not partner.get("custom_category"):
+                own.add(_txn_id(partner))
+            continue
         pending.add(did)
         if (kind_of(kinds, _effective_category(partner)) not in (INCOME, MOVEMENT)
                 and not partner.get("custom_category")):

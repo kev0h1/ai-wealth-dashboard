@@ -247,9 +247,9 @@ def test_the_users_name_alone_never_flags_a_row():
 def test_the_users_name_with_a_pair_match_flags_the_row():
     out = doc("Business", 300, day=2, desc="KEVIN MAINGI")
     inn = doc("Transfer", 300, debit=False, day=3, account="tide-acc")
-    # G438: a name and a pair is a QUESTION: never an own move, still left out of Spend.
-    assert find_own_move_ids([out, inn], KINDS, IDENTITY) == set()
-    assert find_pending_transfer_ids([out, inn], KINDS, IDENTITY) == {out["_id"]}
+    # G438 (b): a pair where a leg carries the user's name is decided, not asked.
+    assert find_own_move_ids([out, inn], KINDS, IDENTITY) == {out["_id"]}
+    assert find_pending_transfer_ids([out, inn], KINDS, IDENTITY) == set()
     assert not is_spending(out, ctx_for([out, inn]))
 
 
@@ -258,8 +258,7 @@ def test_a_name_bearing_debit_pairs_only_with_a_credit_that_carries_evidence():
     plain = doc("Other", 900, debit=False, day=3, account="x", desc="REFUND FROM SHOP")
     assert find_pending_transfer_ids([rent, plain], KINDS, IDENTITY) == set()
     evidenced = doc("Other", 900, debit=False, day=3, account="x", desc="KEVIN MAINGI")
-    assert rent["_id"] in find_pending_transfer_ids([rent, evidenced], KINDS, IDENTITY)
-    assert find_own_move_ids([rent, evidenced], KINDS, IDENTITY) == set()
+    assert rent["_id"] in find_own_move_ids([rent, evidenced], KINDS, IDENTITY)
 
 
 def test_a_card_refund_does_not_make_a_loan_payment_a_card_repayment():
@@ -327,9 +326,13 @@ def test_a_genuine_tide_pair_with_evidence_is_found_by_transfer_category_name_or
     ):
         out = doc("Business", 15000, day=4, account="cur", desc="AURIQ AURIQ TIDE")
         inn = doc(credit_kwargs["category"], 15000, debit=False, day=5, account="tide-acc", desc=credit_kwargs["desc"])
-        # G438: opposite-direction legs are pending (asked), never decided.
-        assert out["_id"] in find_pending_transfer_ids([out, inn], KINDS, IDENTITY), credit_kwargs
-        assert out["_id"] not in find_own_move_ids([out, inn], KINDS, IDENTITY), credit_kwargs
+        # G438: a leg naming the user or an account on file decides the pair; a
+        # Transfer-category credit with no name is a pending pair (asked).
+        if credit_kwargs["desc"] == "FASTER PAYMENT":
+            assert out["_id"] in find_pending_transfer_ids([out, inn], KINDS, IDENTITY), credit_kwargs
+            assert out["_id"] not in find_own_move_ids([out, inn], KINDS, IDENTITY), credit_kwargs
+        else:
+            assert out["_id"] in find_own_move_ids([out, inn], KINDS, IDENTITY), credit_kwargs
 
 
 def test_runway_burn_excludes_own_account_moves():

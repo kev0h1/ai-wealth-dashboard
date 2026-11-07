@@ -131,8 +131,7 @@ CREDIT_ONLY_PATTERNS: list[tuple[re.Pattern, str]] = [
 #: G438 (Kevin 2026-11-07): wording alone never makes a row the user's own money.
 #: A Transfer or Savings wording match is skipped by `rule_categorise`, except the
 #: card repayment links below (G403/G413, no ruling yet). Whether such a row is an
-#: own transfer is decided by counterparty evidence or the user, and the wording
-#: only lets the transfers review ASK (`wording_suggests_own_transfer`).
+#: own transfer is decided by counterparty evidence, a named pair or the user.
 WORDING_NEVER_OWN_MONEY = frozenset({"Transfer", "Savings"})
 _CARD_PAYMENT_RECEIVED = re.compile(r'payment received|thank you for payment|card payment received|direct debit payment', re.I)
 _AMEX_DDR = re.compile(r'american express.*ddr|amex.*ddr|american express.*direct debit', re.I)
@@ -200,6 +199,15 @@ MERCHANT_PATTERNS: list[tuple[re.Pattern, str]] = [
     (re.compile(r'post office\b|royal mail\b|parcelforce', re.I), 'Shopping'),
     (re.compile(r'\bperks?\b|cashback\b|reward.?payment|loyalty.?reward', re.I), 'Income'),
 ]
+
+
+#: G438: a balance transfer on a CARD account ("COMP BAL XFR", "BALANCE TRANSFER BT123")
+#: is a transfer, not spending. The principal only; a "transfer fee" line stays a fee.
+CARD_BALANCE_TRANSFER_RE = re.compile(r"\bbal(?:ance)?\s*(?:xfr|transfer)\b(?!\s*fee)", re.I)
+
+
+def is_card_balance_transfer(text: str) -> bool:
+    return bool(CARD_BALANCE_TRANSFER_RE.search(text or ""))
 
 
 CARD_LINK_PATTERNS: frozenset = frozenset({_CARD_PAYMENT_RECEIVED, _AMEX_DDR})
@@ -316,11 +324,16 @@ async def user_identity(user_id: str) -> dict:
     own_map: dict[str, dict] = {}
     # G437 evidence (a): (sort code, account number) -> account ids on file.
     own_keys: dict[tuple[str, str], set[str]] = {}
+    # G438: account and pot names on file, for the pair-plus-name rule.
+    account_names: dict[str, str] = {}
     from app.services.own_account_transfers import counterparty_key
     async for a in accounts_col.find(
         {"user_id": user_id},
-        {"account_number": 1, "sort_code": 1, "type": 1, "subtype": 1},
+        {"account_number": 1, "sort_code": 1, "type": 1, "subtype": 1, "name": 1, "display_name": 1},
     ):
+        _nm = a.get("name") or a.get("display_name")
+        if _nm:
+            account_names[str(a["_id"])] = str(_nm)
         _key = counterparty_key(a.get("sort_code"), a.get("account_number"))
         if _key is not None:
             own_keys.setdefault(_key, set()).add(str(a["_id"]))
@@ -333,7 +346,8 @@ async def user_identity(user_id: str) -> dict:
                     "type": a.get("type"),
                     "subtype": a.get("subtype"),
                 }
-    return {"name_tokens": name_tokens, "own_ids": own_ids, "own_map": own_map, "own_keys": own_keys}
+    return {"name_tokens": name_tokens, "own_ids": own_ids, "own_map": own_map, "own_keys": own_keys,
+            "account_names": account_names}
 
 
 def _name_token_hits(description: str, name_tokens: list[str]) -> set:
@@ -376,7 +390,11 @@ def name_matches_owner(text: str, name_tokens: list[str]) -> bool:
         if i not in matched and name_tokens[i]
     }
     words = re.split(r"[^a-zA-Z]+", text.lower())
-    return any(w for w in words if len(w) == 1 and w in unmatched_initials)
+    if any(w for w in words if len(w) == 1 and w in unmatched_initials):
+        return True
+    # G438: the surname with run-together initials ("CARTER AJ"): a 2 to 3 letter
+    # word made only of the initials of the tokens that did not match.
+    return any(2 <= len(w) <= 3 and all(ch in unmatched_initials for ch in w) for w in words)
 
 
 def _text_has_account_pair(text: str, sort_code: str, number: str) -> bool:
@@ -419,20 +437,6 @@ def is_own_transfer(text: str, identity: dict, own_account_id=None) -> bool:
     of True is gone)."""
     evidence = own_transfer_evidence(text, identity, own_account_id)
     return evidence is not None and evidence["kind"] == "account"
-
-
-# G438: wording that SUGGESTS a move into the user's own savings or pots. It is
-# a question for the transfers review, never a decision, and it carries no
-# own-money treatment of its own.
-_OWN_TRANSFER_WORDING = re.compile(
-    r"\bsavings?\b|\bsaver\b|\bisa\b|moneybox|plum\b|chip\b|\bmarcus\b|internal transfer|balance transfer"
-    r"|from .* pot\b|to\s+(?:\w+\s+)*pot\b|pot.?transfer|pot.?withdrawal|pot.?deposit",
-    re.I,
-)
-
-
-def wording_suggests_own_transfer(text: str) -> bool:
-    return bool(_OWN_TRANSFER_WORDING.search(text or ""))
 
 
 def classify_ft(description: str, amount: float, identity: dict, own_account_id=None) -> Optional[str]:
@@ -1202,6 +1206,21 @@ async def apply_rules_bulk(user_id: str, structural: bool = False) -> int:
                 result = await transactions_col.update_many(
                     {"_id": {"$in": cc_transfer_ids}, "custom_category": None},
                     {"$set": {"category": "Transfer"}},
+                )
+                updated += result.modified_count
+
+        # G438: balance transfers on a card account are transfers (card accounts only).
+        if cc_ids:
+            bt_rows = await transactions_col.find(
+                {"user_id": user_id, "account_id": {"$in": cc_ids}, "custom_category": None,
+                 "category": {"$ne": "Transfer"}},
+                {"_id": 1, "merchant_name": 1, "description": 1},
+            ).to_list(None)
+            bt_ids = [t["_id"] for t in bt_rows
+                      if is_card_balance_transfer(f"{t.get('merchant_name') or ''} {t.get('description') or ''}")]
+            if bt_ids:
+                result = await transactions_col.update_many(
+                    {"_id": {"$in": bt_ids}, "custom_category": None}, {"$set": {"category": "Transfer"}},
                 )
                 updated += result.modified_count
 

@@ -300,9 +300,9 @@ def test_learned_pair_excluded_from_suggestions(monkeypatch):
 
 # ── apply_rules_bulk's learned-pair sync pass ────────────────────────────────
 
-def _run_apply_rules_bulk(monkeypatch, txns, *, learned=None, custom_categories_docs=None, preferences_docs=None):
+def _run_apply_rules_bulk(monkeypatch, txns, *, learned=None, custom_categories_docs=None, preferences_docs=None, accounts=None):
     monkeypatch.setattr(categorisation, "transactions_col", FakeCol(txns))
-    monkeypatch.setattr(categorisation, "accounts_col", FakeCol([
+    monkeypatch.setattr(categorisation, "accounts_col", FakeCol(accounts if accounts is not None else [
         {"_id": aid, "user_id": UID, "currency": "GBP", "type": "current"}
         for aid in {t.get("account_id") for t in txns if t.get("user_id") == UID}
     ]))

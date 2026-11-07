@@ -29,15 +29,17 @@ def pairs(rows, learned=None):
     return select_unique_pairs(rows, ACCOUNTS, TOKENS, learned or set())
 
 
-def test_compact_owner_initials_with_transfer_narrative_pair_is_asked_not_decided():
-    # G438 (Kevin 2026-11-07): the user's name and a transfer-rail word on both
-    # legs is a question for the transfers review, never an automatic pair.
-    from app.services.own_account_transfers import has_owner_transfer_reference
+def test_compact_owner_initials_with_transfer_narrative_pair():
+    # G438 (b): the pair plus the user's name on a leg is decided again.
     credit = row("credit", "credit", "natwest", text="FROM A/C MAINGI KM VIA MOBILE XFER")
     debit = row("debit", "debit", "hsbc", text="TO MAINGI KM MOBILE TRANSFER", category="Other")
+    assert pairs([credit, debit]) == [(credit, debit)]
+
+
+def test_a_pair_with_no_name_is_not_decided():
+    credit = row("credit", "credit", "natwest", text="PAIRREF IN")
+    debit = row("debit", "debit", "hsbc", text="PAIRREF OUT", category="Other")
     assert pairs([credit, debit]) == []
-    # the review's evidence gate still sees both legs as owner transfer references
-    assert has_owner_transfer_reference(credit, TOKENS) and has_owner_transfer_reference(debit, TOKENS)
 
 
 def test_other_accounts_sort_code_and_number_is_strong_evidence_without_name():

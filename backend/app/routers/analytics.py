@@ -50,7 +50,7 @@ from app.services.own_savings import detect_savings_elsewhere
 from app.services.categorisation import (
     has_date_fragment, own_transfer_evidence, user_identity,
     canonical_merchant_key, refine_transfer_target, _byte_desc_key,
-    _CHANNEL_CODES, wording_suggests_own_transfer,
+    _CHANNEL_CODES,
 )
 from app.services.account_kinds import is_credit_card_account, is_debt_account
 from app.services.spending import try_build_spending_context
@@ -5900,8 +5900,7 @@ async def _flagged_miscategorised(uid: str, exclude_ids: frozenset = frozenset()
     first and pass every leg id (credit and debit) in here."""
     identity = await user_identity(uid)
     # G438: the empty-identity default is gone from is_own_transfer, so a user
-    # with no name and no accounts simply has no name/account evidence; the
-    # wording question below still applies.
+    # with no name and no accounts simply has no name/account evidence.
 
     # Built from this user's actual kind map (built-ins + custom), not a
     # literal name set — a custom category the user declared `movement`
@@ -5961,12 +5960,6 @@ async def _flagged_miscategorised(uid: str, exclude_ids: frozenset = frozenset()
             continue
         text = f"{t.get('merchant_name') or ''} {t.get('description') or ''}"
         evidence = own_transfer_evidence(text, identity, own_account_id=t.get("account_id"))
-        if (evidence is None and (t.get("category") or "Other") == "Other"
-                and wording_suggests_own_transfer(text)):
-            # G438: wording alone no longer files a row as Savings or Transfer,
-            # but a debit that reads like a move into savings or a pot is still
-            # worth one question in this review.
-            evidence = {"kind": "wording"}
         if evidence is not None:
             t["_series_key"] = sk
             t["_effective_category"] = t.get("custom_category") or t.get("category")

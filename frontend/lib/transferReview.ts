@@ -29,7 +29,7 @@ export type MiscategorisedItem = {
   members?: MiscategorisedMember[];
   // Real per-row evidence for why this was flagged as an own-transfer —
   // optional/additive, absent on a payload cached before this field existed.
-  reason?: { kind: "name" } | { kind: "wording" } | { kind: "account"; account_id: string };
+  reason?: { kind: "name" } | { kind: "account"; account_id: string };
 };
 
 /** Advance a series locally after a saved single-payment choice. The API caps

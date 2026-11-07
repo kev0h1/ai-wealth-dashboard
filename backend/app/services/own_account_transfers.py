@@ -376,6 +376,27 @@ def _text(row: dict) -> str:
     return f"{row.get('merchant_name') or ''} {row.get('description') or ''}".strip()
 
 
+_GENERIC_ACCOUNT_WORDS = frozenset({"account", "pot", "current", "savings", "saving", "the", "my"})
+
+
+def _norm_words(text) -> list[str]:
+    return re.sub(r"[^a-z0-9]+", " ", str(text or "").lower()).split()
+
+
+def account_name_in_text(text: str, account: dict | None) -> bool:
+    """G438: the text carries the name of this account or pot on file as a whole
+    word phrase (generic words such as "account" or "savings" do not count on
+    their own, and a name under 4 letters never matches). Pots are accounts, so
+    there is no pot-specific path."""
+    if not account:
+        return False
+    words = [w for w in _norm_words(account.get("name") or account.get("display_name")) if w not in _GENERIC_ACCOUNT_WORDS]
+    phrase = " ".join(words)
+    if len(phrase) < 4:
+        return False
+    return f" {phrase} " in f" {' '.join(_norm_words(text))} "
+
+
 def _compact_owner_name(text: str, name_tokens: list[str]) -> bool:
     """Recognise `Maingi KM` only when both surname and two initials appear.
 
@@ -620,12 +641,23 @@ def _pair_key(row: dict) -> tuple[str, Decimal] | None:
 
 def _strong_evidence(credit: dict, debit: dict, accounts: dict[str, dict], name_tokens: list[str], learned: set[tuple[str, str]], movement_categories: set[str]) -> bool:
     """Evidence strong enough to decide a pair without asking (G438, Kevin's
-    rule 2): counterparty evidence (a), a pair the user already answered
+    rule): counterparty evidence (a), a pair where either leg names the user or
+    the other account or pot on file (b), a pair the user already answered
     (learned description pair, an explicit movement choice) or a card
-    repayment (checked by the caller). The user's name, a transfer-rail word on
-    both legs and a bare account number are only reasons to ASK, which the
-    transfers review does (`has_pair_evidence` in the analytics router)."""
+    repayment (checked by the caller). A pair with no name, a name with no pair
+    and a bare account number are only reasons to ASK, which the transfers
+    review does (`has_pair_evidence` in the analytics router)."""
     c_text, d_text = _text(credit), _text(debit)
+    # G438 (b), Kevin's refined rule: a matched pair (the caller has already
+    # required opposite directions, equal amounts, a few days, both legs on the
+    # user's accounts) where either leg carries the user's own name, or the name
+    # of the OTHER leg's account or pot on file, is decided without asking. A pair
+    # with no name is a question for the review instead.
+    if _compact_owner_name(c_text, name_tokens) or _compact_owner_name(d_text, name_tokens):
+        return True
+    if (account_name_in_text(c_text, accounts.get(debit["account_id"]))
+            or account_name_in_text(d_text, accounts.get(credit["account_id"]))):
+        return True
     # The text of either leg carries the OTHER leg's sort code AND account
     # number together. A bare account number, or a bare sort code, is not enough.
     for text, other in ((c_text, accounts.get(debit["account_id"])), (d_text, accounts.get(credit["account_id"]))):
@@ -826,7 +858,7 @@ async def reconcile_own_account_transfers(
     confirmed_rows = [row for row in stamped if (row.get("own_transfer_match") or {}).get("confirmed")]
     if confirmed_only and not confirmed_rows:
         return 0
-    account_rows = await account_collection.find({"user_id": user_id}, {"account_number": 1, "sort_code": 1, "provider": 1, "type": 1, "subtype": 1, "account_type": 1, "currency": 1}).to_list(None)
+    account_rows = await account_collection.find({"user_id": user_id}, {"name": 1, "display_name": 1, "account_number": 1, "sort_code": 1, "provider": 1, "type": 1, "subtype": 1, "account_type": 1, "currency": 1}).to_list(None)
     accounts = {row["_id"]: row for row in account_rows}
     profile = await profile_collection.find_one({"_id": user_id}, {"name_tokens": 1}) or {}
     if movement_categories is None:
