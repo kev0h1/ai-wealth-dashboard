@@ -10,10 +10,9 @@ import { getAccountsCached } from "@/lib/accountsCache";
 import { invalidateVerdictCache } from "@/lib/verdictCache";
 import { usePreferences } from "@/components/PreferencesContext";
 import { useColours } from "@/components/ColourProvider";
-import { getCategoryColour } from "@/lib/categories";
 import { payExpectedLabel, resolveUpcomingPeriod } from "@/lib/upcomingPeriod";
 import { useCategoryIcons } from "@/components/IconProvider";
-import { getCategoryIcon } from "@/lib/categoryIcons";
+import { upcomingCategoryAppearance } from "@/components/upcoming/UpcomingCategoryIcon";
 import { useRouter, useSearchParams } from "next/navigation";
 import Spinner from "@/components/Spinner";
 import { useTutorialReady } from "@/components/TutorialContext";
@@ -953,9 +952,7 @@ export default function PlanningPage() {
           const isSettling = item.type === "bill" && !!item.observed_pending;
           const rowKey = `${item.type}-${item.name}-${item.expected_date}`;
           const highlighted = highlightTarget === rowKey;
-          const catName = item.type === "income" ? (item.category || "Income") : (item.category || "Other");
-          const colour = getCategoryColour(catName, colours);
-          const Icon = getCategoryIcon(catName, iconOverrides);
+          const { Icon, colour } = upcomingCategoryAppearance(item.category, item.type, colours, iconOverrides);
           const model: UpcomingRowModel = {
             rowKey,
             identity: item.type === "bill" && item.planned_id ? item.planned_id : `${item.type}-${atRiskKey(item)}-${isSettling ? "settling-" : ""}${item.sourceIndex}`,

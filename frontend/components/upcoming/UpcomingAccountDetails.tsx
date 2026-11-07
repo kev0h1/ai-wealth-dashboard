@@ -1,7 +1,9 @@
 "use client";
 
 import { useId, type ReactNode } from "react";
-import { ArrowDownLeft, ArrowLeftRight, ArrowUpRight, ChevronDown, ChevronRight, PiggyBank, ReceiptText } from "lucide-react";
+import { ArrowDownLeft, ArrowUpRight, ChevronDown, ChevronRight, PiggyBank } from "lucide-react";
+import { useColours } from "@/components/ColourProvider";
+import { useCategoryIcons } from "@/components/IconProvider";
 import { accountPaymentGap, type UpcomingAccountEvent, type UpcomingAccountSummary, type UpcomingSuggestedMove } from "@/lib/upcomingAccounts";
 import { fulfilmentRow, hasPlanSource, remaining, type Plan } from "@/lib/upcomingPlans";
 import { cardRepaymentShortCopy, type AccountStatus } from "@/lib/upcomingAccountStatus";
@@ -13,6 +15,7 @@ import { AccountMoney, AccountSignal } from "./accountPresentation";
 import styles from "./UpcomingAccounts.module.css";
 import MoneyText from "@/components/MoneyText";
 import CoverNote from "@/components/CoverNote";
+import UpcomingCategoryIcon, { upcomingCategoryAppearance } from "./UpcomingCategoryIcon";
 
 export interface UpcomingAccountDetailsProps {
   account: UpcomingAccountSummary;
@@ -31,10 +34,13 @@ function activityDate(iso: string) {
 
 function EventLine({ event, onEvent, align }: { event: UpcomingAccountEvent; onEvent?: (id: string) => void; align?: boolean }) {
   const hidden = useBalancesHidden();
+  const { colours } = useColours();
+  const { icons } = useCategoryIcons();
   const uncounted = event.credited === false;
   const incoming = event.kind === "income" || event.kind === "inflow";
-  const Icon = incoming ? ArrowDownLeft : event.kind === "movement" ? ArrowLeftRight : ReceiptText;
-  const content = <><span className={styles.eventIcon}><Icon size={18} aria-hidden="true" /></span><span className={styles.eventIdentity}><strong>{event.name}</strong><small>{activityDate(event.date)}{uncounted ? " · Not counted until it is confirmed." : ""}</small></span><span data-uncredited-income={uncounted ? "true" : undefined} className={styles.eventAmount}><AccountMoney pence={Math.round(event.amount * 100)} exact positive={incoming} /></span>{onEvent && <ChevronRight size={14} className={styles.muted} aria-hidden="true" />}</>;
+  const category = event.category || (event.kind === "movement" || event.kind === "inflow" ? "Transfer" : undefined);
+  const appearance = upcomingCategoryAppearance(category, incoming ? "income" : "bill", colours, icons);
+  const content = <><UpcomingCategoryIcon {...appearance} /><span className={styles.eventIdentity}><strong>{event.name}</strong><small>{activityDate(event.date)}{uncounted ? " · Not counted until it is confirmed." : ""}</small></span><span data-uncredited-income={uncounted ? "true" : undefined} className={styles.eventAmount}><AccountMoney pence={Math.round(event.amount * 100)} exact positive={incoming} /></span>{onEvent && <ChevronRight size={14} className={styles.muted} aria-hidden="true" />}</>;
   return <li>{onEvent ? <button type="button" data-flow-focus={`event-${event.id}`} aria-label={maskMoneyText(`${event.name}, ${activityDate(event.date)}, ${money(Math.round(event.amount * 100), incoming)}. Open details`, hidden)} onClick={() => onEvent(event.id)} className={`${styles.eventRow} ${styles.eventEditable} min-h-11`}>{content}</button> : <div className={`${styles.eventRow} ${align ? styles.eventEditable : ""}`}>{content}</div>}</li>;
 }
 

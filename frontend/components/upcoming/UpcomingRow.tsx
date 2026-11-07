@@ -6,6 +6,7 @@ import SwipeDismissRow from "@/components/upcoming/SwipeDismissRow";
 import { useBalancesHidden, maskMoneyText } from "@/lib/balancesHidden";
 import { getUpcomingStatus, upcomingMoney, upcomingStatusText } from "@/lib/upcomingAttention";
 import { accountSummaryMoney } from "@/lib/upcomingAccountPresentation";
+import UpcomingCategoryIcon from "./UpcomingCategoryIcon";
 
 /**
  * G176 row boundary. The default `current` treatment preserves the shipped
@@ -117,16 +118,7 @@ function StatusIcon({ model, categoryOnly = false }: { model: UpcomingRowModel; 
       </span>
     );
   }
-  const Icon = model.CategoryIcon;
-  return (
-    <span
-      className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg"
-      style={{ backgroundColor: `${model.categoryColour}26` }}
-      aria-hidden="true"
-    >
-      <Icon size={15} style={{ color: model.categoryColour }} />
-    </span>
-  );
+  return <UpcomingCategoryIcon Icon={model.CategoryIcon} colour={model.categoryColour} />;
 }
 
 function RowBadge({ model }: { model: UpcomingRowModel }) {
