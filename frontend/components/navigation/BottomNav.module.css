@@ -48,7 +48,7 @@
   box-shadow: none;
 }
 .rail[data-appearance="original"] { --nav-selected: var(--nav-accent); }
-.tab, .penny { touch-action: manipulation; -webkit-tap-highlight-color: rgb(79 70 229 / .12); }
+.tab, .penny { touch-action: manipulation; }
 .tab {
   position: relative;
   display: flex;
@@ -107,6 +107,9 @@
 .penny[data-penny-appearance="original"] .paydayDot { box-shadow: 0 0 0 2px #5d42e7; }
 .tab:focus-visible, .penny:focus-visible { outline: 2px solid var(--nav-focus); outline-offset: 4px; }
 .tab:active, .pennyPress:active { opacity: .72; }
+/* G433: rounded press tint that follows each control's corners (replaces the square browser tap highlight). */
+.tab:active { background: rgb(79 70 229 / .12); }
+.penny.pennyPress:active { box-shadow: inset 0 0 0 56px rgb(79 70 229 / .12); }
 @media (min-width: 1024px) {
   .scrim, .navigation { display: none; }
 }

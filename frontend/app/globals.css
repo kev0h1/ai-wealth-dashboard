@@ -55,6 +55,20 @@
   box-sizing: border-box;
 }
 
+html {
+  /* G433: no square browser tap flash; controls carry their own rounded press feedback. */
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* G433: fallback press cue for any tappable without its own. Layered and zero
+   specificity so every utility (active:*) and component rule outranks it; opacity
+   follows each element's own corners, so no square ever shows. */
+@layer base {
+  :where(button, a[href], summary, [role="button"], label[for], input[type="checkbox"], input[type="radio"]):active:not(:disabled):not([aria-disabled="true"]) {
+    opacity: .8;
+  }
+}
+
 html,
 body {
   height: 100%;

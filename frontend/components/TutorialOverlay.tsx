@@ -401,7 +401,7 @@ export default function TutorialOverlay() {
           type="button"
           onClick={end}
           aria-label="Close tour"
-          className="absolute top-1 right-1 w-11 h-11 flex items-center justify-center rounded-full z-10 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 dark:focus-visible:outline-indigo-300"
+          className="absolute top-1 right-1 w-11 h-11 flex items-center justify-center rounded-full z-10 active:scale-90 transition-transform focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 dark:focus-visible:outline-indigo-300"
         >
           <span className="w-7 h-7 flex items-center justify-center rounded-full bg-slate-100 dark:bg-slate-800">
             <X size={13} aria-hidden="true" className="text-slate-500 dark:text-slate-400" />
