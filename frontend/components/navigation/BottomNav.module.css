@@ -61,7 +61,7 @@
   border-radius: 14px;
   color: var(--nav-muted);
 }
-.tab:hover { background: var(--nav-hover); }
+@media (hover: hover) { .tab:hover { background: var(--nav-hover); } }
 .tab[aria-current="page"] { color: var(--nav-selected); }
 .tab[aria-current="page"]::after {
   content: "";
@@ -96,13 +96,13 @@
 :global(.dark) .penny { box-shadow: none; }
 .pennyGlyph { color: var(--nav-penny-ink); }
 .originalMark { color: #fff; }
-.penny:hover { border-color: var(--nav-muted); }
+@media (hover: hover) { .penny:hover { border-color: var(--nav-muted); } }
 .penny[data-active="true"] { outline: 2px solid var(--nav-selected); outline-offset: -4px; }
 .penny[data-penny-appearance="original"] { border-color: transparent; }
 .penny[data-penny-appearance="original"][data-active="true"] { outline-color: #fff; }
 .penny[data-penny-appearance="ink"] { border-color: transparent; box-shadow: none; }
-.penny[data-penny-appearance="ink"]:hover,
 .penny[data-penny-appearance="ink"][data-active="true"] { background: var(--nav-hover); }
+@media (hover: hover) { .penny[data-penny-appearance="ink"]:hover { background: var(--nav-hover); } }
 .paydayDot { position: absolute; top: 9px; right: 9px; width: 7px; height: 7px; border-radius: 50%; background: #f59e0b; box-shadow: 0 0 0 2px var(--nav-rail-surface); }
 .penny[data-penny-appearance="original"] .paydayDot { box-shadow: 0 0 0 2px #5d42e7; }
 .tab:focus-visible, .penny:focus-visible { outline: 2px solid var(--nav-focus); outline-offset: 4px; }

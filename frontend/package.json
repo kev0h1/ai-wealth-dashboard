@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "check:g432-nav-and-income-scroll": "node scripts/g432-nav-and-income-scroll.test.mjs",
     "check:g431-upcoming-category-icons": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g431-upcoming-category-icons.test.mjs",
     "check:g430-move-summary": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g430-move-summary.test.mjs",
     "check:e18-stale-cashflow-retry": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/e18-stale-cashflow-retry.test.mjs",
