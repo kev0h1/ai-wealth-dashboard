@@ -34,8 +34,8 @@ const ROUTES: PreviewRoute[] = [
   {
     slug: "upcoming-move-summary",
     name: "Upcoming move summary · G430",
-    description: "Space refinements of Kevin’s preferred A. A1 places status beneath the balance; A2 combines status and summary into a compact reading line. Original A is kept for comparison. Figures, wording, masking and the full account sheet stay the same. Fictional accounts, both themes and Hide balances.",
-    variants: [{ label: "A1 · Balance", value: "a1" }, { label: "A2 · Reading line", value: "a2" }, { label: "Original A", value: "a" }],
+    description: "Alignment refinements of A1. A3 shares bank/balance and name/status baselines; A4 places the status cue beside the amount. A1 is kept for comparison, with earlier links preserved. Fictional accounts, both themes, Hide balances and the full account sheet.",
+    variants: [{ label: "A3 · Aligned", value: "a3" }, { label: "A4 · Cue by amount", value: "a4" }, { label: "A1 · Balance", value: "a1" }],
     states: [{ label: "Suggested moves", value: "moves" }, { label: "Partly covered", value: "partial" }, { label: "No deadline", value: "no-date" }, { label: "Long names", value: "long" }, { label: "Checking plans", value: "pending" }, { label: "Plans unavailable", value: "error" }],
     group: "current",
   },
