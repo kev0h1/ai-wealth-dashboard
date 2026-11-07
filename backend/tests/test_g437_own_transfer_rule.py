@@ -80,8 +80,10 @@ def test_spending_counterparty_equal_to_own_account_does_not_flag_itself():
 # --- the user's own category outranks every automatic evidence ---------------
 
 def _identity_with_digits():
+    # G438: text evidence is the sort code AND the number, never a bare number.
     return {"name_tokens": [], "own_ids": {"20202020"},
-            "own_map": {"20202020": {"account_id": "saver-acc"}}, "own_keys": {}}
+            "own_map": {"20202020": {"account_id": "saver-acc"}},
+            "own_keys": {("202020", "20202020"): {"saver-acc"}}}
 
 
 def test_counterparty_match_with_user_spend_category_stays_spending():
@@ -90,10 +92,10 @@ def test_counterparty_match_with_user_spend_category_stays_spending():
 
 
 def test_own_digits_text_match_with_user_spend_category_stays_spending():
-    d = _debit(description="PAYMENT 20202020", custom_category="Gifts")
+    d = _debit(description="PAYMENT 20-20-20 20202020", custom_category="Gifts")
     assert "d1" not in find_own_move_ids([d], KINDS, _identity_with_digits())
     # control: without the user category the same text is an own move
-    assert "d1" in find_own_move_ids([_debit(description="PAYMENT 20202020")], KINDS, _identity_with_digits())
+    assert "d1" in find_own_move_ids([_debit(description="PAYMENT 20-20-20 20202020")], KINDS, _identity_with_digits())
 
 
 def test_user_movement_category_still_counts():
@@ -117,5 +119,5 @@ def test_user_business_or_other_category_keeps_option_b_own_move():
     for cat in ("Business", "Other"):
         d = _debit(party_sort_code="040004", party_number="12345678", custom_category=cat)
         assert "d1" in find_own_move_ids([d], KINDS, _identity())
-        d = _debit(description="PAYMENT 20202020", custom_category=cat)
+        d = _debit(description="PAYMENT 20-20-20 20202020", custom_category=cat)
         assert "d1" in find_own_move_ids([d], KINDS, _identity_with_digits())

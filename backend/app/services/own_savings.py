@@ -6,10 +6,12 @@ Engine-owned and conservative. Words alone are never enough: a series is only
 recognised when its description carries savings wording AND independent
 evidence that the money stays with the user, one of
 
-  - the user's own name tokens (from their profile, never a literal),
-  - the shape "<this account's own name> to <savings name>" that banks print
-    on an own-account transfer, using the SOURCE account's own name,
-  - the engine's own pair evidence (`own_transfer_match`) on the series.
+  - the engine's own pair evidence (`own_transfer_match`) on the series,
+  - the bank's counterparty sort code and account number naming an account on
+    file (G437).
+
+G438 (Kevin 2026-11-07): the user's own name is no longer evidence here, it is a
+question for the transfers review. This whole module goes in G438 phase B.
 
 The user outranks the engine both ways. A category the user chose on the
 series (`custom_category`) that is not Savings or Investment switches the
@@ -25,7 +27,6 @@ from __future__ import annotations
 
 import re
 
-from app.services.categorisation import name_matches_owner
 from app.services.own_account_transfers import counterparty_key, resolve_own_account
 
 # Generic savings wording, whole words only. "pot" and "saver" are weak on their
@@ -78,8 +79,6 @@ def detect_savings_elsewhere(
     for t, x in zip(series_txns, texts):
         if not has_savings_words(x):
             continue
-        if name_matches_owner(x, name_tokens or []):
-            return True
         if own_index and counterparty_names_own_account(t, own_index, source_account_id):
             return True
         if t.get("own_transfer_match"):

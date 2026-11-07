@@ -25,10 +25,11 @@ def test_words_alone_are_never_enough():
     assert not detect_savings_elsewhere(series, name_tokens=TOKENS, account_name="Chase Uk Main", provider="chase")
 
 
-def test_words_plus_the_users_own_name_tokens():
+def test_words_plus_the_users_own_name_tokens_is_a_question_not_a_decision():
+    # G438 (Kevin 2026-11-07): the user's name is only a question for the
+    # transfers review, never evidence that the money stays with the user.
     series = [_t("JORDAN BLAKE REGULAR SAVER")]
-    assert detect_savings_elsewhere(series, name_tokens=TOKENS, account_name="Main", provider="chase")
-    # One name token alone is not identity (name_matches_owner needs two, or one plus an initial).
+    assert not detect_savings_elsewhere(series, name_tokens=TOKENS, account_name="Main", provider="chase")
     assert not detect_savings_elsewhere([_t("BLAKE REGULAR SAVER")], name_tokens=TOKENS, account_name="Main", provider="chase")
 
 
@@ -117,10 +118,11 @@ def _patterns(monkeypatch, descriptions_by_account, *, name_tokens=None, custom_
     return {r["key"]: r for r in doc["recurring_spend"]}
 
 
-def test_pattern_builder_stamps_the_recognised_series(monkeypatch):
+def test_pattern_builder_does_not_stamp_a_name_only_series(monkeypatch):
+    # G438: savings wording plus the user's name is no longer recognised.
     got = _patterns(monkeypatch, {"source": "JORDAN BLAKE REGULAR SAVER"}, name_tokens=TOKENS)
     assert got, "the series was detected"
-    assert [r.get("own_savings_elsewhere") for r in got.values()] == [True]
+    assert [r.get("own_savings_elsewhere", False) for r in got.values()] == [False]
     assert all(r["dest_account_id"] is None for r in got.values())
 
 

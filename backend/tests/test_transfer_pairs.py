@@ -457,12 +457,14 @@ def test_pair_with_account_number_evidence_is_suggested(monkeypatch):
     # again with zero shared vocabulary between the two legs' texts. Pence
     # amount, same reasoning as the name-evidence test above.
     identity = {
-        "name_tokens": [], "own_ids": {"123456"},
+        "name_tokens": [], "own_ids": {"123456", "12345678"},
         "own_map": {"123456": {"account_id": "accOther"}},
+        # G438: the text must carry the sort code AND the account number.
+        "own_keys": {("123456", "12345678"): {"accOther"}},
     }
     txns = [
         _t("c1", ttype="credit", amount=60.25, date=D0, account_id="accA",
-           merchant=None, desc="TRANSFER REF 123456", category="Income"),
+           merchant=None, desc="TRANSFER REF 12-34-56 12345678", category="Income"),
         _t("d1", ttype="debit", amount=60.25, date=D0, account_id="accB",
            merchant=None, desc="PAYMENT OUT REQUEST", category="Shopping"),
     ]

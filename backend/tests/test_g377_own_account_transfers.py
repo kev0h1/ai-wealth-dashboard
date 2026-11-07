@@ -11,9 +11,9 @@ from app.services.own_account_transfers import (
 
 NOW = datetime(2026, 10, 31, 12)
 ACCOUNTS = {
-    "hsbc": {"_id": "hsbc", "account_number": "12345678", "type": "current"},
-    "natwest": {"_id": "natwest", "account_number": "87654321", "type": "current"},
-    "saver": {"_id": "saver", "account_number": "23456789", "type": "savings"},
+    "hsbc": {"_id": "hsbc", "sort_code": "11-22-33", "account_number": "12345678", "type": "current"},
+    "natwest": {"_id": "natwest", "sort_code": "44-55-66", "account_number": "87654321", "type": "current"},
+    "saver": {"_id": "saver", "sort_code": "77-88-99", "account_number": "23456789", "type": "savings"},
 }
 TOKENS = ["kevin", "maingi"]
 
@@ -29,16 +29,28 @@ def pairs(rows, learned=None):
     return select_unique_pairs(rows, ACCOUNTS, TOKENS, learned or set())
 
 
-def test_compact_owner_initials_with_transfer_narrative_pair():
+def test_compact_owner_initials_with_transfer_narrative_pair_is_asked_not_decided():
+    # G438 (Kevin 2026-11-07): the user's name and a transfer-rail word on both
+    # legs is a question for the transfers review, never an automatic pair.
+    from app.services.own_account_transfers import has_owner_transfer_reference
     credit = row("credit", "credit", "natwest", text="FROM A/C MAINGI KM VIA MOBILE XFER")
     debit = row("debit", "debit", "hsbc", text="TO MAINGI KM MOBILE TRANSFER", category="Other")
-    assert pairs([credit, debit]) == [(credit, debit)]
+    assert pairs([credit, debit]) == []
+    # the review's evidence gate still sees both legs as owner transfer references
+    assert has_owner_transfer_reference(credit, TOKENS) and has_owner_transfer_reference(debit, TOKENS)
 
 
-def test_specific_other_account_number_is_strong_evidence_without_name():
+def test_other_accounts_sort_code_and_number_is_strong_evidence_without_name():
     credit = row("credit", "credit", "natwest", text="BANK TRANSFER")
-    debit = row("debit", "debit", "hsbc", text="TO 87654321")
+    debit = row("debit", "debit", "hsbc", text="TO 44-55-66 87654321")
     assert pairs([credit, debit]) == [(credit, debit)]
+
+
+def test_a_bare_account_number_or_bare_sort_code_is_not_evidence():
+    credit = row("credit", "credit", "natwest", text="BANK TRANSFER")
+    for text in ("TO 87654321", "TO 44-55-66", "TO 445566"):
+        debit = row("debit", "debit", "hsbc", text=text)
+        assert pairs([credit, debit]) == [], text
 
 
 def test_sort_code_or_amount_and_date_alone_never_forms_pair():
@@ -48,36 +60,36 @@ def test_sort_code_or_amount_and_date_alone_never_forms_pair():
 
 
 def test_same_account_refund_and_foreign_currency_never_form_pair():
-    same = [row("refund", "credit", "hsbc", text="TO 12345678"), row("purchase", "debit", "hsbc", text="TO 12345678")]
-    fx = [row("credit", "credit", "natwest", text="TO 12345678", currency="GBP"), row("debit", "debit", "hsbc", text="TO 87654321", currency="EUR")]
+    same = [row("refund", "credit", "hsbc", text="TO 11-22-33 12345678"), row("purchase", "debit", "hsbc", text="TO 11-22-33 12345678")]
+    fx = [row("credit", "credit", "natwest", text="TO 11-22-33 12345678", currency="GBP"), row("debit", "debit", "hsbc", text="TO 44-55-66 87654321", currency="EUR")]
     assert pairs(same) == []
     assert pairs(fx) == []
 
 
 def test_zero_nan_infinite_and_unknown_currency_values_never_form_pair():
     for amount in (0, "NaN", "Infinity"):
-        credit = row("credit", "credit", "natwest", amount=amount, text="TO 12345678")
-        debit = row("debit", "debit", "hsbc", amount=amount, text="TO 87654321")
+        credit = row("credit", "credit", "natwest", amount=amount, text="TO 11-22-33 12345678")
+        debit = row("debit", "debit", "hsbc", amount=amount, text="TO 44-55-66 87654321")
         assert pairs([credit, debit]) == []
     unknown = [
-        row("credit", "credit", "natwest", text="TO 12345678", currency=""),
-        row("debit", "debit", "hsbc", text="TO 87654321", currency=""),
+        row("credit", "credit", "natwest", text="TO 11-22-33 12345678", currency=""),
+        row("debit", "debit", "hsbc", text="TO 44-55-66 87654321", currency=""),
     ]
     assert pairs(unknown) == []
 
 
 def test_five_day_window_is_inclusive_six_days_is_not():
-    credit = row("credit", "credit", "natwest", text="TO 12345678")
-    at_five = row("five", "debit", "hsbc", text="TO 87654321", days=5)
-    at_six = row("six", "debit", "hsbc", text="TO 87654321", days=6)
+    credit = row("credit", "credit", "natwest", text="TO 11-22-33 12345678")
+    at_five = row("five", "debit", "hsbc", text="TO 44-55-66 87654321", days=5)
+    at_six = row("six", "debit", "hsbc", text="TO 44-55-66 87654321", days=6)
     assert pairs([credit, at_five]) == [(credit, at_five)]
     assert pairs([credit, at_six]) == []
 
 
 def test_ambiguous_duplicate_counterparts_never_auto_choose():
-    credit = row("credit", "credit", "natwest", text="TO 12345678")
-    debit_one = row("debit-one", "debit", "hsbc", text="TO 87654321")
-    debit_two = row("debit-two", "debit", "saver", text="TO 87654321")
+    credit = row("credit", "credit", "natwest", text="TO 11-22-33 12345678")
+    debit_one = row("debit-one", "debit", "hsbc", text="TO 44-55-66 87654321")
+    debit_two = row("debit-two", "debit", "saver", text="TO 44-55-66 87654321")
     assert pairs([credit, debit_one, debit_two]) == []
 
 
@@ -85,7 +97,7 @@ def test_custom_movement_can_anchor_but_every_other_manual_choice_blocks():
     credit = row("credit", "credit", "natwest", text="unhelpful", custom="Investment")
     debit = row("debit", "debit", "hsbc", text="MOBILE TRANSFER", category="Other")
     assert pairs([credit, debit]) == [(credit, debit)]
-    manual_income = row("manual", "credit", "natwest", text="TO 12345678", custom="Income")
+    manual_income = row("manual", "credit", "natwest", text="TO 11-22-33 12345678", custom="Income")
     assert pairs([manual_income, debit]) == []
 
 
@@ -184,11 +196,11 @@ def _service_collections(rows, accounts, *, name_tokens=TOKENS):
 def test_reconcile_hydrates_missing_currency_from_accounts_and_skips_pending():
     now = datetime.utcnow()
     accounts = [{**value, "user_id": "kevin", "currency": "GBP"} for value in ACCOUNTS.values()]
-    credit = row("credit", "credit", "natwest", text="TO 12345678")
-    debit = row("debit", "debit", "hsbc", text="TO 87654321", category="Other")
+    credit = row("credit", "credit", "natwest", text="TO 11-22-33 12345678")
+    debit = row("debit", "debit", "hsbc", text="TO 44-55-66 87654321", category="Other")
     credit["date"] = debit["date"] = now
     credit.pop("currency"); debit.pop("currency")
-    pending = row("pending", "debit", "hsbc", text="TO 87654321", category="Other")
+    pending = row("pending", "debit", "hsbc", text="TO 44-55-66 87654321", category="Other")
     pending["date"] = now; pending["is_pending"] = True
     pending.pop("currency")
     async def run():
@@ -203,11 +215,11 @@ def test_reconcile_hydrates_missing_currency_from_accounts_and_skips_pending():
 def test_recent_history_is_rematched_after_second_account_arrives_but_old_history_is_not():
     now = datetime.utcnow()
     accounts = [{**ACCOUNTS["hsbc"], "user_id": "kevin", "currency": "GBP"}]
-    credit = row("credit", "credit", "natwest", text="TO 12345678")
-    debit = row("debit", "debit", "hsbc", text="TO 87654321", category="Other")
+    credit = row("credit", "credit", "natwest", text="TO 11-22-33 12345678")
+    debit = row("debit", "debit", "hsbc", text="TO 44-55-66 87654321", category="Other")
     credit["date"] = debit["date"] = now - timedelta(days=30)
-    stale_credit = row("stale-credit", "credit", "natwest", text="TO 12345678")
-    stale_debit = row("stale-debit", "debit", "hsbc", text="TO 87654321", category="Other")
+    stale_credit = row("stale-credit", "credit", "natwest", text="TO 11-22-33 12345678")
+    stale_debit = row("stale-debit", "debit", "hsbc", text="TO 44-55-66 87654321", category="Other")
     stale_credit["date"] = stale_debit["date"] = now - timedelta(days=91)
     async def run():
         collections = _service_collections([credit, debit, stale_credit, stale_debit], accounts)
@@ -226,8 +238,8 @@ def test_reclassified_eight_day_own_transfers_leave_no_income_series_but_salary_
     accounts = [{**value, "user_id": "kevin", "currency": "GBP"} for value in ACCOUNTS.values()]
     rows = []
     for index in range(3):
-        credit = row(f"transfer-credit-{index}", "credit", "natwest", text="TO 12345678")
-        debit = row(f"transfer-debit-{index}", "debit", "hsbc", text="TO 87654321", category="Other")
+        credit = row(f"transfer-credit-{index}", "credit", "natwest", text="TO 11-22-33 12345678")
+        debit = row(f"transfer-debit-{index}", "debit", "hsbc", text="TO 44-55-66 87654321", category="Other")
         credit["date"] = debit["date"] = now - timedelta(days=index * 8)
         rows.extend([credit, debit])
     salary = [
@@ -245,8 +257,8 @@ def test_reclassified_eight_day_own_transfers_leave_no_income_series_but_salary_
 
 
 def _matched_rows():
-    credit = row("credit", "credit", "natwest", text="TO 12345678", category="Income")
-    debit = row("debit", "debit", "hsbc", text="TO 87654321", category="Other")
+    credit = row("credit", "credit", "natwest", text="TO 11-22-33 12345678", category="Income")
+    debit = row("debit", "debit", "hsbc", text="TO 44-55-66 87654321", category="Other")
     credit["own_transfer_match"] = build_match_metadata(credit, debit, "Transfer")
     debit["own_transfer_match"] = build_match_metadata(debit, credit, "Transfer")
     credit["category"] = debit["category"] = "Transfer"

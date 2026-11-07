@@ -128,9 +128,18 @@ CREDIT_ONLY_PATTERNS: list[tuple[re.Pattern, str]] = [
     (_G403_CREDIT_RETURNED, 'Transfer'),
 ]
 
+#: G438 (Kevin 2026-11-07): wording alone never makes a row the user's own money.
+#: A Transfer or Savings wording match is skipped by `rule_categorise`, except the
+#: card repayment links below (G403/G413, no ruling yet). Whether such a row is an
+#: own transfer is decided by counterparty evidence or the user, and the wording
+#: only lets the transfers review ASK (`wording_suggests_own_transfer`).
+WORDING_NEVER_OWN_MONEY = frozenset({"Transfer", "Savings"})
+_CARD_PAYMENT_RECEIVED = re.compile(r'payment received|thank you for payment|card payment received|direct debit payment', re.I)
+_AMEX_DDR = re.compile(r'american express.*ddr|amex.*ddr|american express.*direct debit', re.I)
+
 MERCHANT_PATTERNS: list[tuple[re.Pattern, str]] = [
-    (re.compile(r'payment received|thank you for payment|card payment received|direct debit payment', re.I), 'Transfer'),
-    (re.compile(r'american express.*ddr|amex.*ddr|american express.*direct debit', re.I), 'Transfer'),
+    (_CARD_PAYMENT_RECEIVED, 'Transfer'),
+    (_AMEX_DDR, 'Transfer'),
     # G403: a repayment to a card the user does not hold. An issuer printed form
     # followed by a 12+ digit PAN-shaped fragment (or, for B/CARD, direct debit
     # wording) is a card repayment, never the bare issuer name, so a purchase
@@ -193,6 +202,9 @@ MERCHANT_PATTERNS: list[tuple[re.Pattern, str]] = [
 ]
 
 
+CARD_LINK_PATTERNS: frozenset = frozenset({_CARD_PAYMENT_RECEIVED, _AMEX_DDR})
+
+
 def rule_categorise(merchant: str, description: str, *, is_credit: Optional[bool] = None) -> Optional[str]:
     text = f"{merchant} {description}"
     if is_credit:
@@ -203,6 +215,8 @@ def rule_categorise(merchant: str, description: str, *, is_credit: Optional[bool
         if is_credit and pattern in DEBIT_ONLY_PATTERNS:
             continue
         if pattern.search(text):
+            if category in WORDING_NEVER_OWN_MONEY and pattern not in CARD_LINK_PATTERNS:
+                continue  # G438: wording alone never makes a row own money
             if category == "Rent" and not is_rent_payee(text):
                 continue
             return category
@@ -365,64 +379,78 @@ def name_matches_owner(text: str, name_tokens: list[str]) -> bool:
     return any(w for w in words if len(w) == 1 and w in unmatched_initials)
 
 
+def _text_has_account_pair(text: str, sort_code: str, number: str) -> bool:
+    """True when `text` carries BOTH the sort code and the account number of
+    one account (G438, Kevin's rule): the pair printed apart, or run together
+    as sort code then number. A bare number or a bare sort code is not enough."""
+    sc = rf"{sort_code[0:2]}[ -]?{sort_code[2:4]}[ -]?{sort_code[4:6]}"
+    joined = re.search(rf"(?<!\d){sort_code}{number}(?!\d)", text)
+    apart = re.search(rf"(?<!\d){sc}(?!\d)", text) and re.search(rf"(?<!\d){number}(?!\d)", text)
+    return bool(joined or apart)
+
+
 def own_transfer_evidence(text: str, identity: dict, own_account_id=None) -> Optional[dict]:
-    """Decide account-match vs name-match vs no-match for a payment, given an
-    identity already known to carry SOME data (name tokens and/or own_ids).
-    Does not handle the "no identity data at all" case — that stays the
-    caller's responsibility.
+    """What a payment's text says about being a move between the user's own
+    accounts (G438, Kevin's rule 2).
 
-    own_account_id: the account this txn is booked on. Its own number/sort-code
-    is ignored as evidence because banks echo the host account's own number
-    into its narrative (e.g. "27MAR A/C 76526682" on account 76526682 itself),
-    which is not evidence of a move BETWEEN the user's accounts. Digits
-    belonging to any OTHER own account still count as transfer evidence.
+    {"kind": "account", "account_id": ...}: the text carries the sort code AND
+        account number of another account on file. This is a decision.
+    {"kind": "name"}: the user's own name is in the text. This is only a
+        QUESTION for the transfers review, never a decision.
+    None: neither.
 
-    Returns None when neither an account nor a name match is found, else a
-    dict describing the evidence: {"kind": "account", "account_id": ...} or
-    {"kind": "name"}."""
-    digits = set(re.findall(r"\d{6,}", text))
-    own_map = identity.get("own_map") or {}
-    for oid in identity["own_ids"]:
-        if oid not in digits:
-            continue
-        matched_account_id = own_map.get(oid, {}).get("account_id")
-        if own_account_id is not None and matched_account_id == own_account_id:
-            continue  # self-reference: host account echoing its own number
-        return {"kind": "account", "account_id": matched_account_id}
-    if name_matches_owner(text, identity["name_tokens"]):
+    own_account_id is the account this txn is booked on. Its own number and
+    sort code are ignored because banks echo the host account's own number into
+    its narrative (e.g. "27MAR A/C 76526682" on account 76526682 itself)."""
+    for key, ids in (identity.get("own_keys") or {}).items():
+        others = {str(i) for i in ids} - ({str(own_account_id)} if own_account_id is not None else set())
+        if others and _text_has_account_pair(text, key[0], key[1]):
+            return {"kind": "account", "account_id": sorted(others)[0]}
+    if name_matches_owner(text, identity.get("name_tokens") or []):
         return {"kind": "name"}
     return None
 
 
 def is_own_transfer(text: str, identity: dict, own_account_id=None) -> bool:
-    """True when a payment is corroborated as moving between the user's own
-    accounts: their own account/sort-code digits, or their own name.
-    With no identity data at all we can't judge — treat as own (legacy)."""
-    if not identity["name_tokens"] and not identity["own_ids"]:
-        return True
-    return own_transfer_evidence(text, identity, own_account_id) is not None
+    """True only when a payment is decided as moving between the user's own
+    accounts: its text carries another account's sort code AND number. The
+    user's name alone is a question, not a decision (G438); a user with no
+    identity data at all has no own transfers (the old empty-identity default
+    of True is gone)."""
+    evidence = own_transfer_evidence(text, identity, own_account_id)
+    return evidence is not None and evidence["kind"] == "account"
+
+
+# G438: wording that SUGGESTS a move into the user's own savings or pots. It is
+# a question for the transfers review, never a decision, and it carries no
+# own-money treatment of its own.
+_OWN_TRANSFER_WORDING = re.compile(
+    r"\bsavings?\b|\bsaver\b|\bisa\b|moneybox|plum\b|chip\b|\bmarcus\b|internal transfer|balance transfer"
+    r"|from .* pot\b|to\s+(?:\w+\s+)*pot\b|pot.?transfer|pot.?withdrawal|pot.?deposit",
+    re.I,
+)
+
+
+def wording_suggests_own_transfer(text: str) -> bool:
+    return bool(_OWN_TRANSFER_WORDING.search(text or ""))
 
 
 def classify_ft(description: str, amount: float, identity: dict, own_account_id=None) -> Optional[str]:
     """Classify a TrueLayer 'FT' (funds transfer) transaction.
-    Returns a category, or None if the description isn't an FT line."""
+    Returns a category, or None if the description isn't an FT line.
+
+    G438: Transfer only when the line carries another account's sort code and
+    number. The user's name on an FT line is a question for the review, so the
+    line stays Income or Other until answered."""
     desc = (description or "").strip()
     if not re.search(r"\bFT\s*$", desc, re.I):
         return None
-    digits_in_desc = set(re.findall(r"\d{6,}", desc))
-    own_map = identity.get("own_map") or {}
-    for oid in identity["own_ids"]:
-        if oid not in digits_in_desc:
-            continue
-        if own_account_id is not None and own_map.get(oid, {}).get("account_id") == own_account_id:
-            continue  # self-reference: host account echoing its own number
+    evidence = own_transfer_evidence(desc, identity, own_account_id)
+    if evidence is not None and evidence["kind"] == "account":
         return "Transfer"
-    # The Income/Other split hinges on the name not matching, which is only
-    # meaningful once we know the user's name. Until then, leave it be.
+    # The Income/Other split is only meaningful once we know the user's name.
     if not identity["name_tokens"]:
         return None
-    if name_matches_owner(desc, identity["name_tokens"]):
-        return "Transfer"
     return "Income" if amount > 0 else "Other"
 
 
@@ -1317,12 +1345,10 @@ async def apply_rules_bulk(user_id: str, structural: bool = False) -> int:
                 if _refine_target(t.get("account_id")) is not None:
                     # this txn is itself on the savings/card account leg
                     continue
-                digits_in_desc = set(re.findall(r"\d{6,}", t.get("description") or ""))
-                hit = digits_in_desc & own_map.keys()
-                if not hit:
-                    continue
-                matched_acc = own_map[next(iter(hit))]
-                target = _refine_target(matched_acc.get("account_id"))
+                ev = own_transfer_evidence(t.get("description") or "", identity, own_account_id=t.get("account_id"))
+                if ev is None or ev["kind"] != "account":
+                    continue  # G438: only a full sort code and number pair
+                target = _refine_target(ev.get("account_id"))
                 if target:
                     refine_targets.setdefault(t["_id"], target)
 
@@ -1351,8 +1377,13 @@ async def apply_rules_bulk(user_id: str, structural: bool = False) -> int:
         raw_cat  = t.get("category", "")
 
         if raw_cat == "TRANSFER":
-            # G280: a rent payment is spending, not a transfer.
-            cat = "Rent" if txn_type == "debit" and is_rent_payee(f"{merchant} {description}") else "Transfer"
+            # G438: a raw provider TRANSFER tag is not trusted on its own (it is
+            # put on any faster payment). G280: a rent payment is spending.
+            if txn_type == "debit" and is_rent_payee(f"{merchant} {description}"):
+                cat = "Rent"
+            else:
+                cat = rule_categorise_directed(merchant, description, is_credit=txn_type == "credit") or (
+                    "Income" if txn_type == "credit" else "Other")
         elif txn_type == "credit" and raw_cat in ("CREDIT", None):
             # Own-account transfers are already caught above (raw TRANSFER) and by the
             # FT/identity rule. A remaining incoming credit is income unless a rule
@@ -1926,6 +1957,8 @@ async def llm_name_check(uid: str) -> int:
             cat = automatic_category_for_direction(classifications.get(str(i + 1)), d["transaction_type"])
             if not cat or cat not in allowed_cats:
                 continue
+            if cat in WORDING_NEVER_OWN_MONEY:
+                continue  # G438: a model's reading of a name is a question, never an own transfer
             old_cat = d["old_cat"]
             if cat == old_cat:
                 continue

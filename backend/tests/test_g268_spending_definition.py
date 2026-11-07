@@ -28,6 +28,7 @@ from app.services.spending import (
     find_card_repayment_ids,
     classify_flow,
     find_own_move_ids,
+    find_pending_transfer_ids,
     is_spending,
     spend_amount,
     txn_flow,
@@ -41,6 +42,8 @@ IDENTITY = {
     "name_tokens": ["kevin", "maingi"],
     "own_ids": {"20202020"},
     "own_map": {"20202020": {"account_id": "savings-acc", "type": "bank", "subtype": "savings"}},
+    # G438: text evidence needs the sort code AND the number of the account.
+    "own_keys": {("202020", "20202020"): {"savings-acc"}},
 }
 
 TODAY = timeutil.user_today()
@@ -206,9 +209,19 @@ def test_a_provider_fee_with_the_same_name_is_not_evidence_of_own_account():
     assert is_spending(fee, ctx)  # "TIDE PLATFORM LIMI" is a fee, not the user's account
 
 
-def test_own_account_is_found_by_another_account_number():
-    d = doc("Business", 2000, desc="TFR 20202020 BUSINESS SAVER")
+def test_own_account_is_found_by_another_accounts_sort_code_and_number():
+    d = doc("Business", 2000, desc="TFR 20-20-20 20202020 BUSINESS SAVER")
     assert find_own_move_ids([d], KINDS, IDENTITY) == {d["_id"]}
+    joined = doc("Business", 2000, desc="TFR 20202020202020 BUSINESS SAVER")
+    assert find_own_move_ids([joined], KINDS, IDENTITY) == {joined["_id"]}
+
+
+def test_a_bare_account_number_or_bare_sort_code_is_not_enough():
+    # G438 (Kevin 2026-11-07): the full pair or nothing.
+    for desc in ("TFR 20202020 BUSINESS SAVER", "TFR 20-20-20 BUSINESS SAVER"):
+        d = doc("Business", 2000, desc=desc)
+        assert find_own_move_ids([d], KINDS, IDENTITY) == set()
+        assert find_pending_transfer_ids([d], KINDS, IDENTITY) == set()
 
 
 def test_a_credit_on_the_same_account_is_a_refund_not_a_partner():
@@ -221,7 +234,7 @@ def test_a_credit_pairs_only_one_debit():
     a = doc("Business", 100, day=2)
     b = doc("Business", 100, day=2)
     c = doc("Transfer", 100, debit=False, day=3, account="other")
-    assert len(find_own_move_ids([a, b, c], KINDS, IDENTITY)) == 1
+    assert len(find_pending_transfer_ids([a, b, c], KINDS, IDENTITY)) == 1
 
 
 def test_the_users_name_alone_never_flags_a_row():
@@ -234,15 +247,19 @@ def test_the_users_name_alone_never_flags_a_row():
 def test_the_users_name_with_a_pair_match_flags_the_row():
     out = doc("Business", 300, day=2, desc="KEVIN MAINGI")
     inn = doc("Transfer", 300, debit=False, day=3, account="tide-acc")
-    assert find_own_move_ids([out, inn], KINDS, IDENTITY) == {out["_id"]}
+    # G438: a name and a pair is a QUESTION: never an own move, still left out of Spend.
+    assert find_own_move_ids([out, inn], KINDS, IDENTITY) == set()
+    assert find_pending_transfer_ids([out, inn], KINDS, IDENTITY) == {out["_id"]}
+    assert not is_spending(out, ctx_for([out, inn]))
 
 
 def test_a_name_bearing_debit_pairs_only_with_a_credit_that_carries_evidence():
     rent = doc("Bills", 900, day=2, account="cur", desc="MR K MAINGI RENT REF 7")
     plain = doc("Other", 900, debit=False, day=3, account="x", desc="REFUND FROM SHOP")
-    assert find_own_move_ids([rent, plain], KINDS, IDENTITY) == set()
+    assert find_pending_transfer_ids([rent, plain], KINDS, IDENTITY) == set()
     evidenced = doc("Other", 900, debit=False, day=3, account="x", desc="KEVIN MAINGI")
-    assert rent["_id"] in find_own_move_ids([rent, evidenced], KINDS, IDENTITY)
+    assert rent["_id"] in find_pending_transfer_ids([rent, evidenced], KINDS, IDENTITY)
+    assert find_own_move_ids([rent, evidenced], KINDS, IDENTITY) == set()
 
 
 def test_a_card_refund_does_not_make_a_loan_payment_a_card_repayment():
@@ -286,7 +303,7 @@ def test_the_closest_dated_partner_is_preferred():
     near = doc("Transfer", 250, debit=False, day=5, account="tide-acc")
     other_debit = doc("Business", 250, day=1, account="cur")
     # `out` (day 5) must take the day-5 credit, leaving the day-1 credit for the day-1 debit.
-    own = find_own_move_ids([far, near, out, other_debit], KINDS, IDENTITY)
+    own = find_pending_transfer_ids([far, near, out, other_debit], KINDS, IDENTITY)
     assert own == {out["_id"], other_debit["_id"]}
 
 
@@ -306,11 +323,13 @@ def test_a_genuine_tide_pair_with_evidence_is_found_by_transfer_category_name_or
     for credit_kwargs in (
         {"category": "Transfer", "desc": "FASTER PAYMENT"},
         {"category": "Other", "desc": "KEVIN MAINGI"},
-        {"category": "Other", "desc": "FROM 20202020"},
+        {"category": "Other", "desc": "FROM 20-20-20 20202020"},
     ):
         out = doc("Business", 15000, day=4, account="cur", desc="AURIQ AURIQ TIDE")
         inn = doc(credit_kwargs["category"], 15000, debit=False, day=5, account="tide-acc", desc=credit_kwargs["desc"])
-        assert out["_id"] in find_own_move_ids([out, inn], KINDS, IDENTITY), credit_kwargs
+        # G438: opposite-direction legs are pending (asked), never decided.
+        assert out["_id"] in find_pending_transfer_ids([out, inn], KINDS, IDENTITY), credit_kwargs
+        assert out["_id"] not in find_own_move_ids([out, inn], KINDS, IDENTITY), credit_kwargs
 
 
 def test_runway_burn_excludes_own_account_moves():

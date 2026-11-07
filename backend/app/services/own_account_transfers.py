@@ -18,7 +18,7 @@ from typing import Iterable
 from app.db.collections import accounts_col, confirmed_transfer_pairs_col, preferences_col, transactions_col, user_profiles_col
 from app.services.card_issuers import CARD_ISSUERS
 from app.services.card_names import last_four
-from app.services.categorisation import canonical_merchant_key, name_matches_owner, series_key as _base_series_key
+from app.services.categorisation import _text_has_account_pair, canonical_merchant_key, name_matches_owner, series_key as _base_series_key
 from app.services.categories import BUILTIN_CATEGORY_KINDS, MOVEMENT, get_category_kinds
 
 OWN_TRANSFER_MATCH_VERSION = 2
@@ -376,12 +376,6 @@ def _text(row: dict) -> str:
     return f"{row.get('merchant_name') or ''} {row.get('description') or ''}".strip()
 
 
-def _account_number_tokens(account: dict) -> set[str]:
-    """Only account-number length identifiers count, never a shared sort code."""
-    value = re.sub(r"\D", "", str(account.get("account_number") or ""))
-    return {value} if len(value) >= 7 else set()
-
-
 def _compact_owner_name(text: str, name_tokens: list[str]) -> bool:
     """Recognise `Maingi KM` only when both surname and two initials appear.
 
@@ -625,23 +619,23 @@ def _pair_key(row: dict) -> tuple[str, Decimal] | None:
 
 
 def _strong_evidence(credit: dict, debit: dict, accounts: dict[str, dict], name_tokens: list[str], learned: set[tuple[str, str]], movement_categories: set[str]) -> bool:
+    """Evidence strong enough to decide a pair without asking (G438, Kevin's
+    rule 2): counterparty evidence (a), a pair the user already answered
+    (learned description pair, an explicit movement choice) or a card
+    repayment (checked by the caller). The user's name, a transfer-rail word on
+    both legs and a bare account number are only reasons to ASK, which the
+    transfers review does (`has_pair_evidence` in the analytics router)."""
     c_text, d_text = _text(credit), _text(debit)
-    # A reference to the specific other account is strongest.  Sort codes
-    # are intentionally absent from `_account_number_tokens`.
-    c_other = _account_number_tokens(accounts[debit["account_id"]])
-    d_other = _account_number_tokens(accounts[credit["account_id"]])
-    digits_c = set(re.findall(r"\d{7,}", c_text))
-    digits_d = set(re.findall(r"\d{7,}", d_text))
-    if digits_c & c_other or digits_d & d_other:
-        return True
+    # The text of either leg carries the OTHER leg's sort code AND account
+    # number together. A bare account number, or a bare sort code, is not enough.
+    for text, other in ((c_text, accounts.get(debit["account_id"])), (d_text, accounts.get(credit["account_id"]))):
+        key = counterparty_key((other or {}).get("sort_code"), (other or {}).get("account_number"))
+        if key is not None and _text_has_account_pair(text, key[0], key[1]):
+            return True
     # A183: Finexer's own counterparty fields on either leg name the other
     # leg's account (sort code and account number both equal).
     if (counterparty_matches_account(credit, accounts.get(debit["account_id"]))
             or counterparty_matches_account(debit, accounts.get(credit["account_id"]))):
-        return True
-    # Both legs must independently identify the owner and the rail language.
-    if (_TRANSFER_NARRATIVE.search(c_text) and _TRANSFER_NARRATIVE.search(d_text)
-            and _compact_owner_name(c_text, name_tokens) and _compact_owner_name(d_text, name_tokens)):
         return True
     c_key = canonical_merchant_key(credit.get("merchant_name") or "", credit.get("description") or "")
     d_key = canonical_merchant_key(debit.get("merchant_name") or "", debit.get("description") or "")

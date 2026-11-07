@@ -1,0 +1,208 @@
+"""G438 rule 2 (Kevin 2026-11-07): transfer classification.
+
+  - the counterparty sort code AND account number of an account on file is an
+    own transfer, automatically;
+  - the user's name is a QUESTION for the transfers review, never automatic;
+  - two similar transactions in opposite directions are a QUESTION too;
+  - a user's answer or rule overrides both ways.
+
+Invented names, sort codes and account numbers throughout."""
+import asyncio
+from datetime import datetime, timedelta
+
+import app.routers.card_terms  # noqa: F401  (H143: pre-import before any collection patching)
+import app.services.debt_plan  # noqa: F401
+import app.routers.analytics as analytics
+from app.services.categories import BUILTIN_CATEGORY_KINDS, CategoryKinds
+from app.services.categorisation import (
+    classify_ft, is_own_transfer, own_transfer_evidence, rule_categorise, rule_categorise_directed,
+    wording_suggests_own_transfer,
+)
+from app.services.own_account_transfers import select_unique_pairs
+from app.services.spending import (
+    SpendingContext, find_own_move_ids, find_pending_transfer_ids, is_spending, txn_flow,
+)
+from test_transfer_pairs import (
+    D0, UID, FakeCol, _fake_get_category_kinds, _fake_user_identity, _run_apply_rules_bulk, _t,
+)
+
+KINDS = CategoryKinds(dict(BUILTIN_CATEGORY_KINDS))
+TOKENS = ["jordan", "blake"]
+IDENTITY = {
+    "name_tokens": TOKENS,
+    "own_ids": {"040004", "12345678"},
+    "own_map": {"12345678": {"account_id": "saver"}},
+    "own_keys": {("040004", "12345678"): {"saver"}},
+}
+NO_ONE = {"name_tokens": [], "own_ids": set(), "own_map": {}, "own_keys": {}}
+ACCOUNTS = {
+    "main": {"_id": "main", "sort_code": "11-22-33", "account_number": "87654321", "type": "current"},
+    "saver": {"_id": "saver", "sort_code": "04-00-04", "account_number": "12345678", "type": "savings"},
+}
+
+
+# ── sort code and account number: automatic ───────────────────────────────────
+
+def test_sort_code_and_account_number_in_the_text_is_automatic():
+    for text in ("TO 04-00-04 12345678", "TO 040004 12345678", "FASTER PAYMENT 04 00 04 / 12345678", "TO 04000412345678"):
+        ev = own_transfer_evidence(text, IDENTITY, own_account_id="main")
+        assert ev == {"kind": "account", "account_id": "saver"}, text
+        assert is_own_transfer(text, IDENTITY, own_account_id="main"), text
+    assert classify_ft("TO 04-00-04 12345678 FT", -50, IDENTITY, own_account_id="main") == "Transfer"
+    assert classify_ft("TO 04-00-04 12345678 FT", 50, IDENTITY, own_account_id="main") == "Transfer"
+
+
+def test_the_host_account_echoing_its_own_numbers_is_not_evidence():
+    assert own_transfer_evidence("A/C 04-00-04 12345678", IDENTITY, own_account_id="saver") is None
+
+
+def test_counterparty_fields_are_automatic_in_spending_and_in_the_pair_matcher():
+    d = {"_id": "d1", "account_id": "main", "amount": 80.0, "date": D0, "transaction_type": "debit",
+         "category": "Shopping", "description": "ACME REF 77", "party_sort_code": "040004", "party_number": "12345678"}
+    assert "d1" in find_own_move_ids([d], KINDS, IDENTITY)
+    credit = {"_id": "c1", "user_id": UID, "transaction_type": "credit", "account_id": "saver", "amount": 80.0,
+              "currency": "GBP", "date": D0, "description": "BANK TRANSFER", "merchant_name": None,
+              "category": "Income", "custom_category": None}
+    debit = {**credit, "_id": "d1", "transaction_type": "debit", "account_id": "main",
+             "description": "ACME REF 77", "category": "Other", "party_sort_code": "040004", "party_number": "12345678"}
+    assert select_unique_pairs([credit, debit], ACCOUNTS, [], set()) == [(credit, debit)]
+
+
+# ── a bare sort code or a bare account number is not enough ───────────────────
+
+def test_a_bare_sort_code_or_bare_account_number_is_not_evidence():
+    for text in ("PAYMENT 12345678", "PAYMENT 040004", "PAYMENT 04-00-04", "REF 04000412345679"):
+        assert own_transfer_evidence(text, NO_ONE | {"own_keys": IDENTITY["own_keys"]}, own_account_id="main") is None, text
+        assert not is_own_transfer(text, IDENTITY, own_account_id="main"), text
+    d = {"_id": "d1", "account_id": "main", "amount": 80.0, "date": D0, "transaction_type": "debit",
+         "category": "Business", "description": "TFR 12345678 SAVER", "party_sort_code": "040004"}
+    assert find_own_move_ids([d], KINDS, IDENTITY) == set()
+
+
+# ── the user's name: a question, never a decision ─────────────────────────────
+
+def test_a_name_match_is_a_prompt_not_an_automatic_decision():
+    text = "JORDAN BLAKE REGULAR SAVER"
+    assert own_transfer_evidence(text, IDENTITY, own_account_id="main") == {"kind": "name"}
+    assert not is_own_transfer(text, IDENTITY, own_account_id="main")
+    # an FT line with the name no longer becomes Transfer; it stays visible
+    assert classify_ft("TO JORDAN BLAKE FT", -50, IDENTITY, own_account_id="main") == "Other"
+    assert classify_ft("FROM JORDAN BLAKE FT", 50, IDENTITY, own_account_id="main") == "Income"
+    # and spending never calls it an own move on the name alone
+    d = {"_id": "d1", "account_id": "main", "amount": 80.0, "date": D0, "transaction_type": "debit",
+         "category": "Other", "description": text}
+    assert find_own_move_ids([d], KINDS, IDENTITY) == set()
+
+
+def _review_fakes(monkeypatch, txns, identity, prefs=None):
+    monkeypatch.setattr(analytics, "transactions_col", FakeCol(txns))
+    monkeypatch.setattr(analytics, "accounts_col", FakeCol([
+        {"_id": aid, "user_id": UID, "currency": "GBP", "type": "current"}
+        for aid in {t.get("account_id") for t in txns}
+    ]))
+    monkeypatch.setattr(analytics, "preferences_col", FakeCol([{"user_id": UID, **(prefs or {})}]))
+    monkeypatch.setattr(analytics, "confirmed_transfer_pairs_col", FakeCol([]))
+    monkeypatch.setattr(analytics, "get_category_kinds", _fake_get_category_kinds)
+    monkeypatch.setattr(analytics, "user_identity", _fake_user_identity(identity))
+
+
+def test_a_name_match_debit_is_asked_about_in_the_existing_transfers_review(monkeypatch):
+    txns = [_t("d1", ttype="debit", amount=40.0, date=D0, account_id="main", desc="To Jordan Blake", category="Other")]
+    _review_fakes(monkeypatch, txns, IDENTITY)
+    flagged = asyncio.run(analytics._flagged_miscategorised(UID))
+    assert [t["_id"] for t in flagged] == ["d1"]
+    assert flagged[0]["_evidence"] == {"kind": "name"}
+
+
+# ── opposite-direction pair: a question ───────────────────────────────────────
+
+def _pair():
+    credit = _t("c1", ttype="credit", amount=65.25, date=D0, account_id="saver", desc="FROM JORDAN BLAKE", category="Income")
+    debit = _t("d1", ttype="debit", amount=65.25, date=D0, account_id="main", desc="TO JORDAN BLAKE", category="Other")
+    return credit, debit
+
+
+def test_an_opposite_direction_pair_creates_a_prompt_and_is_not_decided(monkeypatch):
+    credit, debit = _pair()
+    # not automatic: the pair matcher needs counterparty evidence or a user answer
+    assert select_unique_pairs([credit, debit], ACCOUNTS, TOKENS, set()) == []
+    # spending: never an own move, still left out of Spend as before (pending)
+    assert find_own_move_ids([debit, credit], KINDS, IDENTITY) == set()
+    assert find_pending_transfer_ids([debit, credit], KINDS, IDENTITY) == {"d1"}
+    ctx = SpendingContext.from_docs([debit, credit], KINDS, IDENTITY)
+    assert ctx.pending_transfer_ids == {"d1"} and ctx.confirmed_own_move_ids == set()
+    assert not is_spending(debit, ctx)
+    # the existing transfers review asks the user
+    _review_fakes(monkeypatch, [credit, debit], IDENTITY)
+    items = asyncio.run(analytics._transfer_pair_suggestions(UID))
+    assert [(i["credit"]["id"], i["debit"]["id"]) for i in items] == [("c1", "d1")]
+
+
+# ── empty identity is never own ───────────────────────────────────────────────
+
+def test_empty_identity_is_never_own():
+    assert not is_own_transfer("ANYTHING AT ALL", NO_ONE)
+    assert not is_own_transfer("TO 04-00-04 12345678", NO_ONE)
+    assert classify_ft("TO SOMEONE FT", -5, NO_ONE) is None
+    assert own_transfer_evidence("JORDAN BLAKE", NO_ONE) is None
+
+
+# ── a provider TRANSFER tag and wording alone are not trusted ─────────────────
+
+def test_a_raw_provider_transfer_tag_is_not_trusted_on_its_own(monkeypatch):
+    rows = [
+        _t("d1", ttype="debit", amount=30.0, date=D0, account_id="main", desc="TO SOMEONE ELSE", category="TRANSFER"),
+        _t("c1", ttype="credit", amount=30.0, date=D0, account_id="main", desc="FROM A FRIEND", category="TRANSFER"),
+    ]
+    _run_apply_rules_bulk(monkeypatch, rows)
+    by_id = {r["_id"]: r for r in rows}
+    assert by_id["d1"]["category"] == "Other"
+    assert by_id["c1"]["category"] == "Income"
+
+
+def test_wording_alone_never_makes_a_row_own_money_but_card_links_stay():
+    for text in ("REGULAR SAVER TOP UP", "CASH ISA TOP UP", "INTERNAL TRANSFER", "FASTER PAYMENT TO J SMITH",
+                 "STANDING ORDER 42", "FROM MY HOLIDAY POT"):
+        assert rule_categorise("", text) not in ("Transfer", "Savings"), text
+        assert rule_categorise_directed("", text, is_credit=False) not in ("Transfer", "Savings"), text
+    # card repayment links (G403/G413) are unchanged
+    assert rule_categorise("", "AMEX DDR") == "Transfer"
+    assert rule_categorise("", "PAYMENT RECEIVED THANK YOU") == "Transfer"
+    # wording only lets the review ask
+    assert wording_suggests_own_transfer("REGULAR SAVER TOP UP")
+    assert not wording_suggests_own_transfer("FASTER PAYMENT TO J SMITH")
+
+
+def test_savings_wording_debit_is_asked_about_not_filed(monkeypatch):
+    txns = [_t("d1", ttype="debit", amount=300.0, date=D0, account_id="main", desc="ACME REGULAR SAVER", category="Other")]
+    _review_fakes(monkeypatch, txns, NO_ONE)
+    flagged = asyncio.run(analytics._flagged_miscategorised(UID))
+    assert [t["_id"] for t in flagged] == ["d1"]
+    assert flagged[0]["_evidence"] == {"kind": "wording"}
+
+
+# ── the user's answer overrides both ways ─────────────────────────────────────
+
+def test_a_user_spend_answer_beats_name_and_pair_evidence(monkeypatch):
+    credit, debit = _pair()
+    debit["custom_category"] = "Groceries"
+    assert find_pending_transfer_ids([debit, credit], KINDS, IDENTITY) == set()
+    assert find_own_move_ids([debit, credit], KINDS, IDENTITY) == set()
+    _review_fakes(monkeypatch, [credit, debit], IDENTITY)
+    assert asyncio.run(analytics._flagged_miscategorised(UID)) == []
+    assert asyncio.run(analytics._transfer_pair_suggestions(UID)) == []
+
+
+def test_a_user_transfer_answer_beats_missing_evidence():
+    debit = {"_id": "d1", "account_id": "main", "amount": 80.0, "date": D0, "transaction_type": "debit",
+             "category": "Other", "custom_category": "Transfer", "description": "ACME REF 77"}
+    ctx = SpendingContext.from_docs([debit], KINDS, NO_ONE)
+    assert not txn_flow(debit, ctx).counts_as_spend
+    # a pair the user already answered (learned description pair) still matches automatically
+    from app.services.categorisation import canonical_merchant_key
+    credit = {"_id": "c1", "user_id": UID, "transaction_type": "credit", "account_id": "saver", "amount": 80.0,
+              "currency": "GBP", "date": D0, "description": "ACME RAIL IN", "merchant_name": None,
+              "category": "Income", "custom_category": None}
+    out = {**credit, "_id": "d2", "transaction_type": "debit", "account_id": "main", "description": "BETA OUT", "category": "Other"}
+    learned = {tuple(sorted((canonical_merchant_key("", "ACME RAIL IN"), canonical_merchant_key("", "BETA OUT"))))}
+    assert select_unique_pairs([credit, out], ACCOUNTS, [], learned) == [(credit, out)]
