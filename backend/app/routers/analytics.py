@@ -46,6 +46,7 @@ from app.services.own_account_transfers import (  # G413: IssuerFallback*: saved
     IssuerFallbackDict, IssuerFallbackSet, saved_key_applies, series_key, repayment_display_name,
 )  # G403: per-card key for a linked repayment
 from app.services.categorisation import series_key as _base_series_key
+from app.services.own_savings import detect_savings_elsewhere
 from app.services.categorisation import (
     has_date_fragment, own_transfer_evidence, user_identity,
     canonical_merchant_key, refine_transfer_target, _byte_desc_key,
@@ -2887,6 +2888,18 @@ async def _compute_cashflow_patterns(uid: str) -> dict:
     # `_card_repayment_projection` (the balance-aware cap and classifier) and
     # carried through `_serialise_pattern` on `card_dest_*` fields.
     card_dest_by_key = _learn_card_repayment_destinations(raw, account_map, kind_map)
+    # G434: an own-savings standing order at a bank that never shares the savings
+    # account has no learnable destination. Recognise it from wording PLUS
+    # independent own-money evidence (see app.services.own_savings); the user's
+    # own category choice outranks it. Read once here, stamped per series below.
+    try:
+        _own_name_tokens = (await user_identity(uid)).get("name_tokens") or []
+    except Exception:
+        _own_name_tokens = []
+    _movement_debits_by_key: dict[str, list[dict]] = defaultdict(list)
+    for _t in raw:
+        if _t.get("transaction_type") == "debit" and kind_of(kind_map, _t.get("custom_category") or _t.get("category")) == MOVEMENT:
+            _movement_debits_by_key[series_key(_t)].append(_t)
 
     # Debits are NOT filtered by category (Transfer included): anything that
     # regularly leaves the account on a date belongs in the projection
@@ -3124,6 +3137,14 @@ async def _compute_cashflow_patterns(uid: str) -> dict:
         # repayments in it.
         card_dest = card_dest_by_key.get(r["key"])
         card_proj = card_repayment_projection.get(r["key"])
+        own_savings_elsewhere = bool(
+            not dest and not card_dest and acct and not acct.get("is_credit_card")
+            and kind_of(kind_map, r.get("category")) == MOVEMENT
+            and detect_savings_elsewhere(
+                _movement_debits_by_key.get(r["key"]) or [], name_tokens=_own_name_tokens,
+                account_name=acct.get("name"), provider=acct.get("provider"),
+            )
+        )
         avg_amount = r["avg_amount"]
         amount_basis = None
         suppressed = False
@@ -3159,6 +3180,8 @@ async def _compute_cashflow_patterns(uid: str) -> dict:
             "dest_account_name": dest["dest_account_name"] if dest else None,
             "dest_account_bank": dest["dest_account_bank"] if dest else None,
             "dest_account_spendable": dest["dest_account_spendable"] if dest else None,
+            # G434: an own-savings standing order whose savings account is held elsewhere.
+            **({"own_savings_elsewhere": True} if own_savings_elsewhere else {}),
             # Card-repayment destination (Step 1) -- DELIBERATELY separate
             # fields from dest_account_id/spendable above: those feed
             # `internal_inflows` (see `_build_cashflow_response`), and a
@@ -4668,6 +4691,7 @@ async def _build_cashflow_response(cached: dict, uid: str | None = None, prefs: 
                 # leaves both fields None.
                 "dest_account_id":        r.get("dest_account_id") if _occ_kind == MOVEMENT else None,
                 "dest_account_spendable": r.get("dest_account_spendable") if _occ_kind == MOVEMENT else None,
+                **({"own_savings_elsewhere": True} if _occ_kind == MOVEMENT and r.get("own_savings_elsewhere") else {}),
                 # Display name/bank for the two `_serialise_pattern` destination
                 # pairs (self-transfer and card-repayment, kept deliberately
                 # separate -- see the doctrine on `card_dest_account_id` above)
@@ -5089,16 +5113,12 @@ async def get_cashflow(user: dict = Depends(current_user), include: str = ""):
             stale_reason = "dirty"
         elif (cached.get("patterns_version") or 0) < PATTERNS_VERSION:
             stale_reason = "patterns_version"
-        elif cached.get("engine_build") != engine_build():
-            # G434: a doc written by another engine build (a deploy the startup pass missed
-            # or failed on) is served as it stands, flagged stale, and recomputed on the worker.
-            stale_reason = "engine_build"
         elif cached.get("model_work_pending"):
             stale_reason = "model_work"  # E18: owed worker rerun, not shown as stale
         elif computed_at and (datetime.now() - computed_at).total_seconds() > _CACHE_TTL_HOURS * 3600:  # naive-ok: hour-scale cache TTL, same as before
             stale_reason = "ttl"
         if stale_reason:
-            stale = stale_reason in ("dirty", "patterns_version", "engine_build")
+            stale = stale_reason in ("dirty", "patterns_version")
             from app.services.derived_caches import enqueue_cashflow_recompute
             await enqueue_cashflow_recompute(uid, reason=stale_reason)
         resp = await _build_cashflow_response(cached, uid=uid)

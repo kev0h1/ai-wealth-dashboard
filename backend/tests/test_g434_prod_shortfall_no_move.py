@@ -13,9 +13,8 @@ amber "may stay put" exemption.
 
 Invented figures: three current accounts and a saver.
 """
-import asyncio
-from datetime import datetime
-
+import app.routers.card_terms  # noqa: F401  (H143: pre-import before any collection patching)
+import app.services.debt_plan  # noqa: F401
 from app.services import companion, response_cache
 from app.services.account_walk import count_at_risk, is_savings_order, walk_events
 from app.services.categories import MOVEMENT
@@ -92,8 +91,11 @@ def test_savings_category_with_nothing_to_cover_it_gives_the_plain_line(monkeypa
 def test_savings_order_predicate():
     base = {"kind": MOVEMENT, "dest_account_id": None, "dest_account_spendable": None, "category": "Savings"}
     assert is_savings_order(base)
+    assert is_savings_order({**base, "category": "Investment"})
     assert not is_savings_order({**base, "category": "Transfer"})
-    assert not is_savings_order({**base, "category": "Investment"})
+    # G434: the engine's own-savings-held-elsewhere recognition (savings wording plus own-money evidence).
+    assert is_savings_order({**base, "category": "Transfer", "own_savings_elsewhere": True})
+    assert not is_savings_order({**base, "category": "Transfer", "own_savings_elsewhere": False})
     assert not is_savings_order({**base, "is_card_repayment": True})
     assert not is_savings_order({**base, "is_credit_card": True})
     assert not is_savings_order({**base, "kind": "commitment"})

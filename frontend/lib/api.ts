@@ -204,6 +204,8 @@ export type UpcomingBill = {
    */
   dest_account_id?: string | null;
   dest_account_spendable?: boolean | null;
+  /** G434: an own-savings standing order whose savings account is held at a bank that does not share it. */
+  own_savings_elsewhere?: boolean;
   /**
    * G266: true for a recurring credit card repayment (category Debt, or a
    * learned card destination). Kind stays "movement" so it is never spend,

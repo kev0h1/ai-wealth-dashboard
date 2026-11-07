@@ -374,20 +374,20 @@ def walk_events(
 
 def is_savings_order(b: dict) -> bool:
     """G426/G434. A recurring transfer into the user's OWN non-spendable
-    (savings or investment) account, recognised two ways: a movement with a
-    learned own destination that is not a pooled spendable account, or, when
-    no destination has been learned (the saver is not connected, or the
-    matcher has not yet seen two matching credits), a movement the series
-    already carries the built-in "Savings" category for. The category is an
-    existing categorisation output read as it stands; no new naming rule.
-    A card repayment is a payment at risk, never savings."""
+    (savings or investment) account, recognised three ways: a movement with a
+    learned own destination that is not a pooled spendable account; with no
+    destination (the savings account is held at a bank that does not share it)
+    a series the user or the engine filed under Savings or Investment; or one
+    the engine recognised from savings wording plus own-money evidence
+    (`own_savings_elsewhere`, app.services.own_savings). A card repayment is a
+    payment at risk, never savings."""
     from app.services.categories import MOVEMENT
 
     if b.get("kind") != MOVEMENT or b.get("is_card_repayment") or b.get("is_credit_card"):
         return False
     if b.get("dest_account_id"):
         return b.get("dest_account_spendable") is not True
-    return b.get("category") == "Savings"
+    return b.get("own_savings_elsewhere") is True or b.get("category") in ("Savings", "Investment")
 
 
 def payment_only_walk(events: list, seed: dict, *, drop: Callable[[dict], bool] = is_savings_order):

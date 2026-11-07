@@ -1,0 +1,107 @@
+{
+  "name": "Standing order with savings wording but no own-name, own-account-name or pair evidence stays an ordinary own-account movement (G434)",
+  "today": "2026-11-25",
+  "pay_period_config": {
+    "type": "last_friday"
+  },
+  "confirmed_income_streams": [],
+  "accounts": [
+    {
+      "_id": "acc-a",
+      "name": "Chase Current A",
+      "provider": "chase",
+      "type": "BANK",
+      "subtype": "TRANSACTION",
+      "balance": 150.0,
+      "currency": "GBP",
+      "status": "connected",
+      "include_in_safe_to_spend": true
+    },
+    {
+      "_id": "acc-b",
+      "name": "Barclays Current B",
+      "provider": "barclays",
+      "type": "BANK",
+      "subtype": "TRANSACTION",
+      "balance": 600.0,
+      "currency": "GBP",
+      "status": "connected",
+      "include_in_safe_to_spend": true
+    },
+    {
+      "_id": "acc-c",
+      "name": "Monzo Current C",
+      "provider": "monzo",
+      "type": "BANK",
+      "subtype": "TRANSACTION",
+      "balance": 200.0,
+      "currency": "GBP",
+      "status": "connected",
+      "include_in_safe_to_spend": true
+    }
+  ],
+  "manual_accounts": [],
+  "cashflow_cache": {
+    "recurring_spend": [
+      {
+        "key": "ACME REGULAR SAVER CLUB",
+        "avg_amount": 300.0,
+        "avg_interval": 30,
+        "next_date": "2026-11-26",
+        "account_id": "acc-a",
+        "account_name": "Chase Current A",
+        "account_bank": "chase",
+        "account_balance": 150.0,
+        "is_credit_card": false,
+        "category": "Transfer",
+        "dest_account_id": null,
+        "dest_account_name": null,
+        "dest_account_bank": null,
+        "dest_account_spendable": null,
+        "own_savings_elsewhere": false
+      }
+    ],
+    "recurring_income": [],
+    "bnpl_commitments": [],
+    "avg_daily_spend": 0
+  },
+  "transactions": [],
+  "commitments": [],
+  "allocations": [],
+  "card_terms": [],
+  "expected": {
+    "left_to_spend": 650.0,
+    "spend_from_total": 650.0,
+    "spendable_balance": 950.0,
+    "accounts": {
+      "acc-a": {
+        "spend_from": 0.0,
+        "after_payments": -150.0,
+        "low_point": -150.0,
+        "verdict": "short",
+        "savings_at_risk": null
+      },
+      "acc-b": {
+        "spend_from": 600.0,
+        "after_payments": 600.0,
+        "low_point": 600.0,
+        "verdict": "covered",
+        "savings_at_risk": null
+      },
+      "acc-c": {
+        "spend_from": 50.0,
+        "after_payments": 200.0,
+        "low_point": 200.0,
+        "verdict": "covered",
+        "savings_at_risk": null
+      }
+    },
+    "cover_plan": {
+      "moves_total": 0.0,
+      "moves": []
+    },
+    "payday_plan": null,
+    "at_risk_count": 0,
+    "notes": "G434 (Kevin 2026-11-07). The same account and standing order as the recognised scenario (Chase Current A 150, a 300 order dated Thu 26 Nov, Barclays Current B 600, Monzo Current C 200, today Wed 25 Nov, payday Fri 27 Nov), but the description carries savings wording only (Regular Saver) with no evidence the money stays with the user: no own name tokens, not the shape of this account's own name, no pair, no learned destination, no Savings category. Words alone are never enough, so the engine does not call it own savings and the series stays an ordinary own-account movement (kind movement, category Transfer). A: 150 - 300 = -150 after payments and at the low point, verdict short. A movement-only deficit is not a bill at risk (at risk count 0) and the movement-only gate keeps it out of the cover engine: no savings at risk fact, no cover move (moves total 0). Left to spend: pool 150 + 600 + 200 = 950 less the 300 leaving = 650. Allocation fills the current accounts in their listed order until 650 is used: A has no positive headroom (-150, shows 0), B takes min(600, 650) = 600, C takes the 50 that remains (min(200, 50)). 0 + 600 + 50 = 650. Nothing is moved by the app."
+  }
+}
