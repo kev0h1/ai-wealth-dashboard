@@ -972,7 +972,7 @@ export default function HomePage() {
     // native (a bank that hands off to its own app, like Chase, can then
     // complete). The return is handled app-wide by DeepLinkHandler.
     const result = await startConsent({ providerId, legacy });
-    if (!result.ok) {
+    if (!result.ok && !result.busy) {
       void noticeSheet({ title: "Couldn’t start reconnection", body: result.message });
     }
   }

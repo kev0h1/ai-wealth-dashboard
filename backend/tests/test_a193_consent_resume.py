@@ -159,3 +159,19 @@ def test_error_callback_on_a_pending_native_consent_hands_back_an_error_page(mon
     assert out.status_code == 200
     assert b"status=error" in out.body
     assert syncs == []
+
+
+def test_return_with_state_but_no_fx_consent_ends_as_an_error_the_app_can_explain(monkeypatch):
+    col, syncs = _setup_callback(monkeypatch, _consent())
+    out = asyncio.run(finexer_module.finexer_callback(state="s1"))
+    assert col.docs[0]["status"] == "canceled"
+    assert col.docs[0]["error"] == "missing_consent"
+    assert b"status=error" in out.body
+    assert syncs == []
+
+
+def test_return_with_unknown_state_and_no_fx_consent_stays_an_error_page(monkeypatch):
+    col, syncs = _setup_callback(monkeypatch, _consent())
+    out = asyncio.run(finexer_module.finexer_callback(state="nope"))
+    assert out.status_code == 400
+    assert col.docs[0]["status"] == "pending"

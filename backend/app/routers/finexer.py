@@ -312,6 +312,15 @@ async def finexer_callback(
     """
     # Accept both `consent` and `fx_consent` param names
     consent_id = fx_consent or consent
+    if not consent_id and state:
+        # A193: a bank app that could not open (restricted battery) can send the
+        # user back with our own `state` but no fx_consent. The state identifies
+        # the consent we created, so it ends as an error the app can explain
+        # (and offer a fresh Try again), instead of a dead-end page.
+        by_state = await finexer_consents_col.find_one({"state": state})
+        if by_state:
+            consent_id = by_state["_id"]
+            error = error or "missing_consent"
     if not consent_id:
         return bank_error_response("finexer", "", status_code=400,
                                    message="That link is missing its connection details. Close this window and try again in Sorted.")

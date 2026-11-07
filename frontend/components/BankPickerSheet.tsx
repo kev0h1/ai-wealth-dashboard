@@ -12,8 +12,9 @@ import { DEEP_LINK_EVENT, type DeepLinkDetail } from "@/lib/deepLinks";
 import { registerBankSheet } from "@/lib/bankConnectReturn";
 import { useBankReturnReset } from "@/lib/useBankReturnReset";
 import { startConsent } from "@/lib/startConsent";
+import { CONSENT_INTERRUPTED_MESSAGE } from "@/lib/pendingConsent";
 
-const BANK_FAILED = "The bank connection didn’t complete. Try again.";
+const BANK_FAILED = CONSENT_INTERRUPTED_MESSAGE;
 
 export interface Bank {
   id: string;
@@ -205,6 +206,12 @@ export default function BankPickerSheet({ onClose, onConnecting, provider = "fin
       onConnecting: () => onConnecting?.(),
       onHandedOff: () => close(),
     });
+    if (!result.ok && result.busy) {
+      // A193: another start is already in flight; leave it alone.
+      bankReturn.end();
+      updateConnecting(null);
+      return;
+    }
     if (!result.ok) {
       // A178: show the message, keep the list tappable for a retry, and for a
       // rejected bank drop it from the list for the rest of this session.
