@@ -22,7 +22,7 @@ function AccountRow({ account, reading, variant, onOpen }: { account: UpcomingAc
   const meta = BANK_META[bankKey({ provider: account.bank })];
   const summary = signal || reading.result.estimated ? accountMoveSummary(account, reading) : null;
   const aligned = variant === "a3" || variant === "a4";
-  const status = <span data-status-caption className={styles.rowCaption}>{variant !== "a4" && <AccountSignal signal={signal} />}{caption}</span>;
+  const status = <span data-status-caption className={styles.rowCaption}>{variant !== "a4" && <AccountSignal signal={signal} />}<span data-status-text>{caption}</span></span>;
   const detail = gap > 0 ? earlierGap ? "short before payday" : paymentGap > 0 ? "short for payments" : transferGap > 0 ? "short for transfers" : "short for plans" : caption.toLowerCase();
   const label = `Open ${account.bank}, ${displayAccountName(account.name)}: ${headline === null ? "Not yet known" : accountSummaryMoney(headline)}, ${detail}.${summary ? ` ${summary}` : ""}`;
   return <button type="button" data-account-row={account.id} className={`${styles.accountRow} ${aligned ? styles.sharedBaselines : variant === "a1" ? styles.balanceStatus : variant === "a2" ? styles.sharedReading : ""}`} aria-label={maskMoneyText(label, hidden)} onClick={() => onOpen(account)}>
