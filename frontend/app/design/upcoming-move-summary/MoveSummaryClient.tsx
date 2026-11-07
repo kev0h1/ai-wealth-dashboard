@@ -14,7 +14,9 @@ import { EXAMPLES, previewHref, type PreviewParams } from "./previewParams";
 import styles from "./preview.module.css";
 
 const VARIANTS = [
-  { value: "a", label: "A · Account-aligned", description: "The summary follows the account name’s reading edge, keeping the existing row structure." },
+  { value: "a1", label: "A1 · Balance", description: "Status sits beneath the balance, using the space beside the account name. The summary keeps A’s reading edge." },
+  { value: "a2", label: "A2 · Reading line", description: "Status and summary share one compact reading line beneath the account. Figures and names keep their room." },
+  { value: "a", label: "Original A", description: "The earlier account-aligned layout, kept here to compare the spacing." },
   { value: "b", label: "B · Full-width", description: "The summary uses the row’s full width, giving amounts, dates and uncovered balances more room." },
   { value: "current", label: "Current", description: "The current By account card on the same fictional accounts, for comparison." },
 ] as const;
@@ -42,8 +44,8 @@ export default function MoveSummaryClient(params: PreviewParams) {
       <header className={styles.reviewHeader}>
         <Link href="/design" prefetch={false} className={styles.back}>Back to design previews</Link>
         <h1>Move summaries</h1>
-        <p>Keep By account to a short summary. Open an account for the full detail. Fictional accounts and example figures.</p>
-        <nav className={styles.variantControls} aria-label="Summary layout">{VARIANTS.map(item => <Link key={item.value} href={href({ variant: item.value })} prefetch={false} aria-current={variant === item.value ? "page" : undefined}>{item.label}</Link>)}</nav>
+        <p>Two refinements of A use the row’s space more efficiently. Open an account for the full detail. Fictional accounts and example figures.</p>
+        <nav className={styles.variantControls} aria-label="Summary layout">{VARIANTS.filter(item => item.value === "a1" || item.value === "a2" || item.value === "a").map(item => <Link key={item.value} href={href({ variant: item.value })} prefetch={false} aria-current={variant === item.value ? "page" : undefined}>{item.label}</Link>)}</nav>
         <div className={styles.controls}>
           <nav className={styles.themeControls} aria-label="Preview theme">{(["light", "dark"] as const).map(value => <Link key={value} href={href({ mode: value })} prefetch={false} aria-current={mode === value ? "page" : undefined}>{value === "light" ? "Light" : "Dark"}</Link>)}</nav>
           <button type="button" aria-pressed={hidden} onClick={() => window.location.assign(href({ hidden: !hidden }))}>Hide balances</button>

@@ -34,8 +34,8 @@ const ROUTES: PreviewRoute[] = [
   {
     slug: "upcoming-move-summary",
     name: "Upcoming move summary · G430",
-    description: "Two summary layouts keeping the G417 figures and G429 account header. A Account-aligned, B Full-width. One aggregate move amount, a proven deadline and any uncovered balance, with the full detail in the existing account sheet. Current card for comparison, fictional accounts, both themes and Hide balances.",
-    variants: [{ label: "A · Account-aligned", value: "a" }, { label: "B · Full-width", value: "b" }],
+    description: "Space refinements of Kevin’s preferred A. A1 places status beneath the balance; A2 combines status and summary into a compact reading line. Original A is kept for comparison. Figures, wording, masking and the full account sheet stay the same. Fictional accounts, both themes and Hide balances.",
+    variants: [{ label: "A1 · Balance", value: "a1" }, { label: "A2 · Reading line", value: "a2" }, { label: "Original A", value: "a" }],
     states: [{ label: "Suggested moves", value: "moves" }, { label: "Partly covered", value: "partial" }, { label: "No deadline", value: "no-date" }, { label: "Long names", value: "long" }, { label: "Checking plans", value: "pending" }, { label: "Plans unavailable", value: "error" }],
     group: "current",
   },

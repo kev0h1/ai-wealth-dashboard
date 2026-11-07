@@ -16,10 +16,10 @@ export const EXAMPLES = [
 ] as const;
 
 export type Example = typeof EXAMPLES[number]["value"];
-export type PreviewParams = { variant: "a" | "b" | "current"; mode: "light" | "dark"; state: Example; hidden: boolean };
+export type PreviewParams = { variant: "a1" | "a2" | "a" | "b" | "current"; mode: "light" | "dark"; state: Example; hidden: boolean };
 export function parsePreviewParams(query: Record<string, string | string[] | undefined>): PreviewParams {
   return {
-    variant: query.variant === "b" || query.variant === "current" ? query.variant : "a",
+    variant: query.variant === "a" || query.variant === "b" || query.variant === "current" || query.variant === "a2" ? query.variant : "a1",
     mode: query.mode === "dark" ? "dark" : "light",
     state: EXAMPLES.some(item => item.value === query.state) ? query.state as Example : "moves",
     hidden: query.hidden === "1",
