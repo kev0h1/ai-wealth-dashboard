@@ -139,7 +139,7 @@ function SpendFromUnavailableNote({ kind, message, retryable, onRetry }: {
   return (
     <div
       data-g115-treatment={kind}
-      className="mt-2 flex flex-wrap items-baseline gap-x-2 gap-y-1 text-[12px] leading-snug text-slate-500 dark:text-slate-400 text-pretty"
+      className="mt-2 flex flex-wrap items-baseline gap-x-2 gap-y-1 text-[12px] leading-snug text-slate-500 dark:text-slate-400 text-wrap"
       role="status"
     >
       <p>{message}</p>
@@ -199,7 +199,7 @@ export function approvedSpendFromTreatment(
     case "no-current":
       return {
         body: (
-          <div data-g115-treatment="no-current" className="mt-2 flex items-start gap-2 text-[12px] leading-snug text-slate-500 dark:text-slate-400 text-pretty">
+          <div data-g115-treatment="no-current" className="mt-2 flex items-start gap-2 text-[12px] leading-snug text-slate-500 dark:text-slate-400 text-wrap">
             <span className="mt-1.5 size-1.5 shrink-0 rounded-full bg-amber-500" aria-hidden="true" />
             <p>
               No cash is available to spend from your current accounts right now.
@@ -335,7 +335,7 @@ export default function SafeToSpendCard({ data, loading, error, onRetry, spendFr
       <section className="rounded-2xl p-5 glass-hero" role="alert" aria-labelledby="safe-to-spend-unavailable">
         <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.05em] text-slate-500 dark:text-slate-400">Estimated left to spend</p>
         <h2 id="safe-to-spend-unavailable" className="text-base font-bold text-slate-900 dark:text-slate-100">Your left to spend estimate is unavailable</h2>
-        <p className="mt-1 text-pretty text-[13px] leading-5 text-slate-600 dark:text-slate-300">Your accounts may still be visible, but we can&apos;t calculate what is left to spend until payday.</p>
+        <p className="mt-1 text-wrap text-[13px] leading-5 text-slate-600 dark:text-slate-300">Your accounts may still be visible, but we can&apos;t calculate what is left to spend until payday.</p>
         {onRetry && <button type="button" onClick={onRetry} className="mt-3 min-h-11 rounded-xl px-3 text-sm font-semibold text-indigo-600 hover:bg-indigo-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-indigo-400 dark:hover:bg-indigo-500/10">Try again</button>}
       </section>
     );
@@ -346,7 +346,7 @@ export default function SafeToSpendCard({ data, loading, error, onRetry, spendFr
       <section className="rounded-2xl p-5 glass-hero" aria-labelledby="safe-to-spend-history">
         <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.05em] text-slate-500 dark:text-slate-400">Estimated left to spend</p>
         <h2 id="safe-to-spend-history" className="text-base font-bold text-slate-900 dark:text-slate-100">Your figure isn’t ready yet</h2>
-        <p className="mt-1 text-pretty text-[13px] leading-5 text-slate-600 dark:text-slate-300">We need a little more account history to map bills and work out what is left until payday.</p>
+        <p className="mt-1 text-wrap text-[13px] leading-5 text-slate-600 dark:text-slate-300">We need a little more account history to map bills and work out what is left until payday.</p>
         {onRetry && <button type="button" onClick={onRetry} className="mt-3 min-h-11 rounded-xl px-3 text-sm font-semibold text-indigo-600 hover:bg-indigo-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-indigo-400 dark:hover:bg-indigo-500/10">Check again</button>}
       </section>
     );
@@ -359,7 +359,7 @@ export default function SafeToSpendCard({ data, loading, error, onRetry, spendFr
       <section className="rounded-2xl p-5 glass-hero" aria-busy="true" aria-labelledby="safe-to-spend-syncing">
         <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.05em] text-slate-500 dark:text-slate-400">Estimated left to spend</p>
         <h2 id="safe-to-spend-syncing" className="text-base font-bold text-slate-900 dark:text-slate-100">Your figure is on its way</h2>
-        <p className="mt-1 text-pretty text-[13px] leading-5 text-slate-600 dark:text-slate-300">We are still fetching your transactions, so there is no verdict yet.</p>
+        <p className="mt-1 text-wrap text-[13px] leading-5 text-slate-600 dark:text-slate-300">We are still fetching your transactions, so there is no verdict yet.</p>
       </section>
     );
   }
@@ -369,7 +369,7 @@ export default function SafeToSpendCard({ data, loading, error, onRetry, spendFr
       <section className="rounded-2xl p-5 glass-hero" role="alert" aria-labelledby="safe-to-spend-incomplete">
         <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.05em] text-slate-500 dark:text-slate-400">Estimated left to spend</p>
         <h2 id="safe-to-spend-incomplete" className="text-base font-bold text-slate-900 dark:text-slate-100">We could not check everything</h2>
-        <p className="mt-1 text-pretty text-[13px] leading-5 text-slate-600 dark:text-slate-300">We are not showing a figure because part of the calculation could not be checked and it might be too high. Try again in a moment, or check your bank.</p>
+        <p className="mt-1 text-wrap text-[13px] leading-5 text-slate-600 dark:text-slate-300">We are not showing a figure because part of the calculation could not be checked and it might be too high. Try again in a moment, or check your bank.</p>
         {onRetry && <button type="button" onClick={onRetry} className="mt-3 min-h-11 rounded-xl px-3 text-sm font-semibold text-indigo-600 hover:bg-indigo-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-indigo-400 dark:hover:bg-indigo-500/10">Try again</button>}
       </section>
     );
@@ -493,9 +493,9 @@ export default function SafeToSpendCard({ data, loading, error, onRetry, spendFr
         </>
       ) : null}
 
-      <p id="safe-to-spend-scope" className="mt-3 text-pretty text-[13px] leading-5 text-slate-600 dark:text-slate-300"><MoneyText text={data.estimated ? heroSupport.replace(/\.$/, "") : heroSupport} />{data.estimated && <span className="text-xs text-slate-500 dark:text-slate-400"> · early estimate</span>}</p>
+      <p id="safe-to-spend-scope" className="mt-3 text-wrap text-[13px] leading-5 text-slate-600 dark:text-slate-300"><MoneyText text={data.estimated ? heroSupport.replace(/\.$/, "") : heroSupport} />{data.estimated && <span className="text-xs text-slate-500 dark:text-slate-400"> · early estimate</span>}</p>
 
-      <p data-sts-counts className="mt-2 text-pretty text-[12px] leading-[1.45] text-slate-700 dark:text-slate-200">{COUNTS_INTRO}</p>
+      <p data-sts-counts className="mt-2 text-wrap text-[12px] leading-[1.45] text-slate-700 dark:text-slate-200">{COUNTS_INTRO}</p>
 
       {sync && state !== "short" && heroAmount > 0 && ["bank-rail", "name-fallback"].includes(spendFromPlan.kind) && <p className="mt-3 text-[12px] text-slate-600 dark:text-slate-300">Last known account figures.</p>}
       {(state !== "short" && heroAmount > 0) || !["bank-rail", "name-fallback"].includes(spendFromPlan.kind) ? spendFromTreatment?.body : null}
