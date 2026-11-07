@@ -33,7 +33,8 @@ for (const [Component, item] of cases) {
   for (const hidden of [false, true]) {
     const maskAmounts = hidden ? mask : text => text;
     const html = render(h(Component, { ...common, item, maskAmounts, hideNetWorth: hidden }));
-    assert.match(html, /class="pr-9"><div class="min-w-0 flex-1">/, `${Component.name}: full-width block header, no icon column`);
+    assert.match(html, /<div><div class="min-w-0 flex-1">/, `${Component.name}: full-width block header, no icon column or shared right inset`);
+    assert.match(html, /<p class="mt-1 text-wrap [^"]*"><span aria-hidden="true" class="float-right h-6 w-9"><\/span>/, `${Component.name}: only the first headline line clears the dismiss target`);
     assert.equal((html.match(/aria-label="Hide on Home"/g) ?? []).length, 1, "one unchanged dismiss button");
     assert.match(html, /h-11 w-11 touch-manipulation/, "44px native dismiss target");
     assert.match(html, /w-7 h-7 flex items-center justify-center rounded-full/, "V2 visual chip retained");
@@ -42,7 +43,7 @@ for (const [Component, item] of cases) {
       assert.doesNotMatch(html, /lucide-circle-check/, "no second success tile");
       assert.match(html, /role="button" tabindex="0"/, "existing keyboard opening retained");
       if (item.body) assert.match(stripTags(html), /should go through/, "Covered is not paid");
-      else assert.doesNotMatch(html, /mt-3 text-pretty/, "missing detail does not create empty body");
+      else assert.doesNotMatch(html, /mt-3 text-wrap/, "missing detail does not create empty body");
     } else {
       assert.match(html, /href="\/upcoming"/, "existing CTA route retained");
       // Approved G388 C removes repeated Penny attribution from Home cards.
@@ -54,6 +55,8 @@ for (const [Component, item] of cases) {
     if (hidden) assert.doesNotMatch(html, /£[\d,]+/, "no visible or accessible unmasked money in any branch");
     renders++;
   }
+  const withoutDismiss = render(h(Component, { ...common, item, maskAmounts: text => text, hideNetWorth: false, dismissible: false }));
+  assert.doesNotMatch(withoutDismiss, /float-right h-6 w-9|aria-label="Hide on Home"/, `${Component.name}: no headline space is reserved without a dismiss control`);
 }
 assert.equal(COVER_MOVE_ITEM.moves.reduce((sum, move) => sum + move.amount, 0), 70);
 assert.equal(COVER_MOVE_ITEM.plan_dest.balance + COVER_MOVE_ITEM.amount, COVER_MOVE_ITEM.plan_dest.needs_total);
