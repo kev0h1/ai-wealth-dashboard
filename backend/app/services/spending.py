@@ -256,6 +256,12 @@ def find_own_move_ids(docs: list[dict], kinds, identity: dict | None = None) -> 
             own.add(did)
             continue
 
+        # G437: the user's own category outranks every automatic evidence
+        # below. A custom category that is not a movement kind (declared kinds,
+        # never a literal list) says what the row is, so it is never an own move.
+        if d.get("custom_category") and kind_of(kinds, d.get("custom_category")) != MOVEMENT:
+            continue
+
         # G437 evidence (a): the bank's counterparty sort code and account
         # number equal an account on file other than this row's own account.
         _party = counterparty_key(d.get("party_sort_code"), d.get("party_number"))
@@ -285,7 +291,8 @@ def find_own_move_ids(docs: list[dict], kinds, identity: dict | None = None) -> 
             continue  # the user's name alone never flags a row
         used.add(_txn_id(partner))
         own.add(did)
-        if kind_of(kinds, _effective_category(partner)) not in (INCOME, MOVEMENT):
+        if kind_of(kinds, _effective_category(partner)) not in (INCOME, MOVEMENT) and not (
+                partner.get("custom_category") and kind_of(kinds, partner.get("custom_category")) != MOVEMENT):
             own.add(_txn_id(partner))  # an unplaced credit leg is a move too, not a refund
     return own
 

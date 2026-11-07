@@ -75,3 +75,39 @@ def test_spending_ignores_partial_or_foreign_counterparty():
 def test_spending_counterparty_equal_to_own_account_does_not_flag_itself():
     d = _debit(account_id="saver-acc", party_sort_code="040004", party_number="12345678")
     assert "d1" not in find_own_move_ids([d], KINDS, _identity())
+
+
+# --- the user's own category outranks every automatic evidence ---------------
+
+def _identity_with_digits():
+    return {"name_tokens": [], "own_ids": {"20202020"},
+            "own_map": {"20202020": {"account_id": "saver-acc"}}, "own_keys": {}}
+
+
+def test_counterparty_match_with_user_spend_category_stays_spending():
+    d = _debit(party_sort_code="040004", party_number="12345678", custom_category="Groceries")
+    assert "d1" not in find_own_move_ids([d], KINDS, _identity())
+
+
+def test_own_digits_text_match_with_user_spend_category_stays_spending():
+    d = _debit(description="PAYMENT 20202020", custom_category="Gifts")
+    assert "d1" not in find_own_move_ids([d], KINDS, _identity_with_digits())
+    # control: without the user category the same text is an own move
+    assert "d1" in find_own_move_ids([_debit(description="PAYMENT 20202020")], KINDS, _identity_with_digits())
+
+
+def test_user_movement_category_still_counts():
+    d = _debit(party_sort_code="040004", party_number="12345678", custom_category="Transfer")
+    # Transfer is already a movement: not spending, no evidence needed, and it never flips to spend.
+    from app.services.spending import classify_flow
+    flow = classify_flow(KINDS, "Transfer", True, "d1" in find_own_move_ids([d], KINDS, _identity()))
+    assert not flow.counts_as_spend
+
+
+def test_revoked_or_disconnected_account_still_on_file_counts_for_counterparty_evidence():
+    # Pins the current choice (Kevin to confirm): the account index reads every
+    # account doc on file, whatever its connection status.
+    revoked = {"_id": "old-acc", "sort_code": "20-00-00", "account_number": "11223344", "status": "revoked"}
+    idx = own_account_index([revoked, SOURCE])
+    series = [_t("ACME SAVER", party_sort_code="200000", party_number="11223344")]
+    assert detect_savings_elsewhere(series, name_tokens=[], account_name="Main", own_index=idx, source_account_id="src-acc")
