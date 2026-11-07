@@ -4603,6 +4603,49 @@ async def _build_cashflow_response(cached: dict, uid: str | None = None, prefs: 
     # exactly the gates its source occurrence passed. Never merged into
     # `upcoming_income`/balances/totals below; see the doctrine comment on
     # the returned `internal_inflows` key.
+    # G436: an own-transfer occurrence dated today or earlier whose credit has ALREADY landed on its
+    # destination is in that account's balance, so its mirrored inbound credit is closed (never
+    # walked a second time). The debit leg is closed by `_match_observed` above exactly as for any
+    # bill. Matched on destination account and amount band, one credit closes one occurrence,
+    # non-Income credits only (salary is G362's, matched separately).
+    transfer_credits_observed: list[dict] | None = None
+
+    async def _transfer_credit_landed(dest_account_id, amount, expected_d) -> bool:
+        nonlocal transfer_credits_observed
+        if not uid or not dest_account_id:
+            return False
+        if transfer_credits_observed is None:
+            transfer_credits_observed = []
+            _since = today - timedelta(days=OBSERVATION_LOOKBACK_DAYS + 1)
+            for _col in [transactions_col, yapily_transactions_col]:
+                try:
+                    async for _t in _col.find(
+                        {"user_id": uid, "date": {"$gte": _since}, "transaction_type": "credit"},
+                        {"amount": 1, "date": 1, "category": 1, "custom_category": 1, "account_id": 1},
+                    ):
+                        if (_t.get("custom_category") or _t.get("category") or "Other") == "Income":
+                            continue
+                        _raw_d = _t.get("date")
+                        transfer_credits_observed.append({
+                            "date": _raw_d.date() if hasattr(_raw_d, "date") else _raw_d,
+                            "amount": abs(float(_t.get("amount", 0))),
+                            "account_id": str(_t.get("account_id") or ""),
+                            "used": False,
+                        })
+                except Exception:
+                    continue
+            transfer_credits_observed.sort(key=lambda c: c["date"])
+        tol = max(2.0, abs(amount) * 0.15)
+        lo = expected_d - timedelta(days=OBSERVATION_LOOKBACK_DAYS)
+        for c in transfer_credits_observed:
+            if c["used"] or not (lo <= c["date"] <= today_d):
+                continue
+            if c["account_id"] != str(dest_account_id) or abs(c["amount"] - abs(amount)) > tol:
+                continue
+            c["used"] = True
+            return True
+        return False
+
     raw_internal_inflows: list = []
     # Occurrences matched to a bank-side PENDING debit (`_match_pending_observed`
     # above) -- the account balance already reflects them, so unlike every
@@ -4761,6 +4804,9 @@ async def _build_cashflow_response(cached: dict, uid: str | None = None, prefs: 
             # learned destination and so are never mirrored.
             if (r.get("dest_account_id") and e["kind"] == MOVEMENT
                     and r["dest_account_id"] != e.get("account_id")):
+                if (e["pending"] or e["days_away"] <= 0) and await _transfer_credit_landed(
+                        r["dest_account_id"], e["amount"], _date.fromisoformat(e["expected_date"])):
+                    continue  # G436: its credit is already in the destination's balance
                 raw_internal_inflows.append({
                     "name":                e["name"],
                     "amount":              e["amount"],

@@ -2668,8 +2668,6 @@ def finalise_account_available(account_eligibility: dict) -> dict:
                     float(entry.get("spend_from_headroom", entry.get("headroom", 0.0)) or 0.0),
                     float(entry.get("headroom", 0.0) or 0.0) - float(entry.get("earmarked_total", 0.0) or 0.0),
                 )), 2)
-            else:
-                entry["account_headroom_raw"] = 0.0
             entry["spend_from_headroom"] = 0.0
             entry.pop("spend_from_requires_move", None)
             continue

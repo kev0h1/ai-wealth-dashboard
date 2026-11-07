@@ -106,7 +106,7 @@ def test_an_uncertain_account_shows_no_figure_and_is_not_credited():
     }
     companion.finalise_account_available(elig)
     # An uncertain account is never shown (lib/accountAvailability.ts reads `uncertain` first) and gets no credit.
-    assert elig["u"]["spend_from_headroom"] == 0.0 and elig["u"]["uncertain"] is True and elig["u"]["account_headroom_raw"] == 0.0
+    assert elig["u"]["spend_from_headroom"] == 0.0 and elig["u"]["uncertain"] is True and "account_headroom_raw" not in elig["u"]
 
 
 def test_negative_figures_stay_negative_and_the_retired_fields_go():
@@ -451,3 +451,45 @@ def test_the_same_rule_holds_for_the_account_page_figure_through_the_engine(monk
         return elig["A"]["spend_from_headroom"]
 
     assert run(0) == 150.0 and run(2) == 1150.0
+
+
+# ── An own transfer that already posted is counted once on each side ─────────
+
+def _posted(kind, account_id, on_date, desc="KEVIN MAINGI HSBC STO", amount=1758.33):
+    import app.core.timeutil as timeutil
+    return {
+        "user_id": "kevin", "transaction_type": kind, "merchant_name": None, "description": desc,
+        "amount": amount, "date": on_date or timeutil.user_today(), "category": "Transfer",
+        "custom_category": None, "account_id": account_id,
+    }
+
+
+def _today_standing_order(monkeypatch, observed):
+    import app.core.timeutil as timeutil
+    import test_internal_inflows as ti
+    monkeypatch.setattr(ti, "UID", "kevin", raising=False)
+    pattern = ti._pattern(next_date=timeutil.user_today().isoformat())
+    return ti._run_build_response(monkeypatch, [pattern], observed=observed)
+
+
+def test_a_standing_order_that_posted_today_is_walked_on_neither_side(monkeypatch):
+    # Source debit and destination credit both posted: both balances already hold it, so there is no
+    # walk event on either account and the total (the sum of the two balances) is untouched.
+    resp = _today_standing_order(monkeypatch, [_posted("debit", "barclays", None), _posted("credit", "hsbc", None)])
+    assert resp["upcoming_bills"] == [] and resp["internal_inflows"] == []
+
+
+def test_a_credit_that_already_landed_is_not_credited_again_while_the_debit_is_still_walked_once(monkeypatch):
+    # Only the destination's credit has posted (the source's debit has not matched yet, so its balance
+    # still holds the money). The debit is the one walk event on the source; the destination is NOT
+    # credited a second time. Total: source -X on its walk, destination +X already in its balance, nil net.
+    # Before the fix both the debit and the mirrored credit were walked, so the destination counted X twice.
+    resp = _today_standing_order(monkeypatch, [_posted("credit", "hsbc", None)])
+    assert [b["account_id"] for b in resp["upcoming_bills"]] == ["barclays"]
+    assert resp["internal_inflows"] == []
+
+
+def test_a_standing_order_not_yet_posted_still_credits_the_destination_on_its_date(monkeypatch):
+    resp = _today_standing_order(monkeypatch, [])
+    assert len(resp["upcoming_bills"]) == 1
+    assert [i["account_id"] for i in resp["internal_inflows"]] == ["hsbc"]
