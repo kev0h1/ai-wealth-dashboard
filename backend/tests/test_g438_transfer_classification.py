@@ -293,3 +293,31 @@ def test_a_credit_with_a_matching_debit_is_not_lone_and_ordinary_income_is_never
     salary = _t("s1", ttype="credit", amount=2000.0, date=D0, account_id="main", desc="ACME LTD PAYROLL", category="Income")
     _review_fakes(monkeypatch, [salary], IDENTITY)
     assert asyncio.run(analytics._flagged_miscategorised(UID)) == []
+
+
+# ── fix round: nothing leaves Spend unless the review can ask about it ────────
+
+def test_acme_debit_and_unrelated_other_credit_stay_in_spend():
+    debit = _t("d1", ttype="debit", amount=120.0, date=D0, account_id="main", desc="ACME SUPPLIES", category="Business")
+    credit = _t("c1", ttype="credit", amount=120.0, date=D0, account_id="saver", desc="CUSTOMER PAYMENT", category="Other")
+    assert find_pending_transfer_ids([debit, credit], KINDS, IDENTITY) == set()
+    assert find_own_move_ids([debit, credit], KINDS, IDENTITY) == set()
+    ctx = SpendingContext.from_docs([debit, credit], KINDS, IDENTITY)
+    assert is_spending(debit, ctx)
+
+
+def test_every_pending_pair_is_one_the_review_can_ask_about():
+    cases = [
+        ("PAIRREF OUT", "PAIRREF IN", "Other", "Transfer"),
+        ("ACME SUPPLIES", "CUSTOMER PAYMENT", "Business", "Other"),
+        ("ACME SUPPLIES", "CUSTOMER PAYMENT", "Other", "Income"),
+        ("TRANSFER OUT", "BANK CREDIT", "Other", "Other"),
+        ("TRANSFER OUT", "SALARY ACME LTD", "Other", "Income"),
+        ("TRANSFER REF 9", "TRANSFER REF 9", "Other", "Transfer"),
+    ]
+    for debit_text, credit_text, dcat, ccat in cases:
+        debit = _t("d1", ttype="debit", amount=77.5, date=D0, account_id="main", desc=debit_text, category=dcat)
+        credit = _t("c1", ttype="credit", amount=77.5, date=D0, account_id="saver", desc=credit_text, category=ccat)
+        pending = find_pending_transfer_ids([debit, credit], KINDS, NO_ONE)
+        if "d1" in pending:
+            assert analytics._has_pair_evidence(credit, debit, NO_ONE), (debit_text, credit_text)

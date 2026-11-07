@@ -191,6 +191,13 @@ def find_own_move_ids(docs: list[dict], kinds, identity: dict | None = None) -> 
     return _scan_own_moves(docs, kinds, identity)[0]
 
 
+def _pair_is_askable(credit: dict, debit: dict, identity: dict) -> bool:
+    """True when the transfers review would ask about this pair: the same gate
+    the pair suggestions use, so a pending row never leaves Spend unasked."""
+    from app.routers.analytics import _has_pair_evidence  # lazy: the router imports this module
+    return _has_pair_evidence(credit, debit, identity)
+
+
 def find_pending_transfer_ids(docs: list[dict], kinds, identity: dict | None = None) -> set[str]:
     """G438: rows that look like the two legs of an own transfer (opposite
     directions, same amount, a few days apart, with evidence on the incoming leg)
@@ -247,7 +254,8 @@ def _scan_own_moves(docs: list[dict], kinds, identity: dict | None = None) -> tu
         return (account_name_in_text(_text(d), {"name": names.get(str(cr.get("account_id")))})
                 or account_name_in_text(_text(cr), {"name": names.get(str(d.get("account_id")))}))
 
-    def closest_partner(d: dict, allow_income: bool, need_evidence: bool, income_with_text: bool = False) -> dict | None:
+    def closest_partner(d: dict, allow_income: bool, need_evidence: bool, income_with_text: bool = False,
+                        named_income_only: bool = False) -> dict | None:
         amt = abs(float(d.get("amount") or 0))
         cents = round(amt * 100)
         best, best_gap = None, None
@@ -263,6 +271,10 @@ def _scan_own_moves(docs: list[dict], kinds, identity: dict | None = None) -> tu
                 gap = abs((cr["date"] - d["date"]).days)
                 if gap > PAIR_WINDOW_DAYS:
                     continue
+                if named_income_only and not (
+                    kind_of(kinds, _effective_category(cr)) == INCOME and pair_named(d, cr)
+                ):
+                    continue  # G438: only a named Income credit may skip the evidence test
                 if need_evidence and not credit_evidence(cr):
                     continue
                 if best is None or gap < best_gap:
@@ -331,9 +343,12 @@ def _scan_own_moves(docs: list[dict], kinds, identity: dict | None = None) -> tu
             # G438: a credit that arrives as Income can be the other leg of a pair
             # when the pair carries a name (the user's, or an account or pot on
             # file). Salary and refunds carry no such name.
-            partner = closest_partner(d, allow_income=False, need_evidence=False, income_with_text=True)
+            partner = closest_partner(d, allow_income=False, need_evidence=False, income_with_text=True,
+                                      named_income_only=True)
         if partner is None:
             continue  # the user's name alone never flags a row
+        if not pair_named(d, partner) and not _pair_is_askable(partner, d, identity):
+            continue  # a row that leaves Spend must be one the review can ask about
         used.add(_txn_id(partner))
         if d.get("custom_category"):
             continue  # the user answered this row: a pair never overrides it
