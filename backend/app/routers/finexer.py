@@ -357,10 +357,18 @@ async def finexer_callback(
     # "pending": an error can never overwrite an authorised consent, and only
     # the callback whose write matched spawns the sync.
     if error:
-        await finexer_consents_col.update_one(
+        res = await finexer_consents_col.update_one(
             {"_id": consent_id, "status": {"$nin": ["authorized"]}},
             {"$set": {"status": "canceled", "canceled_at": datetime.utcnow(), "error": error}},
         )
+        if res.matched_count == 0:
+            # A racing genuine callback authorised it first. Confirm, then answer
+            # with the success hand-off (no sync here: that callback owns it).
+            now_doc = await finexer_consents_col.find_one({"_id": consent_id})
+            if now_doc and now_doc.get("status") == "authorized":
+                if doc.get("native"):
+                    return _bank_page(True, "finexer", consent_id, auto_return=True)
+                return RedirectResponse(f"{APP_URL}/accounts?syncing=1&connection={_urlquote(consent_id, safe='')}", status_code=303)
         if doc.get("native"):
             return _bank_page(False, "finexer", consent_id, auto_return=False)
         return RedirectResponse(f"{APP_URL}/accounts?connect=cancelled", status_code=303)

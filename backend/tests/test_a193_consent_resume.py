@@ -227,8 +227,8 @@ def test_error_racing_a_success_leaves_the_consent_authorised(monkeypatch):
     assert syncs == ["cst_1"]
 
 
-def test_success_racing_an_error_never_resurrects_a_canceled_consent_twice(monkeypatch):
-    # Error first, then success: authorised only if the filter allows it ($ne authorized).
+def test_a_later_genuine_success_authorises_a_consent_an_earlier_error_cancelled(monkeypatch):
+    # Error first, then success: the success write ($ne authorized) still authorises.
     col, syncs = _setup_callback(monkeypatch, _consent())
 
     async def both():
@@ -255,3 +255,24 @@ def test_new_state_is_long_and_urlsafe_and_old_short_states_still_match(monkeypa
     col3, _ = _setup_callback(monkeypatch, _consent())
     bad = asyncio.run(finexer_module.finexer_callback(fx_consent="cst_1", state="é"))
     assert bad.status_code == 400
+
+
+def test_error_that_loses_the_race_answers_success_and_spawns_no_sync(monkeypatch):
+    col, syncs = _setup_callback(monkeypatch, _consent())
+    real_find = col.find_one
+    calls = {"n": 0}
+
+    async def find_then_authorise(query=None, projection=None, sort=None):
+        out = await real_find(query, projection, sort)
+        calls["n"] += 1
+        if calls["n"] == 1:
+            # The genuine callback authorises between our read and our write.
+            col.docs[0].update(status="authorized")
+        return out
+
+    col.find_one = find_then_authorise
+    out = asyncio.run(finexer_module.finexer_callback(fx_consent="cst_1", state="s1", error="access_denied"))
+    assert col.docs[0]["status"] == "authorized"
+    assert b"status=ok" in out.body
+    assert b"status=error" not in out.body
+    assert syncs == []
