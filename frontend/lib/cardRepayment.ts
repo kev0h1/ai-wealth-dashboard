@@ -15,9 +15,11 @@ export function isOptionalMove(item: { kind?: string; is_card_repayment?: boolea
   return item.kind === "movement" && !isCardRepayment(item);
 }
 
-/** G426: a recurring transfer into the user's own non-spendable (savings or investment) account. Mirrors the backend `is_savings_order`. */
-export function isSavingsOrder(item: { kind?: string; is_card_repayment?: boolean | null; dest_account_id?: string | null; dest_account_spendable?: boolean | null }): boolean {
-  return isOptionalMove(item) && Boolean(item.dest_account_id) && item.dest_account_spendable !== true;
+/** G426/G434: a recurring transfer into the user's own non-spendable (savings or investment) account: a learned own destination that is not spendable, or, with no destination learned, the built-in Savings category. Mirrors the backend `is_savings_order`. */
+export function isSavingsOrder(item: { kind?: string; category?: string | null; is_card_repayment?: boolean | null; dest_account_id?: string | null; dest_account_spendable?: boolean | null }): boolean {
+  if (!isOptionalMove(item)) return false;
+  if (item.dest_account_id) return item.dest_account_spendable !== true;
+  return item.category === "Savings";
 }
 
 /** "NW World Mastercard repayment", without doubling the word when the series already says it. */

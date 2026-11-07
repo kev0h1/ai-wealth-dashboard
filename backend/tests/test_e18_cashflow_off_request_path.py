@@ -96,6 +96,7 @@ def env(monkeypatch):
 
 def _doc(**extra):
     d = {"_id": UID, "computed_at": datetime.now(), "patterns_version": analytics.PATTERNS_VERSION,
+         "engine_build": analytics.engine_build(),
          "upcoming_bills": [], "recurring_spend": [], "recurring_income": []}
     d.update(extra)
     return d
@@ -287,6 +288,21 @@ def test_duplicate_enqueue_while_a_job_runs_leaves_the_marker_and_next_read_enqu
     env["pool"].jobs.clear()  # the job finished
     _get()
     assert list(env["pool"].jobs) == [f"recompute:{UID}"]
+
+
+def test_doc_from_another_engine_build_is_served_stale_and_enqueued(env):
+    """G434: the read path treats an engine_build mismatch like patterns_version."""
+    env["cache"].docs[UID] = _doc(engine_build="src-not-this-build")
+    out = _get()
+    assert list(env["pool"].jobs) == [f"recompute:{UID}"]
+    assert env["pool"].jobs[f"recompute:{UID}"][1]["reason"] == "engine_build"
+    if isinstance(out, dict):
+        assert out["cashflow_stale"] is True
+    env["pool"].jobs.clear()
+    derived_caches._enqueued_recently.clear()
+    env["cache"].docs[UID] = _doc()
+    _get()
+    assert env["pool"].jobs == {}, "a doc stamped with the running build is not recomputed"
 
 
 def test_marker_read_is_not_shown_as_stale(env):

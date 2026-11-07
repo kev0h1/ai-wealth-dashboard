@@ -104,7 +104,10 @@ _MAX_TIME_MS = 500
 # spend, including any conditional surplus from an earmarked cover move.
 # 9: G419 exact-description attribution and settled GBP-only repayment
 # evidence; discard older bill/forecast responses that could claim a paid bill.
-SHAPE_VERSION = 9
+# 10: G434 account_eligibility gained savings_at_risk, savings-source cover legs (G422,
+# G426, G428) and Savings-category standing orders without a learned destination;
+# none of G421-G428 bumped this, so a pre-release /today could be served until TTL.
+SHAPE_VERSION = 10
 
 # UK users; this cache pins its day boundary to Europe/London (DST-aware,
 # via app.core.timeutil) so the API and worker processes, even if their

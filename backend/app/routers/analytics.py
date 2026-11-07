@@ -5089,12 +5089,16 @@ async def get_cashflow(user: dict = Depends(current_user), include: str = ""):
             stale_reason = "dirty"
         elif (cached.get("patterns_version") or 0) < PATTERNS_VERSION:
             stale_reason = "patterns_version"
+        elif cached.get("engine_build") != engine_build():
+            # G434: a doc written by another engine build (a deploy the startup pass missed
+            # or failed on) is served as it stands, flagged stale, and recomputed on the worker.
+            stale_reason = "engine_build"
         elif cached.get("model_work_pending"):
             stale_reason = "model_work"  # E18: owed worker rerun, not shown as stale
         elif computed_at and (datetime.now() - computed_at).total_seconds() > _CACHE_TTL_HOURS * 3600:  # naive-ok: hour-scale cache TTL, same as before
             stale_reason = "ttl"
         if stale_reason:
-            stale = stale_reason in ("dirty", "patterns_version")
+            stale = stale_reason in ("dirty", "patterns_version", "engine_build")
             from app.services.derived_caches import enqueue_cashflow_recompute
             await enqueue_cashflow_recompute(uid, reason=stale_reason)
         resp = await _build_cashflow_response(cached, uid=uid)

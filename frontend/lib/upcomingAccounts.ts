@@ -117,6 +117,8 @@ export function reconcileWithServerPosition(account: UpcomingAccountSummary, pos
   if (lowest < 0 && savings > 0 && -lowest <= savings + 0.005) {
     return { ...account, position, status: "unfunded", shortfall: Math.max(account.shortfall ?? 0, -lowest), firstShortDate: account.firstShortDate ?? account.events.find((event) => event.after !== null && event.after < 0)?.date ?? null, shortFor: null };
   }
+  // G434: the client walk found only own-account moves going short (no payment bounces) and the server's payment figures show no deeper deficit than those moves explain: still the amber "unfunded" reading, never a red payment shortfall. A deeper server deficit (an overdraft, a missing bill) falls through to short below.
+  if (lowest < 0 && account.status === "unfunded" && account.shortfall !== null && -lowest <= account.shortfall + 0.005) return { ...account, position };
   if (lowest < 0) {
     // G372: a negative server figure is short even when the server flags the
     // position uncertain (an uncertain plan overlap says nothing about payments).
@@ -139,7 +141,9 @@ export function accountPaymentGap(account: UpcomingAccountSummary): number | nul
   // G422: what an own-savings standing order explains is not a payment gap.
   const savings = account.position?.savingsAtRisk?.amount ?? 0;
   const rawGap = figures.length ? Math.max(0, -Math.min(...figures)) : 0;
-  const serverGap = savings > 0 ? (rawGap - savings > 0.005 ? rawGap - savings : 0) : rawGap;
+  // G434: the walk saw only own-account moves going short and the server's payment figures show nothing deeper: no payment gap.
+  const movesOnly = account.status === "unfunded" && account.shortfall !== null && rawGap <= account.shortfall + 0.005;
+  const serverGap = savings > 0 ? (rawGap - savings > 0.005 ? rawGap - savings : 0) : movesOnly ? 0 : rawGap;
   const walkGap = account.status === "short" && account.shortfall !== null ? account.shortfall : 0;
   const gap = Math.max(serverGap, walkGap);
   return gap > 0 ? gap : null;
