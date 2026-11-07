@@ -18,7 +18,7 @@ const account = (extra = {}) => ({
 const position = (extra = {}) => ({
   spend_from_headroom: 8, after_payments_and_plans: 18, low_point: 58,
   after_payments: 68, low_point_and_plans: 8, estimated: false,
-  spend_from_capped: false, account_headroom_raw: 8, ...extra,
+  ...extra,
 });
 const snap = (extra = {}) => ({ status: "ready", positions: { barclays: position() }, ...extra });
 const row = (acc = account()) => bankToRow(acc, []);
@@ -35,16 +35,19 @@ const renderHome = (extra = {}, hidden = false) => renderToStaticMarkup(
 // The server-provided Spend from limit wins over the larger payday closing number.
 const normal = accountAvailability(account(), snap());
 assert.equal(normal.kind, "ready"); assert.equal(normal.value, 8); assert.equal(normal.warning, undefined);
-assert.equal(normal.note, "Allocated from your shared Left to spend after known payments and plans this pay period.");
+assert.equal(normal.note, "Left after predicted money in and out, goals and set-asides this pay period.");
+assert.doesNotMatch(normal.note, /allocat|shared/i, "G436: Available is the account's own figure, never a share of a pooled one");
 assert.equal(accountAvailability(account(), snap({ positions: { barclays: position({ spend_from_headroom: 4, after_payments_and_plans: 99 }) } })).value, 4);
-assert.equal(accountAvailability(account(), snap({ positions: { barclays: position({ spend_from_headroom: 4, spend_from_capped: true, account_headroom_raw: 99 }) } })).value, 4);
+// G436: a negative own figure is a shortfall no current account covers: ready, negative, never hidden or floored.
+const negative = accountAvailability(account(), snap({ positions: { barclays: position({ spend_from_headroom: -1050, after_payments_and_plans: -1200, low_point_and_plans: -1200, low_point: -1200, after_payments: -1200 }) } }));
+assert.equal(negative.kind, "ready"); assert.equal(negative.value, -1050); assert.equal(negative.warning, "payments");
 assert.equal(accountAvailability(account(), snap({ positions: { barclays: position({ spend_from_headroom: 0, low_point: -2, after_payments: -1 }) } })).warning, "payments");
 assert.equal(accountAvailability(account(), snap({ positions: { barclays: position({ spend_from_headroom: 0, low_point_and_plans: -2, after_payments_and_plans: -1 }) } })).warning, "plans");
 
 assert.equal(accountAvailability(account(), snap({ positions: {} })).kind, "unavailable");
 for (const bad of [
   { uncertain: true }, { spend_from_headroom: undefined }, { spend_from_headroom: NaN },
-  { spend_from_headroom: -1 }, { after_payments_and_plans: undefined }, { after_payments_and_plans: Infinity },
+  { after_payments_and_plans: undefined }, { after_payments_and_plans: Infinity },
 ]) assert.equal(accountAvailability(account(), snap({ positions: { barclays: position(bad) } })).kind, "unavailable");
 assert.equal(accountAvailability(account(), { status: "loading", positions: { barclays: position() } }).kind, "checking");
 assert.equal(accountAvailability(account(), { status: "failed", positions: { barclays: position() } }).kind, "unavailable");
@@ -90,6 +93,9 @@ const paymentsRow = renderRow({ availability: accountAvailability(account(), sna
 const plansRow = renderRow({ availability: accountAvailability(account(), snap({ positions: { barclays: position({ spend_from_headroom: 0, low_point_and_plans: -2 }) } })) });
 assert.match(paymentsRow, /text-rose-700/); assert.match(plansRow, /text-amber-800/); assert.doesNotMatch(plansRow, /text-rose-/);
 assert.match(textOf(plansRow), /Available: £0/);
+// G436: a shortfall shows as a negative Available on the row, in the payments (red) treatment.
+const negativeRow = textOf(renderRow({ availability: negative }));
+assert.match(negativeRow, /Available: −£1,050/);
 
 // An allocation that only exists after the visible recommendation keeps both
 // the dependency and its pence. It cannot look like cash already in hand.

@@ -152,7 +152,31 @@ def test_compute_today_items_equals_the_pre_change_golden(monkeypatch):
     for entry in (elig.values() if isinstance(elig, dict) else [e for _k, e in elig]):
         for row in (entry.get("covered_by_move") or {}).get("from", []):
             row.pop("display_label", None)
-    assert elig == golden["account_eligibility_out"]
+    expected = json.loads(json.dumps(golden["account_eligibility_out"]))
+    # G436 deliberate behaviour changes (Kevin 2026-11-07, every account in isolation): the golden
+    # stays the old code's output except these keys, one reason each.
+    #   after_payments_and_money_in: new display-only key, the closing figure of the account's own walk.
+    #   spend_from_headroom: now the closing figure less plans (signed, no low-point clamp, no
+    #     preference allocation), so hsbc 1685.33 - 20, lowsrc -90, natwest 290, salary 2800.
+    #   dips_below_zero: new warning key, lowsrc goes below zero before money arrives on 2026-11-08.
+    #   account_headroom_raw: now kept for non-current accounts (consolidation capacity), 240 each.
+    #   non-current accounts (man1, pot) have no spending figure, so spend_from_headroom is 0.
+    g436 = {
+        "hsbc": {"after_payments_and_money_in": 1685.33, "spend_from_headroom": 1665.33},
+        "lowsrc": {"after_payments_and_money_in": -90.0, "spend_from_headroom": -90.0,
+                   "dips_below_zero": {"money_in_date": "2026-11-08"}},
+        "man1": {"account_headroom_raw": 240.0, "after_payments_and_money_in": 250.0, "spend_from_headroom": 0.0},
+        "natwest": {"after_payments_and_money_in": 330.0, "spend_from_headroom": 290.0},
+        "pot": {"account_headroom_raw": 240.0, "after_payments_and_money_in": 777.0, "spend_from_headroom": 0.0},
+        "salary": {"after_payments_and_money_in": 2800.0, "spend_from_headroom": 2800.0},
+    }
+    if isinstance(expected, dict):
+        for acct, keys in g436.items():
+            expected[acct].update(keys)
+    else:
+        for k, entry in expected:
+            entry.update(g436.get(k, {}))
+    assert elig == expected
 
 
 # ── one test per PD difference, flipping only that keyword ───────────────────
@@ -225,7 +249,15 @@ def test_pd2_closing_fallback_live_or_none(walks):
     assert b["barclays"] == a["barclays"]  # a walked account does not use the fallback
 
 
-def test_pd3_low_point_basis_pre_or_post_reservation(walks):
+def test_pd3_figure_is_the_closing_less_plans_and_low_point_is_reported_separately(walks):
+    """G436 (Kevin 2026-11-07): the per-account figure is the closing figure of the account's own
+    walk less its plans, never the low point.
+
+    Fixture by hand, hsbc: closing after payments 1685.33, plans reserved 20, so after payments and
+    plans 1685.33 - 20 = 1665.33. The low point is 12.0 (12 - 20 = -8.0 with plans). With a second
+    20 reserved on the source (post_reservation basis) the low point is 12 - 20 = -8.0 and with
+    plans -28.0, but the figure stays 1665.33 because seed_spend_from reads only
+    after_payments_and_plans."""
     ids = _ids(walks)
     live = walks["wi"].live_balances
     pre = from_walks(PLANS, ids, walks["closing"], walks["low"], live_balances=live)
@@ -233,10 +265,12 @@ def test_pd3_low_point_basis_pre_or_post_reservation(walks):
         PLANS, ids, walks["closing"], walks["low"], live_balances=live,
         low_point_basis="post_reservation", reserved_by_source={"hsbc": 20.0},
     )
+    assert pre["hsbc"]["after_payments"] == 1685.33 and pre["hsbc"]["after_payments_and_plans"] == 1665.33
+    # the low point is still reported in its own field
     assert pre["hsbc"]["low_point"] == 12.0 and pre["hsbc"]["low_point_and_plans"] == -8.0
-    # R3 taken a second time: 12 - 20 on the low point, then 20 more as plans_reserved
     assert post["hsbc"]["low_point"] == -8.0 and post["hsbc"]["low_point_and_plans"] == -28.0
-    assert seed_spend_from(post["hsbc"]) == -28.0 and seed_spend_from(pre["hsbc"]) == -8.0
+    assert seed_spend_from(pre["hsbc"]) == 1665.33
+    assert seed_spend_from(post["hsbc"]) == 1665.33  # closing less plans, whatever the low point
     assert post["pot"] == pre["pot"]  # no reservation, no difference
 
 

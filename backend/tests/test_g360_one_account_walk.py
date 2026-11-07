@@ -226,7 +226,6 @@ def test_payday_eve_spend_from_not_floored_by_next_period_bills(monkeypatch):
     ]
     _, elig = _run(monkeypatch, today, bills, [], [],
                    {HS: (200.0, "hsbc"), BC: (300.0, "barclays")})
-    companion.cap_spend_from_to_pool(elig, 500.0)
     assert elig[HS]["spend_from_headroom"] > 0
     assert elig[BC]["spend_from_headroom"] > 0
 

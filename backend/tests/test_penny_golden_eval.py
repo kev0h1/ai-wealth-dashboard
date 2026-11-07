@@ -262,7 +262,7 @@ PINNED_TOOL_DESCRIPTION_HASHES = {
     "get_insights": "8b00e5bbbe65e52a364501da51e20887de7f37701a9873093971dbe5ce78894b",
     "get_mirror": "62c640cc13425dff91c281793ad8570f1ec4f0858d82ccfed6ca421781cce73e",
     "get_recurring_payments": "e4caca1797c55e0241e0c70d74a473c5ece947dd2c1e51875b00ecfb18117156",
-    "get_safe_to_spend": "bea7f8e71203b0e970ab01bf3b176649fb274548e6ec0eff35ba0cdff9fc2e72",
+    "get_safe_to_spend": "be29378f602a1160d5bc96c42b7c0045a92b3274ea3a78e7b9d57c782cc5e883",
     "get_savings_position": "355c391ea91bec723b3c13e32a407fd2af210bc22b0792d7577e00d99de25004",
     "get_spend_verdict": "2a8e965e78811fdea43e7b2a8c9a34ff178888e1367add2383fcbf1093200a36",
     "get_tax_position": "2cb73ca7b40a8670724cd6014cb33e60b0c03d09a536976fef57bfaddc1e67f7",

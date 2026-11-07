@@ -85,13 +85,13 @@ def test_pots_never_move_even_with_include_savings_but_plain_savings_can():
 
 
 
-def test_g414_savings_are_not_spending_allocations_but_remain_explicit_move_sources():
-    from app.services.companion import cap_spend_from_to_pool
+def test_g436_savings_get_no_spending_figure_but_remain_explicit_move_sources():
+    from app.services.companion import finalise_account_available
     eligibility = {
         "bar": {"is_current_account": True, "headroom": 90.0, "spend_from_headroom": 100.0},
         "isa": {"is_current_account": False, "headroom": 490.0, "spend_from_headroom": 400.0, "earmarked_total": 100.0},
     }
-    cap_spend_from_to_pool(eligibility, 100.0)
+    finalise_account_available(eligibility)
     assert eligibility["isa"]["spend_from_headroom"] == 0
     assert eligibility["isa"]["account_headroom_raw"] == 390.0
     kwargs = dict(target_id="bar", eligibility=eligibility, pool=100.0, amount=50.0,

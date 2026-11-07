@@ -26,11 +26,14 @@
 //
 // Two things this file exists to get right (see the G110/G111 backlog
 // items):
-//   1. A per-account headroom figure is NOT a slice of the pooled
-//      Safe-to-Spend headline — the headline also deducts buffer, envelopes
-//      and commitments across the WHOLE pool, this is one account's own
-//      bills-and-buffer-only figure. The copy functions below always name
-//      the account explicitly ("In X") rather than implying containment.
+//   1. (G436) A per-account figure is that account's OWN Available: its
+//      balance left after its own payments, goals and set-asides, less any
+//      move set aside out of it, plus any suggested move in from another
+//      current account. It is not a slice of Left to spend and nothing is
+//      allocated across accounts: the figures of the counted current accounts
+//      add up to Left to spend (the server's `left_to_spend_lines` names
+//      what cannot sit on one account). The copy functions below name the
+//      account explicitly ("In X") rather than implying a share.
 //   2. A credit card is never ranked here at all: `account_eligibility`
 //      is built from backend `source_capacity`, which excludes every
 //      credit card before this data even leaves the server (belt-and-
@@ -57,9 +60,6 @@ export type SpendFromAccount = {
   name: string;
   provider: string;
   headroom: number;
-  // G234: true when the backend's cap at the pooled Safe to Spend is what
-  // set `headroom` (the account holds more spare than the headline allows).
-  capped?: boolean;
   requiresMove?: boolean;
   // The full account, carried through so the render layer (SafeToSpendCard,
   // the /design preview) can resolve a bank badge/name via
@@ -101,11 +101,11 @@ export type TodayRequestStatus = "loading" | "ready" | "failed";
 
 export type SpendFromResult =
   | { kind: "unavailable"; reason: SpendFromUnavailableReason }
-  | { kind: "none"; unallocated?: number }
-  | { kind: "account"; best: SpendFromAccount; alternative: SpendFromAccount | null; entries?: SpendFromAccount[]; unallocated?: number };
+  | { kind: "none" }
+  | { kind: "account"; best: SpendFromAccount; alternative: SpendFromAccount | null; entries?: SpendFromAccount[] };
 
-function toSpendFromAccount(a: Account, headroom: number, capped = false, requiresMove = false): SpendFromAccount {
-  return { accountId: a.id, name: displayAccountName(a.name), provider: a.provider, headroom, capped, requiresMove, account: a };
+function toSpendFromAccount(a: Account, headroom: number, requiresMove = false): SpendFromAccount {
+  return { accountId: a.id, name: displayAccountName(a.name), provider: a.provider, headroom, requiresMove, account: a };
 }
 
 function rankByHeadroom(
@@ -122,18 +122,17 @@ function rankByHeadroom(
     .map((a) => {
       const entry = eligibility[a.id];
       const headroom = entry?.spend_from_headroom ?? entry?.headroom ?? 0;
-      // G234: `spend_from_headroom` arrives ALREADY capped at the pooled
-      // Safe to Spend by the backend (cap_spend_from_to_pool). Read it as
-      // is; never re-derive or re-cap here, and never rank on
-      // `account_headroom_raw`.
-      return toSpendFromAccount(a, headroom, entry?.spend_from_capped === true, entry?.spend_from_requires_move === true);
+      // G436: `spend_from_headroom` is the account's own Available, signed
+      // (negative when no current account covers its shortfall). Read it as
+      // is; never re-derive, cap or share it out.
+      return toSpendFromAccount(a, headroom, entry?.spend_from_requires_move === true);
     })
-    // G415: the server keeps its preferred allocation; Home presents the
-    // largest amounts first without redistributing any money.
+    // Home presents the largest figures first.
     .sort((a, b) => b.headroom - a.headroom);
 }
 
-/** G415: the compact rail shows the two largest positive allocations. */
+/** G415/G436: the compact rail shows the two largest positive figures. An
+ *  account in shortfall is shown by its shortfall elsewhere (G417), not here. */
 export function topSpendFromAccounts(entries: SpendFromAccount[]): SpendFromAccount[] {
   return entries.filter(entry => Number.isFinite(entry.headroom) && entry.headroom > 0)
     .sort((a, b) => b.headroom - a.headroom).slice(0, 2);
@@ -246,24 +245,23 @@ export function bestSpendAccount(
 
   const currentRanked = rankByHeadroom(candidates, accountEligibility);
 
-  // Allocations include every penny. The cover finder's £5 source floor is
-  // a different decision and must not hide part of the shared total.
+  // Every penny of an account's own figure counts. The cover finder's £5
+  // source floor is a different decision and must not hide part of it.
   const usableCurrent = currentRanked.filter((a) => Number.isFinite(a.headroom) && a.headroom > 0);
   if (usableCurrent.length > 0) {
     const [best, next] = usableCurrent;
-    return { kind: "account", best, alternative: next ?? null, entries: usableCurrent,
-      unallocated: accountEligibility[best.accountId]?.allocation_unassigned ?? 0 };
+    return { kind: "account", best, alternative: next ?? null, entries: usableCurrent };
   }
 
-  return { kind: "none", unallocated: Object.values(accountEligibility).find(entry => (entry.allocation_unassigned ?? 0) > 0)?.allocation_unassigned };
+  return { kind: "none" };
 }
 
-// G300 (Kevin 2026-10-20): every shown figure is capped at the pooled Safe to
-// Spend independently (G234), so when the pool binds for two accounts both
-// read the same figure and the list implies the figures can be added. The
-// rule lives here as pure functions so the card, the sentences and the tests
-// share it. Never split the pool proportionally: that implies a precision
-// that is not there.
+// G300 (Kevin 2026-10-20): when every shown figure was capped at the pooled
+// Safe to Spend independently (G234), two accounts could read the same figure
+// and imply they could be added. G436 removed the cap (each figure is the
+// account's own and they add up), so Home never takes this path any more
+// (`bestSpendAccount` always supplies `entries`); the pure functions stay for
+// payloads that carry no per-account list.
 
 function usablePool(pool: number | null | undefined): number | null {
   return typeof pool === "number" && Number.isFinite(pool) ? Math.max(0, pool) : null;
@@ -388,10 +386,8 @@ export function spendFromHeroLine(
       const entries = [result.best, result.alternative].filter((e): e is SpendFromAccount => e != null);
       if (!result.entries && spendFromIsCombined(entries, pool)) return spendFromCombinedLine(entries, pool as number, amount);
       const bank = bankLabel ? ` (${bankLabel})` : "";
-      // G234: the figure is capped at the pooled Safe to Spend by the
-      // backend, so it can never read higher than the headline. When the
-      // cap is what set it, say so; otherwise it is the account's own spare.
-      return `In ${result.best.name}${bank}: ${amount(result.best.headroom)} of your estimate${result.best.requiresMove ? ", after the suggested move" : ""}.`;
+      // G436: the figure is the account's own, not a share of the estimate.
+      return `In ${result.best.name}${bank}: ${amount(result.best.headroom)} left to spend${result.best.requiresMove ? ", after the suggested move" : ""}.`;
     }
   }
 }
@@ -450,7 +446,6 @@ export type SpendFromTreatmentPlan = {
   entries: SpendFromAccount[];
   /** G300: the pooled Safe to Spend the combined rule used (null when unknown). */
   pool: number | null;
-  unallocated?: number;
   /** G300: true when the per-account figures would add up to more than the
    *  pool, so the card shows badges/names only plus one combined line
    *  (`spendFromCombinedLine`) instead of per-account amounts. */
@@ -521,7 +516,7 @@ export function spendFromTreatmentPlan(
   }
 
   if (resolved.kind === "none") {
-    return { kind: "no-current", entries: [], pool: usablePool(pool), unallocated: resolved.unallocated, combined: false, message: null, retryable: false, diagnostic: null };
+    return { kind: "no-current", entries: [], pool: usablePool(pool), combined: false, message: null, retryable: false, diagnostic: null };
   }
 
   const entries = resolved.entries ?? [resolved.best, resolved.alternative].filter(
@@ -534,7 +529,6 @@ export function spendFromTreatmentPlan(
     kind,
     entries,
     pool: usablePool(pool),
-    unallocated: resolved.unallocated,
     combined: resolved.entries ? false : spendFromIsCombined(entries, pool),
     message: null,
     retryable: false,

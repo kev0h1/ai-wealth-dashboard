@@ -224,6 +224,16 @@ def test_dump_golden(monkeypatch):
 
 
 def test_pooled_walk_equals_the_pre_change_golden(monkeypatch):
+    # G436: the pooled WALK itself (window lists, transfers excluded, min_running,
+    # bills_total, income) is still the G367 golden byte for byte. Only the
+    # response's headline moved, by design: Left to spend is now each counted
+    # current account's own lowest point added up. By hand: Main opens 1,000 and
+    # pays 400 (day 2), the 150 transfer out (day 3, the fake has no inflow
+    # leg), 30 and 60 (day 5): low 360. Joint 300 and Overdrawn -150 have no
+    # events, so each is its own opening. Side gig (two sightings, on Main, due after
+    # today) is predicted: +140. 500 + 300 - 150 = 650 (the old pooled 810 dropped the
+    # transfer's debit and counted the overdraft as 0). Refund has no history, so it
+    # does not count; no buffer or plans.
     golden = json.loads(GOLDEN.read_text())
     got = _capture(monkeypatch)
     for key in golden:

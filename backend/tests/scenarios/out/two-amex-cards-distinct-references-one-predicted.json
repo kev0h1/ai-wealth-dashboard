@@ -1,11 +1,9 @@
 {
   "account_eligibility": {
     "acc-bc": {
-      "account_headroom_raw": 1150.0,
       "after_payments": 1150.0,
+      "after_payments_and_money_in": 1150.0,
       "after_payments_and_plans": 1150.0,
-      "allocation_order": 0,
-      "allocation_unassigned": 0.0,
       "estimated": false,
       "headroom": 1140.0,
       "is_current_account": true,
@@ -13,7 +11,6 @@
       "low_point_and_plans": 1150.0,
       "plans_reserved": 0.0,
       "short": false,
-      "spend_from_capped": false,
       "spend_from_headroom": 1150.0,
       "uncertain": false
     }
@@ -175,6 +172,12 @@
     "allocations_reserved": 0.0,
     "calculation_status": "complete",
     "commitments_reserved": 0,
+    "left_to_spend_lines": {
+      "accounts_total": 1150.0,
+      "buffer": 0.0,
+      "plans_total": 0
+    },
+    "lowest_projected_balance": 1150.0,
     "safe_to_spend": 1150.0,
     "safe_to_spend_cash": 1150.0
   },

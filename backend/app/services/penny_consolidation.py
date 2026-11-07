@@ -75,8 +75,9 @@ PLAN_CONSOLIDATION_SCHEMA = {
 
 
 SAFE_TO_SPEND_NOTE = (
-    " spend_from lists account allocations of the shared left to spend, which add together; "
-    "requires_move means that allocation is available only after the suggested move, which has not happened; "
+    " spend_from lists each current account's own figure after its payments, goals and set-asides, "
+    "and those figures add up to safe_to_spend, apart from any set-aside paid from an account that is not a current account; "
+    "requires_move means that figure is positive only after the suggested move, which has not happened; "
     "a move between the user's own accounts never changes safe_to_spend."
 )
 UNCHANGED_SENTENCE = "Moving money between your own accounts does not change your left to spend."
@@ -573,12 +574,9 @@ async def spend_from_extras(uid: str) -> dict:
     except Exception:
         logger.warning("get_safe_to_spend: per-account block failed for %s", uid, exc_info=True)
         return out
-    out["unallocated_forecast"] = _money(max((float(e.get("allocation_unassigned") or 0) for e in eligibility.values()), default=0))
     out["spend_from"] = [
         {"name": s["name"], "bank": s["bank"], "amount": _money(s["headroom"]),
-         "requires_move": s["requires_move"],
-         "held_back": _money(max(0.0, float(s["raw_headroom"] or 0.0) - s["headroom"])
-                         if s.get("raw_headroom") is not None else 0.0)}
+         "requires_move": s["requires_move"]}
         for s in sorted(sources, key=lambda x: -x["headroom"])
     ]
     out["excluded"] = [
@@ -592,4 +590,7 @@ async def spend_from_extras(uid: str) -> dict:
     return out
 
 
-per_account_extras = spend_from_extras  # penny_tools.py may not spell the per-account vocabulary (test_spend_from_cap)
+# Needed, not decoration: penny_tools.py imports this name because the source guard in
+# tests/test_g436_account_by_account.py (test_no_penny_surface_quotes_per_account_figures)
+# forbids that file from spelling the per-account vocabulary (`spend_from`, `account_eligibility`...).
+per_account_extras = spend_from_extras

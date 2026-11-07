@@ -464,6 +464,28 @@ def test_caller_output_equals_pre_extraction_golden(monkeypatch, name):
         for entry in (got.get("eligibility") or {}).values():
             for row in (entry.get("covered_by_move") or {}).get("from", []):
                 row.pop("display_label", None)
+        # G436 (Kevin 2026-11-07, every account in isolation, money in vs money out): the golden stays
+        # the old output except these keys, one reason each.
+        #   after_payments_and_money_in: new display-only key, the closing figure of the account's own walk.
+        #   spend_from_headroom: now the signed closing figure less plans, no low-point clamp, no
+        #     preference allocation (barclays 5021.67 - 175, hsbc 1685.33 - 20, natwest 330); lowsrc is
+        #     -90 plus the 135 move in = 45; man1 and pot are non-current, so no spending figure (0).
+        #   moves_in_total, spend_from_requires_move: lowsrc is credited the suggested 135 move in from
+        #     another current account (the source is earmarked, so the two net to zero).
+        #   dips_below_zero: new warning key, lowsrc goes below zero before money arrives (never in the figure).
+        #   account_headroom_raw: now kept for non-current accounts (man1, pot) as consolidation capacity.
+        g436 = {
+            "barclays": {"after_payments_and_money_in": 5021.67, "spend_from_headroom": 4846.67},
+            "hsbc": {"after_payments_and_money_in": 1685.33, "spend_from_headroom": 1685.33},
+            "idle": {"after_payments_and_money_in": 15.0},
+            "lowsrc": {"after_payments_and_money_in": -90.0, "spend_from_headroom": 45.0, "moves_in_total": 135.0,
+                       "spend_from_requires_move": True, "dips_below_zero": {"money_in_date": "2026-11-08"}},
+            "man1": {"account_headroom_raw": 240.0, "after_payments_and_money_in": 250.0, "spend_from_headroom": 0.0},
+            "natwest": {"after_payments_and_money_in": 330.0, "spend_from_headroom": 330.0},
+            "pot": {"account_headroom_raw": 240.0, "after_payments_and_money_in": 777.0, "spend_from_headroom": 0.0},
+        }
+        for acct, keys in g436.items():
+            golden["eligibility"][acct].update(keys)
     assert got == golden
 
 

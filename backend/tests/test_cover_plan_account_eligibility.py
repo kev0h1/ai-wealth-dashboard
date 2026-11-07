@@ -641,24 +641,27 @@ def _dip_run(monkeypatch, *, extra_accounts=(), plans=None):
     return eligibility
 
 
-def test_clamp_holds_spend_from_at_the_low_point(monkeypatch):
+def test_a_dip_before_money_arrives_is_not_part_of_the_figure(monkeypatch):
+    # G436 (Kevin 2026-11-07, money in vs money out): Available is the closing figure, 1,050; the
+    # low point (50) is only reported. The running balance never goes below zero here, so no dip warning.
     e = _dip_run(monkeypatch)["A"]
     assert e["after_payments"] == 1050.0
     assert e["low_point"] == 50.0
-    assert e["spend_from_headroom"] == 50.0
+    assert e["spend_from_headroom"] == 1050.0 and e["after_payments_and_money_in"] == 1050.0
+    assert "dips_below_zero" not in e
 
 
-def test_clamp_survives_a_pool_cap_above_it(monkeypatch):
-    from app.services.companion import cap_spend_from_to_pool
+def test_clamp_is_each_accounts_own_figure_and_nothing_is_shared_out(monkeypatch):
+    # G436: the engine's figure is final: A's own 1,050 and B's own 2,000: no pool, no preference fill, no cap.
     elig = _dip_run(monkeypatch, extra_accounts=[_account("B", 2000.0, provider="monzo")])
-    cap_spend_from_to_pool(elig, 2500.0)
-    assert elig["A"]["spend_from_headroom"] == 50.0
+    assert elig["A"]["spend_from_headroom"] == 1050.0
     assert elig["B"]["spend_from_headroom"] == 2000.0
+    assert not any(k in e for e in elig.values() for k in ("allocation_order", "allocation_unassigned", "spend_from_capped"))
 
 
-def test_clamp_subtracts_a_chosen_goal_from_the_low_point(monkeypatch):
+def test_a_chosen_goal_is_subtracted_from_the_closing_figure(monkeypatch):
     goal = dict(_JAPAN, source_account_id="A", source_basis="chosen", remaining=30, period_amount=30)
     e = _dip_run(monkeypatch, plans=[goal])["A"]
     assert e["low_point_and_plans"] == 20.0
     assert e["after_payments_and_plans"] == 1020.0
-    assert e["spend_from_headroom"] == 20.0
+    assert e["spend_from_headroom"] == 1020.0

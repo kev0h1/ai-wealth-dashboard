@@ -107,7 +107,13 @@ _MAX_TIME_MS = 500
 # 10: G434 account_eligibility gained savings_at_risk, savings-source cover legs (G422,
 # G426, G428) and Savings-category standing orders without a learned destination;
 # none of G421-G428 bumped this, so a pre-release /today could be served until TTL.
-SHAPE_VERSION = 10
+# 11: G436 Left to spend and each account's Available are account by account:
+# spend_from_headroom is the account's own signed figure (moves in added, negative
+# when short), the preference-filled allocation and its allocation_order,
+# allocation_unassigned, spend_from_capped and (current accounts') account_headroom_raw
+# are gone, moves_in_total is new, and the Left to spend payload gained
+# left_to_spend_lines and a new lowest_projected_balance basis.
+SHAPE_VERSION = 11
 
 # UK users; this cache pins its day boundary to Europe/London (DST-aware,
 # via app.core.timeutil) so the API and worker processes, even if their

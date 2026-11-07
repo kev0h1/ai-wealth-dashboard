@@ -131,19 +131,12 @@ export function accountPlan(account: UpcomingAccountSummary, plans: Plan[]) {
   const afterPlans = server
     ? (uncertain ? null : toPence(server.afterPaymentsAndPlans))
     : afterPayments === null || uncertain ? null : afterPayments - reservedPence;
-  // Spend from: never more than the account's lowest point this period minus
-  // plans. Server value when present (the figure Home shows, pool-capped);
-  // otherwise the same min computed from the walk (no pool known here).
+  // Spend from (G436): the account's own figure, balance plus predicted money in less money out,
+  // less its plans; the server value when present, otherwise After payments and plans from the walk.
   // TODO(G238): delete the fallback with the one above.
-  const walkLowPence = (() => {
-    if (account.opening === null || account.opening === undefined) return null;
-    const afters = (account.events ?? []).map((event) => event.after);
-    if (afters.some((after) => after === null)) return null;
-    return Math.round(Math.min(account.opening, ...(afters as number[])) * 100);
-  })();
   const spendFromPence = server
     ? (uncertain || server.spendFrom === null ? null : toPence(server.spendFrom))
-    : afterPlans === null || walkLowPence === null ? null : Math.min(afterPlans, walkLowPence - reservedPence);
+    : afterPlans;
   const planGap = afterPlans === null || afterPayments === null ? null : Math.max(0, -afterPlans) - Math.max(0, -afterPayments);
   return { assigned, unassigned, estimated, uncertain, allocationPence, goalPence, scheduledPence, reservedPence, afterPayments, afterPlans, spendFromPence, planGap };
 }

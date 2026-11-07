@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 # Persisted response-cache entries outlive deployments. Bump this whenever
 # Safe-to-Spend arithmetic or response semantics change so an older payload
 # cannot briefly contradict the current Home card after a release.
-SAFE_TO_SPEND_CALCULATION_VERSION = 2
+SAFE_TO_SPEND_CALCULATION_VERSION = 3
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
@@ -4603,6 +4603,49 @@ async def _build_cashflow_response(cached: dict, uid: str | None = None, prefs: 
     # exactly the gates its source occurrence passed. Never merged into
     # `upcoming_income`/balances/totals below; see the doctrine comment on
     # the returned `internal_inflows` key.
+    # G436: an own-transfer occurrence dated today or earlier whose credit has ALREADY landed on its
+    # destination is in that account's balance, so its mirrored inbound credit is closed (never
+    # walked a second time). The debit leg is closed by `_match_observed` above exactly as for any
+    # bill. Matched on destination account and amount band, one credit closes one occurrence,
+    # non-Income credits only (salary is G362's, matched separately).
+    transfer_credits_observed: list[dict] | None = None
+
+    async def _transfer_credit_landed(dest_account_id, amount, expected_d) -> bool:
+        nonlocal transfer_credits_observed
+        if not uid or not dest_account_id:
+            return False
+        if transfer_credits_observed is None:
+            transfer_credits_observed = []
+            _since = today - timedelta(days=OBSERVATION_LOOKBACK_DAYS + 1)
+            for _col in [transactions_col, yapily_transactions_col]:
+                try:
+                    async for _t in _col.find(
+                        {"user_id": uid, "date": {"$gte": _since}, "transaction_type": "credit"},
+                        {"amount": 1, "date": 1, "category": 1, "custom_category": 1, "account_id": 1},
+                    ):
+                        if (_t.get("custom_category") or _t.get("category") or "Other") == "Income":
+                            continue
+                        _raw_d = _t.get("date")
+                        transfer_credits_observed.append({
+                            "date": _raw_d.date() if hasattr(_raw_d, "date") else _raw_d,
+                            "amount": abs(float(_t.get("amount", 0))),
+                            "account_id": str(_t.get("account_id") or ""),
+                            "used": False,
+                        })
+                except Exception:
+                    continue
+            transfer_credits_observed.sort(key=lambda c: c["date"])
+        tol = max(2.0, abs(amount) * 0.15)
+        lo = expected_d - timedelta(days=OBSERVATION_LOOKBACK_DAYS)
+        for c in transfer_credits_observed:
+            if c["used"] or not (lo <= c["date"] <= today_d):
+                continue
+            if c["account_id"] != str(dest_account_id) or abs(c["amount"] - abs(amount)) > tol:
+                continue
+            c["used"] = True
+            return True
+        return False
+
     raw_internal_inflows: list = []
     # Occurrences matched to a bank-side PENDING debit (`_match_pending_observed`
     # above) -- the account balance already reflects them, so unlike every
@@ -4761,6 +4804,9 @@ async def _build_cashflow_response(cached: dict, uid: str | None = None, prefs: 
             # learned destination and so are never mirrored.
             if (r.get("dest_account_id") and e["kind"] == MOVEMENT
                     and r["dest_account_id"] != e.get("account_id")):
+                if (e["pending"] or e["days_away"] <= 0) and await _transfer_credit_landed(
+                        r["dest_account_id"], e["amount"], _date.fromisoformat(e["expected_date"])):
+                    continue  # G436: its credit is already in the destination's balance
                 raw_internal_inflows.append({
                     "name":                e["name"],
                     "amount":              e["amount"],
@@ -5450,8 +5496,16 @@ async def compute_safe_to_spend(uid: str) -> dict:
 
     _excluded_ids = {a["id"] for a in _excluded_accounts}
 
+    # G436: the rows also hand the window each account's own balance, so the
+    # per-account walks below (the headline's basis) run on this same window with
+    # no second query. The pooled walk never reads `live_balances`.
+    _row_balances = {
+        str(a["_id"]): float(a.get("balance") or 0.0)
+        for a in all_accs_raw if a.get("_id") is not None
+    }
+
     async def _pool_rows_loader(_assessable_bills: list[dict]) -> LoadedAccounts:
-        return LoadedAccounts(excluded_account_ids=_excluded_ids)
+        return LoadedAccounts(live_balances=dict(_row_balances), excluded_account_ids=_excluded_ids)
 
     wi = await build_window_inputs(
         uid, resp, _prefs,
@@ -5525,6 +5579,29 @@ async def compute_safe_to_spend(uid: str) -> dict:
         logger.exception("allocations reserve failed for %s", uid)
         unavailable_components.append("allocations_reserve")
         allocations_reserved, allocations_count = 0.0, 0
+
+    # ── 6b-3. Every account in isolation (G436) ───────────────────────────────
+    # Kevin 2026-11-07: "every account in isolation, money in vs money out; the calculation
+    # shouldn't really care that money is moving from one account to another." The headline is
+    # the sum of every counted current account's own closing figure (balance + predicted money in
+    # - predicted money out, negatives included; an own-account transfer is out on its source and
+    # in on its destination, so it nets to zero), less the goals and set-asides reserved above and
+    # the buffer. No other lines: income no counted account is credited with and payments from a
+    # savings or manual account are not in it. Moves between current accounts net to zero too, so
+    # the headline never depends on the cover plan; `companion.finalise_account_available` makes
+    # the shown per-account Available add up to it. Fail closed: if the per-account figures cannot
+    # be read the result is "degraded" and clamped below.
+    lowest_projected = min_running
+    accounts_total = None
+    plans_total = round((commitments_reserved or 0) + (allocations_reserved or 0), 2)
+    try:
+        from app.services.account_available import account_bases, counted_current_ids
+        accounts_total = round(sum(account_bases(wi, counted_current_ids(all_accs_raw)).values()), 2)
+        lowest_projected = accounts_total
+        safe_to_spend = round(accounts_total - buffer - plans_total, 2)
+    except Exception:
+        logger.exception("account-by-account left to spend failed for %s", uid)
+        unavailable_components.append("account_positions")
 
     # ── 6c. Card growth fact (information only) ────────────────────────────────
     # G413 (Kevin, 2026-11-04): a card repayment is an ordinary payment. It is
@@ -5634,7 +5711,7 @@ async def compute_safe_to_spend(uid: str) -> dict:
     # amber, not red, on every surface; derived once, here.
     from app.services.net_position import plans_only_short_for
     plans_only_short = (not unavailable_components) and plans_only_short_for(
-        state, short_reason, safe_to_spend_cash, round(min_running, 2), buffer,
+        state, short_reason, safe_to_spend_cash, round(lowest_projected, 2), buffer,
         commitments_reserved, allocations_reserved,
     )
 
@@ -5715,7 +5792,14 @@ async def compute_safe_to_spend(uid: str) -> dict:
         # The actual floor reached by the date-ordered bill/income walk.
         # This (rather than aggregate bills/income totals) is the missing
         # reconciling bridge from spendable_now to safe_to_spend_cash.
-        "lowest_projected_balance": round(min_running, 2),
+        "lowest_projected_balance": round(lowest_projected, 2),
+        # G436: what the headline is made of: each counted current account's own
+        # figure adds up to `accounts_total`; then plans and the buffer come off.
+        "left_to_spend_lines": (None if accounts_total is None else {
+            "accounts_total": accounts_total,
+            "plans_total": plans_total,
+            "buffer": buffer,
+        }),
         "payday_income":       payday_income,
         "card_debt":           card_debt,
         "card_growth_total":   card_growth_total,

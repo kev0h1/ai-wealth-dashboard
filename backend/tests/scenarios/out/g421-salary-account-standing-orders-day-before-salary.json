@@ -1,11 +1,9 @@
 {
   "account_eligibility": {
     "acc-bc": {
-      "account_headroom_raw": -900.0,
       "after_payments": -1150.0,
+      "after_payments_and_money_in": -1150.0,
       "after_payments_and_plans": -1150.0,
-      "allocation_order": 0,
-      "allocation_unassigned": 700.0,
       "covered_by_move": {
         "amount": 250.0,
         "from": [
@@ -29,19 +27,17 @@
       "is_current_account": true,
       "low_point": -1150.0,
       "low_point_and_plans": -1150.0,
+      "moves_in_total": 250.0,
       "plans_reserved": 0.0,
       "short": true,
       "short_after_cover": 900.0,
-      "spend_from_capped": false,
-      "spend_from_headroom": 0.0,
+      "spend_from_headroom": -900.0,
       "uncertain": false
     },
     "acc-hsbc": {
-      "account_headroom_raw": 10.0,
       "after_payments": 150.0,
+      "after_payments_and_money_in": 1050.0,
       "after_payments_and_plans": 150.0,
-      "allocation_order": 1,
-      "allocation_unassigned": 700.0,
       "earmarked_total": 140.0,
       "earmarks_out": [
         {
@@ -57,16 +53,13 @@
       "low_point_and_plans": 150.0,
       "plans_reserved": 0.0,
       "short": false,
-      "spend_from_capped": false,
-      "spend_from_headroom": 10.0,
+      "spend_from_headroom": 910.0,
       "uncertain": false
     },
     "acc-mz": {
-      "account_headroom_raw": 80.0,
       "after_payments": 80.0,
+      "after_payments_and_money_in": 280.0,
       "after_payments_and_plans": 80.0,
-      "allocation_order": 3,
-      "allocation_unassigned": 700.0,
       "estimated": false,
       "headroom": 70.0,
       "is_current_account": true,
@@ -74,16 +67,13 @@
       "low_point_and_plans": 80.0,
       "plans_reserved": 0.0,
       "short": false,
-      "spend_from_capped": false,
-      "spend_from_headroom": 80.0,
+      "spend_from_headroom": 280.0,
       "uncertain": false
     },
     "acc-nw": {
-      "account_headroom_raw": 10.0,
       "after_payments": 120.0,
+      "after_payments_and_money_in": 620.0,
       "after_payments_and_plans": 120.0,
-      "allocation_order": 2,
-      "allocation_unassigned": 700.0,
       "earmarked_total": 110.0,
       "earmarks_out": [
         {
@@ -99,8 +89,7 @@
       "low_point_and_plans": 120.0,
       "plans_reserved": 0.0,
       "short": false,
-      "spend_from_capped": false,
-      "spend_from_headroom": 10.0,
+      "spend_from_headroom": 510.0,
       "uncertain": false
     }
   },
@@ -617,6 +606,12 @@
     "allocations_reserved": 0.0,
     "calculation_status": "complete",
     "commitments_reserved": 0,
+    "left_to_spend_lines": {
+      "accounts_total": 800.0,
+      "buffer": 0.0,
+      "plans_total": 0
+    },
+    "lowest_projected_balance": 800.0,
     "safe_to_spend": 800.0,
     "safe_to_spend_cash": 800.0
   },
