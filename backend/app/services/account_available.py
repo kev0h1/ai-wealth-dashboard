@@ -1,55 +1,34 @@
-"""G436: Left to spend and each account's Available, account by account.
+"""G436: Left to spend and each account's Available, every account in isolation.
 
-Kevin 2026-11-07: Left to spend is the balance left after payments, goals and
-set-asides, account by account. It is not a total shared out across preferred
-accounts (G414's allocation, replaced here).
+Kevin 2026-11-07: "it should be every account in isolation, money in vs money out; the calculation
+shouldn't really care that money is moving from one account to another; the categories are just
+intention."
 
-  Available (one current account)
-      = the account's own lowest point before payday, from its own walk
-        (min of After payments and Lowest after payments, the figures the
-        account page already shows, G366)
+  Available (one counted current account)
+      = its balance + predicted money in - predicted money out over the pay period, the closing
+        figure of its own walk (`available_walk`; predicted means on Upcoming: reliable or
+        confirmed income and expected transfers in, every predicted payment out, credits before
+        debits on a day, G163)
       - the goals and set-asides paid from it (plans_reserved)
       - any earmarked move out of it (G410)
-      + any suggested move into it from another CURRENT account.
-      A suggested move from savings (G428) is shown on the destination but
-      never added here: it counts once the move is made.
+      + any suggested move into it from another CURRENT account (savings moves are shown, never counted).
+  An own-account transfer is money out on its source and money in on its destination on its date,
+  with no special handling and no G360 gate on this figure (`money_in_out_window`), so a transfer
+  between counted accounts nets to zero. A dip below zero before money arrives is a warning on the
+  account (`dip_before_money_in`, plus the cover engine's move) and never changes the figure.
 
-  Left to spend = the sum of those figures over the counted current accounts,
-      negatives included, plus the explicit lines for what cannot sit on one
-      counted account:
-        uncredited_income      income no counted account's walk credits (not
-                               attributed to a counted account, or not
-                               reliable enough): the pooled walk counted it,
-                               so it stays in, on its own line,
-        unattributed_bills     payments the pooled walk deducted that no counted
-                               account's walk carries (no paying account, or
-                               one that is not a counted current account),
-        plans_not_on_account   goals and set-asides whose paying account is
-                               not a counted current account (Not set, a
-                               savings or manual source, no resolvable source),
-        buffer                 the user's own safety buffer.
-      A move between two current accounts nets to zero, so the headline never
-      depends on the cover plan: it is computed from the per-account bases
-      below plus the plan totals, and the per-account Available shown on
-      Home / Accounts / Upcoming (`companion.finalise_account_available`) adds
-      up to it by construction.
+  Left to spend = the sum of those figures over the counted current accounts (negatives included),
+  less goals and set-asides paid from no counted current account (`plans_total` less what accounts
+  carry), less the user's buffer. Income no counted account is credited with, and payments from a
+  savings, manual or revoked account, are not in it. The shown per-account Available
+  (`companion.finalise_account_available`) therefore adds up to it by construction.
 
-Pure helpers over the SAME window inputs, closing walk and source low-point
-walk that `companion.compute_today_items` reads (G364 to G366), never a second
-kernel. Nothing here queries the database: it runs on the walk
-`compute_safe_to_spend` has already built.
+Pure helpers over the same window inputs `compute_today_items` reads (G364 to G366). Nothing here
+queries the database.
 """
 from __future__ import annotations
 
-from types import SimpleNamespace
 from typing import Any
-
-
-def own_basis(after_payments: float | None, low_point: float | None) -> float | None:
-    """The account's own lowest point before payday, before its plans:
-    min(After payments, Lowest after payments). None when it has no walk figure."""
-    values = [float(v) for v in (after_payments, low_point) if v is not None]
-    return round(min(values), 2) if values else None
 
 
 def counted_current_ids(accounts: list[dict]) -> set[str]:
@@ -65,69 +44,51 @@ def counted_current_ids(accounts: list[dict]) -> set[str]:
     }
 
 
-def account_bases(window: Any, counted_ids: set[str]) -> dict[str, float]:
-    """Per counted current account: its own lowest point before payday (the
-    basis above, before plans), from its own walks over `window` (a
-    `WindowInputs` whose `live_balances` hold every counted account's balance).
-    The same two walks `compute_today_items` runs: the closing walk
-    (`window_events`, `inflow_admit="seed_live"`) and the source low-point walk."""
-    from app.services.account_position import source_low_walk
-    from app.services.account_walk import account_walks, window_events
+def money_in_out_window(window: Any) -> Any:
+    """The window the per-account Available is read from (Kevin 2026-11-07, "every account in
+    isolation, money in vs money out"): the same inputs, but an own-account transfer's destination
+    leg is credited on its date whether or not its source can afford it (no G360 gate). Whether the
+    source can afford it is the source's shortfall, flagged and given a move by the cover engine.
+    Only what feeds Available and the headline uses this; the cover engine and every other walk keep
+    the gated `funded_window_inflows`."""
+    import dataclasses
 
-    events, running, _credited = window_events(window, inflow_admit="seed_live")
-    closing = account_walks(events, running)
+    return dataclasses.replace(window, funded_window_inflows=list(window.window_inflows))
+
+
+def available_walk(window: Any, sid: str, opening: float):
+    """One account's own walk for Available: its balance, plus every predicted credit attributed to
+    it (reliable or confirmed income, expected inbound transfers), less every predicted debit on it,
+    credits before debits on a shared day (G163). Nothing is dropped for being a transfer, a saving
+    or a bill: labels are intention only. `window` comes from `money_in_out_window`."""
+    from app.services.account_walk import walk_account
+
+    return walk_account(sid, window, opening=opening, income_admit="any", inflow_admit="any", same_day_key="is_income")
+
+
+def dip_before_money_in(walk: Any, today: Any) -> dict | None:
+    """When the running balance goes below zero before a later credit arrives: {"money_in_date": iso}
+    (the first credit after the first dip). A warning only, it never changes the figure."""
+    from datetime import timedelta
+
+    rows = walk.rows
+    for k, row in enumerate(rows):
+        if row.running < 0 and not row.is_income:
+            for later in rows[k + 1:]:
+                if later.is_income:
+                    return {"money_in_date": (today + timedelta(days=later.day)).isoformat()}
+            return None
+    return None
+
+
+def account_bases(window: Any, counted_ids: set[str]) -> dict[str, float]:
+    """Per counted current account: the closing figure of its own walk (`available_walk`), before its
+    goals and set-asides. `window` is a `WindowInputs` whose `live_balances` hold every counted
+    account's balance."""
+    wi = money_in_out_window(window)
     bases: dict[str, float] = {}
     for sid in sorted(counted_ids):
-        if sid not in window.live_balances:
+        if sid not in wi.live_balances:
             continue  # no balance row to open a walk from: contributes nothing, never a guess
-        bal = float(window.live_balances[sid])
-        walk = closing.get(sid)
-        after = float(walk.closing) if walk is not None else bal
-        basis = own_basis(after, source_low_walk(sid, window, bal).low_point)
-        bases[sid] = basis if basis is not None else round(after, 2)
+        bases[sid] = round(float(available_walk(wi, sid, float(wi.live_balances[sid])).closing), 2)
     return bases
-
-
-def pooled_only_effects(window: Any, counted_ids: set[str], seed: float) -> tuple[float, float]:
-    """What the pooled walk gave Left to spend for items no counted current
-    account's walk can carry, as two explicit lines (never silently dropped when
-    the headline moves to the per-account basis):
-
-      uncredited_income   (>= 0)  income not credited to a counted account by
-                                  `income_credit_ok` (unattributed, unreliable,
-                                  or landing in a non-counted account);
-      unattributed_bills  (<= 0)  payments with no counted paying account
-                                  (no account, or a savings, manual or revoked one).
-
-    Both are differences of the pooled low point, so they add exactly:
-    pooled(all) - pooled(only what counted accounts carry)."""
-    from app.routers.analytics import income_credit_ok
-    from app.services.account_walk import POOLED_POLICY, pooled_walk
-
-    keys = getattr(window, "confirmed_income_keys", frozenset())
-    credited = [
-        i for i in window.window_income
-        if str(i.get("account_id") or "") in counted_ids
-        and income_credit_ok(i, str(i.get("account_id") or ""), keys)
-    ]
-    carried_ids = {id(b) for b in window.assessable_bills if str(b.get("account_id") or "") in counted_ids}
-    carried = [b for b in window.window_bills if id(b) in carried_ids]
-    if len(credited) == len(window.window_income) and len(carried) == len(window.window_bills):
-        return 0.0, 0.0
-
-    def low(bills: list[dict], income: list[dict]) -> float:
-        stand_in = SimpleNamespace(
-            window_bills=bills, window_income=income,
-            payday_day_bills=window.payday_day_bills, payday_day_income=window.payday_day_income,
-            confirmed_income_keys=keys,
-        )
-        return pooled_walk(stand_in, seed, POOLED_POLICY).min_running
-
-    full = low(list(window.window_bills), list(window.window_income))
-    bills_only_counted = low(carried, credited)
-    income_all_bills_counted = low(carried, list(window.window_income))
-    # full - income_all_bills_counted: what the bills no counted account pays cost;
-    # income_all_bills_counted - bills_only_counted: what the uncredited income added.
-    uncredited_income = round(max(0.0, income_all_bills_counted - bills_only_counted), 2)
-    unattributed_bills = round(min(0.0, full - income_all_bills_counted), 2)
-    return uncredited_income, unattributed_bills

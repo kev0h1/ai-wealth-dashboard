@@ -2,6 +2,7 @@
   "account_eligibility": {
     "acc-bc": {
       "after_payments": -900.0,
+      "after_payments_and_money_in": -900.0,
       "after_payments_and_plans": -900.0,
       "covered_by_move": {
         "amount": 910.0,
@@ -30,6 +31,7 @@
     },
     "acc-st": {
       "after_payments": 2000.0,
+      "after_payments_and_money_in": 2000.0,
       "after_payments_and_plans": 2000.0,
       "earmarked_total": 910.0,
       "earmarks_out": [
@@ -213,13 +215,11 @@
     "left_to_spend_lines": {
       "accounts_total": 1100.0,
       "buffer": 0.0,
-      "plans_total": 0,
-      "unattributed_bills": 0.0,
-      "uncredited_income": 1100.0
+      "plans_total": 0
     },
-    "lowest_projected_balance": 2200.0,
-    "safe_to_spend": 2200.0,
-    "safe_to_spend_cash": 2200.0
+    "lowest_projected_balance": 1100.0,
+    "safe_to_spend": 1100.0,
+    "safe_to_spend_cash": 1100.0
   },
   "today": "2026-10-08"
 }

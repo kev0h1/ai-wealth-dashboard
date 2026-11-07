@@ -2,6 +2,7 @@
   "account_eligibility": {
     "acc-bc": {
       "after_payments": -1200.0,
+      "after_payments_and_money_in": -1200.0,
       "after_payments_and_plans": -1200.0,
       "covered_by_move": {
         "amount": 1210.0,
@@ -44,6 +45,7 @@
     },
     "acc-hs": {
       "after_payments": 110.0,
+      "after_payments_and_money_in": 110.0,
       "after_payments_and_plans": 110.0,
       "earmarked_total": 100.0,
       "earmarks_out": [
@@ -65,6 +67,7 @@
     },
     "acc-mz": {
       "after_payments": 60.0,
+      "after_payments_and_money_in": 60.0,
       "after_payments_and_plans": 60.0,
       "earmarked_total": 50.0,
       "earmarks_out": [
@@ -87,6 +90,7 @@
     "acc-sav": {
       "account_headroom_raw": 3930.0,
       "after_payments": 5000.0,
+      "after_payments_and_money_in": 5000.0,
       "after_payments_and_plans": 5000.0,
       "earmarked_total": 1060.0,
       "earmarks_out": [
@@ -350,9 +354,7 @@
     "left_to_spend_lines": {
       "accounts_total": -1030.0,
       "buffer": 0.0,
-      "plans_total": 0,
-      "unattributed_bills": 0.0,
-      "uncredited_income": 0.0
+      "plans_total": 0
     },
     "lowest_projected_balance": -1030.0,
     "safe_to_spend": -1030.0,

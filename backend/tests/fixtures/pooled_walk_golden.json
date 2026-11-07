@@ -61,9 +61,7 @@
   "left_to_spend_lines": {
    "accounts_total": 510.0,
    "buffer": 0.0,
-   "plans_total": 0,
-   "unattributed_bills": 0.0,
-   "uncredited_income": 0.0
+   "plans_total": 0
   },
   "lowest_projected_balance": 510.0,
   "next_payday": "2026-10-22",

@@ -65,14 +65,15 @@ is fixed. Assertion keys are of the form `<check name>: <account id>` (for examp
 `frontend/scripts/scenarios.test.mjs`. A gap whose assertion now passes FAILS the
 run (stale gap). No scenario currently carries one (the G363 client income gap was closed by G372).
 
-`spend_from` is the figure Home shows (`spend_from_headroom`): the account's own Available, signed
-(G436, Kevin 2026-11-07), after its goals and set-asides and any move set aside out of it or counted
-in from another current account. There is no pool and no allocation. Left to spend is the sum of the
-counted current accounts' own lowest points, less goals, set-asides and buffer, plus two explicit lines
-for what no counted account carries (`expected.lines`: `accounts_total`, `uncredited_income`,
-`unattributed_bills`, `plans_total`, `buffer`, hand-derived in the notes). A G436 fixture may set
-`spend_from_total` when it names every eligible current account. `verdict` is "short" exactly when
-`after_payments < 0` or `low_point < 0`, otherwise "covered".
+`spend_from` is the figure Home shows (`spend_from_headroom`): the account's own Available, signed (G436,
+Kevin 2026-11-07, "every account in isolation, money in vs money out"): the closing figure of its own walk
+(balance plus predicted money in less predicted money out, an own-account transfer being out on its source and
+in on its destination with no gate), less its goals and set-asides, less any move set aside out of it, plus any
+suggested move in from another current account. There is no pool and no allocation, and the low point is only a
+warning. Left to spend is the sum of the counted current accounts' figures, less goals and set-asides on no
+counted account and the buffer (`expected.lines`: `accounts_total`, `plans_total`, `buffer`, hand-derived in the
+notes). A fixture may set `spend_from_total` when it names every eligible current account. `verdict` is "short"
+exactly when `after_payments < 0` or `low_point < 0`, otherwise "covered".
 
 ## Snapshots (`out/<slug>.json`)
 
@@ -202,4 +203,4 @@ G426: `g426-own-savings-order-then-bill-bounces-one-combined-move` (the order fi
 
 G434 (production shape: a 300 standing order into a saver the bank never shares, so no destination can be learned): `g434-own-savings-order-to-an-unconnected-saver-filed-as-savings-by-the-user` (the user filed the series as Savings via the "Savings or investments" choice, stamped by the pattern builder), and the control `g434-engine-assigned-investment-category-stays-ordinary` (an engine-assigned Investment category alone does not count) and `g434-own-savings-order-to-an-unconnected-saver-recognised-by-words-and-name` (savings wording plus the user's own name, stamped `own_savings_elsewhere` by the pattern builder, whose recognition is pinned in `test_g434_own_savings_elsewhere.py`): in both the 150 deficit is savings at risk, one 160 cover move from the current account with most room, no payment gap, no bill at risk. `g434-savings-words-without-own-money-evidence-stays-ordinary` is the control: the same words with no own name, counterparty account (sort code and account number on file) or pair evidence, and the account-name shape ("<this account> to <saver>") is not evidence either (G437) stay an ordinary own-account movement (no savings fact, no cover move).
 
-G436 (Kevin 2026-11-07): `g436-healthy-account-keeps-its-own-figure-set-aside-with-no-source` is Kevin's production shape with invented figures (three current accounts, HSBC healthy with 116 after its payments, a 300 set-aside nothing pays for): each account shows its own 1,200, 375 and 116, and Left to spend is their sum less the 300 held on no account, 1,391 (G414 shared the 1,391 out in preference order and showed HSBC as 0). The G410, G421 (day before salary), G422 (no cover), G428, G434, goals, HSBC mid-window, payday-itself (posted), NatWest and reconnected (one sighting) scenarios were re-derived by hand: each carries a "G436" paragraph in its notes with the old and new figures and why they differ. Left to spend changed on four of them (the per-account basis counts what each account holds at its own lowest point, so own-account transfers whose source cannot fund them, money that lands after an account's low, and a payment made after the pay lands now show): g421 day before salary 800 to -800, goals 2,845.52 to 2,815.52, HSBC mid-window 610 to 260, payday-itself posted 2,865 to 2,085.
+G436 (Kevin 2026-11-07): `g436-healthy-account-keeps-its-own-figure-set-aside-with-no-source` is Kevin's production shape with invented figures (three current accounts, HSBC healthy with 116 after its payments, a 300 set-aside nothing pays for): each account shows its own 1,200, 375 and 116, and Left to spend is their sum less the 300 held on no account, 1,391 (G414 shared the 1,391 out in preference order and showed HSBC as 0). The G410, G421 (day before salary), G422 (no cover), G428, G434, goals, HSBC mid-window, payday-itself, NatWest, reconnected and standing-orders-funded scenarios were re-derived by hand: each carries a "G436" paragraph in its notes. Left to spend changed because money in counts on its date and transfers between counted accounts net to zero: g402 4,300 to 5,885 and payday-itself not posted 4,280 to 5,865 (the pinned G362 double credit now flows fully into the total), goals 2,845.52 to 4,915.52, reconnected (two sightings) 2,200 to 4,100, standing orders funded mid-period 300 to 2,470, NatWest 2,195.56 to 1,711.35 and reconnected (one sighting) 2,200 to 1,100 (money in that is not predicted counts nowhere); g421 day before salary, HSBC mid-window and payday-itself posted keep their pooled figures (800, 610, 2,865).

@@ -2,6 +2,7 @@
   "account_eligibility": {
     "acc-barclays": {
       "after_payments": 1500.0,
+      "after_payments_and_money_in": 1500.0,
       "after_payments_and_plans": 1500.0,
       "earmarked_total": 160.0,
       "earmarks_out": [
@@ -23,6 +24,7 @@
     },
     "acc-monzo": {
       "after_payments": 50.0,
+      "after_payments_and_money_in": 50.0,
       "after_payments_and_plans": 50.0,
       "estimated": false,
       "headroom": 40.0,
@@ -37,6 +39,7 @@
     "acc-monzo-pot": {
       "account_headroom_raw": 290.0,
       "after_payments": 300.0,
+      "after_payments_and_money_in": 300.0,
       "after_payments_and_plans": 300.0,
       "estimated": false,
       "headroom": 290.0,
@@ -50,6 +53,7 @@
     },
     "acc-natwest": {
       "after_payments": -150.0,
+      "after_payments_and_money_in": -150.0,
       "after_payments_and_plans": -150.0,
       "covered_by_move": {
         "amount": 160.0,
@@ -266,9 +270,7 @@
     "left_to_spend_lines": {
       "accounts_total": 1400.0,
       "buffer": 0.0,
-      "plans_total": 0,
-      "unattributed_bills": 0.0,
-      "uncredited_income": 0.0
+      "plans_total": 0
     },
     "lowest_projected_balance": 1400.0,
     "safe_to_spend": 1400.0,

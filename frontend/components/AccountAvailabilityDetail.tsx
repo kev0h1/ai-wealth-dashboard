@@ -23,13 +23,14 @@ export default function AccountAvailabilityDetail({ reading, position, hidden, l
     ? [position?.low_point, position?.after_payments]
     : reading.warning === "plans" ? [position?.low_point_and_plans, position?.after_payments_and_plans] : [];
   const short = candidates.find((value): value is number => typeof value === "number" && Number.isFinite(value) && value < 0);
-  // G436: one line each, no duplicate rows. The lowest point after payments and
-  // plans (or the closing figure when they are the same), then each move the
-  // engine suggests (set aside out of this account, or counted in from another
-  // current account), then Available. The working is withheld when it would not add up.
+  // G436: one line each, no duplicate rows. After payments and money in (the closing figure of
+  // this account's own walk), its goals and set-asides when it pays any, then each move the engine
+  // suggests (set aside out of this account, or counted in from another current account), then
+  // Available. The working is withheld when it would not add up.
   const working = reading.working;
   const evidence: [string, number][] = working ? [
-    [working.lowest ? "Lowest point after payments and plans" : "After payments and plans", working.basis],
+    ["After payments and money in", working.basis],
+    ...(working.plans > 0 ? [["Goals and set-asides", -working.plans] as [string, number]] : []),
     ...working.movesOut.map((m): [string, number] => [m.label, -m.amount]),
     ...working.movesIn.map((m): [string, number] => [m.label, m.amount]),
   ] : [];
@@ -39,7 +40,9 @@ export default function AccountAvailabilityDetail({ reading, position, hidden, l
   const savingsNote = working?.savingsMove
     ? `A suggested move of ${formatAvailabilityAmount(working.savingsMove.amount)} from ${working.savingsMove.label} would cover the rest. It counts once you make the move.`
     : null;
-  const footnote = `Available is what is left in this account after its own payments, goals and set-asides this pay period.${reading.requiresMove ? " This amount is available only after the suggested move." : ""}${position?.estimated ? " Some plan sources are estimated." : ""}${savingsNote ? ` ${savingsNote}` : ""}`;
+  const dipDate = reading.dipsBelowZeroUntil ? new Date(`${reading.dipsBelowZeroUntil.slice(0, 10)}T12:00:00Z`).toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "UTC" }) : null;
+  const dipNote = dipDate ? `This account dips below zero before money arrives on ${dipDate}.` : null;
+  const footnote = `Available is what is left in this account after its predicted money in and out, goals and set-asides this pay period.${reading.requiresMove ? " This amount is available only after the suggested move." : ""}${position?.estimated ? " Some plan sources are estimated." : ""}${savingsNote ? ` ${savingsNote}` : ""}`;
   const coveredNote = covered?.split ? `${coverSplitSentence(covered.split, covered.shortAfterCover)} Nothing has been moved.` : covered ? (covered.shortAfterCover > 0
     ? `A suggested move from ${covered.fromLabel} would cover part of this${covered.coversPlans ? ", including the linked plans" : ""}. Nothing has been moved.`
     : `A suggested move from ${covered.fromLabel} would cover this${covered.coversPlans ? ", including the linked plans" : ""}. Nothing has been moved.`) : null;
@@ -53,6 +56,7 @@ export default function AccountAvailabilityDetail({ reading, position, hidden, l
         <ChevronDown size={16} aria-hidden="true" className="mt-0.5 shrink-0 transition-transform duration-150 motion-reduce:transition-none group-open:rotate-180" />
       </summary>
       <div className="pb-2 pt-3">
+        {dipNote && <p data-dips-below-zero className="mb-3">{dipNote}</p>}
         {reading.warning && <p className="mb-3">{reading.warning === "payments" ? "Scheduled payments" : "Plans"} take the forecast below zero. Your bank balance is separate.{coveredNote ? ` ${coveredNote}` : ""}</p>}
         <dl className="space-y-2">{evidence.map(([label, value], index) => <div key={`${label}-${index}`} className="flex justify-between gap-4"><dt>{label}</dt><dd className="shrink-0"><MoneyText text={amount(value, true)} /></dd></div>)}<div className="flex justify-between gap-4 border-t border-slate-200 pt-2 font-semibold dark:border-slate-700"><dt>{availableLabel}</dt><dd className="shrink-0"><MoneyText text={amount(reading.value, true)} /></dd></div></dl>
         <p className="mt-3 text-xs">{footnote}</p>
@@ -62,6 +66,7 @@ export default function AccountAvailabilityDetail({ reading, position, hidden, l
   return <div data-account-availability-working className="mt-3 text-[13px] leading-relaxed text-slate-600 dark:text-slate-300">
     <details className="group">
       <summary className="flex min-h-11 cursor-pointer list-none touch-manipulation items-center justify-between gap-3 rounded-lg py-2 font-medium text-slate-800 [@media(hover:hover)]:hover:text-slate-950 active:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-slate-100 dark:[@media(hover:hover)]:hover:text-white [-webkit-tap-highlight-color:transparent] [&::-webkit-details-marker]:hidden"><span className="min-w-0"><span>{availableLabel} <MoneyText text={amount(reading.value)} /></span>{short !== undefined && <span> · Projected shortfall <MoneyText text={amount(Math.abs(short))} /> {reading.warning === "payments" ? "after payments" : "after plans"}</span>}</span><ChevronDown size={16} aria-hidden="true" className="shrink-0 transition-transform duration-150 motion-reduce:transition-none group-open:rotate-180" /></summary>
+      {dipNote && <p data-dips-below-zero className="pt-2">{dipNote}</p>}
       <dl className="space-y-2 pb-3 pt-2">{evidence.map(([label, value], index) => <div key={`${label}-${index}`} className="flex justify-between gap-4"><dt>{label}</dt><dd className="shrink-0"><MoneyText text={amount(value, true)} /></dd></div>)}<div className="flex justify-between gap-4 border-t border-slate-200 pt-2 font-semibold dark:border-slate-700"><dt>{availableLabel}</dt><dd className="shrink-0"><MoneyText text={amount(reading.value, true)} /></dd></div></dl>
       <p className="pb-3 text-xs">{footnote}</p>
     </details>

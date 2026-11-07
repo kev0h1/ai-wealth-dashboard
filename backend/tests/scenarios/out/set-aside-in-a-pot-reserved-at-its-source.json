@@ -2,6 +2,7 @@
   "account_eligibility": {
     "acc-bc": {
       "after_payments": 2450.0,
+      "after_payments_and_money_in": 2450.0,
       "after_payments_and_plans": 2300.0,
       "estimated": true,
       "headroom": 2290.0,
@@ -16,6 +17,7 @@
     "acc-pot": {
       "account_headroom_raw": 790.0,
       "after_payments": 800.0,
+      "after_payments_and_money_in": 800.0,
       "after_payments_and_plans": 800.0,
       "estimated": false,
       "headroom": 790.0,
@@ -215,9 +217,7 @@
     "left_to_spend_lines": {
       "accounts_total": 2450.0,
       "buffer": 0.0,
-      "plans_total": 150.0,
-      "unattributed_bills": 0.0,
-      "uncredited_income": 0.0
+      "plans_total": 150.0
     },
     "lowest_projected_balance": 2450.0,
     "safe_to_spend": 2300.0,

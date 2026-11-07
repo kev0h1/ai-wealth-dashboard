@@ -2,6 +2,7 @@
   "account_eligibility": {
     "acc-bc": {
       "after_payments": 1800.0,
+      "after_payments_and_money_in": 1800.0,
       "after_payments_and_plans": 1800.0,
       "estimated": false,
       "headroom": 190.0,
@@ -10,11 +11,12 @@
       "low_point_and_plans": 200.0,
       "plans_reserved": 0.0,
       "short": false,
-      "spend_from_headroom": 200.0,
+      "spend_from_headroom": 1800.0,
       "uncertain": false
     },
     "acc-hsbc": {
       "after_payments": 160.0,
+      "after_payments_and_money_in": 160.0,
       "after_payments_and_plans": 160.0,
       "estimated": false,
       "headroom": 50.0,
@@ -23,11 +25,12 @@
       "low_point_and_plans": 60.0,
       "plans_reserved": 0.0,
       "short": false,
-      "spend_from_headroom": 60.0,
+      "spend_from_headroom": 160.0,
       "uncertain": false
     },
     "acc-nw": {
       "after_payments": 510.0,
+      "after_payments_and_money_in": 510.0,
       "after_payments_and_plans": 510.0,
       "estimated": false,
       "headroom": 30.0,
@@ -36,7 +39,7 @@
       "low_point_and_plans": 40.0,
       "plans_reserved": 0.0,
       "short": false,
-      "spend_from_headroom": 40.0,
+      "spend_from_headroom": 510.0,
       "uncertain": false
     }
   },
@@ -429,15 +432,13 @@
     "calculation_status": "complete",
     "commitments_reserved": 0,
     "left_to_spend_lines": {
-      "accounts_total": 300.0,
+      "accounts_total": 2470.0,
       "buffer": 0.0,
-      "plans_total": 0,
-      "unattributed_bills": 0.0,
-      "uncredited_income": 0.0
+      "plans_total": 0
     },
-    "lowest_projected_balance": 300.0,
-    "safe_to_spend": 300.0,
-    "safe_to_spend_cash": 300.0
+    "lowest_projected_balance": 2470.0,
+    "safe_to_spend": 2470.0,
+    "safe_to_spend_cash": 2470.0
   },
   "today": "2026-10-19"
 }

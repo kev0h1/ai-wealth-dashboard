@@ -236,13 +236,12 @@ def compute_account_positions_from_walks(
 
 
 def seed_spend_from(position: dict) -> float:
-    """The per-account figure the G114 live-move reserve and then
-    `finalise_account_available` act on: min(after payments and plans, low point
-    and plans), or 0 (not shown) when it is uncertain or unknown. It stays
-    signed: a negative figure is the account's shortfall (G436), never floored."""
+    """The per-account figure before moves: After payments and plans (the closing figure less the
+    plans paid from the account), or 0 (not shown) when it is uncertain or unknown. G436 (Kevin
+    2026-11-07, every account in isolation, money in vs money out): the low point no longer clamps
+    it; a dip below zero before money arrives is a warning, never part of the figure. It stays
+    signed. (`compute_today_items` feeds the ungated walk's closing instead, see
+    `account_available.available_walk`; the two agree whenever no G360 gate drops a credit.)"""
     if position.get("uncertain") or position.get("after_payments_and_plans") is None:
         return 0.0
-    values = [float(position["after_payments_and_plans"])]
-    if position.get("low_point_and_plans") is not None:
-        values.append(float(position["low_point_and_plans"]))
-    return min(values)
+    return float(position["after_payments_and_plans"])

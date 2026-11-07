@@ -2,6 +2,7 @@
   "account_eligibility": {
     "acc-a": {
       "after_payments": -150.0,
+      "after_payments_and_money_in": -150.0,
       "after_payments_and_plans": -150.0,
       "estimated": false,
       "headroom": -160.0,
@@ -15,6 +16,7 @@
     },
     "acc-b": {
       "after_payments": 600.0,
+      "after_payments_and_money_in": 600.0,
       "after_payments_and_plans": 600.0,
       "estimated": false,
       "headroom": 590.0,
@@ -28,6 +30,7 @@
     },
     "acc-c": {
       "after_payments": 200.0,
+      "after_payments_and_money_in": 200.0,
       "after_payments_and_plans": 200.0,
       "estimated": false,
       "headroom": 190.0,
@@ -166,9 +169,7 @@
     "left_to_spend_lines": {
       "accounts_total": 650.0,
       "buffer": 0.0,
-      "plans_total": 0,
-      "unattributed_bills": 0.0,
-      "uncredited_income": 0.0
+      "plans_total": 0
     },
     "lowest_projected_balance": 650.0,
     "safe_to_spend": 650.0,

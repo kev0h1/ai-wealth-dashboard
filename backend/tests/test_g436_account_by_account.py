@@ -123,36 +123,73 @@ def _headline(monkeypatch, **kw):
     return asyncio.run(analytics.compute_safe_to_spend(UID))
 
 
-def test_headline_is_each_counted_accounts_own_lowest_point_added_up(monkeypatch):
+def test_headline_is_each_counted_accounts_own_closing_figure_added_up(monkeypatch):
     out = _headline(monkeypatch)
-    # Main 1,000 - 400 - 150 (transfer out, no inflow leg here) - 30 - 60 = 360; Joint 300; Overdrawn -150.
-    assert out["left_to_spend_lines"] == {"accounts_total": 510.0, "uncredited_income": 0.0, "unattributed_bills": 0.0,
-                                          "plans_total": 0, "buffer": 0.0}
+    # Main 1,000 - 400 - 150 (transfer out, no inflow leg in this fake) - 30 - 60 = 360; Joint 300; Overdrawn -150.
+    assert out["left_to_spend_lines"] == {"accounts_total": 510.0, "plans_total": 0, "buffer": 0.0}
     assert out["safe_to_spend"] == 510.0 == out["lowest_projected_balance"]
     assert out["calculation_status"] == "complete"
+
+
+def _with_inflow(monkeypatch):
+    """The same world, but the 150 standing order Main to Joint also lands on Joint (its destination leg)."""
+    real = analytics._build_cashflow_response
+
+    async def with_inflow(cached, uid=None, **kw):
+        resp = await real(cached, uid=uid, **kw)
+        resp["internal_inflows"] = [{"name": "Move to Joint", "amount": 150.0, "days_away": 3, "account_id": "joint",
+                                      "source_account_id": "cur"}]
+        return resp
+
+    monkeypatch.setattr(analytics, "_build_cashflow_response", with_inflow)
+
+
+def test_a_standing_order_between_two_counted_accounts_leaves_the_total_unchanged(monkeypatch):
+    # No transfer at all: Main 1,000 - 400 - 30 - 60 = 510, Joint 300, Overdrawn -150 = 660.
+    no_transfer = [b for b in _bills() if b["name"] != "Move to Joint"]
+    plain = _headline(monkeypatch, bills=no_transfer)["safe_to_spend"]
+    assert plain == 660.0
+    # The same standing order: out of Main (-150) and in on Joint (+150) on its date, no special handling.
+    _wire(monkeypatch)
+    _with_inflow(monkeypatch)
+    out = asyncio.run(analytics.compute_safe_to_spend(UID))
+    assert out["safe_to_spend"] == plain and out["left_to_spend_lines"]["accounts_total"] == plain
+
+
+def test_an_unfunded_standing_order_still_credits_the_destination_and_the_total_is_unchanged(monkeypatch):
+    # Source cannot afford it: 100 against a 300 order. The destination counts its predicted money in
+    # (no G360 gate on this figure); the source is the one shown short and given the cover engine's move.
+    from datetime import date
+
+    import tests.test_g360_one_account_walk as g
+    today = date(2026, 10, 10)
+    bills = [g._bill("To HSBC", 300.0, 2, today, acct=g.BC, balance=100.0, kind=analytics.MOVEMENT)]
+    inflows = [g._inflow(300.0, 2, today)]
+    _items, elig = g._run(monkeypatch, today, bills, [], inflows, {g.HS: (50.0, "hsbc"), g.BC: (100.0, "barclays")})
+    assert elig[g.BC]["after_payments"] == -200.0 and elig[g.BC]["low_point"] == -200.0  # flagged short, as today
+    assert elig[g.HS]["after_payments_and_money_in"] == 350.0  # credited on its date although BC cannot fund it
+    assert elig[g.BC]["after_payments_and_money_in"] == -200.0
+    # Moves between the two net to zero: the sum is what the two hold (100 + 50) before any plan.
+    assert round(elig[g.BC]["spend_from_headroom"] + elig[g.HS]["spend_from_headroom"], 2) == 150.0
+
+
+def test_a_one_sighting_income_does_not_count(monkeypatch):
+    base = _headline(monkeypatch)["safe_to_spend"]
+    one = {**_incomes()[0], "name": "One-off windfall", "amount": 900.0, "days_away": 1, "occurrences": 1, "amounts_recent": [900.0]}
+    assert _headline(monkeypatch, incomes=[one] + _incomes())["safe_to_spend"] == base
+
+
+def test_a_bill_paid_from_a_savings_account_does_not_reduce_the_total(monkeypatch):
+    base = _headline(monkeypatch)["safe_to_spend"]
+    bills = _bills() + [_pool_bill("Saver direct debit", 80.0, 4, acct="sav")]
+    out = _headline(monkeypatch, bills=bills)
+    assert out["safe_to_spend"] == base and "unattributed_bills" not in out["left_to_spend_lines"]
 
 
 def test_an_overdrawn_current_account_reduces_the_total(monkeypatch):
     accounts = [a for a in _accounts() if a["_id"] != "over"]
     without = _headline(monkeypatch, accounts=accounts)["safe_to_spend"]
     assert without - _headline(monkeypatch)["safe_to_spend"] == 150.0
-
-
-def test_a_payment_no_counted_account_carries_stays_in_on_its_own_line(monkeypatch):
-    bills = _bills() + [_pool_bill("Saver direct debit", 80.0, 4, acct="sav")]  # paid from a savings account
-    out = _headline(monkeypatch, bills=bills)
-    assert out["left_to_spend_lines"]["unattributed_bills"] == -80.0
-    assert out["safe_to_spend"] == 430.0  # 510 - 80, never silently dropped
-
-
-def test_income_no_account_credits_stays_in_on_its_own_line_when_it_lifts_the_pooled_floor(monkeypatch):
-    # One unreliable 600 income on day 1, before Main's 400 rent on day 2: no account walk credits it,
-    # but the pooled walk did, so it is kept as its own line (the amount the pooled floor rose by).
-    incomes = [{**_incomes()[0], "name": "Unreliable refund", "amount": 600.0, "days_away": 1}]
-    out = _headline(monkeypatch, incomes=incomes)
-    lines = out["left_to_spend_lines"]
-    assert lines["uncredited_income"] > 0
-    assert out["safe_to_spend"] == round(lines["accounts_total"] + lines["uncredited_income"] + lines["unattributed_bills"], 2)
 
 
 def test_buffer_and_plans_come_off_once_as_their_own_lines(monkeypatch):
@@ -263,3 +300,108 @@ def test_a_deliberate_not_set_a_goal_a_credit_card_and_the_fill_account_are_neve
     assert _attribution(monkeypatch, [_plan()], {"id": "s1", "fill_account_id": "pot"}, "amex")[0]["source_account_id"] is None
     assert _attribution(monkeypatch, [_plan()], {"id": "s1", "fill_account_id": "pot"}, "pot")[0]["source_account_id"] is None
     assert _attribution(monkeypatch, [_plan()], {"id": "s1", "fill_account_id": "pot"}, None)[0]["source_account_id"] is None
+
+
+# ── Review notes: coverage kept from the deleted test_spend_from_cap.py ──────
+
+def test_no_penny_surface_quotes_per_account_figures():
+    """Penny tools, chips, can_i and affordability read the pooled figure only; the per-account
+    figures are reached solely through the /today account_eligibility payload (and, for Penny,
+    penny_consolidation). A missing path fails, not skips."""
+    import pathlib
+    import re
+    root = pathlib.Path(companion.__file__).parent.parent
+    strict = re.compile(r"account_eligibility|_account_headroom|spend_from|account_headroom_raw|moves_in_total|left_to_spend_lines")
+    bare = re.compile(r"headroom")
+    allowed_bare = ("#", "_headroom_chip", "if headroom", "chips.append(headroom)", "see your own headroom", "negative headroom")
+    for rel in ("services/penny_tools.py", "services/penny_chips.py", "routers/can_i.py", "services/affordability.py"):
+        path = root / rel
+        assert path.exists(), f"{rel} is gone; update this guard"
+        for n, line in enumerate(path.read_text().splitlines(), 1):
+            assert not strict.search(line), f"{rel}:{n}: {line.strip()}"
+            if bare.search(line):
+                stripped = line.strip()
+                assert stripped.startswith(("#", '"', "'")) or any(a in line for a in allowed_bare), f"{rel}:{n}: {stripped}"
+
+
+def test_a_user_excluded_account_never_reaches_eligibility_spend_from_or_the_headline(monkeypatch):
+    """G231: the engine emits no entry for an excluded account, and the headline sum never counts it."""
+    accounts = [_account("counted", 300.0), {**_account("joint", 900.0), "include_in_safe_to_spend": False}]
+    elig = {}
+    _run(monkeypatch, [], accounts=accounts, account_eligibility_out=elig)
+    assert "joint" not in elig and elig["counted"]["spend_from_headroom"] == 300.0
+    # The headline: `unpicked` (flag False) is in no counted set and its bill and income never reach the sum.
+    rows = _accounts()
+    assert "unpicked" not in account_available.counted_current_ids(rows)
+    with_it = _headline(monkeypatch)
+    without = _headline(monkeypatch, accounts=[a for a in rows if a["_id"] != "unpicked"],
+                        bills=[b for b in _bills() if b["account_id"] != "unpicked"],
+                        incomes=[i for i in _incomes() if i["account_id"] != "unpicked"])
+    assert with_it["safe_to_spend"] == without["safe_to_spend"]
+
+
+def test_an_ended_connection_is_never_a_counted_account():
+    rows = [{**a, "status": "expired"} if a["_id"] == "joint" else a for a in _accounts()]
+    assert "joint" not in account_available.counted_current_ids(rows)
+
+
+# ── Review notes: which account can pay an unsourced set-aside ───────────────
+
+def test_an_expired_or_excluded_account_is_never_picked_as_a_source_but_savings_is(monkeypatch):
+    import app.services.companion as c
+
+    async def active(uid):
+        return [{"id": "s1", "fill_account_id": "pot", "source_set": False}]
+
+    monkeypatch.setattr(c, "list_active_allocations", active)
+    amap = {"gone": {"name": "Gone", "status": "expired"}, "off": {"name": "Off", "include_in_safe_to_spend": False},
+            "sav": {"name": "Saver", "subtype": "SAVINGS"}, "pot": {"name": "Pot"}}
+
+    def run(funding):
+        async def source(uid, a, inflows, m):
+            return funding
+        monkeypatch.setattr(c, "_allocation_funding_source", source)
+        return asyncio.run(c._attribute_unsourced_set_asides("u", [_plan()], amap, []))[0]["source_account_id"]
+
+    assert run("gone") is None and run("off") is None
+    assert run("sav") == "sav"
+
+
+def test_a_set_aside_paid_from_savings_reduces_the_headline_through_plans_total_only(monkeypatch):
+    import app.routers.allocations as allocations_router
+
+    base = _headline(monkeypatch)
+    _wire(monkeypatch)
+
+    async def setasides(_uid):
+        return 40.0, 1
+
+    monkeypatch.setattr(allocations_router, "total_reserved_remaining", setasides)
+    out = asyncio.run(analytics.compute_safe_to_spend(UID))
+    # Nothing is paid from a counted current account, so the accounts line is untouched and the 40 comes off once.
+    assert out["left_to_spend_lines"]["accounts_total"] == base["left_to_spend_lines"]["accounts_total"]
+    assert out["left_to_spend_lines"]["plans_total"] == 40.0
+    assert out["safe_to_spend"] == round(base["safe_to_spend"] - 40.0, 2)
+
+
+def test_a_plan_sourced_from_savings_is_deducted_from_no_current_account(monkeypatch):
+    elig = {}
+    sav_plan = {**_JAPAN, "source_account_id": "sav"}
+    _run(monkeypatch, [], accounts=[_account("cur", 500.0), _account("sav", 300.0, subtype="SAVINGS")],
+         account_eligibility_out=elig, plans=[sav_plan])
+    assert elig["cur"]["spend_from_headroom"] == 500.0 and elig["cur"]["plans_reserved"] == 0.0
+    assert elig["sav"]["plans_reserved"] == 80.0 and elig["sav"]["spend_from_headroom"] == 0.0
+
+
+def test_a_dip_below_zero_before_money_arrives_is_a_warning_with_its_date_and_not_part_of_the_figure(monkeypatch):
+    from datetime import timedelta
+
+    from test_cover_plan_account_eligibility import TODAY, _salary
+
+    elig = {}
+    _run(monkeypatch, [_bill("Rent", 2, 300.0, "A", 100.0)], accounts=[_account("A", 100.0)], account_eligibility_out=elig,
+         income_streams=[{"key": "Salary", "status": "confirmed"}], window_income=[_salary("A")])
+    a = elig["A"]
+    assert a["dips_below_zero"] == {"money_in_date": (TODAY + timedelta(days=8)).isoformat()}
+    assert a["spend_from_headroom"] == 800.0 and a["after_payments_and_money_in"] == 800.0  # 100 - 300 + 1,000: the dip is not in it
+    assert a["low_point"] == -200.0  # still reported, and the cover engine still sees the account short

@@ -34,12 +34,12 @@ assert.ok(firstSync.includes("Pending") && !firstSync.includes("£999"), "first 
 const rates = render({termsFor:r=>r.kind==="Credit"?{termsPill:{label:"0% until December",amber:false},onTermsClick:noop}:{}});
 assert.ok(rates.includes("edit this card&#x27;s rates"), "credit terms remain reachable directly on the original row");
 
-const availability = renderToStaticMarkup(h(AccountAvailabilityDetail, {hidden:false,reading:{kind:"ready",value:-289,warning:"payments",working:{basis:-289,lowest:false,movesOut:[],movesIn:[],savingsMove:null}},position:{after_payments:-289,after_payments_and_plans:-289,low_point:-289,plans_reserved:0}}));
+const availability = renderToStaticMarkup(h(AccountAvailabilityDetail, {hidden:false,reading:{kind:"ready",value:-289,warning:"payments",working:{basis:-289,plans:0,movesOut:[],movesIn:[],savingsMove:null}},position:{after_payments:-289,after_payments_and_plans:-289,low_point:-289,plans_reserved:0}}));
 assert.ok(availability.includes("Available to spend") && availability.includes("−£289") && availability.includes("Projected shortfall") && availability.includes("£289"), "G436: the detail shows the account's own negative Available and its actual shortfall");
 const summary = availability.match(/<summary[^>]*>([\s\S]*?)<\/summary>/)?.[1] ?? "";
 assert.ok(summary.includes("Available to spend") && summary.includes("Projected shortfall") && summary.includes("£289"), "G406 available/shortfall line opens the evidence directly");
-assert.ok(!availability.includes("Working") && availability.includes("After payments and plans"), "stored projections remain without a separate Working row");
-const hiddenWorking = renderToStaticMarkup(h(AccountAvailabilityDetail, {hidden:true,reading:{kind:"ready",value:-289,warning:"payments",working:{basis:-289,lowest:false,movesOut:[],movesIn:[],savingsMove:null}},position:{low_point:-289,after_payments:-289}}));
+assert.ok(!availability.includes("Working") && availability.includes("After payments and money in"), "stored projections remain without a separate Working row");
+const hiddenWorking = renderToStaticMarkup(h(AccountAvailabilityDetail, {hidden:true,reading:{kind:"ready",value:-289,warning:"payments",working:{basis:-289,plans:0,movesOut:[],movesIn:[],savingsMove:null}},position:{low_point:-289,after_payments:-289}}));
 assert.ok(!hiddenWorking.includes("289") && hiddenWorking.includes("−£••••"), "Working keeps signs without leaking figures");
 const unavailable = renderToStaticMarkup(h(AccountAvailabilityDetail, {hidden:false,reading:{kind:"unavailable"}}));
 assert.ok(!unavailable.includes("£0") && !unavailable.includes("<details"), "unavailable detail never fabricates zero or Working");

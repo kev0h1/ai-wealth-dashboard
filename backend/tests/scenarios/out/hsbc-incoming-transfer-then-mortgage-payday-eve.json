@@ -2,6 +2,7 @@
   "account_eligibility": {
     "acc-bc": {
       "after_payments": 2150.0,
+      "after_payments_and_money_in": 2150.0,
       "after_payments_and_plans": 2150.0,
       "estimated": false,
       "headroom": 2140.0,
@@ -15,6 +16,7 @@
     },
     "acc-hsbc": {
       "after_payments": 10.0,
+      "after_payments_and_money_in": 10.0,
       "after_payments_and_plans": 10.0,
       "estimated": false,
       "headroom": 0.0,
@@ -414,9 +416,7 @@
     "left_to_spend_lines": {
       "accounts_total": 2160.0,
       "buffer": 0.0,
-      "plans_total": 0,
-      "unattributed_bills": 0.0,
-      "uncredited_income": 0.0
+      "plans_total": 0
     },
     "lowest_projected_balance": 2160.0,
     "safe_to_spend": 2160.0,

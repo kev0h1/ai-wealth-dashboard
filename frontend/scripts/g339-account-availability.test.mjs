@@ -35,7 +35,7 @@ const renderHome = (extra = {}, hidden = false) => renderToStaticMarkup(
 // The server-provided Spend from limit wins over the larger payday closing number.
 const normal = accountAvailability(account(), snap());
 assert.equal(normal.kind, "ready"); assert.equal(normal.value, 8); assert.equal(normal.warning, undefined);
-assert.equal(normal.note, "Left after known payments, goals and set-asides this pay period.");
+assert.equal(normal.note, "Left after predicted money in and out, goals and set-asides this pay period.");
 assert.doesNotMatch(normal.note, /allocat|shared/i, "G436: Available is the account's own figure, never a share of a pooled one");
 assert.equal(accountAvailability(account(), snap({ positions: { barclays: position({ spend_from_headroom: 4, after_payments_and_plans: 99 }) } })).value, 4);
 // G436: a negative own figure is a shortfall no current account covers: ready, negative, never hidden or floored.

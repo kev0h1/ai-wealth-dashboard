@@ -35,18 +35,15 @@ export function buildLeftToSpendEvidence(data: Forecast, summaryAmount: number):
   const rows: EvidenceRow[] = [];
   let ledgerNote: string | null = null;
 
-  // G436: Left to spend is each counted current account's own lowest point added up
-  // (negatives included), plus income and payments no account carries, on their own lines.
+  // G436: Left to spend is each counted current account on its own (balance plus predicted money
+  // in, less predicted money out, negatives included), then goals, set-asides and the buffer.
   const lines = data.left_to_spend_lines;
-  const byAccount = reconciledLow && !!lines && [lines.accounts_total, lines.uncredited_income, lines.unattributed_bills].every(finite)
-    && pennies(lines.accounts_total) + pennies(lines.uncredited_income) + pennies(lines.unattributed_bills) === pennies(low!);
+  const byAccount = reconciledLow && !!lines && finite(lines.accounts_total) && pennies(lines.accounts_total) === pennies(low!);
 
   if (reconciledHold) {
     if (byAccount && lines) {
-      rows.push({ label: "Your current accounts, each at its lowest before payday", value: lines.accounts_total });
-      if (pennies(lines.uncredited_income) !== 0) rows.push({ label: "Income not tied to one account", value: lines.uncredited_income });
-      if (pennies(lines.unattributed_bills) !== 0) rows.push({ label: "Payments not tied to one account", value: lines.unattributed_bills });
-      ledgerNote = "Each current account's own lowest cash before payday, added up. A move between your own accounts does not change it.";
+      rows.push({ label: "Your current accounts after predicted money in and out before payday", value: lines.accounts_total });
+      ledgerNote = "Each current account on its own: its balance plus the money expected in, less the payments expected out. A move between your own accounts does not change it.";
     } else if (reconciledEnd) {
       rows.push({ label: "Cash now", value: data.spendable_now! });
       if (data.bills_total > 0) rows.push({ label: "Bills before payday", value: -data.bills_total });

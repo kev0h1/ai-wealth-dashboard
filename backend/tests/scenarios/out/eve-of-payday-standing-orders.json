@@ -2,6 +2,7 @@
   "account_eligibility": {
     "acc-bc": {
       "after_payments": 200.0,
+      "after_payments_and_money_in": 200.0,
       "after_payments_and_plans": 200.0,
       "estimated": false,
       "headroom": 190.0,
@@ -15,6 +16,7 @@
     },
     "acc-hsbc": {
       "after_payments": 60.0,
+      "after_payments_and_money_in": 60.0,
       "after_payments_and_plans": 60.0,
       "estimated": false,
       "headroom": 50.0,
@@ -28,6 +30,7 @@
     },
     "acc-nw": {
       "after_payments": 40.0,
+      "after_payments_and_money_in": 40.0,
       "after_payments_and_plans": 40.0,
       "estimated": false,
       "headroom": 30.0,
@@ -459,9 +462,7 @@
     "left_to_spend_lines": {
       "accounts_total": 300.0,
       "buffer": 0.0,
-      "plans_total": 0,
-      "unattributed_bills": 0.0,
-      "uncredited_income": 0.0
+      "plans_total": 0
     },
     "lowest_projected_balance": 300.0,
     "safe_to_spend": 300.0,

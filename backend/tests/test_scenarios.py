@@ -556,9 +556,9 @@ def _check_invariants(snap: dict, spec: dict) -> None:
         # G436: nothing is shared out, so none of the retired allocation fields exist.
         for gone in ("allocation_order", "allocation_unassigned", "spend_from_capped"):
             assert gone not in pos, f"{where} {acct_id} carries the retired field {gone}"
-    # 1. G436: Left to spend is exactly the per-account figures added up plus its explicit
-    #    lines. An account that is not shown (uncertain) contributes its own estimate
-    #    (lowest of After payments and Lowest after payments, less its plans).
+    # 1. G436: Left to spend is exactly the per-account figures added up, less plans on no
+    #    counted account and the buffer. An account that is not shown (uncertain) contributes
+    #    its own closing figure less its plans.
     _check_headline_is_the_sum(snap, where)
     # 3. Each cover-plan card's headline total equals the sum of its moves.
     for item in snap["items"]:
@@ -604,20 +604,17 @@ def _check_headline_is_the_sum(snap: dict, where: str) -> None:
         pos = snap["account_eligibility"][aid]
         plans_on_counted += float(pos.get("plans_reserved") or 0.0)
         if pos.get("uncertain"):
-            basis = min(v for v in (pos.get("after_payments"), pos.get("low_point")) if v is not None)
-            total += basis - float(pos.get("plans_reserved") or 0.0)
+            total += float(pos.get("after_payments_and_money_in", pos.get("after_payments")) or 0.0) - float(pos.get("plans_reserved") or 0.0)
         else:
             total += float(pos["spend_from_headroom"])
     plans_off = float(lines["plans_total"]) - plans_on_counted
-    expected = round(
-        total + float(lines["uncredited_income"]) + float(lines["unattributed_bills"]) - plans_off - float(lines["buffer"]), 2,
-    )
+    expected = round(total - plans_off - float(lines["buffer"]), 2)
     assert abs(expected - float(sts["safe_to_spend"])) < 0.015, (
-        f"{where} Left to spend {sts['safe_to_spend']} is not the account figures added up ({round(total, 2)}) plus its lines "
-        f"{lines} less plans not on an account ({round(plans_off, 2)}): {expected}"
+        f"{where} Left to spend {sts['safe_to_spend']} is not the account figures added up ({round(total, 2)}) "
+        f"less plans not on an account ({round(plans_off, 2)}) and the buffer: {expected}"
     )
-    assert abs(float(lines["accounts_total"]) + float(lines["uncredited_income"]) + float(lines["unattributed_bills"])
-               - float(sts["lowest_projected_balance"])) < 0.015, f"{where} lowest_projected_balance is not the lines added up"
+    assert set(lines) == {"accounts_total", "plans_total", "buffer"}, f"{where} unexpected Left to spend lines {sorted(lines)}"
+    assert abs(float(lines["accounts_total"]) - float(sts["lowest_projected_balance"])) < 0.015, f"{where} lowest_projected_balance is not the accounts line"
 
 
 def _in_walk_window(snap: dict, bill: dict) -> bool:

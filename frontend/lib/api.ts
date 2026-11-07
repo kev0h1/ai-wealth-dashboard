@@ -833,12 +833,11 @@ export type SafeToSpend =
        * before buffer, plans and allocations. */
       lowest_projected_balance?: number;
       /** G436: what Left to spend is made of. `accounts_total` is every counted current
-       * account's own figure before its plans, added up (negatives included);
-       * `uncredited_income` income no counted account's walk credits and
-       * `unattributed_bills` payments with no counted paying account (both kept in
-       * explicitly); then `plans_total` and `buffer` come off. Null/absent when the
-       * per-account figures could not be read (degraded). */
-      left_to_spend_lines?: { accounts_total: number; uncredited_income: number; unattributed_bills: number; plans_total: number; buffer: number } | null;
+       * account's own figure before its plans, added up (negatives included): balance plus
+       * predicted money in less predicted money out over the pay period, an own-account transfer
+       * being out on its source and in on its destination. Then `plans_total` and `buffer` come
+       * off. Null/absent when the per-account figures could not be read (degraded). */
+      left_to_spend_lines?: { accounts_total: number; plans_total: number; buffer: number } | null;
       /** Positive net card-balance growth observed this pay period (all
        * debits minus all credits, includes balance transfers). An information
        * fact only (G413): never subtracted from cash. */
@@ -1943,6 +1942,10 @@ export type AccountEligibility = {
   spend_from_headroom?: number;
   /** G436: positive only because of a suggested move in from another current account. */
   spend_from_requires_move?: boolean;
+  /** G436: the closing figure of the account's own walk (balance + predicted money in - out), before its plans. */
+  after_payments_and_money_in?: number;
+  /** G436: the account runs below zero before this money arrives (a warning, never part of the figure). */
+  dips_below_zero?: { money_in_date: string };
   /** G436: the amount counted from suggested moves in from other current accounts (absent when none). */
   moves_in_total?: number;
   /** RETIRED by G436 (G414's preference-filled allocation); never sent now. Optional so old payloads and /design fixtures still type-check. */

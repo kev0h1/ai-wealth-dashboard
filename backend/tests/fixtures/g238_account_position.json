@@ -1,5 +1,5 @@
 {
-  "_comment": "G238: shared by backend/tests/test_account_position.py and frontend/scripts/g238-account-position.test.mjs so the server and client arithmetic cannot drift. Amounts in pounds. spend_from is the account's own figure (G436: no pooled cap, nothing is shared out; 0 = not shown because the figure is uncertain). low_point is the account's mid-period minimum running balance (source_min_run); spend_from = min(after_payments_and_plans, low_point_and_plans).",
+  "_comment": "G238: shared by backend/tests/test_account_position.py and frontend/scripts/g238-account-position.test.mjs so the server and client arithmetic cannot drift. Amounts in pounds. spend_from is the account's own figure (G436: no pooled cap, nothing is shared out; 0 = not shown because the figure is uncertain). low_point is the account's mid-period minimum running balance (source_min_run); spend_from = after_payments_and_plans (G436: every account in isolation, money in vs money out; the low point is a warning, not part of the figure).",
   "cases": [
     {
       "name": "kevin_barclays_japan",
@@ -157,7 +157,7 @@
           "after_payments_and_plans": 270,
           "uncertain": false,
           "estimated": false,
-          "spend_from": 270,
+          "spend_from": 270.0,
           "low_point": 300,
           "low_point_and_plans": 270
         }
@@ -237,7 +237,7 @@
           "after_payments_and_plans": null,
           "uncertain": true,
           "estimated": false,
-          "spend_from": 0,
+          "spend_from": 0.0,
           "low_point": 141.04,
           "low_point_and_plans": null
         }
@@ -285,7 +285,7 @@
           "after_payments_and_plans": null,
           "uncertain": true,
           "estimated": false,
-          "spend_from": 0,
+          "spend_from": 0.0,
           "low_point": 141.04,
           "low_point_and_plans": null
         }
@@ -333,7 +333,7 @@
           "after_payments_and_plans": null,
           "uncertain": true,
           "estimated": false,
-          "spend_from": 0,
+          "spend_from": 0.0,
           "low_point": 141.04,
           "low_point_and_plans": null
         }
@@ -389,7 +389,7 @@
           "after_payments_and_plans": null,
           "uncertain": true,
           "estimated": false,
-          "spend_from": 0,
+          "spend_from": 0.0,
           "low_point": 400,
           "low_point_and_plans": null
         }
@@ -438,7 +438,7 @@
           "after_payments_and_plans": null,
           "uncertain": true,
           "estimated": true,
-          "spend_from": 0,
+          "spend_from": 0.0,
           "low_point": 141.04,
           "low_point_and_plans": null
         }
@@ -534,7 +534,7 @@
           "estimated": true,
           "low_point": 134.54,
           "low_point_and_plans": 54.54,
-          "spend_from": 54.54
+          "spend_from": 61.04
         }
       }
     },
@@ -558,7 +558,7 @@
           "estimated": false,
           "low_point": 50,
           "low_point_and_plans": 50,
-          "spend_from": 50
+          "spend_from": 1050.0
         }
       }
     },

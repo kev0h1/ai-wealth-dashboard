@@ -3,6 +3,7 @@
     "acc-chal": {
       "account_headroom_raw": 490.0,
       "after_payments": 500.0,
+      "after_payments_and_money_in": 500.0,
       "after_payments_and_plans": 500.0,
       "estimated": false,
       "headroom": 490.0,
@@ -17,6 +18,7 @@
     "acc-jpn": {
       "account_headroom_raw": 290.0,
       "after_payments": 300.0,
+      "after_payments_and_money_in": 300.0,
       "after_payments_and_plans": 300.0,
       "estimated": false,
       "headroom": 290.0,
@@ -30,6 +32,7 @@
     },
     "acc-monzo": {
       "after_payments": 370.0,
+      "after_payments_and_money_in": 370.0,
       "after_payments_and_plans": 15.52,
       "estimated": false,
       "headroom": 5.52,
@@ -43,6 +46,7 @@
     },
     "acc-prem": {
       "after_payments": 5100.0,
+      "after_payments_and_money_in": 5100.0,
       "after_payments_and_plans": 4900.0,
       "estimated": false,
       "headroom": 2790.0,
@@ -51,7 +55,7 @@
       "low_point_and_plans": 2800.0,
       "plans_reserved": 200.0,
       "short": false,
-      "spend_from_headroom": 2800.0,
+      "spend_from_headroom": 4900.0,
       "uncertain": false
     }
   },
@@ -366,15 +370,13 @@
     "calculation_status": "complete",
     "commitments_reserved": 554.48,
     "left_to_spend_lines": {
-      "accounts_total": 3370.0,
+      "accounts_total": 5470.0,
       "buffer": 0.0,
-      "plans_total": 554.48,
-      "unattributed_bills": 0.0,
-      "uncredited_income": 0.0
+      "plans_total": 554.48
     },
-    "lowest_projected_balance": 3370.0,
-    "safe_to_spend": 2815.52,
-    "safe_to_spend_cash": 2815.52
+    "lowest_projected_balance": 5470.0,
+    "safe_to_spend": 4915.52,
+    "safe_to_spend_cash": 4915.52
   },
   "today": "2026-10-30"
 }

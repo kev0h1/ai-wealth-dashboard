@@ -163,8 +163,8 @@ for (const slug of slugs) {
       assert.equal(reading.value, server.spend_from_headroom, `${account.id} availability vs server Spend from`);
       // G436: the working on the account page adds up to the figure it explains (basis, then moves, then Available).
       assert.ok(reading.working, `${account.id} has no working that adds up to its Available`);
-      const { basis, movesIn, movesOut } = reading.working;
-      const worked = Math.round((basis + movesIn.reduce((n, m) => n + m.amount, 0) - movesOut.reduce((n, m) => n + m.amount, 0)) * 100);
+      const { basis, plans: planned, movesIn, movesOut } = reading.working;
+      const worked = Math.round((basis - planned + movesIn.reduce((n, m) => n + m.amount, 0) - movesOut.reduce((n, m) => n + m.amount, 0)) * 100);
       assert.equal(worked, Math.round(reading.value * 100), `${account.id} working does not add up to Available`);
       const serverShort = (server.after_payments ?? 0) < 0 || (server.low_point ?? 0) < 0;
       // G422: a gap wholly explained by an own-savings standing order is not a payment warning (never the red one).

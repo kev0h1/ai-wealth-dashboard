@@ -5534,31 +5534,25 @@ async def compute_safe_to_spend(uid: str) -> dict:
         unavailable_components.append("allocations_reserve")
         allocations_reserved, allocations_count = 0.0, 0
 
-    # ── 6b-3. Account by account (G436) ───────────────────────────────────────
-    # Kevin 2026-11-07: Left to spend is what is left after payments, goals and
-    # set-asides, account by account, not a pooled low point shared out. The
-    # headline is the sum of every counted current account's own lowest point
-    # before payday (its own walk, negatives included), less the goals and
-    # set-asides reserved above and the buffer, plus the explicit lines for what
-    # no counted account carries (income no account walk credits, payments with
-    # no counted paying account), kept in so the move to the per-account basis
-    # never silently drops them. Moves between current accounts net to zero, so
-    # the headline never depends on the cover plan;
-    # `companion.finalise_account_available` makes the shown per-account
-    # Available add up to it. Fail closed: if the per-account figures cannot be
-    # read the result is "degraded" and clamped below.
+    # ── 6b-3. Every account in isolation (G436) ───────────────────────────────
+    # Kevin 2026-11-07: "every account in isolation, money in vs money out; the calculation
+    # shouldn't really care that money is moving from one account to another." The headline is
+    # the sum of every counted current account's own closing figure (balance + predicted money in
+    # - predicted money out, negatives included; an own-account transfer is out on its source and
+    # in on its destination, so it nets to zero), less the goals and set-asides reserved above and
+    # the buffer. No other lines: income no counted account is credited with and payments from a
+    # savings or manual account are not in it. Moves between current accounts net to zero too, so
+    # the headline never depends on the cover plan; `companion.finalise_account_available` makes
+    # the shown per-account Available add up to it. Fail closed: if the per-account figures cannot
+    # be read the result is "degraded" and clamped below.
     lowest_projected = min_running
     accounts_total = None
-    uncredited_income = 0.0
-    unattributed_bills = 0.0
     plans_total = round((commitments_reserved or 0) + (allocations_reserved or 0), 2)
     try:
-        from app.services.account_available import account_bases, counted_current_ids, pooled_only_effects
-        _counted = counted_current_ids(all_accs_raw)
-        accounts_total = round(sum(account_bases(wi, _counted).values()), 2)
-        uncredited_income, unattributed_bills = pooled_only_effects(wi, _counted, spendable_cash)
-        lowest_projected = round(accounts_total + uncredited_income + unattributed_bills, 2)
-        safe_to_spend = round(lowest_projected - buffer - plans_total, 2)
+        from app.services.account_available import account_bases, counted_current_ids
+        accounts_total = round(sum(account_bases(wi, counted_current_ids(all_accs_raw)).values()), 2)
+        lowest_projected = accounts_total
+        safe_to_spend = round(accounts_total - buffer - plans_total, 2)
     except Exception:
         logger.exception("account-by-account left to spend failed for %s", uid)
         unavailable_components.append("account_positions")
@@ -5753,12 +5747,10 @@ async def compute_safe_to_spend(uid: str) -> dict:
         # This (rather than aggregate bills/income totals) is the missing
         # reconciling bridge from spendable_now to safe_to_spend_cash.
         "lowest_projected_balance": round(lowest_projected, 2),
-        # G436: the explicit lines the headline is made of. Each current account's
-        # own figure adds up to `accounts_total`; the rest cannot sit on one account.
+        # G436: what the headline is made of: each counted current account's own
+        # figure adds up to `accounts_total`; then plans and the buffer come off.
         "left_to_spend_lines": (None if accounts_total is None else {
             "accounts_total": accounts_total,
-            "uncredited_income": uncredited_income,
-            "unattributed_bills": unattributed_bills,
             "plans_total": plans_total,
             "buffer": buffer,
         }),

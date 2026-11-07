@@ -1,6 +1,7 @@
-// G436 (Kevin 2026-11-07): Left to spend and each account's Available are what is
-// left after payments, goals and set-asides, account by account. Nothing is shared
-// out across preferred accounts.
+// G436 (Kevin 2026-11-07): Left to spend and each account's Available are every account
+// in isolation, money in vs money out (balance plus predicted money in less predicted money
+// out, then goals and set-asides). Nothing is shared out across preferred accounts and an
+// own-account transfer is just money out on one account and in on another.
 //
 // The fixtures are the REAL server payloads of the backend scenarios (the committed
 // snapshots under backend/tests/scenarios/out), so this gate cannot drift from the
@@ -55,12 +56,12 @@ const detail = (account, snap, accounts) => {
 
   // Account page working: After payments and plans, then Available, one line each.
   const { html, reading } = detail("acc-hs", snap, accounts);
-  assert.ok(reading.working && reading.working.basis === 116 && reading.working.movesIn.length === 0 && reading.working.movesOut.length === 0);
+  assert.ok(reading.working && reading.working.basis === 116 && reading.working.plans === 0 && reading.working.movesIn.length === 0 && reading.working.movesOut.length === 0);
   const t = text(html);
-  assert.equal((t.match(/After payments and plans/g) ?? []).length, 1, "the same figure is not repeated");
-  assert.match(t, /After payments and plans £116\.00/);
+  assert.equal((t.match(/After payments and money in/g) ?? []).length, 1, "the same figure is not repeated");
+  assert.match(t, /After payments and money in £116\.00/);
   assert.match(t, /Available to spend £116\.00/);
-  assert.doesNotMatch(t, /After scheduled payments|Plans held back|Lowest after payments|Lowest after plans/, "the repeated rows are collapsed");
+  assert.doesNotMatch(t, /After scheduled payments|Plans held back|Lowest after payments|Lowest after plans|Lowest point/, "the repeated rows are collapsed");
 
   // Home's Full calculation: the accounts line, then the set-aside, then Left to spend.
   const ev = buildLeftToSpendEvidence({
@@ -68,7 +69,7 @@ const detail = (account, snap, accounts) => {
     buffer: 0, state: "comfortable", estimated: false, spendable_now: 1950,
   }, snap.safe_to_spend.safe_to_spend);
   assert.deepEqual(ev.rows.map((r) => [r.label, r.value]), [
-    ["Your current accounts, each at its lowest before payday", 1691], ["Set-asides", -300], ["Left to spend", 1391],
+    ["Your current accounts after predicted money in and out before payday", 1691], ["Set-asides", -300], ["Left to spend", 1391],
   ]);
 }
 
@@ -88,6 +89,17 @@ const detail = (account, snap, accounts) => {
   assert.match(text(dest.html), /Suggested move in from .* £200\.00/);
   assert.equal(src.reading.value + dest.reading.value, snap.safe_to_spend.safe_to_spend, "the moves net to zero in the total");
   assert.doesNotMatch(dest.html, /<button/, "a move is a recommendation sentence, never a button");
+}
+
+// ── An own-account standing order is money out on one account and in on another, nothing special ──
+{
+  const { snap, accounts } = load("g421-salary-account-standing-orders-day-before");
+  const value = (id) => accountAvailability(accounts.find((a) => a.id === id), { status: "ready", positions: snap.account_eligibility }).value;
+  // Barclays cannot fund the three orders, but each destination still counts its money in on its date.
+  assert.deepEqual(["acc-hsbc", "acc-nw", "acc-mz"].map((id) => snap.account_eligibility[id].after_payments_and_money_in), [1050, 620, 280]);
+  assert.equal(value("acc-bc"), -900, "the source shows its shortfall (-1,150 plus the 250 suggested in), reducing the total");
+  assert.equal(["acc-bc", "acc-hsbc", "acc-nw", "acc-mz"].reduce((n, id) => n + value(id), 0), 800);
+  assert.equal(snap.safe_to_spend.safe_to_spend, 800, "the transfers net to zero: the total is the four balances less the council tax");
 }
 
 // ── A shortfall only savings can cover: shown, never counted ──

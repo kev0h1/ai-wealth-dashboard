@@ -19,8 +19,8 @@ for (const c of fixture.cases) {
     const fallback = accountPlan(summary(id, c.closing[id], { opening: c.low_point[id] }), plans);
     assert.equal(fallback.uncertain, want.uncertain, `${c.name}: fallback uncertain`);
     assert.equal(fallback.afterPlans, pence(want.after_payments_and_plans), `${c.name}: fallback afterPlans`);
-    const wantPre = want.uncertain ? null : pence(Math.min(want.after_payments_and_plans, want.low_point_and_plans));
-    assert.equal(fallback.spendFromPence, wantPre, `${c.name}: fallback Spend from (pre pool cap)`);
+    const wantPre = want.uncertain ? null : pence(want.after_payments_and_plans);
+    assert.equal(fallback.spendFromPence, wantPre, `${c.name}: fallback Spend from (G436: After payments and plans)`);
     assert.equal(fallback.reservedPence, pence(want.plans_reserved) , `${c.name}: fallback reserved`);
 
     // Server field present: the sheet shows it and ignores contradictory client inputs.
@@ -41,9 +41,10 @@ assert.equal(accountPlan({ ...summary("barclays", 141.04), position: kPos }, [])
 const contradictory = plansFromApi([{ ...kevin.plans[0], remaining: 500, period_amount: 500 }]);
 assert.equal(accountPlan({ ...summary("barclays", 141.04), position: kPos }, contradictory).afterPlans, 6104);
 assert.equal(accountPlan({ ...summary("barclays", 141.04), position: kPos }, contradictory).reservedPence, 8000);
-// Dip case: the clamp holds Spend from at the low point (50), not the closing balance (1050).
+// Dip case (G436): the dip below the closing balance is a warning, not part of the figure: Spend from is the closing 1050, the low point 50 is only reported.
 const dip = fixture.cases.find((c) => c.name.startsWith("dip_lower"));
-assert.equal(dip.expected.acc.spend_from, 50);
+assert.equal(dip.expected.acc.spend_from, 1050);
+assert.equal(dip.expected.acc.low_point, 50);
 // Savings pots and ISAs get no Spend from (same sourceClass as Home, G111); unknown accounts neither.
 const savingsEntry = { short: false, headroom: 0, ...kevin.expected.barclays };
 for (const [label, account] of [["savings", { id: "pot", type: "savings", subtype: "SAVINGS" }], ["isa", { id: "pot", type: "bank", subtype: "CASH_ISA" }]]) {

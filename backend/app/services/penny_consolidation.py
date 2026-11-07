@@ -590,4 +590,7 @@ async def spend_from_extras(uid: str) -> dict:
     return out
 
 
-per_account_extras = spend_from_extras  # penny_tools.py may not spell the per-account vocabulary (test_spend_from_cap)
+# Needed, not decoration: penny_tools.py imports this name because the source guard in
+# tests/test_g436_account_by_account.py (test_no_penny_surface_quotes_per_account_figures)
+# forbids that file from spelling the per-account vocabulary (`spend_from`, `account_eligibility`...).
+per_account_extras = spend_from_extras

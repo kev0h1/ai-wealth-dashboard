@@ -64,7 +64,7 @@ assert.ok(!html.includes("data-covered-by-move") && html.includes("Payments need
 
 // Accounts page Available: working shows the set-aside line, the destination is amber when covered, dismiss reverts.
 const acct = (o = {}) => ({ id: "hc", name: "Harbour Current", provider: "barclays", type: "BANK", subtype: "TRANSACTION", currency: "GBP", status: "connected", balance: 2000, ...o });
-const src = { short: false, headroom: 1990, spend_from_headroom: 1800, after_payments: 2000, low_point: 2000, plans_reserved: 0, after_payments_and_plans: 2000, low_point_and_plans: 2000, uncertain: false, earmarked_total: 200, earmarks_out: [{ to_account_id: "mc", to_name: "Meadow Current", amount: 200 }] };
+const src = { short: false, headroom: 1990, spend_from_headroom: 1800, after_payments_and_money_in: 2000, after_payments: 2000, low_point: 2000, plans_reserved: 0, after_payments_and_plans: 2000, low_point_and_plans: 2000, uncertain: false, earmarked_total: 200, earmarks_out: [{ to_account_id: "mc", to_name: "Meadow Current", amount: 200 }] };
 const reading = accountAvailability(acct(), { status: "ready", positions: { hc: src } });
 assert.equal(reading.kind, "ready");
 assert.equal(reading.value, 1800);

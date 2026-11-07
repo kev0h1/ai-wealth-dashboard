@@ -37,6 +37,7 @@ from app.routers.analytics import (
 )
 from app.routers.allocations import list_active_allocations
 from app.services.account_names import display_account_name, distinct_account_label
+from app.services.counted_accounts import is_excluded
 from app.services.account_kinds import (
     is_credit_card_account,
     is_current_account as _is_current,
@@ -2624,7 +2625,7 @@ def finalise_account_available(account_eligibility: dict) -> dict:
     payments, goals and set-asides, account by account, never a total shared out.
 
     `spend_from_headroom` arrives as the account's own figure after its
-    payments, its goals and set-asides (`seed_spend_from`, G238) less any
+    payments and money in, its goals and set-asides (G436) less any
     earmarked move out of it (G410), exactly what the account page calls After
     payments and plans, then moves. This adds the suggested moves INTO it from
     another current account and leaves the figure signed: an account no current
@@ -2633,8 +2634,8 @@ def finalise_account_available(account_eligibility: dict) -> dict:
     (`covered_by_move`) but never added: it counts once the move is made.
     Moves between current accounts net to zero, so the sum of the Available
     figures is the same with or without the cover plan; the pooled Left to
-    spend (`analytics.compute_safe_to_spend`) is that sum plus its explicit
-    lines. No preference order, no cap, no allocation step.
+    spend (`analytics.compute_safe_to_spend`) is that sum less plans on no
+    counted account and the buffer. No preference order, no cap, no allocation step.
 
     `moves_in_total` is the amount counted from other current accounts (absent
     when none). `spend_from_requires_move` marks a positive figure that exists
@@ -3280,8 +3281,9 @@ async def compute_today_items(
         # `finalise_account_available` (G436: the account's own figure, no pool
         # cap), and 0 (not shown) when uncertain. The
         # standing `headroom` above stays the move finder's figure unchanged.
+        _avail_wi = None
         try:
-            from app.services.account_position import compute_account_positions_from_walks, seed_spend_from
+            from app.services.account_position import compute_account_positions_from_walks
             _gp_plans = await _load_account_plans(uid, goals=True, strict=True)
             # G436: a set-aside with no resolvable paying account takes the one the
             # cover engine uses for it, so it comes off that account's Available.
@@ -3313,7 +3315,28 @@ async def compute_today_items(
                 })
                 continue
             _entry.update(_pos)
-            _entry["spend_from_headroom"] = seed_spend_from(_pos)
+            # G436 (Kevin 2026-11-07, "every account in isolation, money in vs money out"):
+            # Available starts from the closing figure of the account's OWN walk, with its
+            # predicted money in (an own-account transfer's destination leg is credited on its
+            # date, no G360 gate) less its predicted money out, then its goals and set-asides.
+            # The positions above (After payments, Lowest, the shortfall verdict and the cover
+            # engine) keep the gated walks; only this figure reads the ungated one.
+            _acc_doc = _account_map.get(_sid)
+            _entry["spend_from_headroom"] = 0.0
+            if not _pos.get("uncertain") and _acc_doc is not None:
+                try:
+                    from app.services.account_available import available_walk, dip_before_money_in, money_in_out_window
+                    if _avail_wi is None:
+                        _avail_wi = money_in_out_window(wi)
+                    _w = available_walk(_avail_wi, _sid, float(live_balances.get(_sid, float(_acc_doc.get("balance") or 0))))
+                    _entry["after_payments_and_money_in"] = round(float(_w.closing), 2)
+                    _entry["spend_from_headroom"] = round(float(_w.closing) - float(_pos.get("plans_reserved") or 0.0), 2)
+                    _dip = dip_before_money_in(_w, today_d)
+                    if _dip:
+                        _entry["dips_below_zero"] = _dip
+                except Exception:
+                    log.warning("available walk failed for %s/%s", uid, _sid, exc_info=True)
+                    _entry["uncertain"] = True
 
     # ── Shared source finder (G42, 2026-09-11; fewest-legs G43, 2026-09-11;
     # offline collapsed into its real class G47, 2026-09-13) ──
@@ -7351,7 +7374,8 @@ async def _attribute_unsourced_set_asides(
             src = None
         dest = str(alloc.get("fill_account_id") or "")
         src_acc = account_map.get(str(src or ""))
-        if not src or str(src) == dest or src_acc is None or is_credit_card_account(src_acc):
+        # An excluded (G231) or ended (A192) account is never a source; a savings account is allowed.
+        if not src or str(src) == dest or src_acc is None or is_credit_card_account(src_acc) or is_excluded(src_acc):
             out.append(p)
             continue
         out.append({**p, "source_account_id": str(src), "source_basis": "recent-transfers", "inferred": True})
