@@ -335,3 +335,19 @@ def test_initials_do_not_match_common_words_or_repeated_letters():
     tokens = ["kim", "mara", "maingi"]
     for text in ("MAINGI KM", "MAINGI K M", "K M MAINGI", "MAINGI MK", "TO MAINGI KM"):
         assert name_matches_owner(text, tokens), text
+
+
+def test_generic_account_names_are_never_name_evidence():
+    from app.services.own_account_transfers import account_name_in_text
+    for generic in ("Main", "Bills", "Joint Account", "Rent", "Emergency Fund", "Everyday Spending"):
+        assert not account_name_in_text("MAIN STREET CAFE BILLS RENT JOINT EMERGENCY FUND EVERYDAY SPENDING", {"name": generic}), generic
+    assert account_name_in_text("TO MAIN G POT", {"name": "Main G"})
+    assert account_name_in_text("TO HOLIDAY FUND", {"name": "Holiday Fund"})
+    # a cafe payment and an unrelated credit do not auto-pair with an account called "Main"
+    debit = _t("d1", ttype="debit", amount=9.5, date=D0, account_id="other", desc="MAIN STREET CAFE", category="Other")
+    credit = _t("c1", ttype="credit", amount=9.5, date=D0, account_id="mainacct", desc="REFUND", category="Income")
+    ident = {**NO_ONE, "account_names": {"mainacct": "Main", "other": "Current"}}
+    assert find_own_move_ids([debit, credit], KINDS, ident) == set()
+    accounts = {"mainacct": {"_id": "mainacct", "name": "Main", "type": "current"},
+                "other": {"_id": "other", "name": "Current", "type": "current"}}
+    assert select_unique_pairs([credit, debit], accounts, [], set()) == []

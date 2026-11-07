@@ -18,7 +18,7 @@ from typing import Iterable
 from app.db.collections import accounts_col, confirmed_transfer_pairs_col, preferences_col, transactions_col, user_profiles_col
 from app.services.card_issuers import CARD_ISSUERS
 from app.services.card_names import last_four
-from app.services.categorisation import _text_has_account_pair, canonical_merchant_key, name_matches_owner, series_key as _base_series_key
+from app.services.categorisation import _NOT_INITIALS, _text_has_account_pair, canonical_merchant_key, name_matches_owner, series_key as _base_series_key
 from app.services.categories import BUILTIN_CATEGORY_KINDS, MOVEMENT, get_category_kinds
 
 OWN_TRANSFER_MATCH_VERSION = 2
@@ -376,7 +376,12 @@ def _text(row: dict) -> str:
     return f"{row.get('merchant_name') or ''} {row.get('description') or ''}".strip()
 
 
-_GENERIC_ACCOUNT_WORDS = frozenset({"account", "pot", "current", "savings", "saving", "the", "my"})
+_STRIP_ACCOUNT_WORDS = frozenset({"account", "pot", "current", "savings", "saving", "the", "my"})
+_GENERIC_ACCOUNT_WORDS = _STRIP_ACCOUNT_WORDS | frozenset({
+    "main", "bills", "bill", "rent", "joint", "home", "spend", "spending", "everyday", "daily",
+    "personal", "business", "reserve", "emergency", "budget", "card", "credit", "debit", "fund",
+    "money", "cash",
+})
 
 
 def _norm_words(text) -> list[str]:
@@ -390,7 +395,9 @@ def account_name_in_text(text: str, account: dict | None) -> bool:
     there is no pot-specific path."""
     if not account:
         return False
-    words = [w for w in _norm_words(account.get("name") or account.get("display_name")) if w not in _GENERIC_ACCOUNT_WORDS]
+    words = [w for w in _norm_words(account.get("name") or account.get("display_name")) if w not in _STRIP_ACCOUNT_WORDS]
+    if all(w in _GENERIC_ACCOUNT_WORDS for w in words):
+        return False  # a name made only of generic words ("Main", "Bills") is never evidence
     phrase = " ".join(words)
     if len(phrase) < 4:
         return False
@@ -415,7 +422,7 @@ def _compact_owner_name(text: str, name_tokens: list[str]) -> bool:
     pairs = {initials[i] + initials[j] for i in range(len(initials)) for j in range(i + 1, len(initials))}
     has_name = any(word == token or word.startswith(token) or token.startswith(word)
                    for word in words for token in name_tokens if len(word) >= 3)
-    return has_name and any(word in pairs for word in words)
+    return has_name and any(word in pairs and word not in _NOT_INITIALS and len(set(word)) > 1 for word in words)
 
 
 def has_owner_transfer_reference(row: dict, name_tokens: list[str]) -> bool:
