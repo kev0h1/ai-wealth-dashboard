@@ -351,3 +351,25 @@ def test_generic_account_names_are_never_name_evidence():
     accounts = {"mainacct": {"_id": "mainacct", "name": "Main", "type": "current"},
                 "other": {"_id": "other", "name": "Current", "type": "current"}}
     assert select_unique_pairs([credit, debit], accounts, [], set()) == []
+
+
+def test_lone_credit_scan_is_bounded_and_batches_the_counterpart_lookup(monkeypatch):
+    class RecordingCol(FakeCol):
+        queries: list = []
+
+        def find(self, query=None, projection=None):
+            RecordingCol.queries.append(query)
+            return super().find(query, projection)
+
+    RecordingCol.queries = []
+    credits = [_t(f"c{i}", ttype="credit", amount=10.0 + i, date=D0, account_id="main", desc="FROM JORDAN BLAKE", category="Income")
+               for i in range(5)]
+    _review_fakes(monkeypatch, credits, IDENTITY)
+    monkeypatch.setattr(analytics, "transactions_col", RecordingCol(credits))
+    flagged = asyncio.run(analytics._flagged_miscategorised(UID))
+    assert len(flagged) == 5
+    credit_q = [q for q in RecordingCol.queries if q.get("transaction_type") == "credit"]
+    debit_amount_q = [q for q in RecordingCol.queries if q.get("transaction_type") == "debit" and "amount" in q]
+    assert len(credit_q) == 1 and "$gte" in credit_q[0]["date"]
+    assert len(debit_amount_q) == 1 and set(debit_amount_q[0]["amount"]["$in"]) == {10.0, 11.0, 12.0, 13.0, 14.0}
+    assert debit_amount_q[0]["user_id"] == UID

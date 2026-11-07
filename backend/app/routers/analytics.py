@@ -5997,14 +5997,28 @@ async def _flagged_miscategorised(uid: str, exclude_ids: frozenset = frozenset()
     # Income until answered. Only plain Income credits with no user answer are
     # read; a credit that is a leg of a pair suggestion is excluded below.
     income_names = [name for name in kind_map if kind_of(kind_map, name) == INCOME]
+    # Bounded to the last 90 days: an older lone credit is history, not a question.
+    _lone_cutoff = datetime.combine(timeutil.user_today() - timedelta(days=90), datetime.min.time())
     if income_names:
         txns = txns + await transactions_col.find(
             {"user_id": uid, "transaction_type": "credit", "custom_category": None,
-             "category": {"$in": income_names}},
+             "category": {"$in": income_names}, "date": {"$gte": _lone_cutoff}},
             {"merchant_name": 1, "description": 1, "amount": 1, "date": 1,
              "currency": 1, "category": 1, "custom_category": 1, "transaction_type": 1,
              "account_id": 1, "own_transfer_match": 1, "is_pending": 1},
         ).to_list(None)
+
+    # ONE batched read of the counterpart debits for every credit amount in the
+    # window (scoped to this user), instead of a query per credit.
+    debits_by_amount: dict = defaultdict(list)
+    _credit_amounts = list({t.get("amount") for t in txns if t.get("transaction_type") == "credit"} - {None})
+    if _credit_amounts:
+        for d in await transactions_col.find(
+            {"user_id": uid, "transaction_type": "debit", "amount": {"$in": _credit_amounts},
+             "date": {"$gte": _lone_cutoff - timedelta(days=5)}},
+            {"account_id": 1, "date": 1, "amount": 1},
+        ).to_list(None):
+            debits_by_amount[d.get("amount")].append(d)
 
     kept = []
     for t in txns:
@@ -6027,15 +6041,11 @@ async def _flagged_miscategorised(uid: str, exclude_ids: frozenset = frozenset()
         if evidence is not None and is_credit:
             # A credit with a same-amount debit on another account within the pair
             # window already has a counterpart (asked as a pair, or answered): not lone.
-            same_amount = await transactions_col.find(
-                {"user_id": uid, "transaction_type": "debit", "amount": t.get("amount")},
-                {"account_id": 1, "date": 1},
-            ).to_list(None)
             c_day = t["date"].date() if hasattr(t.get("date"), "date") else t.get("date")
             if any(
                 d.get("account_id") != t.get("account_id") and d.get("date") is not None
                 and abs(((d["date"].date() if hasattr(d["date"], "date") else d["date"]) - c_day).days) <= 5
-                for d in same_amount
+                for d in debits_by_amount.get(t.get("amount"), ())
             ):
                 continue
         if evidence is not None:
