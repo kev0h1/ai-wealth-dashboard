@@ -1,5 +1,5 @@
-import { accountActionNote, type accountActionReading } from "@/lib/upcomingAccountPresentation";
-import type { UpcomingAccountSummary } from "@/lib/upcomingAccounts";
+import { accountActionNote, type accountActionReading } from "./upcomingAccountPresentation";
+import type { UpcomingAccountSummary } from "./upcomingAccounts";
 
 type Reading = ReturnType<typeof accountActionReading>;
 const money = (pence: number) => `${pence < 0 ? "−" : ""}£${(Math.abs(pence) / 100).toLocaleString("en-GB", { minimumFractionDigits: pence % 100 ? 2 : 0, maximumFractionDigits: 2 })}`;
@@ -17,7 +17,7 @@ export function summaryDeadline(reading: Reading): string | null {
 }
 const deadlineText = (value: string | null) => value ? ` by ${new Date(`${value}T12:00:00Z`).toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "UTC" })}` : "";
 
-/** Preview presentation only. All amounts are the existing reading's integer pence. */
+/** G430 A3: presentation only, using the existing reading's integer pence. */
 export function accountMoveSummary(account: UpcomingAccountSummary, reading: Reading): string | null {
   if (reading.headline === null || !reading.ready) return accountActionNote(account, reading);
   if (!reading.combinedKnown) return "Payments only. Plans need checking.";
