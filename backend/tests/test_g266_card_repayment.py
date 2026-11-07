@@ -82,12 +82,12 @@ def test_savings_transfer_and_ordinary_bill_are_not_flagged(monkeypatch):
 
 # ── the shortfall walks agree ───────────────────────────────────────────────
 
-def test_at_risk_count_counts_a_short_card_repayment_but_not_a_short_transfer(monkeypatch):
+def test_at_risk_count_counts_a_short_card_repayment_and_a_short_transfer(monkeypatch):
     repay = _bill("NW WORLD MASTERCAR", 5, 62.22, "cur", 50.0, kind=MOVEMENT)
     repay["is_card_repayment"] = True
     assert _run_at_risk(monkeypatch, [repay], []) == 1
     saving = _bill("Savings pot", 5, 62.22, "cur", 50.0, kind=MOVEMENT)
-    assert _run_at_risk(monkeypatch, [saving], []) == 0
+    assert _run_at_risk(monkeypatch, [saving], []) == 1  # G438: an own transfer counts too
 
 
 def test_gate_recommendation_no_longer_drops_own_transfers():

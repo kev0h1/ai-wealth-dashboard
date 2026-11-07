@@ -51,16 +51,12 @@ export type UpcomingRowModel = {
   accountShort?: boolean;
   accountTiming?: boolean;
   atRisk?: boolean;
-  movementCalm?: boolean;
-  unfundedMovement?: boolean;
-  /** G422: the engine's own sentence for an own-savings standing order its account cannot fund (what would cover it, or that nothing can). Replaces the generic calm line. */
   highlighted?: boolean;
   assessment?: "unverified" | "future";
   coverage?: {
     shortfall: number;
+    /** Read only by the retired g176 design preview fixtures; production never sets it (G438). */
     optionalMove?: boolean;
-    /** G426: short only because an own-savings standing order leaves first. */
-    savingsOnly?: boolean;
     before?: number;
     after?: number;
   };
@@ -217,17 +213,10 @@ function CurrentSupportingCopy({
         </>
       )}
 
-      {model.movementCalm && (
-        <p className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
-          <span aria-hidden className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-600 dark:bg-amber-400" />
-          May not go through if the balance is tight. No fee either way.
-        </p>
-      )}
-
       {model.isCreditCard && hasAccount && !model.flagged && !model.timingRisk && (
         <p className="truncate text-xs text-slate-500 dark:text-slate-400">{model.accountLabel}</p>
       )}
-      {model.type === "bill" && !model.accountShort && !model.accountTiming && !model.isCreditCard && !model.atRisk && !model.movementCalm && hasAccount && (
+      {model.type === "bill" && !model.accountShort && !model.accountTiming && !model.isCreditCard && !model.atRisk && hasAccount && (
         <p className="truncate text-xs text-slate-400 dark:text-slate-500">{model.accountLabel}</p>
       )}
 
@@ -235,17 +224,10 @@ function CurrentSupportingCopy({
         const pendingDate = formatDate(model.originalDate ?? model.expectedDate);
         const daysPastDue = model.daysPastDue ?? 0;
         if (model.isMovement) {
-          const showDismiss = Boolean(model.unfundedMovement) || daysPastDue >= 5;
+          const showDismiss = (model.coverage?.shortfall ?? 0) > 0 || daysPastDue >= 5;
           return (
             <div>
-              {model.unfundedMovement ? (
-                <p className="flex min-w-0 items-center gap-1.5 text-xs leading-snug text-slate-500 dark:text-slate-400">
-                  <span aria-hidden className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-600 dark:bg-amber-400" />
-                  <span className="truncate">Planned for {pendingDate}, hasn&apos;t left. {model.accountLabel || "The account"} may not have the funds for it.</span>
-                </p>
-              ) : (
-                <p className="text-xs leading-snug text-slate-500 dark:text-slate-400">Planned for {pendingDate}, hasn&apos;t left yet.</p>
-              )}
+              <p className="text-xs leading-snug text-slate-500 dark:text-slate-400">Planned for {pendingDate}, hasn&apos;t left yet.</p>
               {showDismiss && onSkipOccurrence && (
                 <button
                   type="button"
@@ -325,10 +307,8 @@ function CoverageCopy({ coverage }: { coverage: NonNullable<UpcomingRowModel["co
     );
   }
 
-  const status = coverage.optionalMove ? "unfunded" : "short";
-  const signifier = coverage.optionalMove
-    ? "bg-amber-600 dark:bg-amber-400"
-    : "bg-red-600 dark:bg-red-400";
+  const status = "short";
+  const signifier = "bg-red-600 dark:bg-red-400";
 
   return (
     <p className="flex items-center justify-end gap-1.5 text-xs font-medium text-slate-500 dark:text-slate-400">
@@ -367,7 +347,7 @@ export default function UpcomingRow({
   const coverageStatus = isAttention ? maskMoneyText(upcomingStatusText(getUpcomingStatus(model)), hidden) : model.coverage
     ? model.coverage.shortfall <= 0
       ? "covered"
-      : maskMoneyText(`${sym}${model.coverage.shortfall.toLocaleString("en-GB", { maximumFractionDigits: 0 })} ${model.coverage.optionalMove ? "unfunded" : "short"}`, hidden)
+      : maskMoneyText(`${sym}${model.coverage.shortfall.toLocaleString("en-GB", { maximumFractionDigits: 0 })} short`, hidden)
     : null;
   const accountCoverageLabel = `Open details for ${model.name}${model.accountLabel ? ` ${model.type === "income" ? "into" : "from"} ${model.accountLabel}` : ""}, ${amountSign}${sym}${model.amount.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}${coverageStatus ? `, ${coverageStatus}` : ""}`;
 

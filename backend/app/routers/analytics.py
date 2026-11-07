@@ -3495,11 +3495,8 @@ async def at_risk_count(user: dict = Depends(current_user)):
     _running, _min_running, _shortfall, bounced = walk_events(events, seed)
 
     # A deficit cascades (a bounced bill still debits the balance, so every
-    # later bill on a short account counts until income recovers it), but a
-    # `movement` bill bouncing is never itself counted toward this badge: it
-    # is the user's own plan for their own money, matching the Planning page's
-    # own at-risk simulation (PlanningPage.tsx), which this badge must agree
-    # with. A commitment/discretionary bill a movement starves still counts.
+    # later item on a short account counts until income recovers it). G438: an
+    # own-account movement counts like any predicted payment.
     at_risk = count_at_risk(bounced)
 
     return {"count": at_risk}

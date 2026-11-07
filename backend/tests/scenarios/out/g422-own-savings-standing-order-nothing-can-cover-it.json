@@ -80,7 +80,7 @@
       "type": "BANK"
     }
   ],
-  "at_risk_count": 0,
+  "at_risk_count": 1,
   "cashflow": {
     "internal_inflows": [
       {

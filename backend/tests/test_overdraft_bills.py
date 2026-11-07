@@ -370,13 +370,10 @@ def test_at_risk_count_credit_card_still_excluded(monkeypatch):
     assert _run_at_risk(monkeypatch, bills) == 0
 
 
-def test_at_risk_count_movement_only_bounce_on_overdrawn_account_not_counted(monkeypatch):
-    """Same movement-doctrine carve-out as everywhere else: a bounced
-    `movement` bill (the user's own transfer) never trips the at-risk
-    badge, even on an overdrawn account, since it's not an obligation that
-    can fail expensively."""
+def test_at_risk_count_movement_only_bounce_on_overdrawn_account_is_counted(monkeypatch):
+    """G438 (Kevin 2026-11-07): a bounced own transfer counts like any predicted payment."""
     bills = [_bill("Own transfer to savings", 2, 900.0, "premier", -30.61, kind=MOVEMENT)]
-    assert _run_at_risk(monkeypatch, bills) == 0
+    assert _run_at_risk(monkeypatch, bills) == 1
 
 
 # ── SHARED-FIXTURE LOCKSTEP CHECK (G42, 2026-09-11) ─────────────────────────

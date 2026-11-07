@@ -34,8 +34,6 @@ const flow = (bills) => ({ upcoming_bills: bills, upcoming_income: [], internal_
   assert.ok(walk.atRisk.length === 1, "the repayment is at risk");
   const row = upcomingAccountAssessment(walk.atRisk[0], walk);
   assert.equal(row.accountShort, true);
-  assert.equal(row.unfundedMovement, false);
-  assert.equal(row.coverage.optionalMove, false);
   const html = renderToStaticMarkup(React.createElement(UpcomingAccountDetails, { account, periodLabel: "x", plans: [], plansStatus: "ready" }));
   assert.match(html, /data-card-repayment-short/);
   assert.match(html, /lucide-triangle-alert/, "a named repayment gap keeps the semantic payment-risk icon");
@@ -44,14 +42,14 @@ const flow = (bills) => ({ upcoming_bills: bills, upcoming_income: [], internal_
   assert.ok(!html.includes("—") && !html.includes("!"), "copy rules");
 }
 
-// 2. Same shape without the flag (an old cached payload) keeps the old read; with a savings transfer it stays unfunded.
+// 2. G438: a short transfer to savings is an ordinary short payment, not a calm "may stay put" move.
 {
   const saving = bill({ name: "Savings pot", amount: 120, category: "Savings", kind: "movement", expected_date: "2026-10-20" });
   const account = walkUpcomingAccounts(flow([saving]), END).accounts[0];
-  assert.equal(account.status, "unfunded");
-  assert.equal(account.shortFor, null);
+  assert.equal(account.status, "short");
+  assert.equal(account.shortFor.cardRepayment, false);
   const html = renderToStaticMarkup(React.createElement(UpcomingAccountDetails, { account, periodLabel: "x", plans: [], plansStatus: "ready" }));
-  assert.match(html, /may stay put, with no fee/);
+  assert.doesNotMatch(html, /may stay put|no fee/);
 }
 
 // 3. A covered repayment stays covered.

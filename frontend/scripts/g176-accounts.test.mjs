@@ -45,10 +45,10 @@ assert.doesNotMatch(detail, /short by.*on.*2 Oct/, "Never attribute the later ma
 assert.equal(summary([bill({ account_balance: -10 })])[0].shortfall, 90, "Overdrawn opening cash is not omitted");
 assert.equal(summary([bill({ amount: 0.2, account_balance: 0.3 })])[0].closing, 0.1, "Penny arithmetic");
 assert.equal(summary([bill({ amount: 0.31, account_balance: 0.3 })])[0].shortfall, 0.01);
-assert.equal(summary([bill({ amount: 180, kind: "movement" })])[0].status, "unfunded", "Optional moves never get genuine-risk red");
+assert.equal(summary([bill({ amount: 180, kind: "movement" })])[0].status, "short", "G438: a short own-account move is assessed like any other payment");
 accounts = summary([bill({ amount: 150, kind: "movement" }), bill({ amount: 80, expected_date: "2026-10-03" })]);
 assert.equal(accounts[0].shortfall, 130);
-assert.equal(accounts[0].firstShortDate, "2026-10-03", "Bill risk date is not the earlier optional move");
+assert.equal(accounts[0].firstShortDate, "2026-10-02", "G438: the own-account move is the first gap, like any payment");
 for (const overrides of [{ account_balance: null }, { account_id: null }, { account_balance: NaN }]) {
   const account = summary([bill(overrides)])[0];
   assert.equal(account.status, "unknown"); assert.equal(account.closing, null);
@@ -76,7 +76,7 @@ function assertAgreement(bills, income = [], inflows = [], cutoff = Date.parse("
     pending: item.pending, daysPastDue: item.days_past_due, category: item.category,
     // Pooled risk is deliberately contradictory; it cannot replace named
     // account evidence, or make an unknown balance red/covered by accident.
-    flagged: true, accountShort: true, atRisk: true, unfundedMovement: true,
+    flagged: true, accountShort: true, atRisk: true,
     after: { kind: "balance", value: -9999 }, categoryColour: "#64748b", CategoryIcon: Landmark,
     ...upcomingAccountAssessment(item, walk),
   }));
@@ -85,15 +85,12 @@ function assertAgreement(bills, income = [], inflows = [], cutoff = Date.parse("
     const indices = bills.flatMap((item, index) =>
       (item.account_id || "__unknown__") === account.id && Date.parse(item.expected_date) <= cutoff && !item.is_credit_card && !item.observed_pending ? [index] : []);
     const rows = indices.map((index) => models[index]);
-    const risk = rows.filter((row) => !row.isMovement && (row.coverage?.shortfall ?? 0) > 0);
+    const risk = rows.filter((row) => (row.coverage?.shortfall ?? 0) > 0);
     if (account.status === "covered") {
       assert.ok(rows.every((row) => row.coverage?.shortfall === 0), "Covered account has only funded cash payments");
     } else if (account.status === "short") {
       assert.equal(Math.max(...risk.map((row) => row.coverage.shortfall)), account.shortfall, "Card bill-risk amount equals peak row deficit");
       assert.ok(risk.every((row) => getUpcomingStatus(row).tone === "risk"));
-    } else if (account.status === "unfunded") {
-      assert.equal(risk.length, 0, "Optional-move-only gaps are never bill risk");
-      assert.equal(Math.max(...rows.map((row) => row.coverage.shortfall)), account.shortfall);
     } else {
       assert.ok(rows.some((row) => row.assessment === "unverified"), "Unknown account has unverified evidence, never invented funding");
       assert.equal(risk.length, 0);
@@ -178,7 +175,7 @@ for (const scenario of SCENARIOS) {
   assert.equal(result.reduce((sum, account) => sum + account.shortfall, 0), forecast.shortfall / 100);
   const card = renderToStaticMarkup(React.createElement(UpcomingAccountsCard, { accounts: result, periodLabel: "Payments through Wed 30 Sept", onOpen() {} }));
   assert.match(card, /By account/); assert.match(card, /Open Barclays/); assert.match(card, /Tap an account for its working/);
-  if (scenario.id === "moves") { assert.match(card, /short for transfers/i); assert.match(card, /data-status-signal="move"/); assert.doesNotMatch(card, /data-status-signal="risk"|text-rose|bg-rose/); }
+  if (scenario.id === "moves") { assert.match(card, /short for payments/i); assert.match(card, /data-status-signal="risk"/); assert.doesNotMatch(card, /short for transfers|may stay put/i); }
   if (scenario.id === "covered") assert.doesNotMatch(card, /data-status-signal="(?:risk|move|plan)"|lucide-triangle-alert|lucide-info/);
 }
 const empty = renderToStaticMarkup(React.createElement(UpcomingAccountsCard, { accounts: [], periodLabel: "This period", onOpen() {} }));

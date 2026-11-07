@@ -52,7 +52,7 @@ export type UpcomingAccountSummary = {
   outgoing: number;
   closing: number | null;
   shortfall: number | null;
-  status: "short" | "unfunded" | "covered" | "unknown";
+  status: "short" | "covered" | "unknown";
   firstShortDate: string | null;
   /** G266: the payment that sets the peak shortfall, named so the sheet can say what is at risk. Null unless status is "short". */
   shortFor?: { label: string; date: string; cardRepayment: boolean } | null;
@@ -115,7 +115,7 @@ export function reconcileWithServerPosition(account: UpcomingAccountSummary, pos
     return { ...account, position, status: "short", shortfall: Math.max(account.shortfall ?? 0, -lowest), firstShortDate: account.firstShortDate ?? account.events.find((event) => event.after !== null && event.after < 0)?.date ?? null, shortFor: account.shortFor ?? null };
   }
   if (position.uncertain) return { ...account, position };
-  if (account.status === "short" || account.status === "unfunded") {
+  if (account.status === "short") {
     return { ...account, position, status: "covered", shortfall: 0, firstShortDate: null, shortFor: null, coverSuggestion: null };
   }
   return { ...account, position };
@@ -187,7 +187,7 @@ export function accountHasPeriodActivity(summary: UpcomingAccountSummary, positi
   if (summary.events.length > 0) return true;
   if (plans.some((plan) => plan.active && plan.sourceId === summary.id && hasPlanSource(plan) && (plan.amountUnavailable || remaining(plan) > 0))) return true;
   if ((summary.suggestedMoves?.length ?? 0) > 0 || summary.coverSuggestion) return true;
-  if (summary.status === "short" || summary.status === "unfunded" || accountPaymentGap(summary) !== null) return true;
+  if (summary.status === "short" || accountPaymentGap(summary) !== null) return true;
   if (position) {
     if (position.plansReserved > 0) return true;
     if ((position.earmarkedTotal ?? 0) > 0 || (position.earmarksOut?.length ?? 0) > 0) return true;

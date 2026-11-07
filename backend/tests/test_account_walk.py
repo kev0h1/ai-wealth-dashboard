@@ -577,7 +577,7 @@ def test_at_risk_count_equals_the_golden_count(monkeypatch):
     wi_ar = _at_risk_wi(monkeypatch)
     events, seed, _ = aw.window_events(wi_ar)
     _r, _m, _s, bounced = aw.walk_events(events, seed)
-    assert aw.count_at_risk(bounced) == json.loads(GOLDEN.read_text())["at_risk"]["result"]["count"] == 4
+    assert aw.count_at_risk(bounced) == json.loads(GOLDEN.read_text())["at_risk"]["result"]["count"] == 5
 
 
 # ── AccountWalk carries closing, low point, first short and dated rows ───────
@@ -713,10 +713,10 @@ def test_wd8_same_day_key_only_changes_the_order_for_a_non_positive_credit(wi):
         aw.walk_account("lowsrc", wi, opening=5.0, same_day_key="alphabetical")
 
 
-def test_wd9_count_at_risk_skips_a_bounced_movement_but_counts_a_card_repayment(wi):
+def test_wd9_count_at_risk_counts_every_bounced_item_including_a_movement(wi):
     w = aw.walk_account("lowsrc", wi, opening=5.0)
     assert [b["name"] for b in w.bounced] == ["Standing order out", "Card repayment", "Phone"]
-    assert aw.count_at_risk({"lowsrc": w.bounced}) == 2  # the movement one is not counted
+    assert aw.count_at_risk({"lowsrc": w.bounced}) == 3  # G438: the movement one counts like any predicted payment
     # first_short is the head of bounced, which here is the movement bill
     assert w.first_short.bill["kind"] == "movement"
     assert aw.count_at_risk({}) == 0

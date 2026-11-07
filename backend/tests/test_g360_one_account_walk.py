@@ -378,10 +378,10 @@ def test_at_risk_count_follows_the_funded_rule(monkeypatch):
     # Source covered by its own balance: HSBC credited, rent covered, nothing at risk.
     bills, income, inflows = _scenario(today, 5000.0, False)
     assert _run_at_risk(monkeypatch, bills, income, inflows) == 0
-    # Source empty, no credited income: HSBC not credited, rent (and the empty
-    # source's own bounced movement is never counted) is at risk.
+    # Source empty, no credited income: HSBC not credited, rent and (G438) the
+    # empty source's own bounced movement are both at risk.
     bills, income, inflows = _scenario(today, 0.0, False)
-    assert _run_at_risk(monkeypatch, bills, income, inflows) == 1
+    assert _run_at_risk(monkeypatch, bills, income, inflows) == 2
 
 
 def test_spend_impact_window_follows_the_funded_rule(monkeypatch):

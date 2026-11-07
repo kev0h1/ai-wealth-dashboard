@@ -376,21 +376,12 @@ def walk_events(
 
 
 def count_at_risk(bounced_bills: dict[str, list[dict]]) -> int:
-    """The at-risk badge count (WD9): every bounced bill except a `movement`
-    one (the user's own plan for their own money) unless it is a card
-    repayment (G266). A deficit cascades, so every later bill on a short
-    account counts until income recovers it. (G438: a savings order that
-    starves a later bill no longer gets that bill discounted; it is an
-    ordinary payment ahead of it.)"""
-    from app.services.categories import MOVEMENT
-
-    n = 0
-    for bills in bounced_bills.values():
-        for b in bills:
-            if b.get("kind") == MOVEMENT and not b.get("is_card_repayment"):
-                continue
-            n += 1
-    return n
+    """The at-risk badge count (WD9): every bounced item. G438 (Kevin
+    2026-11-07, "categories are just intention"): an own-account movement
+    (a standing order to own savings, a pot or another account) counts like any
+    predicted payment. A deficit cascades, so every later item on a short
+    account counts until income recovers it."""
+    return sum(len(bills) for bills in bounced_bills.values())
 
 
 # ── G367: the pooled Left to spend walk ──────────────────────────────────────

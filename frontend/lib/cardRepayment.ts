@@ -10,8 +10,8 @@ export function isCardRepayment(item: { kind?: string; is_card_repayment?: boole
   return item.kind === "movement" && item.is_card_repayment === true;
 }
 
-/** True for an own-account move (savings top-up, pot transfer) that may simply stay put. */
-export function isOptionalMove(item: { kind?: string; is_card_repayment?: boolean | null }): boolean {
+/** True for an own-account move (savings top-up, pot transfer, payment to another account). It is described as a planned move but assessed like any other payment (G438). */
+export function isOwnAccountMove(item: { kind?: string; is_card_repayment?: boolean | null }): boolean {
   return item.kind === "movement" && !isCardRepayment(item);
 }
 

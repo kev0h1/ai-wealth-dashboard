@@ -90,9 +90,9 @@ for (const plansStatus of ["loading", "error"]) {
 // Ordering of all tiers on a synthetic mix: payments, plans, watch.
 {
   const base = (id, status, shortfall = null) => ({ id, bank: "Barclays", name: id, opening: 100, income: 0, transfersIn: 0, outgoing: 10, closing: 90, shortfall, status, firstShortDate: null, hasUnassignedIncome: false, events: [] });
-  const accounts = [base("watch", "unknown"), base("fine", "covered"), base("move", "unfunded", 5), base("pay", "short", 20)];
+  const accounts = [base("watch", "unknown"), base("fine", "covered"), base("pay", "short", 20)];
   const html = renderToStaticMarkup(React.createElement(UpcomingAccountsCard, { accounts, plans: [], periodLabel: PERIOD, onOpen() {} }));
-  assert.deepEqual(rows(split(html).lead), ["pay", "watch", "move"], "payments first, then watch states in list order");
+  assert.deepEqual(rows(split(html).lead), ["pay", "watch"], "payments first, then watch states in list order");
 }
 
 console.log("g229-by-account: ok");

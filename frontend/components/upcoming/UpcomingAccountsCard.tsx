@@ -26,10 +26,10 @@ export interface UpcomingAccountsCardProps {
 type Reading = ReturnType<typeof accountActionReading>;
 function AccountRow({ account, reading, onOpen }: { account: UpcomingAccountSummary; reading: Reading; onOpen: (account: UpcomingAccountSummary) => void }) {
   const hidden = useBalancesHidden();
-  const { headline, signal, caption, gap, paymentGap, transferGap, earlierGap } = reading;
+  const { headline, signal, caption, gap, paymentGap, earlierGap } = reading;
   const meta = BANK_META[bankKey({ provider: account.bank })];
   const summary = signal || reading.result.estimated ? accountMoveSummary(account, reading) : null;
-  const detail = gap > 0 ? earlierGap ? "short before payday" : paymentGap > 0 ? "short for payments" : transferGap > 0 ? "short for transfers" : "short for plans" : caption.toLowerCase();
+  const detail = gap > 0 ? earlierGap ? "short before payday" : paymentGap > 0 ? "short for payments" : "short for plans" : caption.toLowerCase();
   const label = `Open ${account.bank}, ${displayAccountName(account.name)}: ${headline === null ? "Not yet known" : accountSummaryMoney(headline)}, ${detail}.${summary ? ` ${summary}` : ""}`;
   return <button type="button" data-account-row={account.id} onClick={() => onOpen(account)} aria-label={maskMoneyText(label, hidden)} className={styles.accountRow}>
     <span data-bank-badge className={styles.bankMark}><BankBadge logoSrc={bankLogoSrc(meta)} initials={meta?.initials ?? account.bank.slice(0, 2).toUpperCase()} initialsSize={meta?.initialsSize} altText="" brandBg={meta?.bg} size={32} /></span>

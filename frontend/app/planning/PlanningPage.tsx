@@ -28,7 +28,7 @@ import UpcomingDivider from "@/components/upcoming/UpcomingDivider";
 import type { UpcomingRowModel } from "@/components/upcoming/UpcomingRow";
 import type { PaymentDetail, UpcomingDetailView } from "@/components/upcoming/UpcomingDetailFlow";
 import { canDismissUpcomingOccurrence, upcomingPaymentKey as atRiskKey } from "@/lib/upcomingAttention";
-import { isOptionalMove } from "@/lib/cardRepayment";
+import { isOwnAccountMove } from "@/lib/cardRepayment";
 import { withCoverSuggestions } from "@/lib/coverSuggestion";
 import { compareUpcomingEvents, upcomingAccountAssessment, walkUpcomingAccounts } from "@/lib/upcomingAccountWalk";
 import { accountsWithPeriodActivity, paymentsThroughLabel, positionsFromToday, reconcileWithServerPosition, upcomingAccountWindow } from "@/lib/upcomingAccounts";
@@ -792,7 +792,7 @@ export default function PlanningPage() {
           // This is the existing pooled working, not account coverage.
           // Its cash-transfer/card exclusions and hero arithmetic stay intact.
           if (!doesNotTouchCash(item)) running -= item.amount;
-          return { ...item, balance_after: running, is_credit_card: Boolean(item.is_credit_card), isMovement: isOptionalMove(item) };
+          return { ...item, balance_after: running, is_credit_card: Boolean(item.is_credit_card), isMovement: isOwnAccountMove(item) };
         });
 
         const billsBeforePayday = rawItems.filter(item => {
@@ -888,7 +888,7 @@ export default function PlanningPage() {
             next_period: new Date(b.expected_date).getTime() > accountEndMs,
             balance_after: spendableNow,
             is_credit_card: Boolean(b.is_credit_card),
-            isMovement: isOptionalMove(b),
+            isMovement: isOwnAccountMove(b),
           }));
         const displayItems = [...items, ...observedPendingItems];
 

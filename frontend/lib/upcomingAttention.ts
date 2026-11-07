@@ -24,18 +24,10 @@ export function getUpcomingStatus(model: UpcomingRowModel): UpcomingStatus {
       : { kind: "income", label: "Expected income", tone: "neutral" };
   }
 
-  const isMove = Boolean(model.isMovement || model.coverage?.optionalMove);
   const shortfall = model.coverage?.shortfall;
   const verified = model.assessment !== "unverified" && shortfall !== undefined && Number.isFinite(shortfall);
   const assessed = model.assessment !== "future" && !model.isCreditCard;
-  if (assessed && isMove && (verified ? shortfall! > 0 : model.movementCalm || model.unfundedMovement)) {
-    return { kind: "issue", label: "unfunded", tone: "caution", shortfall: shortfall && shortfall > 0 ? shortfall : undefined };
-  }
-  // G426: short only because an own-savings standing order leaves first. Amber, hedged, never a payment at risk.
-  if (assessed && !isMove && model.coverage?.savingsOnly && (shortfall ?? 0) > 0) {
-    return { kind: "issue", label: "short if the savings transfer leaves first", tone: "caution", shortfall };
-  }
-  if (assessed && !isMove && (verified ? shortfall! > 0 : model.flagged || model.accountShort || model.atRisk)) {
+  if (assessed && (verified ? shortfall! > 0 : model.flagged || model.accountShort || model.atRisk)) {
     return {
       kind: "issue", tone: "risk",
       label: shortfall && shortfall > 0 ? "short" : model.flagged || model.accountShort ? "Account short" : "Cash short",
@@ -47,7 +39,7 @@ export function getUpcomingStatus(model: UpcomingRowModel): UpcomingStatus {
   }
   // A forecast of sufficient cash does not mean an overdue payment has left.
   if (model.pending || (model.daysPastDue ?? 0) > 0) {
-    return { kind: "issue", label: "Not left yet", tone: !isMove && model.category === "Debt" && (model.daysPastDue ?? 0) >= 5 ? "risk" : "caution" };
+    return { kind: "issue", label: "Not left yet", tone: model.category === "Debt" && (model.daysPastDue ?? 0) >= 5 ? "risk" : "caution" };
   }
   if (model.assessment === "future") return { kind: "future", label: "Next period", tone: "neutral" };
   if (model.isCreditCard) return { kind: "card", label: "On your card", tone: "neutral" };
@@ -64,7 +56,7 @@ export function upcomingStatusText(status: UpcomingStatus) {
 export function canDismissUpcomingOccurrence(model: UpcomingRowModel) {
   if (model.type !== "bill" || model.isSettling) return false;
   return Boolean(model.pending) && (
-    (model.isMovement && (model.unfundedMovement || (model.coverage?.shortfall ?? 0) > 0)) ||
+    (model.isMovement && (model.coverage?.shortfall ?? 0) > 0) ||
     (model.daysPastDue ?? 0) >= 5
   );
 }

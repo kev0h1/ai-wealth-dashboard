@@ -28,9 +28,6 @@ export function statusFor(account: UpcomingAccountSummary, plans: Plan[]): Accou
     }
     return { amount: gap, label: "Short for payments", signal: "risk", estimated: false };
   }
-  if (account.status === "unfunded" && account.shortfall !== null) {
-    return { amount: account.shortfall, label: "Short for transfers", signal: "move", estimated: false };
-  }
   const result = accountPlan(account, plans);
   if (result.uncertain) {
     return { amount: null, label: "Calculation needs checking", signal: "unknown", estimated: false };
