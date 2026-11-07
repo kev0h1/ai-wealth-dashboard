@@ -21,4 +21,8 @@ assert.ok(/\.tab\s*\{[^}]*border-radius:\s*14px/.test(nav) && /\.penny\s*\{[^}]*
 const stripped = nav.replace(/@media \(hover: hover\) \{[^{}]*\{[^{}]*\}\s*\}/g, "");
 assert.ok(!/:hover/.test(stripped), "a :hover rule sits outside @media (hover: hover)");
 assert.ok(!/:focus(?!-visible)/.test(nav), "plain :focus styling found in nav css");
+// Global fallback: layered (so utilities outrank it), zero specificity, disabled controls excluded.
+const layer = globals.match(/@layer base \{([\s\S]*?)\n\}/);
+assert.ok(layer, "globals.css needs an @layer base block");
+assert.ok(/:where\(button, a\[href\][^)]*\):active:not\(:disabled\):not\(\[aria-disabled="true"\]\)\s*\{\s*opacity:\s*\.8/.test(layer[1]), "press fallback must be :where(...):active:not(:disabled) inside @layer base");
 console.log("g433 tap feedback: ok");
