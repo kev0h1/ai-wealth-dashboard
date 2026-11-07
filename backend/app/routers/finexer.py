@@ -6,7 +6,7 @@ import logging
 import re
 import time
 from urllib.parse import quote as _urlquote
-from datetime import datetime
+from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse
 from typing import Optional
@@ -239,6 +239,33 @@ async def finexer_link(
     return {"auth_url": consent_url, "connection_id": consent_id}
 
 
+# A193: how long a started consent is still "the one the user is doing".
+_PENDING_WINDOW = timedelta(minutes=30)
+
+
+@router.get("/auth/finexer/pending")
+async def finexer_pending(user: dict = Depends(current_user)):
+    """A193: the signed-in user's most recent consent started inside the last 30
+    minutes, so an app the phone closed while the user was at the bank can find
+    out how that consent ended on its next launch. Server-side state, keyed by
+    the consent id, scoped to the caller; nothing here calls Finexer. The client
+    never re-opens an old consent URL: a retry always goes through
+    /auth/finexer/link, which creates a fresh consent. Additive: old app
+    binaries never call it."""
+    cutoff = datetime.utcnow() - _PENDING_WINDOW  # naive-ok: created_at is stored naive
+    doc = await finexer_consents_col.find_one(
+        {"user_id": user["email"], "created_at": {"$gte": cutoff}},
+        sort=[("created_at", -1)],
+    )
+    if not doc:
+        return {"connection_id": None, "status": None, "provider": None}
+    return {
+        "connection_id": doc["_id"],
+        "status": doc.get("status") or "pending",
+        "provider": doc.get("provider"),
+    }
+
+
 _RECONFIRM_FAILED = {"code": "RECONFIRM_FAILED", "message": RECONFIRM_FAILED_MESSAGE}
 
 
@@ -305,6 +332,16 @@ async def finexer_callback(
         # G215: the user sees the hand-off error page, not JSON.
         return bank_error_response("finexer", "", status_code=400,
                                    message="We couldn’t confirm that this connection started in Sorted. Close this window and try again in Sorted.")
+
+    # A193: a callback can be loaded twice (a Custom Tab recreated after the
+    # phone closed the app, a reload on resume, the bank app and the browser
+    # both following the return link). The second load must never undo or
+    # repeat the first: an authorised consent stays authorised, with no
+    # second sync, and a late error does not cancel it.
+    if doc.get("status") == "authorized":
+        if doc.get("native"):
+            return _bank_page(True, "finexer", consent_id, auto_return=True)
+        return RedirectResponse(f"{APP_URL}/accounts?syncing=1&connection={_urlquote(consent_id, safe='')}", status_code=303)
 
     if error:
         await finexer_consents_col.update_one(
