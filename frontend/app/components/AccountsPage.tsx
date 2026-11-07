@@ -8,6 +8,7 @@ import { ArrowLeft, Plus, Landmark, RefreshCw, Upload, Trash2, AlertTriangle, Tr
 import { formatPriceDay } from "@/lib/priceDay";
 import { api, ApiError, Account, Connection, Transaction, InvestmentAccount, InvestmentHolding, InvestmentNote, ManualAccount, ManualAccountType, ManualAccountRule, RuleMatchType, RuleMatchField, RuleSign, AccountCategorySummary, CardTermsCard } from "@/lib/api";
 import { startConsent } from "@/lib/startConsent";
+import { CONSENT_INTERRUPTED_MESSAGE } from "@/lib/pendingConsent";
 import { accountBrand, BankBadge, TermsPill } from "@/components/AccountMiniCard";
 import AccountLedgerRow from "@/components/AccountLedgerRow";
 import AccountsHeader from "@/components/AccountsHeader";
@@ -316,7 +317,8 @@ export default function AccountsPage() {
   const syncConnection = searchParams.get("connection");
   const [syncTimedOut, setSyncTimedOut] = useState(false);
   const [syncPollKey, setSyncPollKey] = useState(0);
-  const [connectNotice, setConnectNotice] = useState(false);
+  // A193: the consent ended without linking; interrupted adds the provider so Try again starts a fresh consent for it.
+  const [connectNotice, setConnectNotice] = useState<null | { providerId?: string }>(null);
   // A67: does this plan include connecting a bank? Resolved alongside the
   // page rather than gating it — see lib/openBankingAccess.ts.
   const bankAccess = useOpenBankingAccessState();
@@ -851,8 +853,9 @@ export default function AccountsPage() {
 
   // A108: the consent ended without linking an account (/accounts?connect=cancelled).
   useEffect(() => {
-    if (searchParams.get("connect") === "cancelled") {
-      setConnectNotice(true);
+    const connect = searchParams.get("connect");
+    if (connect === "cancelled" || connect === "interrupted") {
+      setConnectNotice({ providerId: searchParams.get("provider") || undefined });
       router.replace("/accounts", { scroll: false });
     }
   }, [searchParams, router]);
@@ -1151,6 +1154,14 @@ export default function AccountsPage() {
     setShowStatementUpload(false);
   }
 
+  // A193: Try again always starts a brand new consent, never the old URL.
+  async function retryConsent(providerId?: string) {
+    if (!providerId) { setConnectNotice(null); setShowBankPicker("finexer"); return; }
+    const result = await startConsent({ providerId });
+    if (result.ok) setConnectNotice(null);
+    else if (!result.busy) void noticeSheet({ title: "Couldn’t start connection", body: result.message });
+  }
+
   async function handleReconnect(providerId?: string, account?: Account) {
     try {
       // A67: Finexer unless this specific account belongs to the legacy
@@ -1207,7 +1218,7 @@ export default function AccountsPage() {
           }
         },
       });
-      if (!result.ok) {
+      if (!result.ok && !result.busy) {
         void noticeSheet({ title: "Couldn’t start reconnection", body: result.message });
       }
     } catch (err) {
@@ -2899,8 +2910,14 @@ export default function AccountsPage() {
         <>
           {connectNotice && (
             <div className="mx-4 mt-3 flex items-center gap-3 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl px-4 py-3">
-              <p className="flex-1 text-sm text-slate-700 dark:text-slate-300">No accounts were linked.</p>
-              <button onClick={() => setConnectNotice(false)} aria-label="Dismiss" className="min-h-[44px] min-w-[44px] -my-2 -mr-2 flex items-center justify-center text-slate-400 hover:text-slate-600"><X size={16} /></button>
+              <div className="flex-1">
+                <p className="text-sm text-slate-700 dark:text-slate-300">{CONSENT_INTERRUPTED_MESSAGE}</p>
+                <button
+                  onClick={() => { void retryConsent(connectNotice.providerId); }}
+                  className="mt-2 min-h-[44px] rounded-xl bg-indigo-600 px-4 text-sm font-semibold text-white active:bg-indigo-700"
+                >Try again</button>
+              </div>
+              <button onClick={() => setConnectNotice(null)} aria-label="Dismiss" className="min-h-[44px] min-w-[44px] -my-2 -mr-2 flex items-center justify-center text-slate-400 hover:text-slate-600"><X size={16} /></button>
             </div>
           )}
 

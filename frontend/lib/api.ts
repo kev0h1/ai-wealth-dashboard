@@ -3479,6 +3479,8 @@ export const api = {
       `/auth/finexer/consents/${encodeURIComponent(consentId)}/reconfirm`,
     ),
   finexerConnectLink: (provider?: string, native?: boolean) => get<{ auth_url: string; connection_id: string }>(`/auth/finexer/link${linkQuery(provider, native)}`),
+  // A193: how the user's most recent consent (last 30 minutes) ended, server-side.
+  finexerPending: () => get<{ connection_id: string | null; status: string | null; provider: string | null }>("/auth/finexer/pending"),
   mockData: () => get<unknown>("/test/mock-data"),
   validateSession: () =>
     fetch(`${API_BASE}/auth/session/validate`, {

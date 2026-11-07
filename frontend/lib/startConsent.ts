@@ -8,12 +8,15 @@
 // the picker still gets the A108 return page's deep link handled.
 import { launchMode, buildLinkQuery, type LaunchMode } from "@/lib/bankConsentLaunch";
 import { consentToolbarColor, isDarkPreferenceOn } from "@/lib/consentToolbar";
+import { markPendingConsent } from "@/lib/pendingConsent";
 
 export interface ConsentDeps {
   isNative(): boolean;
   rnBridge(): { postMessage(s: string): void } | null;
   /** The provider's link call; `native` is sent only for the in-app browser flow. */
-  link(legacy: boolean, providerId: string | undefined, native: boolean): Promise<{ auth_url: string }>;
+  link(legacy: boolean, providerId: string | undefined, native: boolean): Promise<{ auth_url: string; connection_id?: string }>;
+  /** A193: remember the consent just created so a relaunch can ask the server how it ended. */
+  rememberPending?(connectionId: string | undefined, providerId: string | undefined): void;
   openBrowser(url: string, toolbarColor: string): Promise<void>;
   navigate(url: string): void;
   toolbarColor(): string;
@@ -34,7 +37,8 @@ export interface StartConsentOptions {
 
 export type StartConsentResult =
   | { ok: true; mode: LaunchMode }
-  | { ok: false; message: string; rejected: boolean };
+  /** busy: another start is already in flight (a double tap); the caller does nothing. */
+  | { ok: false; message: string; rejected: boolean; busy?: boolean };
 
 const GENERIC_FAILURE = "Failed to connect. Please try again.";
 
@@ -68,14 +72,37 @@ async function appDeps(): Promise<ConsentDeps> {
       const { Browser } = await import("@capacitor/browser");
       await Browser.open({ url, toolbarColor });
     },
+    // The marker is only needed where the OS can kill the app at the bank (in-app browser).
+    rememberPending: (id, providerId) => markPendingConsent(window.localStorage, id, providerId),
     navigate: (url) => { window.location.href = url; },
     toolbarColor: () => consentToolbarColor(isDarkPreferenceOn()),
   };
 }
 
+// A193: one consent start at a time. A double tap, or a resume handler that
+// re-runs a start, must not create two consents: only the last bank URL stays
+// valid, and a bank rejects the earlier one as "invalid request".
+let startInFlight = false;
+export function consentStartInFlight(): boolean {
+  return startInFlight;
+}
+
 export async function startConsent(
   opts: StartConsentOptions,
   loadDeps: () => Promise<ConsentDeps> = appDeps,
+): Promise<StartConsentResult> {
+  if (startInFlight) return { ok: false, message: "", rejected: false, busy: true };
+  startInFlight = true;
+  try {
+    return await startConsentOnce(opts, loadDeps);
+  } finally {
+    startInFlight = false;
+  }
+}
+
+async function startConsentOnce(
+  opts: StartConsentOptions,
+  loadDeps: () => Promise<ConsentDeps>,
 ): Promise<StartConsentResult> {
   let deps: ConsentDeps;
   try {
@@ -98,9 +125,12 @@ export async function runConsent(
   const mode = launchMode(deps.isNative(), !!rn);
   const { native } = buildLinkQuery(mode === "browser");
   try {
-    const { auth_url } = await deps.link(!!opts.legacy, opts.providerId, native);
+    // Every call asks the server for a NEW consent; the URL is used once, here,
+    // and never stored or reopened by the client.
+    const { auth_url, connection_id } = await deps.link(!!opts.legacy, opts.providerId, native);
     opts.beforeLaunch?.();
     if (mode === "browser") {
+      deps.rememberPending?.(connection_id, opts.providerId);
       // A108: the in-app browser, not full Chrome and not the WebView. The
       // caller stays alive; the hand-off page returns by deep link.
       await deps.openBrowser(auth_url, deps.toolbarColor());

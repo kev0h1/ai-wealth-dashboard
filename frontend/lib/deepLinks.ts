@@ -70,6 +70,21 @@ export function dispatchDeepLink(
   return detail;
 }
 
+// A193: App.getLaunchUrl() keeps returning the URL the activity was launched by.
+// When Android recreates the WebView (battery saver, memory pressure) this
+// handler registers again and would replay a bank return that was already
+// handled. A bank return carries its consent id, so remember the last one.
+export const LAST_LAUNCH_CONNECTION_KEY = "wd_last_launch_connection";
+function launchAlreadyHandled(url: string): boolean {
+  const d = parseDeepLink(url);
+  if (d.kind !== "bank_connected" || !d.connection) return false;
+  try {
+    if (window.localStorage.getItem(LAST_LAUNCH_CONNECTION_KEY) === d.connection) return true;
+    window.localStorage.setItem(LAST_LAUNCH_CONNECTION_KEY, d.connection);
+  } catch {}
+  return false;
+}
+
 let registered = false;
 
 /** Register once, native only. Returns a remove function. */
@@ -91,7 +106,7 @@ export function registerDeepLinkHandler(): () => void {
       handle = h;
       // Cold start: the app was launched by the return URL itself.
       const launch = await App.getLaunchUrl();
-      if (launch?.url) dispatchDeepLink(launch.url);
+      if (launch?.url && !launchAlreadyHandled(launch.url)) dispatchDeepLink(launch.url);
     } catch {
       registered = false;
     }

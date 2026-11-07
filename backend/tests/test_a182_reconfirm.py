@@ -1,5 +1,6 @@
 """A182 part 1: the 90-day reconfirmation (renewed_at, next_reconfirm_by,
 POST /auth/finexer/consents/{id}/reconfirm, task_consent_watch)."""
+from types import SimpleNamespace
 import asyncio
 from datetime import datetime, timedelta
 
@@ -26,6 +27,15 @@ class Col:
             if isinstance(v, dict):
                 if "$exists" in v:
                     if (k in d) != v["$exists"]:
+                        return False
+                    continue
+                # A193: the callback's compare-and-set status filters.
+                if "$ne" in v:
+                    if d.get(k) == v["$ne"]:
+                        return False
+                    continue
+                if "$nin" in v:
+                    if d.get(k) in v["$nin"]:
                         return False
                     continue
                 return False
@@ -59,9 +69,10 @@ class Col:
                 d.update(u.get("$set") or {})
                 for k in (u.get("$unset") or {}):
                     d.pop(k, None)
-                return
+                return SimpleNamespace(matched_count=1, modified_count=1)
         if upsert:
             self.docs.append({**f, **(u.get("$set") or {})})
+        return SimpleNamespace(matched_count=0, modified_count=0)
 
 
 class Resp:
