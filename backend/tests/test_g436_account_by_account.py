@@ -455,7 +455,7 @@ def test_the_same_rule_holds_for_the_account_page_figure_through_the_engine(monk
 
 # ── An own transfer that already posted is counted once on each side ─────────
 
-def _posted(kind, account_id, on_date, desc="KEVIN MAINGI HSBC STO", amount=1758.33):
+def _posted(kind, account_id, on_date, desc="ALEX CARTER HSBC STO", amount=1758.33):
     import app.core.timeutil as timeutil
     return {
         "user_id": "kevin", "transaction_type": kind, "merchant_name": None, "description": desc,
@@ -468,7 +468,7 @@ def _today_standing_order(monkeypatch, observed):
     import app.core.timeutil as timeutil
     import test_internal_inflows as ti
     monkeypatch.setattr(ti, "UID", "kevin", raising=False)
-    pattern = ti._pattern(next_date=timeutil.user_today().isoformat())
+    pattern = ti._pattern(key="ALEX CARTER HSBC STO", next_date=timeutil.user_today().isoformat())
     return ti._run_build_response(monkeypatch, [pattern], observed=observed)
 
 
