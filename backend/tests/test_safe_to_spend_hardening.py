@@ -212,6 +212,8 @@ def test_safe_to_spend_returns_lowest_projected_balance_and_reconciles_cash(monk
                     "expected_date": due_date,
                     "kind": analytics.MOVEMENT,
                     "card_dest_account_id": "card1",
+                    # G436: the payment sits on the one counted account, so its walk carries it.
+                    "account_id": "acc1", "account_balance": 100.0,
                 },
                 {
                     "days_away": 1,
@@ -224,7 +226,7 @@ def test_safe_to_spend_returns_lowest_projected_balance_and_reconciles_cash(monk
         }
 
     async def accounts(_uid):
-        return [{"balance": 100.0, "type": "bank", "subtype": "CURRENT", "currency": "GBP"}]
+        return [{"_id": "acc1", "balance": 100.0, "type": "bank", "subtype": "CURRENT", "currency": "GBP"}]
 
     async def commitments(_uid):
         return 5, 1
@@ -286,7 +288,7 @@ def test_safe_to_spend_never_reserves_card_growth_without_a_learned_repayment(mo
         return {"upcoming_bills": [], "upcoming_income": []}
 
     async def accounts(_uid):
-        return [{"balance": 100.0, "type": "bank", "subtype": "CURRENT", "currency": "GBP"}]
+        return [{"_id": "acc1", "balance": 100.0, "type": "bank", "subtype": "CURRENT", "currency": "GBP"}]
 
     async def no_commitments(_uid):
         return 0, 0
@@ -335,7 +337,7 @@ def test_safe_to_spend_card_growth_fact_failure_never_degrades_the_cash_figure(m
         return {"upcoming_bills": [], "upcoming_income": []}
 
     async def accounts(_uid):
-        return [{"balance": 100.0, "type": "bank", "subtype": "CURRENT", "currency": "GBP"}]
+        return [{"_id": "acc1", "balance": 100.0, "type": "bank", "subtype": "CURRENT", "currency": "GBP"}]
 
     async def no_commitments(_uid):
         return 0, 0
@@ -379,7 +381,7 @@ def test_safe_to_spend_marks_a_known_reserve_failure_degraded(monkeypatch):
         return {"upcoming_bills": [], "upcoming_income": []}
 
     async def accounts(_uid):
-        return [{"balance": 100.0, "type": "bank", "subtype": "CURRENT", "currency": "GBP"}]
+        return [{"_id": "acc1", "balance": 100.0, "type": "bank", "subtype": "CURRENT", "currency": "GBP"}]
 
     async def unavailable_commitments(_uid):
         raise RuntimeError("commitments store unavailable")
@@ -486,9 +488,9 @@ def test_safe_to_spend_pins_against_a_fixed_transaction_fixture(monkeypatch):
     # LEARNED repayment series (its growth is a fact only, never reserved)
     # and one with no learned series (its growth fails closed as a reserve).
     accounts = [
-        {"name": "Current Account", "balance": 1000.0, "type": "bank",
+        {"_id": "acc-cur", "name": "Current Account", "balance": 1000.0, "type": "bank",
          "subtype": "CURRENT", "currency": "GBP"},
-        {"name": "Rainy Day Savings", "balance": 500.0, "type": "bank",
+        {"_id": "acc-sav", "name": "Rainy Day Savings", "balance": 500.0, "type": "bank",
          "subtype": "SAVINGS", "currency": "GBP"},
         {"name": "Card A (learned repayment)", "balance": -400.0,
          "type": "credit card", "subtype": "CREDIT", "currency": "GBP"},
@@ -499,8 +501,13 @@ def test_safe_to_spend_pins_against_a_fixed_transaction_fixture(monkeypatch):
     # pool entirely by _account_pool_kind); card_debt = 400 + 150 = 550.0.
 
     bills = [
-        {"name": "Rent", "days_away": 3, "amount": 600.0, "kind": "commitment"},
-        {"name": "Council Tax", "days_away": 10, "amount": 150.0, "kind": "commitment"},
+        # G436: every payment sits on the counted current account (account_id and its
+        # balance), so its own walk carries it; the pooled-transfer bill below keeps
+        # no paying account on purpose (the pooled walk drops it either way).
+        {"name": "Rent", "days_away": 3, "amount": 600.0, "kind": "commitment",
+         "account_id": "acc-cur", "account_balance": 1000.0},
+        {"name": "Council Tax", "days_away": 10, "amount": 150.0, "kind": "commitment",
+         "account_id": "acc-cur", "account_balance": 1000.0},
         # A pooled transfer into an account already counted in spendable_now
         # must be excluded from bills_total AND the lowest-balance walk —
         # this is the G19/pooled-transfers guard, exercised here.
@@ -509,30 +516,32 @@ def test_safe_to_spend_pins_against_a_fixed_transaction_fixture(monkeypatch):
         # A movement to savings is a real outflow from the spendable pool
         # (not pooled-excluded) — stays in the walk.
         {"name": "Move to savings", "days_away": 6, "amount": 100.0,
-         "kind": analytics.MOVEMENT, "dest_account_spendable": False},
+         "kind": analytics.MOVEMENT, "dest_account_spendable": False,
+         "account_id": "acc-cur", "account_balance": 1000.0},
     ]
     # window_bills (pooled transfer excluded) = Rent(600) + Council Tax(150)
     #   + Move to savings(100) = 850.0; pooled_transfers_excluded = 200.0.
 
     income = [
-        {"name": "Freelance invoice", "days_away": 7, "amount": 300.0},
+        # G436: money in counts only when it is predicted AND attributed to a counted account
+        # (three sightings is reliable), so this one is given its account and its history.
+        {"name": "Freelance invoice", "days_away": 7, "amount": 300.0, "account_id": "acc-cur",
+         "occurrences": 3, "amounts_recent": [300.0, 300.0, 300.0]},
         # Lands exactly ON payday (days_away == days_until_payday), so this
         # is payday_income, not income_before_payday.
         {"name": "Salary", "days_away": 14, "amount": 2000.0},
     ]
     # income_before_payday = 300.0; payday_income = 2000.0.
 
-    # Lowest-balance walk from spendable_now=1000, debit-before-income on a
-    # shared day (none share a day here, but the ordering rule still
-    # applies): day3 -600=400 (min) -> day6 -100=300 (min) -> day7 +300=600
-    # -> day10 -150=450. lowest_projected_balance = 300.0.
-    # safe_to_spend after buffer: 300 - 50 = 250.0
-    # after commitments_reserved (40): 250 - 40 = 210.0
-    # after allocations_reserved (30.5): 210 - 30.5 = 179.5  (== safe_to_spend_cash)
-    # card_growth_total = 120 (Card A, learned) + 80 (Card B, unlearned) = 200.0
-    # G413: no card reserve (the old rule held min(200.0, unlearned 80.0) = 80.0
-    # and gave 99.5; deliberate change by Kevin, 2026-11-04).
-    # final safe_to_spend: 179.5
+    # G436: the headline is each counted current account on its own, balance plus predicted money
+    # in less predicted money out: 1000 - 600 (Rent) - 150 (Council Tax) - 100 (Move to savings)
+    # + 300 (Freelance, reliable and on the account) = 450 = lowest_projected_balance (the
+    # accounts line). The 200 own-account move has no paying account here and no counted
+    # destination, so no account carries it (the pooled walk's pooled_transfers_excluded still
+    # reports it). Less buffer 50, commitments 40, allocations 30.5: 450 - 50 - 40 - 30.5 = 329.5
+    # (== safe_to_spend_cash). card_growth_total = 120 (Card A, learned) + 80 (Card B, unlearned)
+    # = 200.0; G413: no card reserve.
+    # final safe_to_spend: 329.5
 
     def fake_confirmed_payday(_prefs, _today):
         return (next_payday, {"schedule": "fixed"})
@@ -592,8 +601,8 @@ def test_safe_to_spend_pins_against_a_fixed_transaction_fixture(monkeypatch):
     assert result["unavailable_components"] == []
 
     # The composed headline figure and its cash twin (equal since G413).
-    assert result["safe_to_spend"] == 179.5
-    assert result["safe_to_spend_cash"] == 179.5
+    assert result["safe_to_spend"] == 329.5
+    assert result["safe_to_spend_cash"] == 329.5
 
     # Every named component that feeds it, so a future change can never
     # move the headline number without this test naming exactly which
@@ -606,7 +615,8 @@ def test_safe_to_spend_pins_against_a_fixed_transaction_fixture(monkeypatch):
     assert result["payday_income"] == 2000.0
     assert result["buffer"] == 50.0
     assert result["spendable_now"] == 1000.0
-    assert result["lowest_projected_balance"] == 300.0
+    assert result["lowest_projected_balance"] == 450.0
+    assert result["left_to_spend_lines"] == {"accounts_total": 450.0, "plans_total": 70.5, "buffer": 50.0}
     assert result["card_debt"] == 550.0
     assert result["card_growth_total"] == 200.0
     assert result["card_new_spend_total"] == 170.0
@@ -622,7 +632,8 @@ def test_safe_to_spend_pins_against_a_fixed_transaction_fixture(monkeypatch):
 
     # state/short_reason/estimated derive from the figures above; pinned so
     # a change to their thresholds is also forced through this test.
-    assert result["state"] == "tight"
+    # 329.5 is above the tight threshold (10 percent of 2,000 monthly spend = 200); it was 179.5, tight, on the pooled walk.
+    assert result["state"] == "comfortable"
     assert result["short_reason"] is None
     assert result["estimated"] is False
 

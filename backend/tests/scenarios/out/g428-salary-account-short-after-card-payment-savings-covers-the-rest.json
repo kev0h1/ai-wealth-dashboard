@@ -1,11 +1,9 @@
 {
   "account_eligibility": {
     "acc-bc": {
-      "account_headroom_raw": 10.0,
       "after_payments": -1200.0,
+      "after_payments_and_money_in": -1200.0,
       "after_payments_and_plans": -1200.0,
-      "allocation_order": 0,
-      "allocation_unassigned": 0.0,
       "covered_by_move": {
         "amount": 1210.0,
         "current_amount": 150.0,
@@ -38,19 +36,17 @@
       "is_current_account": true,
       "low_point": -1200.0,
       "low_point_and_plans": -1200.0,
+      "moves_in_total": 150.0,
       "plans_reserved": 0.0,
       "short": true,
       "short_after_cover": 0.0,
-      "spend_from_capped": true,
-      "spend_from_headroom": 0.0,
+      "spend_from_headroom": -1050.0,
       "uncertain": false
     },
     "acc-hs": {
-      "account_headroom_raw": 10.0,
       "after_payments": 110.0,
+      "after_payments_and_money_in": 110.0,
       "after_payments_and_plans": 110.0,
-      "allocation_order": 1,
-      "allocation_unassigned": 0.0,
       "earmarked_total": 100.0,
       "earmarks_out": [
         {
@@ -66,16 +62,13 @@
       "low_point_and_plans": 110.0,
       "plans_reserved": 0.0,
       "short": false,
-      "spend_from_capped": true,
-      "spend_from_headroom": 0.0,
+      "spend_from_headroom": 10.0,
       "uncertain": false
     },
     "acc-mz": {
-      "account_headroom_raw": 10.0,
       "after_payments": 60.0,
+      "after_payments_and_money_in": 60.0,
       "after_payments_and_plans": 60.0,
-      "allocation_order": 2,
-      "allocation_unassigned": 0.0,
       "earmarked_total": 50.0,
       "earmarks_out": [
         {
@@ -91,16 +84,14 @@
       "low_point_and_plans": 60.0,
       "plans_reserved": 0.0,
       "short": false,
-      "spend_from_capped": true,
-      "spend_from_headroom": 0.0,
+      "spend_from_headroom": 10.0,
       "uncertain": false
     },
     "acc-sav": {
       "account_headroom_raw": 3930.0,
       "after_payments": 5000.0,
+      "after_payments_and_money_in": 5000.0,
       "after_payments_and_plans": 5000.0,
-      "allocation_order": 3,
-      "allocation_unassigned": 0.0,
       "earmarked_total": 1060.0,
       "earmarks_out": [
         {
@@ -116,7 +107,6 @@
       "low_point_and_plans": 5000.0,
       "plans_reserved": 0.0,
       "short": false,
-      "spend_from_capped": false,
       "spend_from_headroom": 0.0,
       "uncertain": false
     }
@@ -361,6 +351,12 @@
     "allocations_reserved": 0.0,
     "calculation_status": "complete",
     "commitments_reserved": 0,
+    "left_to_spend_lines": {
+      "accounts_total": -1030.0,
+      "buffer": 0.0,
+      "plans_total": 0
+    },
+    "lowest_projected_balance": -1030.0,
     "safe_to_spend": -1030.0,
     "safe_to_spend_cash": -1030.0
   },

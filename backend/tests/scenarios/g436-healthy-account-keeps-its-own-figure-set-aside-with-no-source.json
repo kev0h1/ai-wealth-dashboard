@@ -1,0 +1,175 @@
+{
+  "name": "Kevin's production shape (invented figures): three current accounts and a set-aside nothing pays for, each account shows its own figure and a healthy account never reads 0 (G436)",
+  "today": "2026-11-09",
+  "pay_period_config": {
+    "type": "last_friday"
+  },
+  "confirmed_income_streams": [],
+  "accounts": [
+    {
+      "_id": "acc-bc",
+      "name": "Barclays Current",
+      "provider": "barclays",
+      "type": "BANK",
+      "subtype": "TRANSACTION",
+      "balance": 1400.0,
+      "currency": "GBP",
+      "status": "connected",
+      "include_in_safe_to_spend": true
+    },
+    {
+      "_id": "acc-mz",
+      "name": "Monzo Current",
+      "provider": "monzo",
+      "type": "BANK",
+      "subtype": "TRANSACTION",
+      "balance": 400.0,
+      "currency": "GBP",
+      "status": "connected",
+      "include_in_safe_to_spend": true
+    },
+    {
+      "_id": "acc-hs",
+      "name": "HSBC Current",
+      "provider": "hsbc",
+      "type": "BANK",
+      "subtype": "TRANSACTION",
+      "balance": 150.0,
+      "currency": "GBP",
+      "status": "connected",
+      "include_in_safe_to_spend": true
+    },
+    {
+      "_id": "acc-pot",
+      "name": "Holiday Pot",
+      "provider": "barclays",
+      "type": "BANK",
+      "subtype": "SAVINGS",
+      "balance": 0.0,
+      "currency": "GBP",
+      "status": "connected",
+      "include_in_safe_to_spend": true
+    }
+  ],
+  "manual_accounts": [],
+  "cashflow_cache": {
+    "recurring_spend": [
+      {
+        "key": "COUNCIL TAX",
+        "avg_amount": 150.0,
+        "avg_interval": 30,
+        "next_date": "2026-11-12",
+        "account_id": "acc-bc",
+        "account_name": "Barclays Current",
+        "account_bank": "barclays",
+        "account_balance": 1400.0,
+        "is_credit_card": false,
+        "category": "Bills"
+      },
+      {
+        "key": "GYM MEMBERSHIP",
+        "avg_amount": 25.0,
+        "avg_interval": 30,
+        "next_date": "2026-11-13",
+        "account_id": "acc-mz",
+        "account_name": "Monzo Current",
+        "account_bank": "monzo",
+        "account_balance": 400.0,
+        "is_credit_card": false,
+        "category": "Subscriptions"
+      },
+      {
+        "key": "BROADBAND",
+        "avg_amount": 50.0,
+        "avg_interval": 30,
+        "next_date": "2026-11-16",
+        "account_id": "acc-bc",
+        "account_name": "Barclays Current",
+        "account_bank": "barclays",
+        "account_balance": 1400.0,
+        "is_credit_card": false,
+        "category": "Bills"
+      },
+      {
+        "key": "HOME INSURANCE",
+        "avg_amount": 34.0,
+        "avg_interval": 30,
+        "next_date": "2026-11-18",
+        "account_id": "acc-hs",
+        "account_name": "HSBC Current",
+        "account_bank": "hsbc",
+        "account_balance": 150.0,
+        "is_credit_card": false,
+        "category": "Bills"
+      }
+    ],
+    "recurring_income": [],
+    "bnpl_commitments": [],
+    "avg_daily_spend": 0
+  },
+  "transactions": [],
+  "commitments": [],
+  "allocations": [
+    {
+      "_id": "alloc-holiday",
+      "name": "Holiday set-aside",
+      "amount_per_period": 300.0,
+      "fill_account_id": "acc-pot",
+      "match_type": "description_contains",
+      "match_value": "SET ASIDE",
+      "fill_display_name": "Holiday pot",
+      "effective_from": "2026-10-30",
+      "recurrence": "every_period",
+      "active": true,
+      "created_at": "2026-10-01"
+    }
+  ],
+  "card_terms": [],
+  "expected": {
+    "left_to_spend": 1391.0,
+    "spendable_balance": 1950.0,
+    "allocations_reserved": 300.0,
+    "spend_from_total": 1691.0,
+    "lines": {
+      "accounts_total": 1691.0,
+      "plans_total": 300.0,
+      "buffer": 0.0
+    },
+    "not_spendable": [
+      "acc-pot"
+    ],
+    "accounts": {
+      "acc-bc": {
+        "spend_from": 1200.0,
+        "after_payments": 1200.0,
+        "low_point": 1200.0,
+        "plans_reserved": 0.0,
+        "verdict": "covered",
+        "no_earmark": true
+      },
+      "acc-mz": {
+        "spend_from": 375.0,
+        "after_payments": 375.0,
+        "low_point": 375.0,
+        "plans_reserved": 0.0,
+        "verdict": "covered",
+        "no_earmark": true
+      },
+      "acc-hs": {
+        "spend_from": 116.0,
+        "after_payments": 116.0,
+        "low_point": 116.0,
+        "plans_reserved": 0.0,
+        "verdict": "covered",
+        "no_earmark": true
+      }
+    },
+    "cover_plan": {
+      "moves_total": 0,
+      "moves": []
+    },
+    "payday_plan": null,
+    "at_risk_count": 0,
+    "notes": "Kevin's production shape with invented figures (G436, 2026-11-07). Today is Mon 9 Nov 2026, pay period last Friday, so the period began Fri 30 Oct and payday Fri 27 Nov is 18 days away (window days 0 to 17, 9 to 26 Nov). Three current accounts and a savings pot. Barclays holds 1,400, Monzo 400, HSBC 150; the Holiday Pot (savings, in no pool) holds 0. Payments in the period: Barclays council tax 150 (Thu 12 Nov) and broadband 50 (Mon 16 Nov), Monzo gym 25 (Fri 13 Nov), HSBC home insurance 34 (Wed 18 Nov). No income is due before payday (the salary lands on the payday itself, next period), no goal, no buffer. One set-aside, Holiday set-aside, 300 a period into the pot; nothing has been paid into it this period and there are no transfers in the history, so no paying account can be worked out and it is held on no account: 300 remains to set aside. Per account, from each one's own walk: Barclays 1,400 - 150 - 50 = 1,200 (the balance only falls, so its lowest point is 1,200); Monzo 400 - 25 = 375; HSBC 150 - 34 = 116, nothing else leaves it and nothing is set aside from it, so its figure is 116 and never 0. Nobody is short: no cover move, at risk 0, no payday plan (day 11 of the period, a plan only shows in days 1 to 3). Left to spend is the sum of those figures, 1,200 + 375 + 116 = 1,691, less the 300 set-aside that is held on no account: 1,691 - 300 = 1,391, so the account figures plus that one explicit line equal the headline. The pooled spendable balance is 1,400 + 400 + 150 = 1,950 (the pot is in no pool). Under G414 the same data read Left to spend 1,391 shared out in preference order: Barclays 1,200, Monzo 191, HSBC 0, so HSBC, the account with 116 after its payments and nothing else on it, was shown as 0. Now every account shows its own 1,200, 375 and 116. G436 (Kevin 2026-11-07, every account in isolation, money in vs money out), which supersedes the Left to spend and Spend from figures worked above where they differ: Nothing in this shape changed under the money-in-and-out rule: no income or transfer arrives, so each account's closing figure is the same as its lowest point."
+  }
+}

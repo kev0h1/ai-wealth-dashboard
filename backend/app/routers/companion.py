@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends
 from app.core.auth import current_user
 from app.core import timeutil
 from app.services import response_cache
-from app.services.companion import cap_spend_from_to_pool, compute_today_items, dismiss_item
+from app.services.companion import compute_today_items, dismiss_item
 from app.db.collections import needle_history_col, preferences_col
 from app.services.pay_period import get_pay_period_for_date
 from app.services.needle import (
@@ -56,22 +56,29 @@ async def build_today_payload(uid: str, *, payday_preview: bool = False) -> dict
     items = await compute_today_items(
         uid, payday_preview=payday_preview, account_eligibility_out=account_eligibility,
     )
-    # G234: cap every shown spend-from figure at the pooled Safe to Spend.
-    # If the pool cannot be read, or is still syncing, fail closed to an
-    # absent field (the client says "not available") rather than show
-    # uncapped figures that may exceed the headline.
-    pool = await _pooled_safe_to_spend(uid)
-    if pool is None:
-        log.warning("spend-from cap: pooled left to spend unavailable for %s", uid)
+    # G436: every shown figure is an account's own Available, computed in
+    # `compute_today_items` (`finalise_account_available`): no cap, no allocation.
+    # Fail closed on the headline's own health, as before: if it cannot be read,
+    # or is still syncing, the field is absent (the client says "not available");
+    # if it is degraded the positive figures are held at zero, never shown as
+    # spendable while a reserve could not be loaded.
+    sts = await _cached_left_to_spend(uid)
+    if sts is None:
+        log.warning("spend-from: pooled left to spend unavailable for %s", uid)
         return {"status": "ok", "items": items, "account_eligibility": None}
-    cap_spend_from_to_pool(account_eligibility, pool)
+    if sts.get("calculation_status") == "degraded":
+        for entry in account_eligibility.values():
+            if float(entry.get("spend_from_headroom") or 0.0) > 0:
+                entry["spend_from_headroom"] = 0.0
+                entry.pop("spend_from_requires_move", None)
     return {"status": "ok", "items": items, "account_eligibility": account_eligibility}
 
 
-async def _pooled_safe_to_spend(uid: str) -> float | None:
-    """The final pooled Safe to Spend (G231 exclusions and G227 plans already
-    applied), or None when it is unknown. A `degraded` result is already
-    clamped to 0 or below by the calculation itself, so it caps to 0."""
+async def _cached_left_to_spend(uid: str) -> dict | None:
+    """The cached Left to spend payload when it is readable and settled, else
+    None. Used only for its health (syncing or unreadable: no per-account
+    figures; degraded: positive figures held at zero). The figures themselves
+    never come from it any more (G436)."""
     try:
         from app.routers.analytics import get_cached_safe_to_spend
         sts = await get_cached_safe_to_spend(uid)
@@ -81,11 +88,19 @@ async def _pooled_safe_to_spend(uid: str) -> float | None:
         return None
     if sts.get("calculation_status") == "syncing":
         return None
-    value = sts.get("safe_to_spend")
-    if value is None:
+    if sts.get("safe_to_spend") is None:
+        return None
+    return sts
+
+
+async def _pooled_safe_to_spend(uid: str) -> float | None:
+    """The cached Left to spend headline, or None when unknown (unreadable or
+    still syncing). A `degraded` result is already clamped to 0 or below."""
+    sts = await _cached_left_to_spend(uid)
+    if sts is None:
         return None
     try:
-        return float(value)
+        return float(sts["safe_to_spend"])
     except (TypeError, ValueError):
         return None
 

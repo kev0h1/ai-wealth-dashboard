@@ -19,7 +19,7 @@ export default function ProofScene({ kind, theme }: { kind: ProofKind; theme: "l
       {kind === "accounts" ? <UpcomingAccountsCard accounts={[UPCOMING_ACCOUNTS[1]]} periodLabel="8–30 October" plans={[]} onOpen={() => {}} /> :
         kind === "payment" ? <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-800">
           <UpcomingRow treatment="account-coverage" model={{ rowKey: "alex-energy", type: "bill", name: "Energy", amount: 188, expectedDate: "2026-10-18", accountLabel: "Bills account", accountBalance: 68, accountShort: true, coverage: { shortfall: 120, before: 68, after: -120 }, after: { kind: "balance", value: -120 }, categoryColour: "#64748b", CategoryIcon: Zap }} onOpen={() => {}} onDismiss={() => {}} />
-        </div> : <SafeToSpendCard data={SAFE_TO_SPEND} previewBalancesVisible spendFrom={{ kind: "account", best: { accountId: PROOF_ACCOUNTS[0].id, name: "Everyday account", provider: "Monzo", headroom: 312, capped: true, account: PROOF_ACCOUNTS[0] }, alternative: null }} />}
+        </div> : <SafeToSpendCard data={SAFE_TO_SPEND} previewBalancesVisible spendFrom={{ kind: "account", best: { accountId: PROOF_ACCOUNTS[0].id, name: "Everyday account", provider: "Monzo", headroom: 312, account: PROOF_ACCOUNTS[0] }, alternative: null }} />}
     </div>
   </div>;
 }

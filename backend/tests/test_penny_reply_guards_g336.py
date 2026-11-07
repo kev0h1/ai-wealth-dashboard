@@ -127,8 +127,9 @@ def test_get_safe_to_spend_description_and_spend_from(monkeypatch):
     monkeypatch.setattr(notifications, "_user_name_tokens", tokens)
     out = asyncio.run(pc.spend_from_extras("u"))
     assert out["own_account_moves_change_total"] is False
-    assert [(s["name"], s["amount"]["raw"], s["held_back"]["raw"]) for s in out["spend_from"]] == [
-        ("NatWest Select", 146.0, 25.0), ("Starling Personal", 54.0, 0.0)]
+    # G436: each figure is the account's own, so nothing is "held back" by a pool any more.
+    assert [(s["name"], s["amount"]["raw"]) for s in out["spend_from"]] == [("NatWest Select", 146.0), ("Starling Personal", 54.0)]
+    assert all("held_back" not in s for s in out["spend_from"]) and "unallocated_forecast" not in out
     assert all("keeps" not in e for e in out["spend_from"])
     assert {(e["name"], e["reason"]) for e in out["excluded"]} == {("Monzo Saving Challenge", "set_aside_pot"), ("Amex", "credit_card")}
 
@@ -157,12 +158,12 @@ def test_wider_direction_verbs_with_a_move_in_the_sentence(verb):
 
 
 def test_figures_from_other_tool_results_and_the_floor_are_allowed():
-    sts = {"safe_to_spend": {"raw": 236.0, "formatted": "£236"}, "spend_from": [{"held_back": {"raw": 12.5}}]}
+    sts = {"safe_to_spend": {"raw": 236.0, "formatted": "£236"}, "spend_from": [{"amount": {"raw": 12.5}}]}
     reply = "Left to spend is £236. £146 from NatWest and £54 from Starling gives £200. Keep at least £5."
     assert g.guard_consolidation_reply(reply, [RESULT], [sts, RESULT]) == (reply, 0)
     out, stray = g.guard_consolidation_reply("Your balances are £414 in all.", [RESULT], [sts, RESULT])
     assert out == RESULT["summary"] and stray == 1
-    assert g.guard_consolidation_reply("Held back £12.50.", [RESULT], [sts, RESULT])[1] == 0
+    assert g.guard_consolidation_reply("Starling has £12.50 spare.", [RESULT], [sts, RESULT])[1] == 0
 
 
 def test_unmatched_exclusion_is_reported_in_the_plan_and_summary():

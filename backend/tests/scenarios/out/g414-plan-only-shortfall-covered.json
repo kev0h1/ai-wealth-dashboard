@@ -1,11 +1,9 @@
 {
   "account_eligibility": {
     "acc-barclays": {
-      "account_headroom_raw": 1230.0,
       "after_payments": 1500.0,
+      "after_payments_and_money_in": 1500.0,
       "after_payments_and_plans": 1500.0,
-      "allocation_order": 0,
-      "allocation_unassigned": 0.0,
       "earmarked_total": 270.0,
       "earmarks_out": [
         {
@@ -26,16 +24,13 @@
       "low_point_and_plans": 1500.0,
       "plans_reserved": 0.0,
       "short": false,
-      "spend_from_capped": false,
       "spend_from_headroom": 1230.0,
       "uncertain": false
     },
     "acc-monzo": {
-      "account_headroom_raw": 10.0,
       "after_payments": 50.0,
+      "after_payments_and_money_in": 50.0,
       "after_payments_and_plans": -100.0,
-      "allocation_order": 1,
-      "allocation_unassigned": 0.0,
       "covered_by_move": {
         "amount": 110.0,
         "from": [
@@ -53,10 +48,10 @@
       "is_current_account": true,
       "low_point": 50.0,
       "low_point_and_plans": -100.0,
+      "moves_in_total": 110.0,
       "plans_reserved": 150.0,
       "short": false,
       "short_after_cover": 0.0,
-      "spend_from_capped": false,
       "spend_from_headroom": 10.0,
       "spend_from_requires_move": true,
       "uncertain": false
@@ -64,9 +59,8 @@
     "acc-monzo-pot": {
       "account_headroom_raw": 290.0,
       "after_payments": 300.0,
+      "after_payments_and_money_in": 300.0,
       "after_payments_and_plans": 300.0,
-      "allocation_order": 3,
-      "allocation_unassigned": 0.0,
       "estimated": false,
       "headroom": 290.0,
       "is_current_account": false,
@@ -74,16 +68,13 @@
       "low_point_and_plans": 300.0,
       "plans_reserved": 0.0,
       "short": false,
-      "spend_from_capped": false,
       "spend_from_headroom": 0.0,
       "uncertain": false
     },
     "acc-natwest": {
-      "account_headroom_raw": 10.0,
       "after_payments": -150.0,
+      "after_payments_and_money_in": -150.0,
       "after_payments_and_plans": -150.0,
-      "allocation_order": 2,
-      "allocation_unassigned": 0.0,
       "covered_by_move": {
         "amount": 160.0,
         "from": [
@@ -101,10 +92,10 @@
       "is_current_account": true,
       "low_point": -150.0,
       "low_point_and_plans": -150.0,
+      "moves_in_total": 160.0,
       "plans_reserved": 0.0,
       "short": true,
       "short_after_cover": 0.0,
-      "spend_from_capped": false,
       "spend_from_headroom": 10.0,
       "spend_from_requires_move": true,
       "uncertain": false
@@ -435,6 +426,12 @@
     "allocations_reserved": 150.0,
     "calculation_status": "complete",
     "commitments_reserved": 0,
+    "left_to_spend_lines": {
+      "accounts_total": 1400.0,
+      "buffer": 0.0,
+      "plans_total": 150.0
+    },
+    "lowest_projected_balance": 1400.0,
     "safe_to_spend": 1250.0,
     "safe_to_spend_cash": 1250.0
   },

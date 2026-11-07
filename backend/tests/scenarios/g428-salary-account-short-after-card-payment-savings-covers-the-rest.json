@@ -77,14 +77,14 @@
   "card_terms": [],
   "expected": {
     "left_to_spend": -1030.0,
-    "spend_from_total": 0.0,
+    "spend_from_total": -1030.0,
     "spendable_balance": 1570.0,
     "not_spendable": [
       "acc-sav"
     ],
     "accounts": {
       "acc-bc": {
-        "spend_from": 0.0,
+        "spend_from": -1050.0,
         "after_payments": -1200.0,
         "low_point": -1200.0,
         "verdict": "short",
@@ -109,7 +109,7 @@
         "short_after_cover": 0.0
       },
       "acc-hs": {
-        "spend_from": 0.0,
+        "spend_from": 10.0,
         "after_payments": 110.0,
         "low_point": 110.0,
         "verdict": "covered",
@@ -122,7 +122,7 @@
         ]
       },
       "acc-mz": {
-        "spend_from": 0.0,
+        "spend_from": 10.0,
         "after_payments": 60.0,
         "low_point": 60.0,
         "verdict": "covered",
@@ -167,6 +167,6 @@
     },
     "payday_plan": null,
     "at_risk_count": 1,
-    "notes": "G428 (Kevin 2026-11-06). Today Fri 6 Nov 2026, pay period last Friday, so payday is Fri 27 Nov and the window is 6 to 26 Nov. Barclays Current (the salary account) holds 1,400 and has one payment of 2,600 on Mon 9 Nov. HSBC Current holds 110 and Monzo Current 60, with nothing due. Barclays Saver is savings and holds 5,000 (savings, in no pool). Barclays walk: 1,400 - 2,600 = -1,200 after payments and at the low point, so short. At risk count 1 (the 2,600 payment cannot be paid from Barclays on its own). Cover target: ceil5(1,200) = 1,200, plus the 10 cushion = 1,210. Source headroom is the running minimum less the 10 cushion: HSBC 110 - 10 = 100, Monzo 60 - 10 = 50, Saver 5,000 - 10 = 4,990. Current accounts first, two slots at most: HSBC 100 and Monzo 50 together cover 150, which is less than 1,210, so both are used. One savings account then covers the rest: 1,210 - 150 = 1,060 from Barclays Saver (three sources in all). Covered 100 + 50 + 1,060 = 1,210 against a shortfall of 1,200, so short after cover = max(0, 1,200 - 1,210) = 0. Earmarks on every source: HSBC 100, Monzo 50 and the Saver 1,060, all to Barclays Current. The card reads: Your other accounts can cover \u00a3150. A move of \u00a31,060 from Barclays Saver would cover the rest. (a recommendation in the watch tone, never an action). Left to spend: the pool is the three counted current accounts 1,400 + 110 + 60 = 1,570 (the saver is in no pool); 1,570 - 2,600 = -1,030, the lowest point, so Left to spend is -1,030. Own-account moves never change the pool, and the 1,060 from savings is never counted as spendable. With the pool below zero nothing is spendable, so Spend from is 0 on every account and the total is 0. The payday plan is null: no salary is expected before 27 Nov inside the window."
+    "notes": "G428 (Kevin 2026-11-06). Today Fri 6 Nov 2026, pay period last Friday, so payday is Fri 27 Nov and the window is 6 to 26 Nov. Barclays Current (the salary account) holds 1,400 and has one payment of 2,600 on Mon 9 Nov. HSBC Current holds 110 and Monzo Current 60, with nothing due. Barclays Saver is savings and holds 5,000 (savings, in no pool). Barclays walk: 1,400 - 2,600 = -1,200 after payments and at the low point, so short. At risk count 1 (the 2,600 payment cannot be paid from Barclays on its own). Cover target: ceil5(1,200) = 1,200, plus the 10 cushion = 1,210. Source headroom is the running minimum less the 10 cushion: HSBC 110 - 10 = 100, Monzo 60 - 10 = 50, Saver 5,000 - 10 = 4,990. Current accounts first, two slots at most: HSBC 100 and Monzo 50 together cover 150, which is less than 1,210, so both are used. One savings account then covers the rest: 1,210 - 150 = 1,060 from Barclays Saver (three sources in all). Covered 100 + 50 + 1,060 = 1,210 against a shortfall of 1,200, so short after cover = max(0, 1,200 - 1,210) = 0. Earmarks on every source: HSBC 100, Monzo 50 and the Saver 1,060, all to Barclays Current. The card reads: Your other accounts can cover \u00a3150. A move of \u00a31,060 from Barclays Saver would cover the rest. (a recommendation in the watch tone, never an action). Left to spend: the pool is the three counted current accounts 1,400 + 110 + 60 = 1,570 (the saver is in no pool); 1,570 - 2,600 = -1,030, the lowest point, so Left to spend is -1,030. Own-account moves never change the pool, and the 1,060 from savings is never counted as spendable. With the pool below zero nothing is spendable, so Spend from is 0 on every account and the total is 0. The payday plan is null: no salary is expected before 27 Nov inside the window. G436 (Kevin 2026-11-07), which supersedes the Left to spend and Spend from figures worked above where they differ: Each figure is the account's own. Barclays after payments -1,200; the suggested moves in from the two current accounts count (HSBC 100 + Monzo 50 = 150): -1,200 + 150 = -1,050. The 1,060 suggested from savings is shown on Barclays (covered_by_move) but is not added until the move is made. HSBC 110 - 100 set aside = 10; Monzo 60 - 50 = 10. Sum -1,050 + 10 + 10 = -1,030 = Left to spend (moves between current accounts net to zero, the savings move is not counted)."
   }
 }

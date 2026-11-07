@@ -35,8 +35,16 @@ export function buildLeftToSpendEvidence(data: Forecast, summaryAmount: number):
   const rows: EvidenceRow[] = [];
   let ledgerNote: string | null = null;
 
+  // G436: Left to spend is each counted current account on its own (balance plus predicted money
+  // in, less predicted money out, negatives included), then goals, set-asides and the buffer.
+  const lines = data.left_to_spend_lines;
+  const byAccount = reconciledLow && !!lines && finite(lines.accounts_total) && pennies(lines.accounts_total) === pennies(low!);
+
   if (reconciledHold) {
-    if (reconciledEnd) {
+    if (byAccount && lines) {
+      rows.push({ label: "Your current accounts after predicted money in and out before payday", value: lines.accounts_total });
+      ledgerNote = "Each current account on its own: its balance plus the money expected in, less the payments expected out. A move between your own accounts does not change it.";
+    } else if (reconciledEnd) {
       rows.push({ label: "Cash now", value: data.spendable_now! });
       if (data.bills_total > 0) rows.push({ label: "Bills before payday", value: -data.bills_total });
       if (income > 0) rows.push({ label: "Income before payday", value: income });

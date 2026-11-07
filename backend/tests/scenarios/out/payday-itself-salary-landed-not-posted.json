@@ -1,11 +1,9 @@
 {
   "account_eligibility": {
     "acc-bc": {
-      "account_headroom_raw": 4200.0,
       "after_payments": 5005.0,
+      "after_payments_and_money_in": 2005.0,
       "after_payments_and_plans": 5005.0,
-      "allocation_order": 0,
-      "allocation_unassigned": 0.0,
       "estimated": false,
       "headroom": 4190.0,
       "is_current_account": true,
@@ -13,16 +11,13 @@
       "low_point_and_plans": 4200.0,
       "plans_reserved": 0.0,
       "short": false,
-      "spend_from_capped": false,
-      "spend_from_headroom": 4200.0,
+      "spend_from_headroom": 2005.0,
       "uncertain": false
     },
     "acc-hsbc": {
-      "account_headroom_raw": 80.0,
       "after_payments": 860.0,
+      "after_payments_and_money_in": 860.0,
       "after_payments_and_plans": 860.0,
-      "allocation_order": 1,
-      "allocation_unassigned": 0.0,
       "estimated": false,
       "headroom": 70.0,
       "is_current_account": true,
@@ -30,8 +25,7 @@
       "low_point_and_plans": 80.0,
       "plans_reserved": 0.0,
       "short": false,
-      "spend_from_capped": false,
-      "spend_from_headroom": 80.0,
+      "spend_from_headroom": 860.0,
       "uncertain": false
     }
   },
@@ -401,8 +395,14 @@
     "allocations_reserved": 0.0,
     "calculation_status": "complete",
     "commitments_reserved": 0,
-    "safe_to_spend": 4280.0,
-    "safe_to_spend_cash": 4280.0
+    "left_to_spend_lines": {
+      "accounts_total": 2865.0,
+      "buffer": 0.0,
+      "plans_total": 0
+    },
+    "lowest_projected_balance": 2865.0,
+    "safe_to_spend": 2865.0,
+    "safe_to_spend_cash": 2865.0
   },
   "today": "2026-10-30"
 }
