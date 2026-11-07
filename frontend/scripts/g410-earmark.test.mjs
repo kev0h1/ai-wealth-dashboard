@@ -103,7 +103,7 @@ assert.ok(html.includes("Available after suggested move") && html.includes("woul
 
 // A combined shortfall remains honest: the £200 recommendation first clears
 // the £190 bill gap, leaving £100 of plans short. By account retains both the
-// plans warning and the conditional £10 allocation.
+// full gap and remaining plans warning without promoting the conditional £10 allocation.
 const combined = { ...covered, spend_from_headroom: 10, spend_from_requires_move: true,
   after_payments_and_plans: -300, low_point_and_plans: -300,
   covered_by_move: { ...covered.covered_by_move, shortfall: 300 }, short_after_cover: 100 };
@@ -114,5 +114,5 @@ const byAccount = renderToStaticMarkup(h(BalancesHiddenContext.Provider, { value
 assert.ok(!byAccount.includes("Available") && !byAccount.includes("Spend from"), "By account does not promote the conditional pooled allocation");
 assert.match(byAccount, /data-g417-variant="a"/);
 assert.match(byAccount.replace(/<[^>]+>/g, ""), /−£300Short/, "the combined payment-and-plan gap leads before the £200 move");
-assert.match(byAccount.replace(/<[^>]+>/g, ""), /−£100 after the move, still short/, "the remaining plans-only gap stays explicit after payments are covered");
+assert.match(byAccount.replace(/<[^>]+>/g, ""), /£200 to move in by 20 Nov · £100 still uncovered/, "G430 keeps the aggregate recommendation and remaining plans-only gap explicit after payments are covered");
 console.log("G410 earmark checks passed.");
