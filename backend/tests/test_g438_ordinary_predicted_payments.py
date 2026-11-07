@@ -73,8 +73,8 @@ def test_a_standing_order_to_own_savings_is_the_first_bounce_like_any_payment():
     _, mins, short, bounced = sh.walk(events)
     assert mins["acc"] == -340.0
     assert sh._gate_recommendation("acc", mins["acc"], short, bounced) is order
-    # and the at-risk badge still counts the Phone bill the order starved (no discount)
-    assert account_walk.count_at_risk(bounced) == 1
+    # and the at-risk badge counts both the order and the Phone bill it starved
+    assert account_walk.count_at_risk(bounced) == 2
 
 
 def test_money_in_offsets_payments_on_the_same_day_or_after_it():

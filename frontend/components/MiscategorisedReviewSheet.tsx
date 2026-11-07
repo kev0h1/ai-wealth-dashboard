@@ -192,13 +192,13 @@ export default function MiscategorisedReviewSheet({ onClose, onChanged, accounts
     return <details key={item.id} className={`${surface} group px-3`} data-review-id={item.id}>
       <summary className="min-h-11 cursor-pointer list-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500">
         {leg(toTransaction(item))}
-        <span className="flex items-center justify-between gap-2 pb-3 text-xs font-semibold text-indigo-700 dark:text-indigo-300">{item.count > 1 ? `${item.count} payments to review` : "Review this payment"}<ChevronDown size={16} aria-hidden="true" className="shrink-0 group-open:rotate-180" /></span>
+        <span className="flex items-center justify-between gap-2 pb-3 text-xs font-semibold text-indigo-700 dark:text-indigo-300">{item.count > 1 ? `${item.count} payments to review` : credit ? "Review this money in" : "Review this payment"}<ChevronDown size={16} aria-hidden="true" className="shrink-0 group-open:rotate-180" /></span>
       </summary>
       <div className="border-t border-slate-200 pb-3 pt-3 dark:border-slate-700">
         {periodStart && dateToUTCDay(item.date) < periodStart.getTime() && <p className="mb-2 text-xs text-slate-600 dark:text-slate-400">Earlier pay period</p>}
         {item.count > 1 && <p className="mb-3 text-xs leading-5 text-slate-600 dark:text-slate-400">Showing the latest payment. A category choice changes this payment only.</p>}
         {checking ? <><p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{confirmSingle.category === "Income" ? "Keep as income" : "Another of my accounts"}</p><p className="mt-1 text-xs leading-5 text-slate-600 dark:text-slate-400">Only this payment changes.</p><div className="mt-3 flex flex-wrap gap-2"><button type="button" disabled={!!busy || closing} onClick={() => handleSingle(item, confirmSingle.category)} className={`${button} bg-indigo-600 text-white`}>{busy === item.id ? "Saving…" : "Save this payment"}</button><button type="button" disabled={!!busy || closing} onClick={() => setConfirmSingle(null)} className={`${button} text-slate-700 dark:text-slate-300`}>Back</button></div></> : <>
-          <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{credit ? "Where did this money come from?" : "What was this payment?"}</p>
+          <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{credit ? "Is this money in from one of your accounts?" : "What was this payment?"}</p>
           <div className="mt-3 space-y-2">{credit ? <>
             <button type="button" disabled={!!busy || closing} onClick={() => choose(item, "transfer")} className={`${button} w-full border border-slate-200 text-left text-slate-800 dark:border-slate-600 dark:text-slate-100`}>Another of my accounts</button>
             <button type="button" disabled={!!busy || closing} onClick={() => setConfirmSingle({ item, category: "Income" })} className={`${button} w-full border border-slate-200 text-left text-slate-800 dark:border-slate-600 dark:text-slate-100`}>Keep as income</button>

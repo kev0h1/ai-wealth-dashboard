@@ -83,3 +83,19 @@ def test_user_business_or_other_category_keeps_option_b_own_move():
         assert "d1" in find_own_move_ids([d], KINDS, _identity())
         d = _debit(description="PAYMENT 20-20-20 20202020", custom_category=cat)
         assert "d1" in find_own_move_ids([d], KINDS, _identity_with_digits())
+
+
+def test_a_disconnected_account_still_on_file_counts_for_counterparty_evidence(monkeypatch):
+    # Kevin confirmed 2026-11-07: the account index and the identity read every account
+    # doc on file, whatever its connection status.
+    import asyncio
+    import app.services.categorisation as categorisation
+    from test_transfer_pairs import FakeCol, UID
+    revoked = {"_id": "old-acc", "user_id": UID, "sort_code": "20-00-00", "account_number": "11223344", "status": "revoked"}
+    assert own_account_index([revoked, SOURCE])[("200000", "11223344")]
+    monkeypatch.setattr(categorisation, "accounts_col", FakeCol([revoked]))
+    monkeypatch.setattr(categorisation, "user_profiles_col", FakeCol([]))
+    identity = asyncio.run(categorisation.user_identity(UID))
+    assert identity["own_keys"][("200000", "11223344")] == {"old-acc"}
+    d = _debit(party_sort_code="200000", party_number="11223344")
+    assert "d1" in find_own_move_ids([d], KINDS, identity)

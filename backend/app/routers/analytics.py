@@ -53,7 +53,7 @@ from app.services.categorisation import (
 )
 from app.services.account_kinds import is_credit_card_account, is_debt_account
 from app.services.spending import try_build_spending_context
-from app.services.categories import get_category_kinds, is_non_spend, is_spend, kind_of, CategoryKinds, BUILTIN_CATEGORY_KINDS, MOVEMENT, COMMITMENT, is_card_repayment
+from app.services.categories import get_category_kinds, is_non_spend, is_spend, kind_of, CategoryKinds, BUILTIN_CATEGORY_KINDS, MOVEMENT, INCOME, COMMITMENT, is_card_repayment
 from app.services import recurring_judge as _recurring_judge
 from app.services.recurring_judge import gate_failure_reason, judge_suspect_series, apply_verdicts
 from app.services.bnpl import is_bnpl_txn, build_bnpl_projections
@@ -5927,7 +5927,7 @@ async def get_category_signals(offset: int = 0, user: dict = Depends(current_use
 
 
 async def _flagged_miscategorised(uid: str, exclude_ids: frozenset = frozenset()) -> list:
-    """Shared guardrail query: debit rows that look like own-account transfers
+    """Shared guardrail query: debit rows (and, since G438, lone Income credits) that look like own-account transfers
     (matched via user_identity/is_own_transfer) but sit in a spend category
     rather than a money-to-self category. Excludes rows/series already
     dismissed. Returns flat list of annotated txn docs (adds _series_key and
@@ -5992,21 +5992,52 @@ async def _flagged_miscategorised(uid: str, exclude_ids: frozenset = frozenset()
         )
         txns = [t for t in resolved if str(t["_id"]) in candidate_ids]
 
+    # G438 (Kevin 2026-11-07): a lone credit that carries the user's name (or an
+    # account of theirs) and has no matching debit is a question too. It stays
+    # Income until answered. Only plain Income credits with no user answer are
+    # read; a credit that is a leg of a pair suggestion is excluded below.
+    income_names = [name for name in kind_map if kind_of(kind_map, name) == INCOME]
+    if income_names:
+        txns = txns + await transactions_col.find(
+            {"user_id": uid, "transaction_type": "credit", "custom_category": None,
+             "category": {"$in": income_names}},
+            {"merchant_name": 1, "description": 1, "amount": 1, "date": 1,
+             "currency": 1, "category": 1, "custom_category": 1, "transaction_type": 1,
+             "account_id": 1, "own_transfer_match": 1, "is_pending": 1},
+        ).to_list(None)
+
     kept = []
     for t in txns:
-        if (t.get("transaction_type") != "debit" or t.get("custom_category") is not None
-                or t.get("category") in money_to_self):
+        is_credit = t.get("transaction_type") == "credit"
+        if (t.get("transaction_type") not in ("debit", "credit") or t.get("custom_category") is not None
+                or (t.get("category") in money_to_self and not (is_credit and t.get("category") in income_names))):
             continue
+        if is_credit and t.get("own_transfer_match"):
+            continue  # already part of an engine pair
         tid = str(t["_id"])
         if tid in dismissed:
             continue
         if tid in exclude_ids:
             continue
-        sk = series_key(t)
+        sk = series_key(t) + ("|credit" if is_credit else "")  # money in never groups with money out
         if sk in dismissed_series:
             continue
         text = f"{t.get('merchant_name') or ''} {t.get('description') or ''}"
         evidence = own_transfer_evidence(text, identity, own_account_id=t.get("account_id"))
+        if evidence is not None and is_credit:
+            # A credit with a same-amount debit on another account within the pair
+            # window already has a counterpart (asked as a pair, or answered): not lone.
+            same_amount = await transactions_col.find(
+                {"user_id": uid, "transaction_type": "debit", "amount": t.get("amount")},
+                {"account_id": 1, "date": 1},
+            ).to_list(None)
+            c_day = t["date"].date() if hasattr(t.get("date"), "date") else t.get("date")
+            if any(
+                d.get("account_id") != t.get("account_id") and d.get("date") is not None
+                and abs(((d["date"].date() if hasattr(d["date"], "date") else d["date"]) - c_day).days) <= 5
+                for d in same_amount
+            ):
+                continue
         if evidence is not None:
             t["_series_key"] = sk
             t["_effective_category"] = t.get("custom_category") or t.get("category")

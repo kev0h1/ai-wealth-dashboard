@@ -260,3 +260,36 @@ def test_a_user_transfer_answer_beats_missing_evidence():
     out = {**credit, "_id": "d2", "transaction_type": "debit", "account_id": "main", "description": "BETA OUT", "category": "Other"}
     learned = {tuple(sorted((canonical_merchant_key("", "ACME RAIL IN"), canonical_merchant_key("", "BETA OUT"))))}
     assert select_unique_pairs([credit, out], ACCOUNTS, [], learned) == [(credit, out)]
+
+
+# ── a lone credit that names the user is a question too (Kevin 2026-11-07) ────
+
+def test_a_lone_name_only_credit_is_flagged_until_answered(monkeypatch):
+    credit = _t("c1", ttype="credit", amount=40.0, date=D0, account_id="main", desc="FROM JORDAN BLAKE", category="Income")
+    _review_fakes(monkeypatch, [credit], IDENTITY)
+    flagged = asyncio.run(analytics._flagged_miscategorised(UID))
+    assert [t["_id"] for t in flagged] == ["c1"]
+    assert flagged[0]["transaction_type"] == "credit" and flagged[0]["_evidence"] == {"kind": "name"}
+    assert credit["category"] == "Income"  # stays Income until answered
+    groups = analytics._group_miscategorised(flagged)
+    assert groups[0]["transaction_type"] == "credit" and groups[0]["series_key"].endswith("|credit")
+
+
+def test_an_answered_or_dismissed_credit_stops_being_flagged(monkeypatch):
+    for answer in ("custom", "dismissed"):
+        credit = _t("c1", ttype="credit", amount=40.0, date=D0, account_id="main", desc="FROM JORDAN BLAKE", category="Income")
+        prefs = {"dismissed_miscategorised": ["c1"]} if answer == "dismissed" else None
+        if answer == "custom":
+            credit["custom_category"] = "Transfer"
+        _review_fakes(monkeypatch, [credit], IDENTITY, prefs)
+        assert asyncio.run(analytics._flagged_miscategorised(UID)) == [], answer
+
+
+def test_a_credit_with_a_matching_debit_is_not_lone_and_ordinary_income_is_never_asked(monkeypatch):
+    credit, debit = _pair()
+    debit["custom_category"] = "Groceries"  # the pair was answered as spending
+    _review_fakes(monkeypatch, [credit, debit], IDENTITY)
+    assert asyncio.run(analytics._flagged_miscategorised(UID)) == []
+    salary = _t("s1", ttype="credit", amount=2000.0, date=D0, account_id="main", desc="ACME LTD PAYROLL", category="Income")
+    _review_fakes(monkeypatch, [salary], IDENTITY)
+    assert asyncio.run(analytics._flagged_miscategorised(UID)) == []
