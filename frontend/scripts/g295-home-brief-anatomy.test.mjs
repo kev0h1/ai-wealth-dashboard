@@ -61,8 +61,8 @@ const homeBriefSource = readFileSync(new URL("../components/HomeBrief.tsx", impo
 const paydaySource = readFileSync(new URL("../components/PaydayPlanCard.tsx", import.meta.url), "utf8");
 const spotlightSource = readFileSync(new URL("../components/HomeInsightSpotlight.tsx", import.meta.url), "utf8");
 assert.match(homeBriefSource, /const BRIEF_HEADER = "grid grid-cols-\[16px_minmax\(0,1fr\)\] items-center gap-x-2 gap-y-1"/, "native brief headers use a 16px cue and remaining eyebrow track");
-assert.match(homeBriefSource, /className="col-span-2 text-pretty text-\[15px\] font-bold leading-6/, "native brief headlines span both header columns");
-assert.equal((homeBriefSource.match(/className="flex min-w-0 items-center">\s*<(?:PennyKindLabel|KindLabel)\b/g) ?? []).length, 7, "kind wrappers do not introduce an anonymous 24px text line above the headline");
+assert.match(homeBriefSource, /className="col-span-2 text-wrap text-\[15px\] font-bold leading-6/, "native brief headlines span both header columns with natural wrapping");
+assert.equal((homeBriefSource.match(/className=[^\n]*flex min-w-0 items-center[^\n]*>\s*<(?:PennyKindLabel|KindLabel)\b/g) ?? []).length, 7, "kind wrappers do not introduce an anonymous 24px text line above the headline");
 assert.match(homeBriefSource, /KindLabel tone=\{tone\} signifier=\{false\}/, "fact-card labels no longer duplicate the watch or positive cue");
 assert.match(paydaySource, /grid min-w-0 grid-cols-\[16px_minmax\(0,1fr\)\] items-center gap-x-2 gap-y-1/, "payday uses the compact B eyebrow grid");
 assert.match(paydaySource, /className="col-span-2 text-\[15px\] font-bold leading-5/, "payday headline returns to the shared reading edge");

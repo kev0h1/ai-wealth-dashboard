@@ -346,6 +346,20 @@ const EVIDENCE_BLOCK = "divide-y divide-slate-100 border-y border-slate-100 dark
 // both tracks so every subsequent row keeps the card's reading edge.
 const BRIEF_HEADER = "grid grid-cols-[16px_minmax(0,1fr)] items-center gap-x-2 gap-y-1";
 
+/** Keep only the first headline line clear of the absolute 44px dismiss target. */
+function BriefHeadline({ children, dismissible, className }: {
+  children: React.ReactNode;
+  dismissible?: boolean;
+  className: string;
+}) {
+  return (
+    <p className={className}>
+      {dismissible && <span aria-hidden="true" className="float-right h-6 w-9" />}
+      {children}
+    </p>
+  );
+}
+
 export function BriefIcon({ children, tone = "neutral" }: { children: React.ReactNode; tone?: "neutral" | "watch" | "positive" }) {
   const ink = tone === "watch"
     ? "text-amber-600 dark:text-amber-400"
@@ -445,13 +459,13 @@ export function AskPaydayCard({ item, router, maskAmounts, onRefresh, previewMod
         <div className="flex min-w-0 items-center">
           <PennyKindLabel hideAttribution={hideAttribution}>Payday check</PennyKindLabel>
         </div>
-        <p className="col-span-2 text-pretty text-[15px] font-bold leading-6 text-slate-900 dark:text-slate-100">
+        <p className="col-span-2 text-wrap text-[15px] font-bold leading-6 text-slate-900 dark:text-slate-100">
           {maskAmounts(item.headline)}
         </p>
       </div>
       <BriefLead item={item} maskAmounts={maskAmounts} />
       {/* Body */}
-      <p lang="en-GB" className="mb-3 mt-3 max-w-prose text-pretty text-[13px] leading-5 text-slate-600 dark:text-slate-300">
+      <p lang="en-GB" className="mb-3 mt-3 lg:max-w-prose text-wrap text-[13px] leading-5 text-slate-600 dark:text-slate-300">
         <MoneyText text={maskAmounts(item.body ?? "")} />
       </p>
       {/* Actions */}
@@ -534,13 +548,13 @@ export function AskGenericCard({ item, router, maskAmounts, dismissible, onHomeD
         <div className="flex min-w-0 items-center">
           <PennyKindLabel hideAttribution={hideAttribution}>{item.kind_label ?? "Card detail"}</PennyKindLabel>
         </div>
-        <p className="col-span-2 text-pretty text-[15px] font-bold leading-6 text-slate-900 dark:text-slate-100">
+        <p className="col-span-2 text-wrap text-[15px] font-bold leading-6 text-slate-900 dark:text-slate-100">
           {maskAmounts(item.headline)}
         </p>
       </div>
       <BriefLead item={item} maskAmounts={maskAmounts} />
       {/* Body */}
-      <p lang="en-GB" className="mb-3 mt-3 max-w-prose text-pretty text-[13px] leading-5 text-slate-600 dark:text-slate-300">
+      <p lang="en-GB" className="mb-3 mt-3 lg:max-w-prose text-wrap text-[13px] leading-5 text-slate-600 dark:text-slate-300">
         <MoneyText text={maskAmounts(item.body ?? "")} />
       </p>
       {/* Actions — skipped entirely when there'd be nothing to show (no
@@ -627,17 +641,17 @@ export function CelebrationCard({ item, router, maskAmounts, dismissible, onHome
     >
       {/* G292 A: the inline tick is the only success mark; all copy shares
           the card's reading edge. Keep header space for the dismiss chip. */}
-      <div className="pr-9">
+      <div>
         <div className="min-w-0 flex-1">
-          <KindLabel tone="positive">Covered</KindLabel>
-          <p className="mt-1 text-pretty text-[15px] font-bold leading-6 text-slate-900 dark:text-white">
+          <div className={dismissible ? "pr-9" : undefined}><KindLabel tone="positive">Covered</KindLabel></div>
+          <BriefHeadline dismissible={dismissible} className="mt-1 text-wrap text-[15px] font-bold leading-6 text-slate-900 dark:text-white">
             <MoneyText text={maskAmounts(item.headline)} />
-          </p>
+          </BriefHeadline>
         </div>
       </div>
       <BriefLead item={item} maskAmounts={maskAmounts} />
       {item.body && (
-        <p className="mt-3 text-pretty text-[13px] leading-5 text-slate-600 dark:text-slate-300">
+        <p className="mt-3 text-wrap text-[13px] leading-5 text-slate-600 dark:text-slate-300">
           <MoneyText text={maskAmounts(item.body)} />
         </p>
       )}
@@ -716,18 +730,18 @@ export function CliffCard({ item, maskAmounts, dismissible, onHomeDismiss }: Cli
 
   return (
     <div className={`${BRIEF_CARD} p-4`}>
-      <div data-brief-header className={`${BRIEF_HEADER} pr-9`}>
+      <div data-brief-header className={BRIEF_HEADER}>
         <BriefIcon tone={tone}><Icon size={16} /></BriefIcon>
-        <div className="flex min-w-0 items-center">
+        <div className={`flex min-w-0 items-center${dismissible ? " pr-9" : ""}`}>
           <KindLabel tone={tone} signifier={false}>{label}</KindLabel>
         </div>
-        <p className="col-span-2 text-pretty text-[15px] font-bold leading-6 text-slate-900 dark:text-white">
+        <BriefHeadline dismissible={dismissible} className="col-span-2 text-wrap text-[15px] font-bold leading-6 text-slate-900 dark:text-white">
           <MoneyText text={maskAmounts(item.headline)} />
-        </p>
+        </BriefHeadline>
       </div>
       <BriefLead item={item} maskAmounts={maskAmounts} />
       {item.body && (
-        <p className="mt-3 text-pretty text-[13px] leading-5 text-slate-600 dark:text-slate-300">
+        <p className="mt-3 text-wrap text-[13px] leading-5 text-slate-600 dark:text-slate-300">
           <MoneyText text={maskAmounts(item.body)} />
         </p>
       )}
@@ -871,10 +885,10 @@ export function UnfundedMoveCard({ item, hideNetWorth: hideNetWorthProp, maskAmo
 
     return (
       <div data-unfunded-move-card="compact-handoff" className={`${BRIEF_CARD} p-4`}>
-        <div className="pr-9">
+        <div>
           <div className="min-w-0 flex-1">
-            <PennyKindLabel hideAttribution={hideAttribution} tone="watch">Move overdue</PennyKindLabel>
-            <p className="mt-1 text-pretty text-[15px] font-bold leading-6 text-slate-900 dark:text-white">A move that would cover this</p>
+            <div className={dismissible ? "pr-9" : undefined}><PennyKindLabel hideAttribution={hideAttribution} tone="watch">Move overdue</PennyKindLabel></div>
+            <BriefHeadline dismissible={dismissible} className="mt-1 text-wrap text-[15px] font-bold leading-6 text-slate-900 dark:text-white">A move that would cover this</BriefHeadline>
           </div>
         </div>
 
@@ -945,17 +959,17 @@ export function UnfundedMoveCard({ item, hideNetWorth: hideNetWorthProp, maskAmo
 
   return (
     <div className={`${BRIEF_CARD} p-4`}>
-      <div className="pr-9">
+      <div>
         <div className="min-w-0 flex-1">
-          <PennyKindLabel hideAttribution={hideAttribution} tone="watch">Move overdue</PennyKindLabel>
-          <p className="mt-1 text-pretty text-[15px] font-bold leading-6 text-slate-900 dark:text-white">
+          <div className={dismissible ? "pr-9" : undefined}><PennyKindLabel hideAttribution={hideAttribution} tone="watch">Move overdue</PennyKindLabel></div>
+          <BriefHeadline dismissible={dismissible} className="mt-1 text-wrap text-[15px] font-bold leading-6 text-slate-900 dark:text-white">
             <MoneyText text={maskAmounts(item.headline)} />
-          </p>
+          </BriefHeadline>
         </div>
       </div>
       <BriefLead item={item} maskAmounts={maskAmounts} />
       {item.body && (
-        <p className="mt-3 text-pretty text-[13px] leading-5 text-slate-600 dark:text-slate-300">
+        <p className="mt-3 text-wrap text-[13px] leading-5 text-slate-600 dark:text-slate-300">
           <MoneyText text={maskAmounts(item.body)} />
         </p>
       )}
@@ -1065,18 +1079,18 @@ export function IntentPaceCard({ item, maskAmounts, dismissible, onHomeDismiss }
 
   return (
     <div className={`${BRIEF_CARD} p-4`}>
-      <div data-brief-header className={`${BRIEF_HEADER} pr-9`}>
+      <div data-brief-header className={BRIEF_HEADER}>
         <BriefIcon><Clock3 size={16} /></BriefIcon>
-        <div className="flex min-w-0 items-center">
+        <div className={`flex min-w-0 items-center${dismissible ? " pr-9" : ""}`}>
           <KindLabel>Pace note</KindLabel>
         </div>
-        <p className="col-span-2 text-pretty text-[15px] font-bold leading-6 text-slate-900 dark:text-white">
+        <BriefHeadline dismissible={dismissible} className="col-span-2 text-wrap text-[15px] font-bold leading-6 text-slate-900 dark:text-white">
           <MoneyText text={maskAmounts(item.headline)} />
-        </p>
+        </BriefHeadline>
       </div>
       <BriefLead item={item} maskAmounts={maskAmounts} />
       {item.body && (
-        <p className="mt-3 text-pretty text-[13px] leading-5 text-slate-600 dark:text-slate-300">
+        <p className="mt-3 text-wrap text-[13px] leading-5 text-slate-600 dark:text-slate-300">
           <MoneyText text={maskAmounts(item.body)} />
         </p>
       )}
@@ -1299,10 +1313,10 @@ export function MoveCard({ item, hideNetWorth: hideNetWorthProp, maskAmounts, hi
 
     return (
       <div data-move-card="compact-handoff" className={`${BRIEF_CARD} p-4`}>
-        <div className="pr-9">
+        <div>
           <div className="min-w-0 flex-1">
-            <PennyKindLabel hideAttribution={hideAttribution} tone={hasOverdueBills || savingsRisk ? "watch" : "neutral"}>Cover plan</PennyKindLabel>
-            <p className="mt-1 text-pretty text-[15px] font-bold leading-6 text-slate-900 dark:text-slate-100">A move that would cover this</p>
+            <div className={dismissible ? "pr-9" : undefined}><PennyKindLabel hideAttribution={hideAttribution} tone={hasOverdueBills || savingsRisk ? "watch" : "neutral"}>Cover plan</PennyKindLabel></div>
+            <BriefHeadline dismissible={dismissible} className="mt-1 text-wrap text-[15px] font-bold leading-6 text-slate-900 dark:text-slate-100">A move that would cover this</BriefHeadline>
           </div>
         </div>
 
@@ -1360,12 +1374,12 @@ export function MoveCard({ item, hideNetWorth: hideNetWorthProp, maskAmounts, hi
     <div data-move-card="fallback" className={`${BRIEF_CARD} p-4`}>
       {/* The compact card-kind label stays scannable without repeating the
           adviser identity on either Home or Penny. */}
-      <div className="pr-9">
+      <div>
         <div className="min-w-0 flex-1">
-          <PennyKindLabel hideAttribution={hideAttribution} tone={paymentCopy?.hasOverdueBills || savingsRisk ? "watch" : "neutral"}>Cover plan</PennyKindLabel>
-          <p className="mt-1 text-pretty text-[15px] font-bold leading-6 text-slate-900 dark:text-slate-100">
+          <div className={dismissible ? "pr-9" : undefined}><PennyKindLabel hideAttribution={hideAttribution} tone={paymentCopy?.hasOverdueBills || savingsRisk ? "watch" : "neutral"}>Cover plan</PennyKindLabel></div>
+          <BriefHeadline dismissible={dismissible} className="mt-1 text-wrap text-[15px] font-bold leading-6 text-slate-900 dark:text-slate-100">
             <MoneyText text={maskAmounts(item.headline)} />
-          </p>
+          </BriefHeadline>
         </div>
       </div>
       <BriefLead item={item} maskAmounts={maskAmounts} />
@@ -1474,7 +1488,7 @@ export function MoveCard({ item, hideNetWorth: hideNetWorthProp, maskAmounts, hi
       ) : (
         <>
           {/* Body */}
-          <p lang="en-GB" className="mb-3 mt-3 max-w-prose text-pretty text-[13px] leading-5 text-slate-600 dark:text-slate-300">
+          <p lang="en-GB" className="mb-3 mt-3 lg:max-w-prose text-wrap text-[13px] leading-5 text-slate-600 dark:text-slate-300">
             <MoneyText text={maskAmounts(item.body ?? "")} />
           </p>
         </>
@@ -1612,18 +1626,18 @@ export function RhythmCard({ item, router, maskAmounts, onRefresh, previewMode =
 
   return (
     <div className={`${BRIEF_CARD} p-4`}>
-      <div data-brief-header className={`${BRIEF_HEADER} pr-9`}>
+      <div data-brief-header className={BRIEF_HEADER}>
         {/* The user's category colour stays on the inline glyph, not a tile. */}
         <span aria-hidden="true" className="flex h-4 w-4 shrink-0 items-center justify-center">
           <Icon size={16} style={{ color: colour }} />
         </span>
 
-        <div className="flex min-w-0 items-center">
+        <div className={`flex min-w-0 items-center${dismissible ? " pr-9" : ""}`}>
           <KindLabel>Spending pattern</KindLabel>
         </div>
-        <p className="col-span-2 text-pretty text-[15px] font-bold leading-6 text-slate-900 dark:text-white">
+        <BriefHeadline dismissible={dismissible} className="col-span-2 text-wrap text-[15px] font-bold leading-6 text-slate-900 dark:text-white">
           <MoneyText text={maskAmounts(headline)} />
-        </p>
+        </BriefHeadline>
 
         {/* Dismiss button — Home-only, see the dismissible docstring above */}
         {dismissible && (
@@ -1639,7 +1653,7 @@ export function RhythmCard({ item, router, maskAmounts, onRefresh, previewMode =
           name truncates. */}
       {typeof supportLine === "string" ? (
         supportLine && (
-          <p className="mt-3 text-pretty text-[13px] leading-5 text-slate-600 dark:text-slate-300">
+          <p className="mt-3 text-wrap text-[13px] leading-5 text-slate-600 dark:text-slate-300">
             <MoneyText text={maskAmounts(supportLine)} />
           </p>
         )
@@ -1793,14 +1807,14 @@ export function PlanEasingCard({ item, hideNetWorth: hideNetWorthProp = false, d
 
   return (
     <div data-plan-easing={capped ? "capped" : "eligible"} className={`${BRIEF_CARD} !shadow-none p-4`}>
-      <div data-brief-header className={`${BRIEF_HEADER} pr-9`}>
+      <div data-brief-header className={BRIEF_HEADER}>
         <BriefIcon><CalendarClock size={16} /></BriefIcon>
-        <div className="flex min-w-0 items-center">
+        <div className="flex min-w-0 items-center pr-9">
           <KindLabel>Goal plan</KindLabel>
         </div>
-        <p className="col-span-2 text-pretty text-[15px] font-bold leading-6 text-slate-900 dark:text-slate-100">
+        <BriefHeadline dismissible className="col-span-2 text-wrap text-[15px] font-bold leading-6 text-slate-900 dark:text-slate-100">
           {capped ? `Easing is held back for ${name}` : "Cash looks short this period"}
-        </p>
+        </BriefHeadline>
       </div>
       <div className="mt-2">
         {capped ? (
@@ -1921,12 +1935,12 @@ export function AllocationShortfallCard({ item, hideNetWorth: hideNetWorthProp =
 
   return (
     <div data-allocation-card="shortfall" data-move-source={hasSource ? "available" : "none"} className={`${BRIEF_CARD} !shadow-none p-4`}>
-      <div data-brief-header className={`${BRIEF_HEADER} pr-9`}>
+      <div data-brief-header className={BRIEF_HEADER}>
         <BriefIcon><PiggyBank size={16} /></BriefIcon>
-        <div className="flex min-w-0 items-center">
+        <div className="flex min-w-0 items-center pr-9">
           <KindLabel>Set-aside</KindLabel>
         </div>
-        <p className="col-span-2 text-pretty text-[15px] font-bold leading-6 text-slate-900 dark:text-slate-100">{maskMoneyText(item.headline, hideNetWorth)}</p>
+        <BriefHeadline dismissible className="col-span-2 text-wrap text-[15px] font-bold leading-6 text-slate-900 dark:text-slate-100">{maskMoneyText(item.headline, hideNetWorth)}</BriefHeadline>
       </div>
       <div className="mt-3">
         <p className="money text-[18px] font-semibold leading-6 text-slate-900 dark:text-white"><AmountText text={money(data.shortfall)} /></p>
@@ -2197,7 +2211,7 @@ export function BriefBody({ items: rawItems, safeToSpend, router, hideNetWorth: 
       fallbackText = "Nothing needs you today. Your estimate has headroom, and I am keeping an eye on the bills I know about.";
     }
     return (
-      <p lang="en-GB" className="text-pretty text-[15px] text-slate-700 dark:text-slate-200 leading-relaxed"><MoneyText text={fallbackText} /></p>
+      <p lang="en-GB" className="text-wrap text-[15px] text-slate-700 dark:text-slate-200 leading-relaxed"><MoneyText text={fallbackText} /></p>
     );
   }
 
@@ -2317,11 +2331,11 @@ export function BriefBody({ items: rawItems, safeToSpend, router, hideNetWorth: 
         {otherItems.map(item => (
           <div key={item.id}>
             {/* Headline */}
-            <p className="text-[15px] text-slate-700 dark:text-slate-200 leading-relaxed mb-3 max-w-prose text-pretty">
+            <p className="text-[15px] text-slate-700 dark:text-slate-200 leading-relaxed mb-3 lg:max-w-prose text-wrap">
               <strong className="text-slate-900 dark:text-slate-100 font-semibold"><MoneyText text={maskAmounts(item.headline)} /></strong>
             </p>
             {/* Body */}
-            <p lang="en-GB" className="text-pretty text-[15px] text-slate-700 dark:text-slate-200 leading-relaxed max-w-prose">
+            <p lang="en-GB" className="text-wrap text-[15px] text-slate-700 dark:text-slate-200 leading-relaxed lg:max-w-prose">
               <MoneyText text={item.body ?? ""} />
             </p>
           </div>
@@ -2420,7 +2434,7 @@ export function HomeBriefClearedRow({ cleared, router }: HomeBriefClearedRowProp
       >
         <PennyMark size={11} className="text-white" />
       </span>
-      <span lang="en-GB" className="flex-1 min-w-0 text-[14px] text-slate-600 dark:text-slate-300 leading-snug text-pretty">
+      <span lang="en-GB" className="flex-1 min-w-0 text-[14px] text-slate-600 dark:text-slate-300 leading-snug text-wrap">
         {stillLabel}
       </span>
       <ChevronRight size={16} aria-hidden="true" className="flex-shrink-0 text-slate-500 dark:text-slate-400" />
