@@ -55,6 +55,11 @@
   box-sizing: border-box;
 }
 
+html {
+  /* G433: no square browser tap flash; controls carry their own rounded press feedback. */
+  -webkit-tap-highlight-color: transparent;
+}
+
 html,
 body {
   height: 100%;
