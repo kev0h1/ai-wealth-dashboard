@@ -373,3 +373,47 @@ def test_lone_credit_scan_is_bounded_and_batches_the_counterpart_lookup(monkeypa
     assert len(credit_q) == 1 and "$gte" in credit_q[0]["date"]
     assert len(debit_amount_q) == 1 and set(debit_amount_q[0]["amount"]["$in"]) == {10.0, 11.0, 12.0, 13.0, 14.0}
     assert debit_amount_q[0]["user_id"] == UID
+
+
+# ── ingest paths: a name-only credit is never marked Transfer automatically ───
+
+class _SyncRows:
+    def __init__(self):
+        self.rows = {}
+
+    async def find_one_and_update(self, filt, update, *, upsert, **_kwargs):
+        before = self.rows.get(filt["_id"])
+        row = dict(before or {})
+        if before is None:
+            row.update(update.get("$setOnInsert") or {})
+        row.update(update.get("$set") or {})
+        self.rows[filt["_id"]] = row
+        return before
+
+
+def test_truelayer_ingest_leaves_a_name_only_credit_as_income_and_marks_a_number_match_transfer(monkeypatch):
+    from app.services import truelayer_sync as sync
+    rows = _SyncRows()
+    monkeypatch.setattr(sync, "transactions_col", rows)
+    when = datetime(2026, 10, 31, 9, 0).isoformat() + "Z"
+    txns = [
+        {"transaction_id": "tl-name", "amount": 40, "currency": "GBP", "timestamp": when, "description": "FROM JORDAN BLAKE"},
+        {"transaction_id": "tl-acct", "amount": 40, "currency": "GBP", "timestamp": when, "description": "FROM 04-00-04 12345678"},
+    ]
+    asyncio.run(sync._upsert_walk(txns, "main", "user", False, IDENTITY, {"changed": False}))
+    assert rows.rows["tl-name"]["category"] == "Income"
+    assert rows.rows["tl-acct"]["category"] == "Transfer"
+
+
+def test_finexer_ingest_leaves_a_name_only_credit_as_income_and_marks_a_number_match_transfer(monkeypatch):
+    from app.services import finexer_sync as sync
+    rows = _SyncRows()
+    monkeypatch.setattr(sync, "transactions_col", rows)
+    when = datetime(2026, 10, 31, 9, 0).isoformat()
+    txns = [
+        {"id": "fx-name", "amount": 40, "currency": "GBP", "date": when, "description": "FROM JORDAN BLAKE"},
+        {"id": "fx-acct", "amount": 40, "currency": "GBP", "date": when, "description": "FROM 04-00-04 12345678"},
+    ]
+    asyncio.run(sync._upsert_finexer_walk(txns, "main", "user", IDENTITY, {"changed": False}))
+    assert rows.rows["fx-name"]["category"] == "Income"
+    assert rows.rows["fx-acct"]["category"] == "Transfer"
