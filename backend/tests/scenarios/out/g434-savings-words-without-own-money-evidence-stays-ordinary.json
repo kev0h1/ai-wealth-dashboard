@@ -166,7 +166,7 @@
   },
   "days_to_payday": 2,
   "items": [],
-  "name": "Standing order with savings wording but no own-name, own-account-name or pair evidence stays an ordinary own-account movement (G434)",
+  "name": "Standing order with savings wording but no own-name, counterparty-account or pair evidence stays an ordinary own-account movement (G434)",
   "period": {
     "end": "2026-11-26",
     "start": "2026-10-30"

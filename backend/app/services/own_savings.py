@@ -26,6 +26,7 @@ from __future__ import annotations
 import re
 
 from app.services.categorisation import name_matches_owner
+from app.services.own_account_transfers import counterparty_key, resolve_own_account
 
 # Generic savings wording, whole words only. "pot" and "saver" are weak on their
 # own, which is exactly why identity evidence is also required.
@@ -33,33 +34,18 @@ _SAVINGS_WORDS = re.compile(
     r"(?<![a-z0-9])(?:regular\s+savers?|easy\s+access|savers?|savings?|l?isa|pot|vault)(?![a-z0-9])",
     re.I,
 )
-_NON_WORD = re.compile(r"[^a-z0-9]+")
 USER_SAVINGS_CATEGORIES = {"Savings", "Investment"}
-
-
-def _norm(text: str | None) -> str:
-    return _NON_WORD.sub(" ", (text or "").lower()).strip()
 
 
 def has_savings_words(text: str | None) -> bool:
     return bool(_SAVINGS_WORDS.search(text or ""))
 
 
-def own_account_to_shape(description: str | None, account_name: str | None, provider: str | None = None) -> bool:
-    """True when the description reads "<this account's own name> to ...". The
-    account name is tried whole and with the bank's own name stripped from the
-    front (a bank prefixes its name onto an account title the user never typed)."""
-    desc = _norm(description)
-    full = _norm(account_name)
-    candidates = {full}
-    prov = _norm(provider)
-    if prov and full.startswith(prov + " "):
-        candidates.add(full[len(prov) + 1:])
-    for c in candidates:
-        c = re.sub(r"^uk\s+", "", c)
-        if len(c) >= 3 and re.search(rf"(?:^| ){re.escape(c)} to ", desc):
-            return True
-    return False
+def counterparty_names_own_account(row: dict, own_index: dict, source_account_id: str | None) -> bool:
+    """Evidence (a): the row's counterparty sort code and account number equal
+    an account on file (never the source account itself)."""
+    key = counterparty_key(row.get("party_sort_code"), row.get("party_number"))
+    return key is not None and resolve_own_account(own_index, key, str(source_account_id or "")) is not None
 
 
 def detect_savings_elsewhere(
@@ -68,9 +54,16 @@ def detect_savings_elsewhere(
     name_tokens: list[str],
     account_name: str | None,
     provider: str | None = None,
+    own_index: dict | None = None,
+    source_account_id: str | None = None,
 ) -> bool:
     """Whether this recurring MOVEMENT debit series, with no learned destination,
-    is a standing order into the user's own savings held elsewhere."""
+    is a standing order into the user's own savings held elsewhere.
+
+    `own_index` is `own_account_transfers.own_account_index(...)` over the
+    accounts on file; with it, evidence (a) is read from each row's
+    `party_sort_code` and `party_number`. `account_name` and `provider` are
+    kept for callers but are no longer evidence."""
     if not series_txns:
         return False
     for t in series_txns:
@@ -87,7 +80,7 @@ def detect_savings_elsewhere(
             continue
         if name_matches_owner(x, name_tokens or []):
             return True
-        if own_account_to_shape(x, account_name, provider):
+        if own_index and counterparty_names_own_account(t, own_index, source_account_id):
             return True
         if t.get("own_transfer_match"):
             return True
