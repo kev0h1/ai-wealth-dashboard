@@ -3642,6 +3642,7 @@ Board: the private page /ops/go-live on UAT reads and edits these files. Session
   - note (2026-11-07, claude): Tail of previous note (cut at 1500): Independent reviewer; Kevin checks in prod.
   - note (2026-11-07, claude): Kevin 2026-11-07: pull to refresh in prod did not change the Chase sheet (still red Short, no covering move). Cause (1) stale stored results is ruled out or at least not sufficient; prioritise (2) own-savings recognition of Main G to Regular Saver (is the Chase Regular Saver connected in prod, does G426 require a connected destination) and (3) why no source is found despite Barclays and Monzo having room.
   - note (2026-11-07, claude): Kevin 2026-11-07: the Chase Regular Saver is a savings account that Chase does not share over open banking, so it can never be a connected destination (consistent with Finexer coverage notes in A177). So G426 must recognise own-savings transfers without the destination being connected: match by payee or description (e.g. Main G to Regular Saver, Regular Saver, Saver, ISA, Pot) combined with the user's own name tokens or a learned own-account pair, and let the user mark it once as Savings or investments elsewhere (G376 option) so it is remembered. Then the shortfall is treated as savings at risk with a suggested move, not red Short.
+- [ ] **G435. Account page shows Available to spend £0 next to After payments and plans £115.65 with no line explaining the gap (Kevin 2026-11-07, prod, HSBC Advance)** [owner: claude]
 
 ## H. Repo hygiene
 
