@@ -51,11 +51,15 @@ export default function UpcomingAccountsCard({ accounts, periodLabel, onOpen, pl
     const next = !open; setAnimate(true); setOpen(next);
     try { if (next) sessionStorage.setItem(FINE_FOLD_KEY, "1"); else sessionStorage.removeItem(FINE_FOLD_KEY); } catch {}
   };
-  const { attention, fine } = useMemo(() => {
+  const { attention, fine, hasSuggestedMoves } = useMemo(() => {
     const rows = accounts.map(account => ({ account, reading: accountActionReading(account, plans, plansStatus) }));
+    // Funding a suggestion is a cue, not a shortfall. Unknown readings still
+    // need checking and must never be described as fine.
+    const needsAttention = (reading: Reading) => reading.gap > 0 || reading.headline === null || reading.signal === "unknown";
     return {
-      attention: rows.filter(row => row.reading.signal !== null).sort((a, b) => Number(b.reading.signal === "risk") - Number(a.reading.signal === "risk")),
-      fine: rows.filter(row => row.reading.signal === null),
+      attention: rows.filter(row => needsAttention(row.reading)).sort((a, b) => Number(b.reading.signal === "risk") - Number(a.reading.signal === "risk")),
+      fine: rows.filter(row => !needsAttention(row.reading)),
+      hasSuggestedMoves: rows.some(row => row.reading.moves.length > 0),
     };
   }, [accounts, plans, plansStatus]);
   const allClear = accounts.length > 0 && attention.length === 0;
@@ -74,6 +78,6 @@ export default function UpcomingAccountsCard({ accounts, periodLabel, onOpen, pl
       </div>}
     </>}
     {pending}
-    {<p className={styles.listNote}>{attention.some(row => row.reading.moves.length > 0) ? "Suggested moves are for you to make. Nothing has been moved." : "Tap an account for its working."}</p>}
+    {<p className={styles.listNote}>{hasSuggestedMoves ? "Suggested moves are for you to make. Nothing has been moved." : "Tap an account for its working."}</p>}
   </section>;
 }

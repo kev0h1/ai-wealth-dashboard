@@ -127,7 +127,8 @@ assert.doesNotMatch(row(html, "source"), /aria-label="[^"]*(suggested move|set a
 assert.match(sourceSheet(), /data-suggested-move=/, "the full suggested debit remains available in account detail");
 assert.doesNotMatch(html, /Available|Spend from/, "G417 removes pooled-availability language from Upcoming");
 assert.ok(html.indexOf('data-account-row="destination"') < html.indexOf('data-account-row="monzo"'), "payment risk leads before the plans caution");
-assert.match(html, /2 accounts are fine/, "two fine accounts remain in the remembered fold");
+assert.match(html, /3 accounts are fine/, "the healthy funding source joins the two other fine accounts in the remembered fold");
+assert.ok(html.indexOf('data-account-row="source"') > html.indexOf('data-fine-region="true"'), "a source earmark alone does not keep an account visible");
 assert.match(html, /data-fine-region="true" inert="" class="grid[^\"]*grid-rows-\[0fr\]/, "the closed fine group stays inert at 0fr");
 
 html = sourceSheet();
