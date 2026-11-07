@@ -111,3 +111,11 @@ def test_revoked_or_disconnected_account_still_on_file_counts_for_counterparty_e
     idx = own_account_index([revoked, SOURCE])
     series = [_t("ACME SAVER", party_sort_code="200000", party_number="11223344")]
     assert detect_savings_elsewhere(series, name_tokens=[], account_name="Main", own_index=idx, source_account_id="src-acc")
+
+
+def test_user_business_or_other_category_keeps_option_b_own_move():
+    for cat in ("Business", "Other"):
+        d = _debit(party_sort_code="040004", party_number="12345678", custom_category=cat)
+        assert "d1" in find_own_move_ids([d], KINDS, _identity())
+        d = _debit(description="PAYMENT 20202020", custom_category=cat)
+        assert "d1" in find_own_move_ids([d], KINDS, _identity_with_digits())
