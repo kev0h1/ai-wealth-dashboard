@@ -364,6 +364,12 @@ def _name_token_hits(description: str, name_tokens: list[str]) -> set:
     return matched_indices
 
 
+_NOT_INITIALS = frozenset({
+    "to", "it", "at", "in", "on", "of", "by", "is", "as", "or", "an", "be", "do", "go", "no", "so",
+    "up", "us", "we", "me", "my", "ok", "and", "the", "for", "pay", "ltd", "plc", "inc", "co",
+})
+
+
 def name_matches_owner(text: str, name_tokens: list[str]) -> bool:
     """Does this text carry the user's own name?
 
@@ -394,7 +400,13 @@ def name_matches_owner(text: str, name_tokens: list[str]) -> bool:
         return True
     # G438: the surname with run-together initials ("CARTER AJ"): a 2 to 3 letter
     # word made only of the initials of the tokens that did not match.
-    return any(2 <= len(w) <= 3 and all(ch in unmatched_initials for ch in w) for w in words)
+    # Common words and abbreviations ("TO", "IT", "PAY", "LTD") and a repeated
+    # letter ("AA") are never initials.
+    return any(
+        2 <= len(w) <= 3 and w not in _NOT_INITIALS and len(set(w)) > 1
+        and all(ch in unmatched_initials for ch in w)
+        for w in words
+    )
 
 
 def _text_has_account_pair(text: str, sort_code: str, number: str) -> bool:

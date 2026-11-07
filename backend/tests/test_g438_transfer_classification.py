@@ -321,3 +321,17 @@ def test_every_pending_pair_is_one_the_review_can_ask_about():
         pending = find_pending_transfer_ids([debit, credit], KINDS, NO_ONE)
         if "d1" in pending:
             assert analytics._has_pair_evidence(credit, debit, NO_ONE), (debit_text, credit_text)
+
+
+def test_initials_do_not_match_common_words_or_repeated_letters():
+    # profile Tom Olivia Jones: "TO" are his initials only as letters, not as a word
+    assert not name_matches_owner("JONES TO PAY", ["tom", "olivia", "jones"])
+    assert not name_matches_owner("JONES PAY", ["tom", "olivia", "jones"])
+    # profile Ian Thomas Smith
+    assert not name_matches_owner("SMITH IT SERVICES", ["ian", "thomas", "smith"])
+    assert not name_matches_owner("SMITH AA", ["alan", "adam", "smith"])
+    assert not name_matches_owner("SMITH AND CO", ["anna", "dora", "smith"])
+    # real initials still match, in every layout
+    tokens = ["kim", "mara", "maingi"]
+    for text in ("MAINGI KM", "MAINGI K M", "K M MAINGI", "MAINGI MK", "TO MAINGI KM"):
+        assert name_matches_owner(text, tokens), text
