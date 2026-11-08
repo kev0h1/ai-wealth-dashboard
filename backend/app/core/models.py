@@ -91,6 +91,10 @@ class Transaction(BaseModel):
     custom_category: Optional[str] = None
     transaction_type: str
     planned: Optional[bool] = None
+    # A194: Finexer's bank rail code (DD, CR, BP, FP, STO, FT ...) and the
+    # booked/pending status, when the bank supplied them. Absent means absent.
+    bank_code: Optional[str] = None
+    status: Optional[str] = None
     # Provisional bank entries live outside the settled transaction feeds.
     # List endpoints return them separately so callers cannot accidentally
     # include them in historical totals.
