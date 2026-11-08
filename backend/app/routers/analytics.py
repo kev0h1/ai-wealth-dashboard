@@ -6591,7 +6591,7 @@ def _is_distinctive_amount(amount) -> bool:
     return abs(amount - round(amount)) > 0.005
 
 
-def _has_pair_evidence(c: dict, d: dict, identity: dict) -> bool:
+def _has_pair_evidence(c: dict, d: dict, identity: dict, credit_claims_move: bool = False) -> bool:
     """Evidence gate for a candidate transfer-pair suggestion (owner review
     fix 2, tightened after a follow-up false positive): same amount + close
     dates alone is not enough — two unrelated transactions can coincide on
@@ -6610,6 +6610,12 @@ def _has_pair_evidence(c: dict, d: dict, identity: dict) -> bool:
           exactly where coincidences concentrate: small ROUND amounts. A
           distinctive pence amount is enough corroboration to accept it.
     """
+    # G438: a credit that already says it is a move (a movement-kind category or a
+    # link to one of the user's accounts or goals) is evidence on its own leg, the
+    # same test spending's pair scan applies, so what leaves Spend as pending is
+    # exactly what this review asks about.
+    if credit_claims_move or c.get("linked_offline_account_id") or c.get("linked_goal_id"):
+        return True
     c_text = f"{c.get('merchant_name') or ''} {c.get('description') or ''}"
     d_text = f"{d.get('merchant_name') or ''} {d.get('description') or ''}"
     from app.services.own_account_transfers import has_owner_transfer_reference
@@ -6810,7 +6816,7 @@ async def _transfer_pair_suggestions(uid: str) -> list[dict]:
             # Evidence gate (owner review fix 2) — same amount + close dates
             # is not enough on its own; reject a coincidence like a £50
             # client-income credit paired with an unrelated £50 ATM debit.
-            if not (_has_pair_evidence(c, d, identity) or _has_named_bank_transfer_reference(c, d, owned_accounts)):
+            if not (_has_pair_evidence(c, d, identity, kind_of(kind_map, c_eff) == MOVEMENT) or _has_named_bank_transfer_reference(c, d, owned_accounts)):
                 continue
             pair_key = ":".join(sorted([str(c["_id"]), str(d["_id"])]))
             if pair_key in dismissed_pairs:

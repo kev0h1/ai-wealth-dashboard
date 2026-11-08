@@ -14,7 +14,7 @@ import app.routers.card_terms  # noqa: F401  (H143: pre-import before any collec
 import app.services.debt_plan  # noqa: F401
 import app.routers.analytics as analytics
 import app.services.categorisation as categorisation
-from app.services.categories import BUILTIN_CATEGORY_KINDS, CategoryKinds
+from app.services.categories import BUILTIN_CATEGORY_KINDS, MOVEMENT, CategoryKinds, kind_of
 from app.services.categorisation import (
     classify_ft, is_card_balance_transfer, is_own_transfer, name_matches_owner, own_transfer_evidence,
     rule_categorise, rule_categorise_directed,
@@ -320,7 +320,7 @@ def test_every_pending_pair_is_one_the_review_can_ask_about():
         credit = _t("c1", ttype="credit", amount=77.5, date=D0, account_id="saver", desc=credit_text, category=ccat)
         pending = find_pending_transfer_ids([debit, credit], KINDS, NO_ONE)
         if "d1" in pending:
-            assert analytics._has_pair_evidence(credit, debit, NO_ONE), (debit_text, credit_text)
+            assert analytics._has_pair_evidence(credit, debit, NO_ONE, kind_of(KINDS, ccat) == MOVEMENT), (debit_text, credit_text)
 
 
 def test_initials_do_not_match_common_words_or_repeated_letters():
@@ -417,3 +417,12 @@ def test_finexer_ingest_leaves_a_name_only_credit_as_income_and_marks_a_number_m
     asyncio.run(sync._upsert_finexer_walk(txns, "main", "user", IDENTITY, {"changed": False}))
     assert rows.rows["fx-name"]["category"] == "Income"
     assert rows.rows["fx-acct"]["category"] == "Transfer"
+
+
+def test_a_transfer_credit_with_no_shared_text_is_pending_and_the_review_asks(monkeypatch):
+    debit = _t("d1", ttype="debit", amount=150.0, date=D0, account_id="main", desc="AURIQ TIDE", category="Business")
+    credit = _t("c1", ttype="credit", amount=150.0, date=D0, account_id="saver", desc="FASTER PAYMENT RECEIVED", category="Transfer")
+    assert find_pending_transfer_ids([debit, credit], KINDS, NO_ONE) == {"d1"}
+    _review_fakes(monkeypatch, [credit, debit], NO_ONE)
+    items = asyncio.run(analytics._transfer_pair_suggestions(UID))
+    assert [(i["credit"]["id"], i["debit"]["id"]) for i in items] == [("c1", "d1")]

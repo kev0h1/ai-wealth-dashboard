@@ -191,11 +191,11 @@ def find_own_move_ids(docs: list[dict], kinds, identity: dict | None = None) -> 
     return _scan_own_moves(docs, kinds, identity)[0]
 
 
-def _pair_is_askable(credit: dict, debit: dict, identity: dict) -> bool:
+def _pair_is_askable(credit: dict, debit: dict, identity: dict, credit_claims_move: bool) -> bool:
     """True when the transfers review would ask about this pair: the same gate
     the pair suggestions use, so a pending row never leaves Spend unasked."""
     from app.routers.analytics import _has_pair_evidence  # lazy: the router imports this module
-    return _has_pair_evidence(credit, debit, identity)
+    return _has_pair_evidence(credit, debit, identity, credit_claims_move)
 
 
 def find_pending_transfer_ids(docs: list[dict], kinds, identity: dict | None = None) -> set[str]:
@@ -347,7 +347,8 @@ def _scan_own_moves(docs: list[dict], kinds, identity: dict | None = None) -> tu
                                       named_income_only=True)
         if partner is None:
             continue  # the user's name alone never flags a row
-        if not pair_named(d, partner) and not _pair_is_askable(partner, d, identity):
+        if not pair_named(d, partner) and not _pair_is_askable(
+                partner, d, identity, kind_of(kinds, _effective_category(partner)) == MOVEMENT):
             continue  # a row that leaves Spend must be one the review can ask about
         used.add(_txn_id(partner))
         if d.get("custom_category"):
