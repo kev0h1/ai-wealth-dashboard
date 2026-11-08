@@ -19,7 +19,7 @@ from typing import Iterable
 from app.db.collections import accounts_col, confirmed_transfer_pairs_col, own_transfer_judgements_col, preferences_col, transactions_col, user_profiles_col
 from app.services.card_issuers import CARD_ISSUERS
 from app.services.card_names import last_four
-from app.services.categorisation import _CHANNEL_CODES, _NOT_INITIALS, _text_has_account_pair, canonical_merchant_key, name_matches_owner, own_transfer_evidence, series_key as _base_series_key, word_matches_name_token
+from app.services.categorisation import NUMERIC_DATE_RE, _CHANNEL_CODES, _NOT_INITIALS, _text_has_account_pair, canonical_merchant_key, name_matches_owner, own_transfer_evidence, series_key as _base_series_key, word_matches_name_token
 from app.services.categories import BUILTIN_CATEGORY_KINDS, MOVEMENT, get_category_kinds
 
 OWN_TRANSFER_MATCH_VERSION = 2
@@ -728,11 +728,51 @@ async def ai_state_signature(user_id: str, *, collection=None) -> list:
     return sorted((str(d.get("_id")), str(d.get("verdict")), bool(d.get("user_override"))) for d in docs)
 
 
+# G442: the model's own-transfer learning normalisation. A faster-payment narrative
+# reads "FP 31/07/26 0630 RP46532...": the date and the hhmm time after it change
+# every month. This strips the time that FOLLOWS a numeric date, for own-transfer
+# pair keys only. `canonical_merchant_key` itself is unchanged, because a four
+# digit token after a date can be a store number for an ordinary merchant, and
+# merchant caches and manual overrides are keyed on it.
+_DATE_THEN_TIME = re.compile(r"(?P<date>" + NUMERIC_DATE_RE.pattern + r")\s+(?:[01]\d|2[0-3])[0-5]\d\b")
+AI_KEY_PREFIX = "ai:"
+
+
+def transfer_text_key(merchant, description) -> str:
+    """The normalised identity of one leg for AI-learned pairs."""
+    cleaned = _DATE_THEN_TIME.sub(lambda m: m.group("date"), str(description or ""))
+    return canonical_merchant_key(str(merchant or ""), cleaned)
+
+
+def ai_pair_keys(credit: dict, debit: dict) -> tuple[str, str]:
+    """Sorted (key, key) under the AI normaliser, as stored on an AI-learned pair."""
+    return tuple(sorted((  # type: ignore[return-value]
+        transfer_text_key(credit.get("merchant_name"), credit.get("description")),
+        transfer_text_key(debit.get("merchant_name"), debit.get("description")))))
+
+
 def _learned_pair_keys(rows: Iterable[dict]) -> set[tuple[str, str]]:
-    return {
-        tuple(sorted((str(row.get("key_a") or ""), str(row.get("key_b") or ""))))
-        for row in rows if row.get("key_a") and row.get("key_b")
-    }
+    """Learned pairs as one set. A user's pair keeps its plain keys; a pair the
+    model learned (`source: "ai"`) is held under the AI prefix, so each is only
+    ever compared with the normaliser it was learned with."""
+    out: set[tuple[str, str]] = set()
+    for row in rows:
+        a, b = str(row.get("key_a") or ""), str(row.get("key_b") or "")
+        if not (a and b):
+            continue
+        if row.get("source") == "ai":
+            a, b = AI_KEY_PREFIX + a, AI_KEY_PREFIX + b
+        out.add(tuple(sorted((a, b))))
+    return out
+
+
+def learned_match(learned: set[tuple[str, str]], credit: dict, debit: dict) -> bool:
+    """The pair is a learned one: by the user's plain keys, or by the model's keys."""
+    plain = tuple(sorted((
+        canonical_merchant_key(credit.get("merchant_name") or "", credit.get("description") or ""),
+        canonical_merchant_key(debit.get("merchant_name") or "", debit.get("description") or ""))))
+    ai = tuple(sorted(AI_KEY_PREFIX + k for k in ai_pair_keys(credit, debit)))
+    return plain in learned or ai in learned
 
 
 def _pennies(value) -> Decimal | None:
@@ -831,8 +871,8 @@ def series_signature(credit: dict, debit: dict) -> str:
     material = [
         str(credit.get("account_id")), str(debit.get("account_id")),
         f"{money[0]}{money[1]}" if money else "",
-        canonical_merchant_key(credit.get("merchant_name") or "", credit.get("description") or ""),
-        canonical_merchant_key(debit.get("merchant_name") or "", debit.get("description") or ""),
+        transfer_text_key(credit.get("merchant_name"), credit.get("description")),
+        transfer_text_key(debit.get("merchant_name"), debit.get("description")),
     ]
     return hashlib.sha1("|".join(material).encode()).hexdigest()[:16]
 
@@ -881,9 +921,7 @@ def _strong_evidence(credit: dict, debit: dict, accounts: dict[str, dict], name_
     if (counterparty_matches_account(credit, accounts.get(debit["account_id"]))
             or counterparty_matches_account(debit, accounts.get(credit["account_id"]))):
         return True
-    c_key = canonical_merchant_key(credit.get("merchant_name") or "", credit.get("description") or "")
-    d_key = canonical_merchant_key(debit.get("merchant_name") or "", debit.get("description") or "")
-    if tuple(sorted((c_key, d_key))) in learned:
+    if learned_match(learned, credit, debit):
         return True
     # An explicit movement resolution is a private user fact and can anchor
     # the counterpart, but not a coincident salary or purchase.  The other
@@ -970,7 +1008,9 @@ def select_unique_pairs(
 
 def _user_answered_pair(credit: dict, debit: dict, learned: set[tuple[str, str]], movement_categories: set[str]) -> bool:
     """A194: the user's own answers outrank the bank code: a learned pair or an
-    explicit movement category on either leg."""
+    explicit movement category on either leg. A pair the MODEL learned is not a
+    user answer (it is held under the AI prefix, so this plain lookup misses it)
+    and the DD guard still applies to it."""
     c_key = canonical_merchant_key(credit.get("merchant_name") or "", credit.get("description") or "")
     d_key = canonical_merchant_key(debit.get("merchant_name") or "", debit.get("description") or "")
     return (tuple(sorted((c_key, d_key))) in learned
@@ -1181,7 +1221,7 @@ async def reconcile_own_account_transfers(
     ai_verdicts = {} if confirmed_only else await load_ai_verdicts(user_id, collection=judgement_collection)
     ai_same = frozenset(k for k, v in ai_verdicts.items() if v.get("verdict") == "same_transfer")
     named_blocked = frozenset() if confirmed_only else await load_ai_blocked(user_id, ai_verdicts, collection=judgement_collection)
-    ai_learned = _learned_pair_keys(row for row in learned_rows if row.get("source") == "ai")
+    ai_learned = {k for k in _learned_pair_keys(learned_rows) if k[0].startswith(AI_KEY_PREFIX)}
     queued_ids = await active_separate_review_ids(
         user_id, rows, accounts, preference_collection=preference_collection, movement_categories=movement_categories,
     )
@@ -1221,9 +1261,7 @@ async def reconcile_own_account_transfers(
         debit_target = refine_transfer_target(accounts[debit["account_id"]])
         issuer = issuers.get((str(credit["_id"]), str(debit["_id"])))
         link = {"issuer": issuer, "card_account_id": str(credit["account_id"])} if issuer else None
-        pair_keys = tuple(sorted((
-            canonical_merchant_key(credit.get("merchant_name") or "", credit.get("description") or ""),
-            canonical_merchant_key(debit.get("merchant_name") or "", debit.get("description") or ""))))
+        pair_keys = tuple(sorted(AI_KEY_PREFIX + k for k in ai_pair_keys(credit, debit)))
         source = "ai" if (not issuer and (pair_ids(credit, debit) in ai_same or pair_keys in ai_learned)) else None
         if issuer:
             # G403: the bank debit is Debt against the card, the card credit stays Transfer.

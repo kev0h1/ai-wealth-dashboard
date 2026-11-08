@@ -6741,12 +6741,10 @@ async def _transfer_pair_suggestions(uid: str) -> list[dict]:
     active_separate_ids = frozenset(item["id"] for item in await _separate_pair_review_items(uid))
 
     learned_docs = await confirmed_transfer_pairs_col.find(
-        {"user_id": uid}, {"key_a": 1, "key_b": 1}
+        {"user_id": uid}, {"key_a": 1, "key_b": 1, "source": 1}
     ).to_list(None)
-    learned_pair_keys = {
-        tuple(sorted((d["key_a"], d["key_b"])))
-        for d in learned_docs if d.get("key_a") and d.get("key_b")
-    }
+    from app.services.own_account_transfers import _learned_pair_keys, learned_match
+    learned_pair_keys = _learned_pair_keys(learned_docs)  # G442: AI-learned pairs held under their own normaliser
 
     owned_accounts = {a["_id"]: a async for a in accounts_col.find(
         {"user_id": uid}, {"currency": 1, "provider": 1},
@@ -6862,11 +6860,9 @@ async def _transfer_pair_suggestions(uid: str) -> list[dict]:
                     for snapshot in snapshots
                 ):
                     continue
-            c_key = canonical_merchant_key(c.get("merchant_name") or "", c.get("description") or "")
-            d_key = canonical_merchant_key(d.get("merchant_name") or "", d.get("description") or "")
             # A learned description-pair auto-matches at the next sync — no
             # need to ask again.
-            if tuple(sorted((c_key, d_key))) in learned_pair_keys:
+            if learned_match(learned_pair_keys, c, d):
                 continue
             candidates.append((date_diff, c.get("amount") or 0, c, d, pair_key))
 

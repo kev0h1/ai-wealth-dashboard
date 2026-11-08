@@ -41,7 +41,8 @@ assert.match(sheet, /\{pair\.ai_reason && <p [^>]*text-xs leading-5 text-slate-6
 assert.ok(!/invalidateAfterTransactionCorrection\(/.test(sheet.match(/function handleConfirmPair[\s\S]*?\n  }\n/)[0]), "no cache wipe per answer; one recompute when the sheet closes");
 
 // the header: Filed automatically: N opens a list; each series can be undone
-assert.match(sheet, /Filed automatically: \{autoFiled\.length\}/);
+assert.match(sheet, /Filed automatically: \{autoFiled\.length\} series</, "the header says what it counts: series");
+assert.match(sheet, /aria-label=\{`Undo \$\{nameOf\(entry\.debit_account_id\)\} to \$\{nameOf\(entry\.credit_account_id\)\}, \$\{amountText\}`\}/, "each Undo names its series");
 assert.match(sheet, /autoFiled\.length > 0 && renderAutoFiled\(\)/, "hidden when nothing was filed");
 assert.match(sheet, /api\.undoAiTransfer\(entry\.series_key, true\)/, "undo goes through the deferred-recompute path");
 assert.match(sheet, /setAutoFiled\(previous => previous\.filter\(value => value\.series_key !== entry\.series_key\)\)/);

@@ -518,12 +518,6 @@ NUMERIC_DATE_RE = re.compile(
 )
 
 
-# G442: a faster-payment narrative reads "FP 31/07/26 0630 RP46532...". The date
-# and the hhmm time after it both change every month, so the time is stripped
-# with the date; otherwise a learned pair could never match next month.
-NUMERIC_DATE_TIME_RE = re.compile(NUMERIC_DATE_RE.pattern + r'(?:\s+(?:[01]\d|2[0-3])[0-5]\d\b)?')
-
-
 def has_date_fragment(text: str) -> bool:
     """True when the text contains a statement date fragment (word or numeric)."""
     t = text or ""
@@ -801,7 +795,7 @@ def canonical_merchant_key(merchant: str, description: str = "") -> str:
     base = _DOMAIN_SUFFIX_RE.sub(r'\1', base)
     base = strip_date_fragments(base)
     before_numeric_date = base
-    base = NUMERIC_DATE_TIME_RE.sub(' ', base)  # G442: a time that follows the date goes with it
+    base = NUMERIC_DATE_RE.sub(' ', base)
     base = re.sub(r'\s{2,}', ' ', base).strip()
     had_date_signal = base != before_numeric_date.strip()
 
@@ -1281,10 +1275,10 @@ async def apply_rules_bulk(user_id: str, structural: bool = False) -> int:
         ).to_list(None)
         all_txns = [{**row, "currency": str(row.get("currency") or pair_accounts.get(row.get("account_id"), {}).get("currency") or "").upper()} for row in all_txns]
         learned_docs = await confirmed_transfer_pairs_col.find(
-            {"user_id": user_id}, {"key_a": 1, "key_b": 1}
+            {"user_id": user_id}, {"key_a": 1, "key_b": 1, "source": 1}
         ).to_list(None)
-        learned = {tuple(sorted((d["key_a"], d["key_b"]))) for d in learned_docs
-                   if d.get("key_a") and d.get("key_b")}
+        from app.services.own_account_transfers import _learned_pair_keys
+        learned = _learned_pair_keys(learned_docs)  # G442: AI-learned pairs held under their own normaliser
         queued_ids = await active_separate_review_ids(
             user_id, all_txns, pair_accounts, preference_collection=preferences_col, movement_categories=movement_categories,
         )

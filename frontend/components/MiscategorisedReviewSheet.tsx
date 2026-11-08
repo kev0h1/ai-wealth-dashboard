@@ -269,7 +269,7 @@ export default function MiscategorisedReviewSheet({ onClose, onChanged, accounts
     const nameOf = (id: string) => { const account = accounts.find(value => value.id === id); return account?.name ? displayAccountName(account.name) : "Account"; };
     return <details className={`${surface} group mb-4 px-3`} data-auto-filed>
       <summary className="min-h-11 cursor-pointer list-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500">
-        <span className="flex min-h-11 items-center justify-between gap-2 text-sm font-semibold text-slate-900 dark:text-slate-100">Filed automatically: {autoFiled.length}<ChevronDown size={16} aria-hidden="true" className="shrink-0 group-open:rotate-180" /></span>
+        <span className="flex min-h-11 items-center justify-between gap-2 text-sm font-semibold text-slate-900 dark:text-slate-100">Filed automatically: {autoFiled.length} series<ChevronDown size={16} aria-hidden="true" className="shrink-0 group-open:rotate-180" /></span>
       </summary>
       <div className="divide-y divide-slate-200 border-t border-slate-200 dark:divide-slate-700 dark:border-slate-700">{autoFiled.map(entry => {
         const since = seriesSinceLabel(entry.count, entry.first_date);
@@ -279,7 +279,7 @@ export default function MiscategorisedReviewSheet({ onClose, onChanged, accounts
           <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{nameOf(entry.debit_account_id)} to {nameOf(entry.credit_account_id)}</p>
           <p className="mt-1 text-xs leading-5 text-slate-600 dark:text-slate-400">{since ? `${amountText}, ${since}.` : `${amountText}.`}</p>
           {entry.reason && <p className="mt-1 text-xs leading-5 text-slate-600 dark:text-slate-400">{entry.reason}</p>}
-          <button type="button" disabled={!!busy || closing} onClick={() => handleUndo(entry)} className={`${button} mt-2 border border-slate-200 text-slate-700 dark:border-slate-600 dark:text-slate-200`}>{busy === key ? "Undoing…" : "Undo"}</button>
+          <button type="button" aria-label={`Undo ${nameOf(entry.debit_account_id)} to ${nameOf(entry.credit_account_id)}, ${amountText}`} disabled={!!busy || closing} onClick={() => handleUndo(entry)} className={`${button} mt-2 border border-slate-200 text-slate-700 dark:border-slate-600 dark:text-slate-200`}>{busy === key ? "Undoing…" : "Undo"}</button>
           {error(key)}
         </div>;
       })}</div>
