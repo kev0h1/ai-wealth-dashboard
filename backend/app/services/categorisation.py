@@ -346,8 +346,13 @@ async def user_identity(user_id: str) -> dict:
                     "type": a.get("type"),
                     "subtype": a.get("subtype"),
                 }
+    # G442: the model's standing verdicts on pairs (never an undone one), so Spend,
+    # the review gate and the matcher all read the same answer. Absent means
+    # today's rules apply unchanged.
+    from app.services.own_account_transfers import load_ai_verdicts
+    ai_pairs = await load_ai_verdicts(user_id)
     return {"name_tokens": name_tokens, "own_ids": own_ids, "own_map": own_map, "own_keys": own_keys,
-            "account_names": account_names}
+            "account_names": account_names, "ai_pairs": ai_pairs}
 
 
 MIN_TRUNCATED_NAME_LETTERS = 4
@@ -510,6 +515,12 @@ def strip_date_fragments(text: str) -> str:
 NUMERIC_DATE_RE = re.compile(
     r'\b(?:3[01]|[12]\d|0?[1-9])[/\-](?:1[0-2]|0?[1-9])(?:[/\-]\d{2}(?:\d{2})?)?\b'
 )
+
+
+# G442: a faster-payment narrative reads "FP 31/07/26 0630 RP46532...". The date
+# and the hhmm time after it both change every month, so the time is stripped
+# with the date; otherwise a learned pair could never match next month.
+NUMERIC_DATE_TIME_RE = re.compile(NUMERIC_DATE_RE.pattern + r'(?:\s+(?:[01]\d|2[0-3])[0-5]\d\b)?')
 
 
 def has_date_fragment(text: str) -> bool:
@@ -789,7 +800,7 @@ def canonical_merchant_key(merchant: str, description: str = "") -> str:
     base = _DOMAIN_SUFFIX_RE.sub(r'\1', base)
     base = strip_date_fragments(base)
     before_numeric_date = base
-    base = NUMERIC_DATE_RE.sub(' ', base)
+    base = NUMERIC_DATE_TIME_RE.sub(' ', base)  # G442: a time that follows the date goes with it
     base = re.sub(r'\s{2,}', ' ', base).strip()
     had_date_signal = base != before_numeric_date.strip()
 

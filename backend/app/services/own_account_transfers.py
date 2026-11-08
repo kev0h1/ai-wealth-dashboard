@@ -16,10 +16,10 @@ from datetime import datetime, timedelta
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from typing import Iterable
 
-from app.db.collections import accounts_col, confirmed_transfer_pairs_col, preferences_col, transactions_col, user_profiles_col
+from app.db.collections import accounts_col, confirmed_transfer_pairs_col, own_transfer_judgements_col, preferences_col, transactions_col, user_profiles_col
 from app.services.card_issuers import CARD_ISSUERS
 from app.services.card_names import last_four
-from app.services.categorisation import _NOT_INITIALS, _text_has_account_pair, canonical_merchant_key, name_matches_owner, own_transfer_evidence, series_key as _base_series_key, word_matches_name_token
+from app.services.categorisation import _CHANNEL_CODES, _NOT_INITIALS, _text_has_account_pair, canonical_merchant_key, name_matches_owner, own_transfer_evidence, series_key as _base_series_key, word_matches_name_token
 from app.services.categories import BUILTIN_CATEGORY_KINDS, MOVEMENT, get_category_kinds
 
 OWN_TRANSFER_MATCH_VERSION = 2
@@ -496,7 +496,7 @@ def refine_transfer_target(account: dict) -> str | None:
 
 
 def build_match_metadata(row: dict, counterpart: dict, category: str, *, confirmed: bool = False,
-                         card_repayment: dict | None = None) -> dict:
+                         card_repayment: dict | None = None, source: str | None = None) -> dict:
     """Build the durable evidence stamp for an automatic or confirmed pair.
 
     Callers can pass a copy with a proposed custom choice removed when an
@@ -525,6 +525,8 @@ def build_match_metadata(row: dict, counterpart: dict, category: str, *, confirm
     }
     if card_repayment:
         stamp["card_repayment"] = card_repayment
+    if source and not stamp["confirmed"]:
+        stamp["source"] = source  # G442: "ai" marks a pair the model judged to be one transfer
     return stamp
 
 
@@ -668,6 +670,42 @@ def resolve_transfer_evidence(
     return resolved
 
 
+def pair_doc_id(user_id: str, ids: Iterable[str]) -> str:
+    """Stable verdict document id for one candidate pair: both transaction ids."""
+    return f"{user_id}::" + ":".join(sorted(str(i) for i in ids))
+
+
+async def load_ai_verdicts(user_id: str, *, collection=None) -> dict[frozenset, dict]:
+    """G442: the model's standing verdicts for this user, keyed by the pair's
+    two transaction ids. A verdict the user undid (`user_override`) is not
+    standing and is left out, so a user answer always beats the model. Never
+    raises: a failed read means no verdicts, which is today's behaviour."""
+    collection = own_transfer_judgements_col if collection is None else collection
+    try:
+        docs = await collection.find(
+            {"user_id": user_id, "kind": "pair", "user_override": {"$ne": True}},
+            {"ids": 1, "verdict": 1, "reason": 1, "series_sig": 1},
+        ).to_list(None)
+    except Exception:
+        return {}
+    return {frozenset(str(i) for i in d.get("ids") or ()): d for d in docs if d.get("ids")}
+
+
+async def ai_state_signature(user_id: str, *, collection=None) -> list:
+    """G442: a sortable summary of every verdict and undo override for this user,
+    folded into the review state's fingerprint so a new verdict rebuilds it.
+    Never raises: a failed read contributes nothing."""
+    collection = own_transfer_judgements_col if collection is None else collection
+    try:
+        docs = await collection.find(
+            {"user_id": user_id, "kind": {"$in": ["pair", "undo"]}},
+            {"kind": 1, "verdict": 1, "user_override": 1},
+        ).to_list(None)
+    except Exception:
+        return []
+    return sorted((str(d.get("_id")), str(d.get("verdict")), bool(d.get("user_override"))) for d in docs)
+
+
 def _learned_pair_keys(rows: Iterable[dict]) -> set[tuple[str, str]]:
     return {
         tuple(sorted((str(row.get("key_a") or ""), str(row.get("key_b") or ""))))
@@ -748,7 +786,37 @@ def pair_is_named(credit: dict, debit: dict, identity: dict) -> bool:
             or account_name_in_text(_text(credit), {"name": names.get(str(debit.get("account_id")))}))
 
 
-def _strong_evidence(credit: dict, debit: dict, accounts: dict[str, dict], name_tokens: list[str], learned: set[tuple[str, str]], movement_categories: set[str]) -> bool:
+def pair_ids(credit: dict, debit: dict) -> frozenset:
+    """The identity of one candidate pair: both stable transaction ids."""
+    return frozenset((str(credit.get("_id")), str(debit.get("_id"))))
+
+
+def too_generic_to_learn(key: str) -> bool:
+    """A `canonical_merchant_key` must be a real merchant identity, not a bare
+    rail or channel word, before it may become a learned pair (which would
+    stamp Transfer on every future row sharing it). Shared by the user's
+    confirm path and the G442 judge so the two can never disagree."""
+    if len(key) < 6:
+        return True
+    return " " not in key and key.upper() in _CHANNEL_CODES
+
+
+def series_signature(credit: dict, debit: dict) -> str:
+    """A recurring series: the same two accounts, the same amount and the same
+    normalised descriptions (dates, times and reference numbers stripped), so
+    every month's occurrence shares it."""
+    money = _pair_key(credit)
+    material = [
+        str(credit.get("account_id")), str(debit.get("account_id")),
+        f"{money[0]}{money[1]}" if money else "",
+        canonical_merchant_key(credit.get("merchant_name") or "", credit.get("description") or ""),
+        canonical_merchant_key(debit.get("merchant_name") or "", debit.get("description") or ""),
+    ]
+    return hashlib.sha1("|".join(material).encode()).hexdigest()[:16]
+
+
+def _strong_evidence(credit: dict, debit: dict, accounts: dict[str, dict], name_tokens: list[str], learned: set[tuple[str, str]], movement_categories: set[str],
+                     ai_same: frozenset = frozenset()) -> bool:
     """Evidence strong enough to decide a pair without asking (G438, Kevin's
     rule): counterparty evidence (a), a pair where either leg names the user or
     the other account or pot on file (b), a pair the user already answered
@@ -756,6 +824,8 @@ def _strong_evidence(credit: dict, debit: dict, accounts: dict[str, dict], name_
     repayment (checked by the caller). A pair with no name, a name with no pair
     and a bare account number are only reasons to ASK, which the transfers
     review does (`has_pair_evidence` in the analytics router)."""
+    if ai_same and pair_ids(credit, debit) in ai_same:
+        return True  # G442: the model judged this pair to be one transfer (an undone verdict is never in the set)
     c_text, d_text = _text(credit), _text(debit)
     # G438 (b), Kevin's refined rule: a matched pair (the caller has already
     # required opposite directions, equal amounts, a few days, both legs on the
@@ -860,11 +930,12 @@ def has_valid_explicit_confirmation(
 def select_unique_pairs(
     rows: list[dict], accounts: dict[str, dict], name_tokens: list[str],
     learned: set[tuple[str, str]], *, movement_categories: set[str] | None = None,
-    exclude_ids: set[str] | frozenset[str] = frozenset(),
+    exclude_ids: set[str] | frozenset[str] = frozenset(), ai_same: frozenset = frozenset(),
 ) -> list[tuple[dict, dict]]:
     """Return only unambiguous `(credit, debit)` pairs from plain documents."""
     return [(c, d) for c, d, _ in select_unique_pairs_detailed(
-        rows, accounts, name_tokens, learned, movement_categories=movement_categories, exclude_ids=exclude_ids)]
+        rows, accounts, name_tokens, learned, movement_categories=movement_categories,
+        exclude_ids=exclude_ids, ai_same=ai_same)]
 
 
 def _user_answered_pair(credit: dict, debit: dict, learned: set[tuple[str, str]], movement_categories: set[str]) -> bool:
@@ -876,15 +947,10 @@ def _user_answered_pair(credit: dict, debit: dict, learned: set[tuple[str, str]]
             or _is_custom_movement(credit, movement_categories) or _is_custom_movement(debit, movement_categories))
 
 
-def select_unique_pairs_detailed(
-    rows: list[dict], accounts: dict[str, dict], name_tokens: list[str],
-    learned: set[tuple[str, str]], *, movement_categories: set[str] | None = None,
-    exclude_ids: set[str] | frozenset[str] = frozenset(),
-) -> list[tuple[dict, dict, str | None]]:
-    """`select_unique_pairs` plus the card issuer key (G403) when the pair is a
-    card repayment found by `card_repayment_issuer`, else None."""
-    if movement_categories is None:
-        movement_categories = {name for name, kind in BUILTIN_CATEGORY_KINDS.items() if kind == MOVEMENT}
+def _confirmed_pairs(
+    rows: list[dict], accounts: dict[str, dict], movement_categories: set[str],
+) -> tuple[list[tuple[dict, dict, str | None]], set[str]]:
+    """Pairs the user explicitly confirmed (still valid), and the ids they use."""
     by_id = {str(row.get("_id")): row for row in rows if row.get("_id") is not None}
     confirmed: list[tuple[dict, dict, str | None]] = []
     consumed: set[str] = set()
@@ -902,6 +968,18 @@ def select_unique_pairs_detailed(
         else:
             continue
         consumed.update({str(row["_id"]), str(other["_id"])})
+    return confirmed, consumed
+
+
+def _same_amount_pairs(
+    rows: list[dict], accounts: dict[str, dict], movement_categories: set[str], *,
+    consumed: set[str], exclude_ids: set[str] | frozenset[str], in_window,
+):
+    """The ONE pair builder (G438/G440, reused by G442): every same-amount,
+    opposite-direction pair on two different accounts on file whose legs
+    satisfy `in_window(credit_date, debit_date)`, with the card issuer key
+    (G403) when the pair is a card repayment, else None. Both the automatic
+    matcher and the model's candidate set read this, so they cannot drift."""
     credits = [r for r in rows if str(r.get("_id")) not in consumed and str(r.get("_id")) not in exclude_ids and not r.get("is_pending") and r.get("transaction_type") == "credit" and not _custom_blocks_auto(r, movement_categories)]
     debits = [r for r in rows if str(r.get("_id")) not in consumed and str(r.get("_id")) not in exclude_ids and not r.get("is_pending") and r.get("transaction_type") == "debit" and not _custom_blocks_auto(r, movement_categories)]
     debit_buckets: dict[tuple[str, Decimal], list[dict]] = {}
@@ -919,7 +997,6 @@ def select_unique_pairs_detailed(
         key = _pair_key(row)
         if key is not None and not row.get("is_pending") and row.get("transaction_type") in ("credit", "debit"):
             amount_rows.setdefault(key, []).append(row)
-    candidates: list[tuple[dict, dict, str | None]] = []
     for credit in credits:
         key = _pair_key(credit)
         if key is None:
@@ -932,20 +1009,70 @@ def select_unique_pairs_detailed(
             c_date, d_date = credit.get("date"), debit.get("date")
             if not isinstance(c_date, datetime) or not isinstance(d_date, datetime):
                 continue
-            if abs((c_date.date() - d_date.date()).days) > PAIR_DAYS:
+            if not in_window(c_date, d_date):
                 continue
-            issuer = card_repayment_issuer(credit, debit, accounts, cards_by_issuer, amount_rows.get(key, []))
-            if (is_direct_debit(credit) or is_direct_debit(debit)) and not issuer and not _user_answered_pair(
-                    credit, debit, learned, movement_categories):
-                continue  # A194: a direct debit is never an own transfer by bank evidence
-            if issuer or _strong_evidence(credit, debit, accounts, name_tokens, learned, movement_categories):
-                candidates.append((credit, debit, issuer))
+            yield credit, debit, card_repayment_issuer(credit, debit, accounts, cards_by_issuer, amount_rows.get(key, []))
+
+
+def _unique_only(candidates: list[tuple[dict, dict, str | None]]) -> list[tuple[dict, dict, str | None]]:
+    """Keep only pairs whose two legs appear in no other candidate pair."""
     credit_counts: dict[object, int] = {}
     debit_counts: dict[object, int] = {}
     for credit, debit, _ in candidates:
         credit_counts[credit["_id"]] = credit_counts.get(credit["_id"], 0) + 1
         debit_counts[debit["_id"]] = debit_counts.get(debit["_id"], 0) + 1
-    return confirmed + [(c, d, i) for c, d, i in candidates if credit_counts[c["_id"]] == debit_counts[d["_id"]] == 1]
+    return [(c, d, i) for c, d, i in candidates if credit_counts[c["_id"]] == debit_counts[d["_id"]] == 1]
+
+
+def select_unique_pairs_detailed(
+    rows: list[dict], accounts: dict[str, dict], name_tokens: list[str],
+    learned: set[tuple[str, str]], *, movement_categories: set[str] | None = None,
+    exclude_ids: set[str] | frozenset[str] = frozenset(), ai_same: frozenset = frozenset(),
+) -> list[tuple[dict, dict, str | None]]:
+    """`select_unique_pairs` plus the card issuer key (G403) when the pair is a
+    card repayment found by `card_repayment_issuer`, else None."""
+    if movement_categories is None:
+        movement_categories = {name for name, kind in BUILTIN_CATEGORY_KINDS.items() if kind == MOVEMENT}
+    confirmed, consumed = _confirmed_pairs(rows, accounts, movement_categories)
+    candidates: list[tuple[dict, dict, str | None]] = []
+    for credit, debit, issuer in _same_amount_pairs(
+            rows, accounts, movement_categories, consumed=consumed, exclude_ids=exclude_ids,
+            in_window=lambda c, d: abs((c.date() - d.date()).days) <= PAIR_DAYS):
+        if (is_direct_debit(credit) or is_direct_debit(debit)) and not issuer and not _user_answered_pair(
+                credit, debit, learned, movement_categories):
+            continue  # A194: a direct debit is never an own transfer by bank evidence
+        if issuer or _strong_evidence(credit, debit, accounts, name_tokens, learned, movement_categories, ai_same):
+            candidates.append((credit, debit, issuer))
+    return confirmed + _unique_only(candidates)
+
+
+def ai_candidate_pairs(
+    rows: list[dict], accounts: dict[str, dict], name_tokens: list[str],
+    learned: set[tuple[str, str]], *, movement_categories: set[str] | None = None,
+    exclude_ids: set[str] | frozenset[str] = frozenset(),
+) -> list[tuple[dict, dict]]:
+    """G442: the pairs only the model can settle. Built on the same pair builder
+    as the automatic matcher, over the G440 ask window (three days), then
+    stripped of everything a rule already decides: a card repayment, a direct
+    debit, a pair the user answered or learned, and any pair automatic evidence
+    files (a sort code and account number, the G440 named pair within 24
+    hours). A leg that sits in more than one candidate is ambiguous and never
+    sent (the matcher would refuse it too). Returns `(credit, debit)`."""
+    if movement_categories is None:
+        movement_categories = {name for name, kind in BUILTIN_CATEGORY_KINDS.items() if kind == MOVEMENT}
+    _, consumed = _confirmed_pairs(rows, accounts, movement_categories)
+    leftovers: list[tuple[dict, dict, str | None]] = []
+    for credit, debit, issuer in _same_amount_pairs(
+            rows, accounts, movement_categories, consumed=consumed, exclude_ids=exclude_ids,
+            in_window=within_ask_window):
+        if issuer or is_direct_debit(credit) or is_direct_debit(debit):
+            continue
+        if _user_answered_pair(credit, debit, learned, movement_categories):
+            continue
+        if _strong_evidence(credit, debit, accounts, name_tokens, learned, movement_categories):
+            continue
+        leftovers.append((credit, debit, None))
+    return [(c, d) for c, d, _ in _unique_only(leftovers)]
 
 
 async def reconcile_own_account_transfers(
@@ -959,6 +1086,7 @@ async def reconcile_own_account_transfers(
     mark_stale_fn=None,
     movement_categories: set[str] | None = None,
     confirmed_only: bool = False,
+    judgement_collection=None,
 ) -> int:
     """Reclassify recent pairs and preserve explicit confirmations of any age.
 
@@ -1015,13 +1143,18 @@ async def reconcile_own_account_transfers(
     # currency, never a global GBP default, and only in this local candidate
     # copy so no source value is silently changed.
     rows = [{**row, "currency": str(row.get("currency") or accounts.get(row.get("account_id"), {}).get("currency") or "").upper()} for row in rows]
-    learned_rows = await pair_collection.find({"user_id": user_id}, {"key_a": 1, "key_b": 1}).to_list(None)
+    learned_rows = await pair_collection.find({"user_id": user_id}, {"key_a": 1, "key_b": 1, "source": 1}).to_list(None)
+    # G442: the model's standing same-transfer verdicts file their pairs, and a
+    # pair learned from one of them stamps its later occurrences as the model's.
+    ai_verdicts = {} if confirmed_only else await load_ai_verdicts(user_id, collection=judgement_collection)
+    ai_same = frozenset(k for k, v in ai_verdicts.items() if v.get("verdict") == "same_transfer")
+    ai_learned = _learned_pair_keys(row for row in learned_rows if row.get("source") == "ai")
     queued_ids = await active_separate_review_ids(
         user_id, rows, accounts, preference_collection=preference_collection, movement_categories=movement_categories,
     )
     detailed = (
         select_unique_pairs_detailed(rows, accounts, profile.get("name_tokens") or [], _learned_pair_keys(learned_rows),
-                                     movement_categories=movement_categories, exclude_ids=queued_ids)
+                                     movement_categories=movement_categories, exclude_ids=queued_ids, ai_same=ai_same)
         if len(accounts) >= 2 else []
     )
     if confirmed_only:
@@ -1055,6 +1188,10 @@ async def reconcile_own_account_transfers(
         debit_target = refine_transfer_target(accounts[debit["account_id"]])
         issuer = issuers.get((str(credit["_id"]), str(debit["_id"])))
         link = {"issuer": issuer, "card_account_id": str(credit["account_id"])} if issuer else None
+        pair_keys = tuple(sorted((
+            canonical_merchant_key(credit.get("merchant_name") or "", credit.get("description") or ""),
+            canonical_merchant_key(debit.get("merchant_name") or "", debit.get("description") or ""))))
+        source = "ai" if (not issuer and (pair_ids(credit, debit) in ai_same or pair_keys in ai_learned)) else None
         if issuer:
             # G403: the bank debit is Debt against the card, the card credit stays Transfer.
             classifications = ((credit, "Transfer", debit),
@@ -1068,7 +1205,7 @@ async def reconcile_own_account_transfers(
         for row, category, counterpart in classifications:
             if row.get("custom_category") is not None:
                 continue
-            match = build_match_metadata(row, counterpart, category, card_repayment=link)
+            match = build_match_metadata(row, counterpart, category, card_repayment=link, source=source)
             result = await transaction_collection.update_one(
                 {"_id": row["_id"], "user_id": user_id, "custom_category": None},
                 {"$set": {"category": category, "own_transfer_match": match}},

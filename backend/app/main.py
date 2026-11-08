@@ -428,6 +428,10 @@ async def _create_indexes():
     # than the regex-prefix scan kept only as a fallback for rows missing the
     # field.
     await _ensure_index(transactions_col, [("user_id", 1), ("merchant_key", 1), ("transaction_type", 1)])
+    # G442: the own-transfer judge reads every verdict for one user at once.
+    from app.db.collections import own_transfer_judgements_col
+    await _ensure_index(own_transfer_judgements_col, [("user_id", 1), ("kind", 1), ("verdict", 1)],
+                        name="own_transfer_judgements_user_kind_verdict")
     await _ensure_index(yapily_transactions_col, [("account_id", 1), ("user_id", 1), ("date", -1)])
     await _ensure_index(yapily_transactions_col, [("user_id", 1), ("date", -1)])
     await _ensure_index(statement_transactions_col, [("account_id", 1), ("user_id", 1), ("date", -1)])

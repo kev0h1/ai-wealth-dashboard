@@ -6346,7 +6346,11 @@ async def _review_inputs_fingerprint(uid: str) -> str:
         )
     ]
     txn_count = await transactions_col.count_documents({"user_id": uid})
+    # G442: the model's verdicts (and the user's undo overrides) change what the
+    # review asks, so they are part of the stored state's identity.
+    from app.services.own_account_transfers import ai_state_signature
     material = {
+        "ai_verdicts": await ai_state_signature(uid),
         "dismissed_rows": sorted(str(x) for x in prefs.get("dismissed_miscategorised") or []),
         "dismissed_series": sorted(str(x) for x in prefs.get("dismissed_miscategorised_series") or []),
         "dismissed_pairs": sorted(str(x) for x in prefs.get("dismissed_transfer_pairs") or []),
@@ -6622,6 +6626,15 @@ def _has_pair_evidence(c: dict, d: dict, identity: dict, credit_claims_move: boo
         return any(x.get("linked_offline_account_id") or x.get("linked_goal_id") for x in (c, d))
     if credit_claims_move or c.get("linked_offline_account_id") or c.get("linked_goal_id"):
         return True
+    # G442: the model's standing verdict on this pair. not_transfer drops it from
+    # the review and leaves it in Spend; unclear is asked, whatever rule evidence
+    # exists, with the model's reason shown. A user link above always wins.
+    ai = (identity.get("ai_pairs") or {}).get(frozenset((str(c.get("_id")), str(d.get("_id")))))
+    if ai:
+        if ai.get("verdict") == "not_transfer":
+            return False
+        if ai.get("verdict") == "unclear":
+            return True
     c_text = f"{c.get('merchant_name') or ''} {c.get('description') or ''}"
     d_text = f"{d.get('merchant_name') or ''} {d.get('description') or ''}"
     from app.services.own_account_transfers import has_owner_transfer_reference, pair_is_named, within_auto_window
@@ -6661,16 +6674,10 @@ def _has_named_bank_transfer_reference(credit: dict, debit: dict, accounts: dict
 
 def _too_generic_to_learn(key: str) -> bool:
     """Owner review fix 3 — a `canonical_merchant_key` must be a real
-    merchant identity, not a bare rail/channel word, before it's allowed to
-    become a learned pair (which would auto-stamp Transfer on every future
-    row sharing it). Stronger than the original ">=3 chars" guard: an
-    "atm"-class key must never be learnable, even via a direct API call that
-    bypasses the suggestion-flow UI entirely."""
-    if len(key) < 6:
-        return True
-    if " " not in key and key.upper() in _CHANNEL_CODES:
-        return True
-    return False
+    merchant identity before it's allowed to become a learned pair. The one
+    implementation lives in own_account_transfers (shared with the G442 judge)."""
+    from app.services.own_account_transfers import too_generic_to_learn
+    return too_generic_to_learn(key)
 
 
 def _pair_leg(t: dict) -> dict:
@@ -6866,21 +6873,50 @@ async def _transfer_pair_suggestions(uid: str) -> list[dict]:
 
     used_credits: set = set()
     used_debits: set = set()
-    suggestions = []
+    matched = []
     for date_diff, amount, c, d, pair_key in candidates:
         if c["_id"] in used_credits or d["_id"] in used_debits:
             continue
         used_credits.add(c["_id"])
         used_debits.add(d["_id"])
-        suggestions.append({
+        matched.append((date_diff, c, d, pair_key))
+
+    # G442: a recurring series is ONE question. Pairs sharing both accounts, the
+    # amount and the normalised descriptions are grouped; the newest pair
+    # represents the series and `series` lists every pair one answer covers.
+    from app.services.own_account_transfers import series_signature
+    ai_pairs = identity.get("ai_pairs") or {}
+    grouped: dict[str, list] = {}
+    for entry in matched:
+        grouped.setdefault(series_signature(entry[1], entry[2]), []).append(entry)
+
+    def _latest(entry):
+        return max(entry[1]["date"], entry[2]["date"])
+
+    suggestions = []
+    for sig, members in grouped.items():
+        members.sort(key=lambda e: (_latest(e), e[3]), reverse=True)
+        date_diff, c, d, pair_key = members[0]
+        verdict = ai_pairs.get(frozenset((str(c["_id"]), str(d["_id"])))) or {}
+        suggestion = {
             "pair_key": pair_key,
             "date_diff_days": date_diff,
             "credit": _pair_leg(c),
             "debit": _pair_leg(d),
-        })
+            "series": {
+                "key": sig,
+                "count": len(members),
+                "first_date": min(_latest(e) for e in members).isoformat(),
+                "pairs": [{"pair_key": e[3], "credit_id": str(e[1]["_id"]), "debit_id": str(e[2]["_id"])} for e in members],
+            },
+        }
+        if verdict.get("verdict") == "unclear" and verdict.get("reason"):
+            suggestion["ai_reason"] = verdict["reason"]
+        suggestions.append((_latest(members[0]), suggestion))
 
-    suggestions.sort(key=lambda s: s["credit"]["amount"] or 0, reverse=True)
-    return suggestions[:10]
+    # Newest first (G442), the largest amount breaking a tie.
+    suggestions.sort(key=lambda x: (x[0], x[1]["credit"]["amount"] or 0), reverse=True)
+    return [item for _, item in suggestions][:10]
 
 
 @router.get("/transactions/transfer-pair-suggestions")
@@ -7024,7 +7060,8 @@ async def confirm_transfer_pair(body: dict, user: dict = Depends(current_user)):
         ka, kb = sorted((key_a, key_b))
         await confirmed_transfer_pairs_col.update_one(
             {"user_id": uid, "key_a": ka, "key_b": kb},
-            {"$setOnInsert": {"user_id": uid, "key_a": ka, "key_b": kb, "created_at": datetime.utcnow()}},
+            {"$setOnInsert": {"user_id": uid, "key_a": ka, "key_b": kb, "created_at": datetime.utcnow()},
+             "$unset": {"source": ""}},  # G442: the user's answer outranks a pair the model learned
             upsert=True,
         )
         learned = True
@@ -7057,6 +7094,40 @@ async def confirm_transfer_pair(body: dict, user: dict = Depends(current_user)):
         "changed": changed,
         "learned": learned,
     }
+
+
+@router.get("/transactions/ai-filed-transfers")
+async def get_ai_filed_transfers(user: dict = Depends(current_user)):
+    """G442: the transfer series Sorted filed on its own from a model verdict,
+    for the review sheet's "Filed automatically" list. Stored state only."""
+    from app.services.own_transfer_judge import list_auto_filed
+    return {"items": await list_auto_filed(user["email"])}
+
+
+@router.post("/transactions/undo-ai-transfer")
+async def undo_ai_transfer(body: dict, user: dict = Depends(current_user)):
+    """G442: undo one auto-filed series. Unlearns the pair, overrides the
+    verdict for good and returns the rows to their prior state; the review or
+    Spend then handles them by the ordinary rules. Same deferred recompute as
+    every other answer in the review (G387)."""
+    uid = user["email"]
+    series_key = body.get("series_key")
+    if not series_key or not isinstance(series_key, str):
+        raise HTTPException(400, "Provide 'series_key'")
+    from app.services.own_transfer_judge import undo_series
+    result = await undo_series(uid, series_key)
+    if not result.get("undone"):
+        raise HTTPException(404, "That transfer series is no longer filed automatically")
+    from app.services import transfer_review_store
+    await transfer_review_store.mark_stale(uid)
+    await response_cache.ainvalidate(uid)
+    from app.services.derived_caches import defer_transfer_review_recompute, mark_stale
+    if body.get("defer_recompute") is True:
+        await defer_transfer_review_recompute(uid)
+    else:
+        await mark_stale(uid, reason="own_account_transfer_undone")
+        asyncio.create_task(compute_and_cache_cashflow(uid, clear_ai_cache=False))
+    return {"ok": True, "undone": result["undone"]}
 
 
 @router.post("/transactions/dismiss-transfer-pair")
