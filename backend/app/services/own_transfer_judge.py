@@ -342,7 +342,7 @@ async def _candidates(uid: str) -> tuple[list[tuple[dict, dict]], dict[str, dict
     return todo, accounts
 
 
-async def judge_user(uid: str, *, max_pairs: int = SYNC_MAX_PAIRS, pace_s: float = 0.0) -> dict:
+async def judge_user(uid: str, *, max_pairs: int | None = None, pace_s: float = 0.0) -> dict:
     """Judge this user's new candidate pairs, store the verdicts, and apply
     them. Worker (or script) only: the API process forbids model calls."""
     if not OPENROUTER_API_KEY or not model_calls_allowed():
@@ -350,7 +350,7 @@ async def judge_user(uid: str, *, max_pairs: int = SYNC_MAX_PAIRS, pace_s: float
     todo, accounts = await _candidates(uid)
     if not todo:
         return {"candidates": 0, "judged": 0}
-    todo = todo[:max_pairs]
+    todo = todo[:SYNC_MAX_PAIRS if max_pairs is None else max_pairs]
     judged = 0
     same = 0
     failures = 0
