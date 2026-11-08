@@ -1,0 +1,204 @@
+{
+  "name": "Saved card bill whose amount cannot be estimated yet: the learned payment stands in on the defined due date, never 0 (G441)",
+  "today": "2026-10-12",
+  "pay_period_config": {
+    "type": "last_friday"
+  },
+  "confirmed_income_streams": [],
+  "accounts": [
+    {
+      "_id": "acc-bc",
+      "name": "Example Current",
+      "provider": "barclays",
+      "type": "BANK",
+      "subtype": "TRANSACTION",
+      "balance": 1500.0,
+      "currency": "GBP",
+      "status": "connected",
+      "include_in_safe_to_spend": true
+    },
+    {
+      "_id": "acc-amex-a",
+      "name": "Example Amex Alpha",
+      "provider": "amex",
+      "type": "CREDIT",
+      "subtype": "CREDIT_CARD",
+      "balance": -600.0,
+      "currency": "GBP",
+      "status": "connected",
+      "include_in_safe_to_spend": true
+    },
+    {
+      "_id": "acc-amex-b",
+      "name": "Example Amex Beta",
+      "provider": "amex",
+      "type": "CREDIT",
+      "subtype": "CREDIT_CARD",
+      "balance": -400.0,
+      "currency": "GBP",
+      "status": "connected",
+      "include_in_safe_to_spend": true
+    }
+  ],
+  "manual_accounts": [],
+  "cashflow_cache": {
+    "recurring_spend": [
+      {
+        "key": "COUNCIL TAX",
+        "avg_amount": 150.0,
+        "avg_interval": 30,
+        "next_date": "2026-10-20",
+        "account_id": "acc-bc",
+        "account_name": "Example Current",
+        "account_bank": "barclays",
+        "account_balance": 1500.0,
+        "is_credit_card": false,
+        "category": "Bills"
+      },
+      {
+        "key": "American Express 20001",
+        "avg_amount": 200.0,
+        "avg_interval": 30,
+        "next_date": "2026-10-24",
+        "account_id": "acc-bc",
+        "account_name": "Example Current",
+        "account_bank": "barclays",
+        "account_balance": 1500.0,
+        "is_credit_card": false,
+        "category": "Debt",
+        "card_dest_account_id": "acc-amex-a",
+        "card_dest_account_name": "Example Amex Alpha",
+        "card_dest_account_bank": "amex"
+      }
+    ],
+    "recurring_income": [
+      {
+        "key": "acme|payroll::acc-bc",
+        "display_name": "Acme Payroll",
+        "avg_amount": 3000.0,
+        "avg_interval": 30,
+        "next_date": "2026-10-30",
+        "account_id": "acc-bc",
+        "account_name": "Example Current",
+        "account_bank": "barclays",
+        "account_balance": 1500.0,
+        "category": "Income",
+        "occurrences": 3,
+        "amounts_recent": [
+          3000.0,
+          3000.0,
+          3000.0
+        ]
+      }
+    ],
+    "bnpl_commitments": [],
+    "avg_daily_spend": 0
+  },
+  "transactions": [
+    {
+      "account_id": "acc-bc",
+      "date": "2026-08-24",
+      "amount": 200.0,
+      "transaction_type": "debit",
+      "description": "AMERICAN EXPRESS 3799-111111-20001",
+      "merchant_name": "American Express",
+      "category": "Debt"
+    },
+    {
+      "account_id": "acc-bc",
+      "date": "2026-09-24",
+      "amount": 200.0,
+      "transaction_type": "debit",
+      "description": "AMERICAN EXPRESS 3799-111111-20001",
+      "merchant_name": "American Express",
+      "category": "Debt"
+    },
+    {
+      "account_id": "acc-bc",
+      "date": "2026-09-11",
+      "amount": 90.0,
+      "transaction_type": "debit",
+      "description": "AMERICAN EXPRESS 3799-111111-20002",
+      "merchant_name": "American Express",
+      "category": "Debt"
+    },
+    {
+      "account_id": "acc-amex-a",
+      "date": "2026-10-08",
+      "amount": 150.0,
+      "transaction_type": "debit",
+      "description": "SUPERMARKET",
+      "merchant_name": "SUPERMARKET",
+      "category": "Groceries"
+    },
+    {
+      "account_id": "acc-amex-b",
+      "date": "2026-10-04",
+      "amount": 300.0,
+      "transaction_type": "debit",
+      "description": "FURNITURE SHOP",
+      "merchant_name": "FURNITURE SHOP",
+      "category": "Shopping"
+    },
+    {
+      "account_id": "acc-amex-b",
+      "date": "2026-10-10",
+      "amount": 100.0,
+      "transaction_type": "debit",
+      "description": "RESTAURANT",
+      "merchant_name": "RESTAURANT",
+      "category": "Eating Out"
+    },
+    {
+      "account_id": "acc-amex-a",
+      "date": "2026-10-01",
+      "amount": 75.0,
+      "transaction_type": "debit",
+      "description": "PENDING TAXI",
+      "merchant_name": "TAXI",
+      "category": "Transport",
+      "is_pending": true,
+      "status": "pending"
+    }
+  ],
+  "commitments": [],
+  "allocations": [],
+  "card_terms": [
+    {
+      "account_id": "acc-amex-a",
+      "status": "confirmed",
+      "apr_pct": 22.9,
+      "promos": [],
+      "bt_offers": [],
+      "statement_close_day": 3,
+      "payment_due_day": 28,
+      "payment_due_days_after_close": null,
+      "payment_method": "full",
+      "payment_account_id": "acc-bc",
+      "fixed_payment_amount": null,
+      "usage": "clear_monthly",
+      "payment_match": {
+        "kind": "contains",
+        "text": "20001"
+      }
+    }
+  ],
+  "expected": {
+    "left_to_spend": 1150.0,
+    "accounts": {
+      "acc-bc": {
+        "spend_from": 1150.0,
+        "after_payments": 1150.0,
+        "low_point": 1150.0,
+        "verdict": "covered"
+      }
+    },
+    "cover_plan": {
+      "moves_total": 0,
+      "moves": []
+    },
+    "payday_plan": null,
+    "at_risk_count": 0,
+    "notes": "Same card and rule as the rebuilt-Amex scenario, but card Alpha also has a pending 75 taxi charge dated 1 Oct, before the 3 Oct close. A pending item dated on or before the close may still post into the closed statement, so the bill cannot be estimated reliably and the amount is not known yet. The rule still matches the learned American Express 20001 series (payments of 200 on 24 Aug and 24 Sep), so the defined bill still replaces it rather than leaving it labelled as before; with the amount unknown the learned 200 stands in provisionally, once, on the defined due date Wed 28 Oct (before payday on 30 Oct), flagged amount not known yet. It is never treated as 0, which would read 1,350 and be false comfort. Cash: 1,500 - 150 council tax on 20 Oct = 1,350, then - 200 on 28 Oct = 1,150 at the end and lowest point. Barclays after payments 1,150, low point 1,150, spend from 1,150. No cover move, at risk 0."
+  }
+}

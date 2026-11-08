@@ -231,6 +231,7 @@
     "check:g394-bank-icons": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g394-bank-icons.test.mjs",
     "check:g412-card-details": "node scripts/g412-card-details.test.mjs",
     "check:g412-card-sections": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g412-card-sections.test.mjs",
+    "check:g441-card-bill-unknown": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g441-card-bill-unknown.test.mjs",
     "check:g419-card-payment": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g419-card-payment.test.mjs",
     "check:g412-earmarks": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g412-earmarks.test.mjs",
     "check:g411-home-skeleton": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g411-home-skeleton.test.mjs",

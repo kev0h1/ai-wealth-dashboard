@@ -220,7 +220,7 @@ export type UpcomingBill = {
    * should mark the figure as an estimate (a leading "~"), never treat it
    * as a confirmed amount.
    */
-  amount_basis?: "balance_estimate" | null;
+  amount_basis?: "balance_estimate" | "statement_unknown" | "user_entered" | null;
   /** Set when Penny (agent mode v1) created this planned payment via a
    * confirmed proposal, rather than the user adding it by hand in Planning.
    * Origin badge only — see Allocation's own `created_via` comment for the
@@ -2882,6 +2882,8 @@ export type CardTerms = {
   fixed_payment_amount?: number | null;
   /** G413: which of the paying account's payments is this card's bill. */
   payment_match?: CardPaymentMatch | null;
+  /** G441: the person's own amount for one statement. Applies only to the close it names. */
+  statement_amount_override?: { close_date: string; amount: number } | null;
 };
 
 /** G413: "contains" holds text such as a reference tail; "payment" holds the
@@ -2926,7 +2928,7 @@ export type CardStatementBill = {
   next_payment_due: string;
   payment_method: "full" | "minimum" | "fixed" | "manual" | null;
   payment_account_id: string | null;
-  status: "estimated" | "incomplete_history" | "payment_unverified" | "paid" | "source_unavailable";
+  status: "estimated" | "incomplete_history" | "amount_unknown" | "payment_unverified" | "paid" | "source_unavailable";
   reason: string | null;
   estimated: boolean;
   next_payday: string | null;
@@ -2934,6 +2936,8 @@ export type CardStatementBill = {
   /** G413: only present when the card has a match rule. "unmatched" means no
    * payment matched it in the last two statements. */
   rule_status?: "matched" | "unmatched" | "unknown";
+  /** G441: the amount was typed in by the person, not estimated. */
+  user_entered?: boolean;
 };
 
 export type CardTermsCard = {
@@ -4562,6 +4566,10 @@ export const api = {
     post<CardPaymentMatchPreview>(`/card-terms/${encodeURIComponent(accountId)}/payment-match-preview`, body),
   saveCardPayment: (accountId: string, body: CardPaymentSaveBody) =>
     post<{ status: string; terms: CardTerms }>(`/card-terms/${encodeURIComponent(accountId)}/payment`, body),
+  saveCardStatementAmount: (accountId: string, amount: number) =>
+    post<{ status: string; terms: CardTerms }>(`/card-terms/${encodeURIComponent(accountId)}/statement-amount`, { amount }),
+  clearCardStatementAmount: (accountId: string) =>
+    del<{ status: string; terms: CardTerms | null }>(`/card-terms/${encodeURIComponent(accountId)}/statement-amount`),
   saveCardRates: (accountId: string, body: CardRatesSaveBody) =>
     post<{ status: string; terms: CardTerms }>(`/card-terms/${encodeURIComponent(accountId)}/rates`, body),
   saveCardTerms: (accountId: string, body: CardTermsSaveBody) =>

@@ -92,6 +92,15 @@ def _promos_from_legacy(on_promo, promo_kind, promo_end) -> list[dict]:
     return []
 
 
+def _serialise_override(raw) -> dict | None:
+    if not isinstance(raw, dict):
+        return None
+    amount, close = raw.get("amount"), raw.get("close_date")
+    if not isinstance(close, str) or isinstance(amount, bool) or not isinstance(amount, (int, float)) or not isfinite(amount):
+        return None
+    return {"close_date": close, "amount": round(float(amount), 2)}
+
+
 def _serialize_terms(doc: dict | None) -> dict | None:
     if not doc:
         return None
@@ -125,6 +134,8 @@ def _serialize_terms(doc: dict | None) -> dict | None:
         "fixed_payment_amount": doc.get("fixed_payment_amount"),
         # G413: absent on every legacy document, which reads as no rule.
         "payment_match": _normalise_match_rule(doc.get("payment_match")),
+        # G441: the person's own amount for one statement; absent reads as none.
+        "statement_amount_override": _serialise_override(doc.get("statement_amount_override")),
     }
 
 
@@ -597,6 +608,7 @@ async def save_card_terms(
             "confirmed_at": now,
             "product_key": body.product_key,
             "usage": existing.get("usage"),
+            "statement_amount_override": existing.get("statement_amount_override"),
             **payment,
         }
     else:
@@ -644,6 +656,7 @@ async def save_card_terms(
             "confirmed_at": now,
             "product_key": body.product_key,
             "usage": usage,
+            "statement_amount_override": existing.get("statement_amount_override"),
             **payment,
         }
 
@@ -759,6 +772,42 @@ async def save_card_payment(account_id: str, body: CardPaymentBody, user: dict =
         "apr_pct": None, "promos": [], "min_payment_note": None, "bt_offers": [],
         "product_key": None, "status": None, "confirmed_at": None,
     })
+
+
+class StatementAmountBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    amount: float
+
+
+@router.post("/card-terms/{account_id}/statement-amount")
+async def save_statement_amount(account_id: str, body: StatementAmountBody, user: dict = Depends(current_user)):
+    """G441: the person's own amount for the card's last closed statement, used
+    when the bill cannot be estimated. Applies only to that close and expires
+    once the next close passes. Scoped to the caller's own card."""
+    from app.services.card_statements import OVERRIDE_MAX, has_statement_dates, statement_dates
+    uid = user["email"]
+    await _owned_card_or_404(uid, account_id)
+    if not isfinite(body.amount) or not 0 < body.amount <= OVERRIDE_MAX:
+        raise HTTPException(422, "Enter an amount above £0 and no more than £100,000")
+    amount = round(body.amount, 2)
+    if amount <= 0:
+        raise HTTPException(422, "Enter an amount above £0 and no more than £100,000")
+    existing = await card_terms_col.find_one({"_id": f"{uid}:{account_id}"}) or {}
+    if not has_statement_dates(existing):
+        raise HTTPException(422, "Add the statement dates for this card first")
+    close = statement_dates(timeutil.user_today(), existing)[1]
+    return await _update_scoped_terms(
+        uid, account_id, {"statement_amount_override": {"close_date": close.isoformat(), "amount": amount}}, {})
+
+
+@router.delete("/card-terms/{account_id}/statement-amount")
+async def clear_statement_amount(account_id: str, user: dict = Depends(current_user)):
+    uid = user["email"]
+    await _owned_card_or_404(uid, account_id)
+    existing = await card_terms_col.find_one({"_id": f"{uid}:{account_id}"})
+    if not existing:
+        return {"status": "ok", "terms": None}
+    return await _update_scoped_terms(uid, account_id, {"statement_amount_override": None}, {})
 
 
 @router.post("/card-terms/{account_id}/rates")

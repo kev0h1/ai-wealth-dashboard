@@ -28,6 +28,22 @@ PAYMENT_FIELDS = (
 # this card's bill. Kept out of PAYMENT_FIELDS: those six describe the dated
 # instruction, this one only links it to a payment in the ledger.
 MATCH_FIELD = "payment_match"
+# G441: the person's own figure for ONE statement, {"close_date": "YYYY-MM-DD",
+# "amount": 123.45}. It applies only to the statement that closes on that date,
+# so it expires by itself once the next close passes. Not one of the payment
+# fields: it is never part of the dated instruction.
+OVERRIDE_FIELD = "statement_amount_override"
+OVERRIDE_MAX = 100000.0
+
+
+def valid_statement_override(raw, close: date) -> float | None:
+    """The overridden amount when it is well formed and belongs to this close."""
+    if not isinstance(raw, dict) or raw.get("close_date") != close.isoformat():
+        return None
+    amount = raw.get("amount")
+    if isinstance(amount, bool) or not isinstance(amount, (int, float)) or not _finite(amount) or not 0 < float(amount) <= OVERRIDE_MAX:
+        return None
+    return _money(amount)
 
 
 def _squash(text) -> str:
@@ -283,14 +299,32 @@ def estimate_statement(
     if str(card.get("currency") or "GBP").upper() != "GBP":
         result.update(status="source_unavailable", reason="A payment estimate is not available for this card currency.")
         return result
-    earliest = min((_day(r["date"]) for r in booked), default=None)
     next_close = _month_day(close, 1, terms["statement_close_day"])
-    enough_history = (_finite(card.get("balance")) and earliest is not None and earliest <= start
-                      and not any(r.get("is_pending") or str(r.get("status") or "").strip().lower() == "pending" for r in card_rows))
-    if enough_history:
+    # G441: the live signed balance with the movements since the close backed
+    # out needs only the card's current balance and its transactions since the
+    # close. It does not need the whole previous statement window (a rebuilt or
+    # reconnected card may not have it), so history before the close is no
+    # longer asked for. What can still make the answer unreliable is a pending
+    # item dated on or before the close, which may yet post into the closed
+    # statement; later pending items are outside the closed bill.
+    pending_in_statement = any(
+        (r.get("is_pending") or str(r.get("status") or "").strip().lower() == "pending")
+        and (_day(r.get("date")) or date.max) <= close
+        for r in card_rows)
+    enough_history = _finite(card.get("balance")) and not pending_in_statement
+    entered = valid_statement_override(terms.get(OVERRIDE_FIELD), close) if method == "full" else None
+    if entered is not None:
+        # G441: the person's own figure for this statement wins over any estimate.
+        enough_history = True
+        result["estimated_bill"] = entered
+        result["user_entered"] = True
+        result["reason"] = None
+    elif enough_history:
         result["estimated_bill"] = _money(max(0.0, -float(card["balance"]) - after_debits + after_credits))
+    elif not _finite(card.get("balance")):
+        result["reason"] = "This card has no balance from your bank yet, so the statement cannot be estimated."
     else:
-        result["reason"] = "There is not enough settled card history to estimate this statement yet."
+        result["reason"] = "A card payment from the statement period is still pending, so the statement cannot be estimated yet."
     # A fixed cash instruction is known independently of the statement
     # balance. For in-full DD, overlapping cycles make the payable statement
     # ambiguous, so retain learned evidence instead of inventing a total.
@@ -322,6 +356,20 @@ def estimate_statement(
         return result
     if method == "full":
         if not enough_history:
+            # G441 (G413): a defined bill whose rule names a real payment still
+            # replaces the learned series. The payment that already arrived
+            # settles it; otherwise the amount is unknown and the learned
+            # amount stands in provisionally (see apply_statement_bills).
+            if result.get("rule_series_keys"):
+                landed = [r for r in rule_hits if payment_floor <= (_day(r["date"]) or date.min)]
+                if landed:
+                    latest = max(landed, key=lambda r: _day(r["date"]) or date.min)
+                    value = _money(abs(float(latest["amount"])))
+                    result.update(payment_amount=value, payment_remaining=0.0, paid_since_close=value,
+                                  status="paid", reason=None)
+                else:
+                    result.update(status="amount_unknown", reason=(
+                        "Amount not known yet. Your usual payment from past months is used until this statement can be read."))
             return result
         amount = result["estimated_bill"]
     elif method == "fixed" and _finite(terms.get("fixed_payment_amount")) and float(terms["fixed_payment_amount"]) > 0:
@@ -472,10 +520,19 @@ def apply_statement_bills(
     no debit here. No forecast is invented for an unclosed next statement.
     """
     resolved = {aid for aid, bill in statements.items() if bill.get("status") in ("estimated", "paid")}
+    # G441 (G413): a defined bill whose rule matched a real payment but whose
+    # amount cannot be estimated still REPLACES that card's learned series. The
+    # learned amount stays as ONE provisional occurrence on the defined due date,
+    # flagged amount_basis "statement_unknown" so every surface can say the
+    # amount is not known yet. Never 0 (false comfort), never the old row left
+    # in place unchanged and never both.
+    unknown = {aid for aid, bill in statements.items() if bill.get("status") == "amount_unknown"}
+    known = resolved | unknown
+    provisional_done: set[str] = set()
     kept = []
     for original in raw_bills:
-        aid = statement_card_for_bill(original, statements, resolved)
-        if aid not in resolved or original.get("planned"):
+        aid = statement_card_for_bill(original, statements, known)
+        if aid not in known or original.get("planned"):
             kept.append(original)
             continue
         # An unclosed NEXT statement has no exact bill yet. Preserve its
@@ -484,7 +541,9 @@ def apply_statement_bills(
         # next period's payment from the payday plan.
         next_due = date.fromisoformat(statements[aid]["next_payment_due"])
         original_day = _day(original.get("expected_date"))
-        if original_day and original_day > date.fromisoformat(statements[aid]["payment_due"]) + timedelta(days=14):
+        due_this = date.fromisoformat(statements[aid]["payment_due"])
+        later_statement = bool(original_day and original_day > due_this + timedelta(days=14))
+        if later_statement:
             if next_due <= window_end and not any(b.get("card_dest_account_id") == aid for b in kept):
                 payer_id = statements[aid]["payment_account_id"]
                 payer = accounts[payer_id]
@@ -493,6 +552,17 @@ def apply_statement_bills(
                              "account_id": payer_id, "account_balance": float(payer["balance"]),
                              "account_name": payer.get("nickname") or payer.get("name"),
                              "account_bank": payer.get("provider"), "amount_basis": "balance_estimate"})
+        elif aid in unknown and due_this <= window_end and aid not in provisional_done:
+            provisional_done.add(aid)
+            payer_id = statements[aid]["payment_account_id"]
+            payer = accounts[payer_id]
+            display_day = max(due_this, today)
+            kept.append({**original, "expected_date": display_day.isoformat(),
+                         "days_away": (display_day - today).days,
+                         "account_id": payer_id, "account_balance": float(payer["balance"]),
+                         "account_name": payer.get("nickname") or payer.get("name"),
+                         "account_bank": payer.get("provider"), "amount_basis": "statement_unknown",
+                         "card_dest_account_id": aid})
     for aid in sorted(resolved):
         bill = statements[aid]
         due = date.fromisoformat(bill["payment_due"])
@@ -520,11 +590,12 @@ def apply_statement_bills(
             "is_card_repayment": True, "card_dest_account_id": aid,
             "card_dest_account_name": display_account_name(card.get("nickname") or card.get("name") or "Card"),
             "card_dest_account_bank": card.get("provider"),
-            "amount_basis": "statement_estimate" if bill["payment_method"] == "full" else "fixed_payment",
+            "amount_basis": ("user_entered" if bill.get("user_entered") and bill["payment_method"] == "full"
+                             else "statement_estimate" if bill["payment_method"] == "full" else "fixed_payment"),
             "statement_close": bill["statement_close"], "statement_start": bill["statement_start"],
             "edited": False, "rule_label": None, "pending": due <= today,
             "days_past_due": max(0, (today - due).days),
             "original_date": due.isoformat() if due != display_day else None,
             "dest_account_id": None, "dest_account_spendable": None,
         })
-    return kept, resolved
+    return kept, known
