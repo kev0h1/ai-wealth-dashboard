@@ -17,7 +17,7 @@ ROWS = [
 
 def test_count_fields_counts_presence_only():
     c = fs._count_fields(ROWS)
-    assert c == {"rows": 4, "party": 3, "party_account": 1, "merchant": 1, "category_group": 1}
+    assert c == {"rows": 4, "party": 3, "party_account": 1, "merchant": 1, "category_group": 1, "bank_code": 0}
 
 
 def test_sync_logs_one_line_per_provider_with_counts_and_no_values(monkeypatch, caplog):
@@ -37,7 +37,7 @@ def test_sync_logs_one_line_per_provider_with_counts_and_no_values(monkeypatch, 
         asyncio.run(fs.sync_finexer_consent(h.CONSENT, h.UID))
     lines = [r.getMessage() for r in caplog.records if r.getMessage().startswith("Finexer transaction fields:")]
     assert lines == [
-        "Finexer transaction fields: provider=monzo rows=5 with_party=4 with_party_account=1 with_merchant=2 with_category_group=1"
+        "Finexer transaction fields: provider=monzo rows=5 with_party=4 with_party_account=1 with_merchant=2 with_category_group=1 with_bank_code=0"
     ]
     assert all("SECRET" not in r.getMessage() and "12345678" not in r.getMessage() for r in caplog.records
                if r.getMessage().startswith("Finexer transaction fields"))

@@ -140,6 +140,10 @@ export interface Transaction {
   category?: string;
   transaction_type: "debit" | "credit";
   planned?: boolean;
+  /** A194: the bank's rail code from Finexer (DD, CR, BP, FP, STO, FT, and whatever else a bank sends). Absent when the bank sent none. */
+  bank_code?: string | null;
+  /** A194: "booked" or "pending" as the bank reported it. Absent on rows synced before A194. */
+  status?: string | null;
   /** G268: this row's signed contribution to spending under the one
    *  definition (backend app/services/spending.py): +payment, -refund, 0 for
    *  income, movement, own-account moves and foreign-currency rows. Only the

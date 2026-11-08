@@ -1231,12 +1231,25 @@ def _txn_fields(txn: dict) -> dict:
     group = _clean_str(pick("category_group"), 60)
     if group:
         out["category_group"] = group
+    # A194: the bank's own rail code, its transaction id and the booked/pending
+    # status. bank_code and the bank's id live in `metadata` only (the top-level
+    # `id` is Finexer's own and must never be mistaken for the bank's); absent
+    # metadata means absent fields, never a guess.
+    bank_code = _clean_str(meta.get("bank_code"), 12).upper()
+    if bank_code:
+        out["bank_code"] = bank_code
+    bank_txn_id = _clean_str(meta.get("id"), 120)
+    if bank_txn_id:
+        out["bank_txn_id"] = bank_txn_id
+    status = _clean_str(txn.get("status"), 20).lower()
+    if status:
+        out["status"] = status
     return out
 
 
 def _count_fields(txns: list) -> dict:
     """A183: counts only (never values) of rows carrying each optional field."""
-    counts = {"rows": 0, "party": 0, "party_account": 0, "merchant": 0, "category_group": 0}
+    counts = {"rows": 0, "party": 0, "party_account": 0, "merchant": 0, "category_group": 0, "bank_code": 0}
     for t in txns:
         if not isinstance(t, dict):
             continue
@@ -1246,6 +1259,7 @@ def _count_fields(txns: list) -> dict:
         counts["party_account"] += 1 if (f.get("party_sort_code") and f.get("party_number")) else 0
         counts["merchant"] += 1 if f.get("merchant") else 0
         counts["category_group"] += 1 if f.get("category_group") else 0
+        counts["bank_code"] += 1 if f.get("bank_code") else 0
     return counts
 
 
@@ -1256,7 +1270,7 @@ def _tally_fields(per_provider: dict, provider: Optional[str], walk: dict) -> No
         return
     bucket = per_provider.setdefault(
         str(provider or "unknown")[:60],
-        {"rows": 0, "party": 0, "party_account": 0, "merchant": 0, "category_group": 0},
+        {"rows": 0, "party": 0, "party_account": 0, "merchant": 0, "category_group": 0, "bank_code": 0},
     )
     for key in bucket:
         bucket[key] += int(fields.get(key, 0))
@@ -1268,8 +1282,9 @@ def _log_field_counts(per_provider: dict) -> None:
     for provider, c in sorted(per_provider.items()):
         logger.info(
             "Finexer transaction fields: provider=%s rows=%d with_party=%d with_party_account=%d "
-            "with_merchant=%d with_category_group=%d",
+            "with_merchant=%d with_category_group=%d with_bank_code=%d",
             provider, c["rows"], c["party"], c["party_account"], c["merchant"], c["category_group"],
+            c.get("bank_code", 0),
         )
 
 
@@ -1452,6 +1467,12 @@ async def _upsert_finexer_walk(
         tdoc.update(party)
         if fields.get("category_group"):
             tdoc["category_group"] = fields["category_group"]
+        # A194: bank rail code, bank transaction id and status, $set on every
+        # re-pull when present (a re-sync fills them in on an older row); absent
+        # fields write nothing, so an existing value is never blanked.
+        for key in ("bank_code", "bank_txn_id", "status"):
+            if fields.get(key):
+                tdoc[key] = fields[key]
         if running_balance is not None:
             try:
                 tdoc["running_balance"] = float(running_balance)
@@ -1631,7 +1652,7 @@ async def _walk_transactions(
     first_page = True
     first_txn_logged = False
     out = {"ok": True, "rows": 0, "new": [], "pending": [], "dropped": 0, "debit": 0, "credit": 0,
-           "fields": {"rows": 0, "party": 0, "party_account": 0, "merchant": 0, "category_group": 0}}
+           "fields": {"rows": 0, "party": 0, "party_account": 0, "merchant": 0, "category_group": 0, "bank_code": 0}}
     while url:
         tr = await _get(client, url, params if first_page else None, counter=counter)
         first_page = False

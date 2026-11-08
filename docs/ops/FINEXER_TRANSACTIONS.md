@@ -221,3 +221,28 @@ Assumption, held in one helper (`parse_finexer_timestamp` in `services/finexer_s
 Log lines to read on the first production pass after release (each appears once per process, so look after a restart):
 - `Finexer synced_to timestamp shape: <z|offset|naive> len=<n>` at INFO, shape only, never the value. `naive len=19` confirms the offset-less form.
 - `Finexer synced_to parsed more than 5 minutes after our request stamp (shape: ...); stored anyway` at WARNING. If it appears after the fix, the London interpretation is wrong for that account; the data is still stored.
+
+## Bank code, status and bank transaction id (A194)
+
+Seen on a raw Finexer transaction for an HSBC Advance account on 2026-11-08: top-level `id`, `object`, `timestamp`, `amount` (signed), `currency` (lowercase), `type`, `reference`, `description`, `category`, `category_group`, `balance`, `merchant`, `status` (booked) and a `metadata` object holding `bank_code`, `mutability` and `id`. The Barclays payload carried no `metadata` at all, so every field below is optional and absent means absent. No `party_name`, `party_sort_code` or `party_number` appeared on the HSBC row.
+
+Stored on the transaction row by `finexer_sync._txn_fields`, on insert and on every re-sync (the upsert `$set`s them whenever the payload carries them, so an older row is filled in, and a payload without them writes nothing and never blanks an existing value):
+
+- `bank_code`: `metadata.bank_code`, upper-cased, for example `DD`.
+- `bank_txn_id`: `metadata.id`, the bank's own identifier. Read from `metadata` only, never the top-level `id`, which is Finexer's.
+- `status`: the top-level `status` (`booked` or `pending`), lower-cased. Pending rows go to the pending collection as before (see `pending_transactions.py`); only settled rows are written to `transactions`, so the stored status is in practice `booked`. Storing it changes no pending behaviour.
+
+`bank_code` and `status` are returned by the transactions list endpoints (`bank_code`, `status` on the `Transaction` model) for the transaction sheet. `bank_txn_id` is stored only. The per-provider field-count log line gains `with_bank_code=N` (counts only, never values).
+
+Code meanings (UK Open Banking `ProprietaryBankTransactionCode` as passed through by the bank; the set is the bank's own, not Finexer's):
+
+| Code | Meaning |
+| --- | --- |
+| DD | Direct debit |
+| CR | Credit (money in) |
+| BP | Bill payment |
+| FP | Faster payment |
+| STO | Standing order |
+| FT | Funds transfer |
+
+Other banks may differ: a bank may use other codes (for example `CHG` for a charge, `INT` for interest, `ATM`, `POS` or `DEB` for card spend), different spellings, or send none. Treat an unknown or absent code as "no information" and fall back to the existing behaviour; never treat a code as proof on its own. Phase 2 of A194 uses the code to lead classification (DD is never an own transfer; BP, FP, STO and FT make a row an own-transfer candidate only, with the G438 and G440 name, pair and timing rules still deciding).
