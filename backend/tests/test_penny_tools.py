@@ -828,7 +828,7 @@ def test_get_accounts_includes_recorded_card_payment_settings(monkeypatch):
         "product_key": None, "usage": None, "statement_close_day": 4,
         "payment_due_day": None, "payment_due_days_after_close": 25,
         "payment_method": "fixed", "payment_account_id": "cash1",
-        "fixed_payment_amount": 125, "payment_match": None,
+        "fixed_payment_amount": 125, "payment_match": None, "statement_amount_override": None,
     }
 
 

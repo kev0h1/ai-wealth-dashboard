@@ -1,17 +1,17 @@
 {
   "account_eligibility": {
     "acc-bc": {
-      "after_payments": 1350.0,
-      "after_payments_and_money_in": 1350.0,
-      "after_payments_and_plans": 1350.0,
+      "after_payments": 630.0,
+      "after_payments_and_money_in": 630.0,
+      "after_payments_and_plans": 630.0,
       "estimated": false,
-      "headroom": 1340.0,
+      "headroom": 620.0,
       "is_current_account": true,
-      "low_point": 1350.0,
-      "low_point_and_plans": 1350.0,
+      "low_point": 630.0,
+      "low_point_and_plans": 630.0,
       "plans_reserved": 0.0,
       "short": false,
-      "spend_from_headroom": 1350.0,
+      "spend_from_headroom": 630.0,
       "uncertain": false
     }
   },
@@ -84,6 +84,34 @@
         "original_date": null,
         "pending": false,
         "rule_label": null
+      },
+      {
+        "account_balance": 1500.0,
+        "account_bank": "barclays",
+        "account_id": "acc-bc",
+        "account_name": "Example Current",
+        "amount": 720.0,
+        "amount_basis": "statement_estimate",
+        "card_dest_account_bank": "amex",
+        "card_dest_account_id": "acc-amex",
+        "card_dest_account_name": "Example Rewards Card",
+        "category": "Debt",
+        "days_away": 16,
+        "days_past_due": 0,
+        "dest_account_id": null,
+        "dest_account_spendable": null,
+        "display_name": "Example Rewards Card payment",
+        "edited": false,
+        "expected_date": "2026-10-28",
+        "is_card_repayment": true,
+        "is_credit_card": false,
+        "kind": "movement",
+        "name": "card-statement:acc-amex:2026-10-03",
+        "original_date": null,
+        "pending": false,
+        "rule_label": null,
+        "statement_close": "2026-10-03",
+        "statement_start": "2026-09-04"
       }
     ],
     "upcoming_income": [
@@ -115,7 +143,7 @@
   },
   "days_to_payday": 18,
   "items": [],
-  "name": "Dated card with history short of the statement start: learned behaviour as undated, never degraded",
+  "name": "Dated card rebuilt after the statement start: the bill still comes from the live balance less the movements since the close (G441)",
   "period": {
     "end": "2026-10-29",
     "start": "2026-09-25"
@@ -125,13 +153,13 @@
     "calculation_status": "complete",
     "commitments_reserved": 0,
     "left_to_spend_lines": {
-      "accounts_total": 1350.0,
+      "accounts_total": 630.0,
       "buffer": 0.0,
       "plans_total": 0
     },
-    "lowest_projected_balance": 1350.0,
-    "safe_to_spend": 1350.0,
-    "safe_to_spend_cash": 1350.0
+    "lowest_projected_balance": 630.0,
+    "safe_to_spend": 630.0,
+    "safe_to_spend_cash": 630.0
   },
   "today": "2026-10-12"
 }
