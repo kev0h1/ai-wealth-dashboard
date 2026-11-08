@@ -1432,7 +1432,7 @@ async def _upsert_finexer_walk(
             # fields below match); the owner's name alone is a question for the
             # transfers review, not a decision.
             category = rule_categorise_directed(merchant, description, is_credit=True) or (
-                "Transfer" if identity is not None and is_own_transfer(f"{merchant} {description}", identity, own_account_id=account_id)
+                "Transfer" if identity is not None and fields.get("bank_code") != "DD" and is_own_transfer(f"{merchant} {description}", identity, own_account_id=account_id)
                 else "Income"
             )
         else:
@@ -1443,7 +1443,8 @@ async def _upsert_finexer_walk(
         # from the bank's data and not from the narrative.
         own_account = None
         own_key = counterparty_key(party.get("party_sort_code"), party.get("party_number"))
-        if own_key is not None:
+        # A194: a bank-coded direct debit is never an own-account transfer.
+        if own_key is not None and fields.get("bank_code") != "DD":
             if "own_index" not in state:
                 state["own_index"] = await load_own_account_index(user_id)
             candidate = resolve_own_account(state["own_index"], own_key, account_id)

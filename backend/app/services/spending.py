@@ -77,7 +77,7 @@ from app.services.categories import (
 )
 from app.services.categorisation import own_transfer_evidence, user_identity
 from app.services.own_account_transfers import (
-    account_name_in_text, counterparty_key, pair_is_named, within_ask_window, within_auto_window,
+    account_name_in_text, counterparty_key, is_direct_debit, pair_is_named, within_ask_window, within_auto_window,
 )
 
 logger = logging.getLogger(__name__)
@@ -101,7 +101,7 @@ _PROJECTION = {
     "amount": 1, "date": 1, "category": 1, "custom_category": 1,
     "transaction_type": 1, "description": 1, "merchant_name": 1,
     "account_id": 1, "linked_offline_account_id": 1, "linked_goal_id": 1,
-    "currency": 1, "party_sort_code": 1, "party_number": 1,
+    "currency": 1, "party_sort_code": 1, "party_number": 1, "bank_code": 1,
 }
 
 
@@ -264,6 +264,8 @@ def _scan_own_moves(docs: list[dict], kinds, identity: dict | None = None) -> tu
             for cr in pool.get(c, ()):
                 if _txn_id(cr) in used or cr.get("account_id") == d.get("account_id"):
                     continue
+                if is_direct_debit(cr):
+                    continue  # A194: a direct debit is never an own transfer
                 if not allow_income and kind_of(kinds, _effective_category(cr)) == INCOME:
                     if not (income_with_text and pair_named(d, cr)):
                         continue
@@ -304,6 +306,12 @@ def _scan_own_moves(docs: list[dict], kinds, identity: dict | None = None) -> tu
         if kind == MOVEMENT and builtin_conflict(cat) and normalise_name(cat) != normalise_name(DEBT_CATEGORY):
             continue  # already not spending; no evidence needed
         did = _txn_id(d)
+
+        # A194: a direct debit is never an own transfer. It stays in Spend (or,
+        # when already Debt, stays a card repayment), so nothing leaves Spend
+        # unasked.
+        if is_direct_debit(d) and normalise_name(cat) != normalise_name(DEBT_CATEGORY):
+            continue
 
         if d.get("linked_offline_account_id") or d.get("linked_goal_id"):
             own.add(did)

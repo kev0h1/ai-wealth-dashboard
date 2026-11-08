@@ -34,6 +34,29 @@ CARD_REPAY_DAYS = 3
 AUTO_PAIR_HOURS = 24
 ASK_PAIR_DAYS = 3
 
+# A194: Finexer's bank rail code leads classification. A direct debit is never
+# an own transfer (it is a card repayment only when its issuer matches a card on
+# file). The transfer rails make a row a candidate, never proof: the G438/G440
+# name, pair and timing rules still decide. An absent code changes nothing.
+TRANSFER_RAIL_CODES = frozenset({"BP", "FP", "STO", "FT"})
+DIRECT_DEBIT_CODE = "DD"
+
+
+def bank_code_of(row: dict | None) -> str | None:
+    code = str((row or {}).get("bank_code") or "").strip().upper()
+    return code or None
+
+
+def is_direct_debit(row: dict | None) -> bool:
+    return bank_code_of(row) == DIRECT_DEBIT_CODE
+
+
+def is_transfer_rail_candidate(row: dict | None) -> bool:
+    """True when the bank says the row travelled a rail own transfers use. A
+    candidate only: never evidence on its own."""
+    return bank_code_of(row) in TRANSFER_RAIL_CODES
+
+
 # G403: the issuer table lives in card_issuers (shared with categorisation).
 _ISSUER_PRINTED = {
     key: re.compile(r"(?<![A-Za-z0-9])(?:" + "|".join(spec["printed"]) + r")(?![A-Za-z0-9])", re.I)
@@ -237,8 +260,11 @@ def card_repayment_issuer(
     if tail:
         if _names_issuer(d_text, issuer) and re.search(rf"(?<!\d){tail}(?!\d)", c_text):
             return issuer
+    # A194: a bank-coded direct debit from the issuer's name stands in for the
+    # card's payment-received wording (the bank itself says it is a direct
+    # debit); every other route 3 condition, including uniqueness, still holds.
     if (_names_issuer(d_text, issuer) and len(cards_by_issuer.get(issuer, [])) == 1
-            and _CARD_PAYMENT_WORDING.search(c_text)):
+            and (_CARD_PAYMENT_WORDING.search(c_text) or is_direct_debit(debit))):
         for other in same_amount:
             if other is credit or other is debit:
                 continue
@@ -900,6 +926,8 @@ def select_unique_pairs_detailed(
             if abs((c_date.date() - d_date.date()).days) > PAIR_DAYS:
                 continue
             issuer = card_repayment_issuer(credit, debit, accounts, cards_by_issuer, amount_rows.get(key, []))
+            if (is_direct_debit(credit) or is_direct_debit(debit)) and not issuer:
+                continue  # A194: a direct debit is never an own transfer
             if issuer or _strong_evidence(credit, debit, accounts, name_tokens, learned, movement_categories):
                 candidates.append((credit, debit, issuer))
     credit_counts: dict[object, int] = {}
@@ -954,7 +982,7 @@ async def reconcile_own_account_transfers(
     projection = {"account_id": 1, "amount": 1, "currency": 1, "date": 1, "transaction_type": 1,
                   "merchant_name": 1, "description": 1, "category": 1, "custom_category": 1,
                   "is_pending": 1, "own_transfer_match": 1,
-                  "party_sort_code": 1, "party_number": 1}
+                  "party_sort_code": 1, "party_number": 1, "bank_code": 1}
     rows = [] if confirmed_only else await transaction_collection.find(
         {"user_id": user_id, "date": {"$gte": cutoff},
          "transaction_type": {"$in": ["credit", "debit"]}}, projection,
