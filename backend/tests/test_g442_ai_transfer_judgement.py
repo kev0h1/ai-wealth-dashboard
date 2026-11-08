@@ -166,7 +166,7 @@ async def mongo_env(monkeypatch, rows, *, learned=None, accounts=None):
         yield cols
     finally:
         for col in cols.values():
-            await col.drop()
+            await col.delete_many({})  # the suite drops its disposable database itself (H96: no raw drop)
         client.close()
 
 
