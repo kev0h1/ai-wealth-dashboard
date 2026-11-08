@@ -195,3 +195,122 @@ def test_every_card_settings_save_path_refreshes_the_money_views(stores):
     assert calls == [uid, uid]
     asyncio.run(card_terms.clear_card_terms("alpha", user))
     assert calls == [uid, uid, uid]
+
+
+# 4. The person's own statement amount (G441).
+
+from fastapi import HTTPException
+
+from app.core import timeutil
+from app.services.card_statements import statement_dates
+
+
+def _entered(amount=801.10, close="2026-10-22", **extra):
+    return {"statement_amount_override": {"close_date": close, "amount": amount}, **extra}
+
+
+def _unknown_rows():
+    return _rows(_row("alpha", date(2026, 10, 20), 20.0, "debit", is_pending=True))
+
+
+def test_entered_amount_makes_an_unknown_bill_estimated_and_replaces_the_learned_series():
+    bill = _estimate(rows=_unknown_rows(), terms=_terms(**_entered()))
+    assert bill["status"] == "estimated" and bill["user_entered"] is True
+    assert bill["estimated_bill"] == 801.10 and bill["payment_remaining"] == 801.10
+    applied, _ = apply_statement_bills([_learned(), _learned(LEARNED_B, 99.80)], {"alpha": bill},
+                                       _accounts(), TODAY, date(2026, 11, 27))
+    names = [b["name"] for b in applied]
+    assert LEARNED_A not in names and LEARNED_B in names
+    defined = [b for b in applied if b["name"].startswith("card-statement:")]
+    assert len(defined) == 1 and defined[0]["amount"] == 801.10 and defined[0]["amount_basis"] == "user_entered"
+
+
+def test_entered_amount_wins_over_an_estimate_for_the_same_close():
+    bill = _estimate(terms=_terms(**_entered(700.0)))
+    assert bill["estimated_bill"] == 700.0 and bill["user_entered"] is True
+
+
+def test_entered_amount_expires_when_the_next_close_passes_or_for_another_close():
+    other = _estimate(rows=_unknown_rows(), terms=_terms(**_entered(close="2026-09-22")))
+    assert other["status"] == "amount_unknown" and "user_entered" not in other
+    later = estimate_statement(_accounts()["alpha"], _terms(**_entered()), _unknown_rows(), _accounts(),
+                               date(2026, 11, 23), pairs=[])
+    assert later["statement_close"] == "2026-11-22" and "user_entered" not in later
+
+
+@pytest.mark.parametrize("bad", [0, -5, float("nan"), float("inf"), 100000.01, True, "12", None])
+def test_malformed_entered_amounts_are_ignored(bad):
+    bill = _estimate(rows=_unknown_rows(), terms=_terms(**_entered(bad)))
+    assert bill["status"] == "amount_unknown"
+
+
+def test_entered_amount_is_ignored_for_a_fixed_payment():
+    bill = _estimate(terms=_terms(payment_method="fixed", fixed_payment_amount=100, **_entered(700.0)))
+    assert bill["payment_amount"] == 100.0 and "user_entered" not in bill
+
+
+@pytest.fixture
+def override_stores(monkeypatch):
+    uid = "g441b@example.test"
+    accounts = FakeCollection([
+        {"_id": "alpha", "user_id": uid, "type": "credit_card", "subtype": "CREDIT_CARD", "currency": "GBP"},
+        {"_id": "theirs", "user_id": "other@example.test", "type": "credit_card", "subtype": "CREDIT_CARD", "currency": "GBP"},
+    ])
+    terms = FakeCollection([{"_id": f"{uid}:alpha", "user_id": uid, "account_id": "alpha", **_terms()}])
+    calls: list[str] = []
+
+    async def refresh(u):
+        calls.append(u)
+
+    monkeypatch.setattr(card_terms, "accounts_col", accounts)
+    monkeypatch.setattr(card_terms, "card_terms_col", terms)
+    monkeypatch.setattr(analytics, "_refresh_after_override", refresh)
+    return uid, terms, calls
+
+
+def _post(uid, account, amount):
+    return asyncio.run(card_terms.save_statement_amount(account, card_terms.StatementAmountBody(amount=amount), {"email": uid}))
+
+
+def test_saving_an_amount_stores_it_against_the_current_close_and_refreshes(override_stores):
+    uid, terms, calls = override_stores
+    out = _post(uid, "alpha", 801.1)
+    close = statement_dates(timeutil.user_today(), _terms())[1].isoformat()
+    assert out["terms"]["statement_amount_override"] == {"close_date": close, "amount": 801.1}
+    assert terms.docs[0]["statement_amount_override"] == {"close_date": close, "amount": 801.1}
+    assert calls == [uid]
+    asyncio.run(card_terms.clear_statement_amount("alpha", {"email": uid}))
+    assert terms.docs[0]["statement_amount_override"] is None and calls == [uid, uid]
+
+
+@pytest.mark.parametrize("bad", [0, -1, 100001, float("nan"), 0.004])
+def test_invalid_amounts_are_refused_and_nothing_is_stored(override_stores, bad):
+    uid, terms, calls = override_stores
+    with pytest.raises(HTTPException) as exc:
+        _post(uid, "alpha", bad)
+    assert exc.value.status_code == 422 and "statement_amount_override" not in terms.docs[0] and calls == []
+
+
+def test_another_users_card_is_refused(override_stores):
+    uid, terms, calls = override_stores
+    with pytest.raises(HTTPException) as exc:
+        _post(uid, "theirs", 50.0)
+    assert exc.value.status_code == 404 and calls == []
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(card_terms.clear_statement_amount("theirs", {"email": uid}))
+    assert exc.value.status_code == 404
+
+
+def test_a_card_without_statement_dates_refuses_an_amount(override_stores):
+    uid, terms, calls = override_stores
+    terms.docs[0]["statement_close_day"] = None
+    with pytest.raises(HTTPException) as exc:
+        _post(uid, "alpha", 50.0)
+    assert exc.value.status_code == 422
+
+
+def test_a_full_terms_save_keeps_the_entered_amount(override_stores):
+    uid, terms, calls = override_stores
+    _post(uid, "alpha", 801.1)
+    asyncio.run(card_terms.save_card_terms("alpha", CardTermsBody(status="confirmed", apr_pct=19.9), {"email": uid}))
+    assert terms.docs[0]["statement_amount_override"]["amount"] == 801.1

@@ -28,6 +28,22 @@ PAYMENT_FIELDS = (
 # this card's bill. Kept out of PAYMENT_FIELDS: those six describe the dated
 # instruction, this one only links it to a payment in the ledger.
 MATCH_FIELD = "payment_match"
+# G441: the person's own figure for ONE statement, {"close_date": "YYYY-MM-DD",
+# "amount": 123.45}. It applies only to the statement that closes on that date,
+# so it expires by itself once the next close passes. Not one of the payment
+# fields: it is never part of the dated instruction.
+OVERRIDE_FIELD = "statement_amount_override"
+OVERRIDE_MAX = 100000.0
+
+
+def valid_statement_override(raw, close: date) -> float | None:
+    """The overridden amount when it is well formed and belongs to this close."""
+    if not isinstance(raw, dict) or raw.get("close_date") != close.isoformat():
+        return None
+    amount = raw.get("amount")
+    if isinstance(amount, bool) or not isinstance(amount, (int, float)) or not _finite(amount) or not 0 < float(amount) <= OVERRIDE_MAX:
+        return None
+    return _money(amount)
 
 
 def _squash(text) -> str:
@@ -296,7 +312,14 @@ def estimate_statement(
         and (_day(r.get("date")) or date.max) <= close
         for r in card_rows)
     enough_history = _finite(card.get("balance")) and not pending_in_statement
-    if enough_history:
+    entered = valid_statement_override(terms.get(OVERRIDE_FIELD), close) if method == "full" else None
+    if entered is not None:
+        # G441: the person's own figure for this statement wins over any estimate.
+        enough_history = True
+        result["estimated_bill"] = entered
+        result["user_entered"] = True
+        result["reason"] = None
+    elif enough_history:
         result["estimated_bill"] = _money(max(0.0, -float(card["balance"]) - after_debits + after_credits))
     elif not _finite(card.get("balance")):
         result["reason"] = "This card has no balance from your bank yet, so the statement cannot be estimated."
@@ -567,7 +590,8 @@ def apply_statement_bills(
             "is_card_repayment": True, "card_dest_account_id": aid,
             "card_dest_account_name": display_account_name(card.get("nickname") or card.get("name") or "Card"),
             "card_dest_account_bank": card.get("provider"),
-            "amount_basis": "statement_estimate" if bill["payment_method"] == "full" else "fixed_payment",
+            "amount_basis": ("user_entered" if bill.get("user_entered") and bill["payment_method"] == "full"
+                             else "statement_estimate" if bill["payment_method"] == "full" else "fixed_payment"),
             "statement_close": bill["statement_close"], "statement_start": bill["statement_start"],
             "edited": False, "rule_label": None, "pending": due <= today,
             "days_past_due": max(0, (today - due).days),
