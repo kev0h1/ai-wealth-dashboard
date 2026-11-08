@@ -2365,6 +2365,9 @@ async def finexer_sync_pipeline(
     await apply_rules_bulk(user_id, structural=True)
     await categorise_others_bg(user_id)
     await apply_mirror_rules(user_id)
+    # G442: judge the pairs no rule settles (the worker inline; the API enqueues it).
+    from app.services import own_transfer_judge
+    await own_transfer_judge.after_sync(user_id)
     # G390: decide at sync, serve from storage.
     from app.services import transfer_review_store
     await transfer_review_store.refresh(user_id)

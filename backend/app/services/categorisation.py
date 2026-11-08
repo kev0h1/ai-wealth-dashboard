@@ -346,8 +346,14 @@ async def user_identity(user_id: str) -> dict:
                     "type": a.get("type"),
                     "subtype": a.get("subtype"),
                 }
+    # G442: the model's standing verdicts on pairs (never an undone one), so Spend,
+    # the review gate and the matcher all read the same answer. Absent means
+    # today's rules apply unchanged.
+    from app.services.own_account_transfers import load_ai_blocked, load_ai_verdicts
+    ai_pairs = await load_ai_verdicts(user_id)
+    ai_blocked = await load_ai_blocked(user_id, ai_pairs)
     return {"name_tokens": name_tokens, "own_ids": own_ids, "own_map": own_map, "own_keys": own_keys,
-            "account_names": account_names}
+            "account_names": account_names, "ai_pairs": ai_pairs, "ai_blocked": ai_blocked}
 
 
 MIN_TRUNCATED_NAME_LETTERS = 4
@@ -1269,10 +1275,10 @@ async def apply_rules_bulk(user_id: str, structural: bool = False) -> int:
         ).to_list(None)
         all_txns = [{**row, "currency": str(row.get("currency") or pair_accounts.get(row.get("account_id"), {}).get("currency") or "").upper()} for row in all_txns]
         learned_docs = await confirmed_transfer_pairs_col.find(
-            {"user_id": user_id}, {"key_a": 1, "key_b": 1}
+            {"user_id": user_id}, {"key_a": 1, "key_b": 1, "source": 1}
         ).to_list(None)
-        learned = {tuple(sorted((d["key_a"], d["key_b"]))) for d in learned_docs
-                   if d.get("key_a") and d.get("key_b")}
+        from app.services.own_account_transfers import _learned_pair_keys
+        learned = _learned_pair_keys(learned_docs)  # G442: AI-learned pairs held under their own normaliser
         queued_ids = await active_separate_review_ids(
             user_id, all_txns, pair_accounts, preference_collection=preferences_col, movement_categories=movement_categories,
         )

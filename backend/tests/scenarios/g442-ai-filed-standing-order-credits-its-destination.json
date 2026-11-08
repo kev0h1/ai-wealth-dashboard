@@ -1,0 +1,274 @@
+{
+  "name": "G442: a standing order the model filed as an own transfer credits its destination (stamped verdict, Barclays to HSBC)",
+  "today": "2026-11-04",
+  "pay_period_config": {
+    "type": "last_friday"
+  },
+  "accounts": [
+    {
+      "_id": "acc-bc",
+      "name": "Barclays Current",
+      "provider": "barclays",
+      "type": "BANK",
+      "subtype": "TRANSACTION",
+      "balance": 2500.0,
+      "currency": "GBP",
+      "status": "connected",
+      "include_in_safe_to_spend": true
+    },
+    {
+      "_id": "acc-hsbc",
+      "name": "HSBC Current",
+      "provider": "hsbc",
+      "type": "BANK",
+      "subtype": "TRANSACTION",
+      "balance": 100.0,
+      "currency": "GBP",
+      "status": "connected",
+      "include_in_safe_to_spend": true
+    }
+  ],
+  "cashflow_cache": {
+    "recurring_spend": [
+      {
+        "key": "COUNCIL TAX",
+        "avg_amount": 150.0,
+        "avg_interval": 30,
+        "next_date": "2026-11-06",
+        "account_id": "acc-bc",
+        "account_name": "Barclays Current",
+        "account_bank": "barclays",
+        "account_balance": 2500.0,
+        "is_credit_card": false,
+        "category": "Bills"
+      },
+      {
+        "key": "TEST OWNER HSBC STO",
+        "avg_amount": 1885.0,
+        "avg_interval": 30,
+        "next_date": "2026-11-05",
+        "account_id": "acc-bc",
+        "account_name": "Barclays Current",
+        "account_bank": "barclays",
+        "account_balance": 2500.0,
+        "is_credit_card": false,
+        "category": "Transfer",
+        "dest_account_id": "acc-hsbc",
+        "dest_account_name": "HSBC Current",
+        "dest_account_bank": "hsbc",
+        "dest_account_spendable": true
+      },
+      {
+        "key": "MORTGAGE HSBC",
+        "avg_amount": 1200.0,
+        "avg_interval": 30,
+        "next_date": "2026-11-09",
+        "account_id": "acc-hsbc",
+        "account_name": "HSBC Current",
+        "account_bank": "hsbc",
+        "account_balance": 100.0,
+        "is_credit_card": false,
+        "category": "Mortgage"
+      }
+    ],
+    "recurring_income": [
+      {
+        "key": "acme|payroll::acc-bc",
+        "display_name": "Acme Payroll",
+        "avg_amount": 3000.0,
+        "avg_interval": 30,
+        "next_date": "2026-11-27",
+        "account_id": "acc-bc",
+        "account_name": "Barclays Current",
+        "account_bank": "barclays",
+        "account_balance": 2500.0,
+        "category": "Income",
+        "occurrences": 4,
+        "amounts_recent": [
+          3000.0,
+          3000.0,
+          3000.0,
+          3000.0
+        ]
+      }
+    ],
+    "bnpl_commitments": [],
+    "avg_daily_spend": 0
+  },
+  "transactions": [
+    {
+      "_id": "sto-d-aug",
+      "account_id": "acc-bc",
+      "date": "2026-08-05",
+      "amount": 1885.0,
+      "transaction_type": "debit",
+      "description": "TEST OWNER HSBC STO",
+      "category": "Transfer",
+      "own_transfer_match": {
+        "version": 2,
+        "counterpart_id": "sto-c-aug",
+        "counterpart_account_id": "acc-hsbc",
+        "previous_category": "Other",
+        "matched_category": "Transfer",
+        "confirmed": false,
+        "source": "ai"
+      }
+    },
+    {
+      "_id": "sto-c-aug",
+      "account_id": "acc-hsbc",
+      "date": "2026-08-07",
+      "amount": 1885.0,
+      "transaction_type": "credit",
+      "description": "HSBC Advance TEST OWNER HSBC",
+      "category": "Transfer",
+      "own_transfer_match": {
+        "version": 2,
+        "counterpart_id": "sto-d-aug",
+        "counterpart_account_id": "acc-bc",
+        "previous_category": "Income",
+        "matched_category": "Transfer",
+        "confirmed": false,
+        "source": "ai"
+      }
+    },
+    {
+      "_id": "sto-d-sep",
+      "account_id": "acc-bc",
+      "date": "2026-09-05",
+      "amount": 1885.0,
+      "transaction_type": "debit",
+      "description": "TEST OWNER HSBC STO",
+      "category": "Transfer",
+      "own_transfer_match": {
+        "version": 2,
+        "counterpart_id": "sto-c-sep",
+        "counterpart_account_id": "acc-hsbc",
+        "previous_category": "Other",
+        "matched_category": "Transfer",
+        "confirmed": false,
+        "source": "ai"
+      }
+    },
+    {
+      "_id": "sto-c-sep",
+      "account_id": "acc-hsbc",
+      "date": "2026-09-07",
+      "amount": 1885.0,
+      "transaction_type": "credit",
+      "description": "HSBC Advance TEST OWNER HSBC",
+      "category": "Transfer",
+      "own_transfer_match": {
+        "version": 2,
+        "counterpart_id": "sto-d-sep",
+        "counterpart_account_id": "acc-bc",
+        "previous_category": "Income",
+        "matched_category": "Transfer",
+        "confirmed": false,
+        "source": "ai"
+      }
+    },
+    {
+      "_id": "sto-d-oct",
+      "account_id": "acc-bc",
+      "date": "2026-10-05",
+      "amount": 1885.0,
+      "transaction_type": "debit",
+      "description": "TEST OWNER HSBC STO",
+      "category": "Transfer",
+      "own_transfer_match": {
+        "version": 2,
+        "counterpart_id": "sto-c-oct",
+        "counterpart_account_id": "acc-hsbc",
+        "previous_category": "Other",
+        "matched_category": "Transfer",
+        "confirmed": false,
+        "source": "ai"
+      }
+    },
+    {
+      "_id": "sto-c-oct",
+      "account_id": "acc-hsbc",
+      "date": "2026-10-07",
+      "amount": 1885.0,
+      "transaction_type": "credit",
+      "description": "HSBC Advance TEST OWNER HSBC",
+      "category": "Transfer",
+      "own_transfer_match": {
+        "version": 2,
+        "counterpart_id": "sto-d-oct",
+        "counterpart_account_id": "acc-bc",
+        "previous_category": "Income",
+        "matched_category": "Transfer",
+        "confirmed": false,
+        "source": "ai"
+      }
+    },
+    {
+      "account_id": "acc-bc",
+      "date": "2026-07-31",
+      "amount": 3000.0,
+      "transaction_type": "credit",
+      "description": "ACME PAYROLL",
+      "merchant_name": "ACME PAYROLL",
+      "category": "Income"
+    },
+    {
+      "account_id": "acc-bc",
+      "date": "2026-08-28",
+      "amount": 3000.0,
+      "transaction_type": "credit",
+      "description": "ACME PAYROLL",
+      "merchant_name": "ACME PAYROLL",
+      "category": "Income"
+    },
+    {
+      "account_id": "acc-bc",
+      "date": "2026-09-25",
+      "amount": 3000.0,
+      "transaction_type": "credit",
+      "description": "ACME PAYROLL",
+      "merchant_name": "ACME PAYROLL",
+      "category": "Income"
+    },
+    {
+      "account_id": "acc-bc",
+      "date": "2026-10-30",
+      "amount": 3000.0,
+      "transaction_type": "credit",
+      "description": "ACME PAYROLL",
+      "merchant_name": "ACME PAYROLL",
+      "category": "Income"
+    }
+  ],
+  "manual_accounts": [],
+  "confirmed_income_streams": [],
+  "commitments": [],
+  "allocations": [],
+  "card_terms": [],
+  "expected": {
+    "left_to_spend": 1250.0,
+    "spendable_balance": 2600.0,
+    "accounts": {
+      "acc-bc": {
+        "spend_from": 465.0,
+        "after_payments": 465.0,
+        "low_point": 465.0,
+        "verdict": "covered"
+      },
+      "acc-hsbc": {
+        "spend_from": 785.0,
+        "after_payments": 785.0,
+        "low_point": 100.0,
+        "verdict": "covered"
+      }
+    },
+    "cover_plan": {
+      "moves_total": 0,
+      "moves": []
+    },
+    "payday_plan": null,
+    "at_risk_count": 0,
+    "notes": "G442 (Kevin 2026-11-08): the model judged the monthly Barclays to HSBC 1,885 pair to be one transfer and the rows carry the stamp (own_transfer_match.source ai, category Transfer on both legs), so the standing order is a predicted payment that is out on Barclays and in on HSBC (its destination is the stamped counterpart account). Today Wed 4 Nov 2026; the last Friday of October was 30 Oct, so the period runs 30 Oct to Thu 26 Nov and payday is Fri 27 Nov, outside the window, so the salary is not credited. Items inside the window: Barclays council tax 150 (Fri 6 Nov), the standing order Barclays to HSBC 1,885 (Thu 5 Nov), HSBC mortgage 1,200 (Mon 9 Nov). Each account on its own (G436). Barclays: 2,500 - 1,885 = 615 (5 Nov); 615 - 150 = 465 (6 Nov). After payments 465, the lowest running balance including the opening 2,500 is 465 (the opening balance is the first point of the walk), Spend from 465. The order leaves 615, at or above zero, so it is funded and lands on HSBC (G360). HSBC: 100 + 1,885 = 1,985 (5 Nov); 1,985 - 1,200 = 785 (9 Nov). After payments 785; the lowest running balance is the opening 100 (1,985 and 785 are both higher), so the low point is 100, only a warning, and Spend from is the closing 785. Left to spend: 465 + 785 = 1,250, equal to the pooled figure (2,500 + 100 - 150 - 1,200 = 1,250) because the order nets to zero inside the pool; no buffer and no plans. Both accounts are at or above zero on every measure, so both read covered, no cover move, at risk 0. The period began 30 Oct (day 5), payday is 23 days away, so there is no payday plan."
+  }
+}

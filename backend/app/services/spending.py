@@ -247,6 +247,19 @@ def _scan_own_moves(docs: list[dict], kinds, identity: dict | None = None) -> tu
     used: set[str] = set()
 
     names = identity.get("account_names") or {}
+    ai_pairs = identity.get("ai_pairs") or {}
+    ai_blocked = identity.get("ai_blocked") or frozenset()
+
+    def _series_sig(cr: dict, db: dict) -> str | None:
+        from app.services.own_account_transfers import series_signature
+        try:
+            return series_signature(cr, db)
+        except Exception:
+            return None
+
+    def ai_verdict(a: dict, b: dict) -> str | None:
+        """G442: the model's standing verdict on this exact pair, if any."""
+        return (ai_pairs.get(frozenset((_txn_id(a), _txn_id(b)))) or {}).get("verdict")
 
     def pair_named(d: dict, cr: dict) -> bool:
         """G438 (b), widened by G440: either leg carries the user's name in any
@@ -266,6 +279,8 @@ def _scan_own_moves(docs: list[dict], kinds, identity: dict | None = None) -> tu
                     continue
                 if is_direct_debit(cr):
                     continue  # A194: a direct debit is never an own transfer
+                if ai_pairs and ai_verdict(cr, d) == "not_transfer":
+                    continue  # G442: judged not a transfer, so it stays in Spend and is not asked
                 if not allow_income and kind_of(kinds, _effective_category(cr)) == INCOME:
                     if not (income_with_text and pair_named(d, cr)):
                         continue
@@ -358,7 +373,8 @@ def _scan_own_moves(docs: list[dict], kinds, identity: dict | None = None) -> tu
                                       named_income_only=True)
         if partner is None:
             continue  # the user's name alone never flags a row
-        if not pair_named(d, partner) and not _pair_is_askable(
+        ai_same = bool(ai_pairs) and ai_verdict(partner, d) == "same_transfer"
+        if not ai_same and not pair_named(d, partner) and not _pair_is_askable(
                 partner, d, identity, kind_of(kinds, _effective_category(partner)) == MOVEMENT):
             continue  # a row that leaves Spend must be one the review can ask about
         used.add(_txn_id(partner))
@@ -370,7 +386,11 @@ def _scan_own_moves(docs: list[dict], kinds, identity: dict | None = None) -> tu
         # G440: and only within 24 hours (same or next day for date-only
         # timestamps); a named pair up to three days apart is asked, like an
         # unnamed one.
-        if pair_named(d, partner) and within_auto_window(d["date"], partner["date"]):
+        # G442: the model's verdict decides; the G440 named-within-24-hours rule is only
+        # the fallback while there is no verdict, and never after the user undid the series.
+        fallback_ok = not (ai_blocked and (frozenset((_txn_id(d), _txn_id(partner))) in ai_blocked
+                                           or _series_sig(partner, d) in ai_blocked))
+        if ai_same or (fallback_ok and pair_named(d, partner) and within_auto_window(d["date"], partner["date"])):
             own.add(did)
             if kind_of(kinds, _effective_category(partner)) not in (INCOME, MOVEMENT) and not partner.get("custom_category"):
                 own.add(_txn_id(partner))

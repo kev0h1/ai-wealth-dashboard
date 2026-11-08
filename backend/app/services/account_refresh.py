@@ -164,7 +164,8 @@ async def _recompute(uid: str) -> None:
         await apply_rules_bulk(uid, structural=True)
         await categorise_others_bg(uid)
         await apply_mirror_rules(uid)
-        from app.services import transfer_review_store
+        from app.services import own_transfer_judge, transfer_review_store
+        await own_transfer_judge.after_sync(uid)  # G442
         await transfer_review_store.refresh(uid)
         await mark_stale(uid)
         await cashflow_cache_col.update_one(

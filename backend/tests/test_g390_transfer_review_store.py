@@ -423,7 +423,11 @@ def test_optimised_pair_scan_equals_frozen_old_scan(monkeypatch):
     monkeypatch.setattr(analytics, "user_identity", _fake_user_identity(EMPTY_IDENTITY))
     old = asyncio.run(_old_scan(UID))
     new = asyncio.run(analytics._transfer_pair_suggestions(UID))
-    assert old == new
+    # G442: the suggestions now lead newest first and carry their recurring
+    # series; the SET of suggested pairs and their legs is what must not change.
+    flat = [{k: v for k, v in item.items() if k not in ("series", "ai_reason")} for item in new]
+    assert sorted(old, key=lambda i: i["pair_key"]) == sorted(flat, key=lambda i: i["pair_key"])
+    assert sum(item["series"]["count"] for item in new) == len(new)  # no series in this fixture repeats
     assert len(new) >= 4, "fixtures must actually produce several suggestions"
     legs = {p["debit"]["id"] for p in new} | {p["credit"]["id"] for p in new}
     assert not ({"xd", "xe", "sc", "sd", "nc", "nd"} & legs)

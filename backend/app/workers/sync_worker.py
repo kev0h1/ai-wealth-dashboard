@@ -129,6 +129,8 @@ async def task_sync_truelayer(ctx, connection_id: str, user_id: str):
     await apply_rules_bulk(user_id, structural=True)
     await categorise_others_bg(user_id)
     await apply_mirror_rules(user_id)
+    from app.services import own_transfer_judge  # G442: judge the pairs no rule settles
+    await own_transfer_judge.after_sync(user_id)
     # trigger="auto": the reconcile cron and webhook syncs keep the
     # new-transactions gate (a recompute is ~1.3 s of CPU plus a Haiku call
     # per user, see app.services.derived_caches), but also recompute a cache
@@ -944,6 +946,21 @@ async def task_health_samples(ctx) -> dict:
         return {"written": 0}
 
 
+async def task_judge_transfer_pairs(ctx, user_id: str):
+    """G442: judge a user's new own-transfer candidate pairs (the one-off 90 day
+    backfill the first time). Enqueued by sync paths that run in the API
+    process, where model calls are forbidden; deduped by job id."""
+    from app.services import own_transfer_judge
+    return await own_transfer_judge.run_for_user(user_id)
+
+
+async def task_backfill_transfer_judgements(ctx):
+    """G442: the one-off backfill for every user, paced and metered. Run by
+    hand (enqueue once); a user already backfilled is skipped."""
+    from app.services import own_transfer_judge
+    return await own_transfer_judge.backfill_all_users()
+
+
 class WorkerSettings:
     # task_refresh_savings_insights is defined in ai_worker but registered here
     # too: this is the worker systemd actually runs, so post-sync enqueues of
@@ -959,7 +976,10 @@ class WorkerSettings:
                  # E16: same job-id dedupe reasoning; keep_result=0 so the
                  # next write can enqueue a fresh warm straight after.
                  arq_func(task_warm_user, keep_result=0),
-                 task_warm_rollover]
+                 task_warm_rollover,
+                 # G442: keep_result=0 so the job id only dedupes a burst.
+                 arq_func(task_judge_transfer_pairs, keep_result=0),
+                 task_backfill_transfer_judgements]
     cron_jobs = [
         cron(task_reconcile_truelayer, hour={0, 4, 8, 12, 16, 20}, minute=0, run_at_startup=False),
         cron(task_refresh_investment_prices, hour=6, minute=30, run_at_startup=False),

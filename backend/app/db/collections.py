@@ -45,6 +45,9 @@ notification_state_col  = db["notification_state"]
 # survives month-to-month statement drift.
 confirmed_transfer_pairs_col = db["confirmed_transfer_pairs"]
 transfer_review_store_col = db["transfer_review_store"]
+# G442: the model's verdict on each own-account transfer pair it judged, plus
+# the user's undo overrides. Written only by the worker (services/own_transfer_judge.py).
+own_transfer_judgements_col = db["own_transfer_judgements"]
 
 # Bank statements
 statement_accounts_col      = db["statement_accounts"]
@@ -578,7 +581,7 @@ ERASURE_MANIFEST = frozenset({
     "merchant_categories_col", "budgets_col", "challenges_col",
     "account_rates_col", "push_subscriptions_col", "apns_tokens_col",
     "fcm_tokens_col", "notification_state_col", "confirmed_transfer_pairs_col",
-    "transfer_review_store_col",
+    "transfer_review_store_col", "own_transfer_judgements_col",
     "statement_accounts_col", "statement_transactions_col", "statement_uploads_col",
     "yapily_consents_col", "yapily_accounts_col", "yapily_transactions_col",
     "savings_insights_col", "savings_labels_col", "debt_plans_col",
