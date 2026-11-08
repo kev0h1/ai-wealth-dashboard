@@ -870,3 +870,64 @@ def test_an_undone_series_is_asked_not_refiled_by_the_g440_fallback(monkeypatch)
             assert find_own_move_ids(docs, KINDS, identity) == set()
             assert "y-d" in find_pending_transfer_ids(docs, KINDS, identity)
     _arun(run())
+
+
+# ── Review round 3 ──────────────────────────────────────────────────────────
+
+def test_the_monthly_counter_uses_the_london_month_at_a_bst_boundary(monkeypatch):
+    import app.core.timeutil as timeutil
+    from datetime import timezone
+
+    class Frozen(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return datetime(2026, 5, 31, 23, 30, tzinfo=timezone.utc).astimezone(tz)
+
+    monkeypatch.setattr(timeutil, "datetime", Frozen)
+    # 23:30 UTC on 31 May is 00:30 BST on 1 June: the user's month is June
+    assert judge._month() == "2026-06"
+    monkeypatch.setattr(Frozen, "now", classmethod(lambda cls, tz=None: datetime(2026, 11, 30, 23, 30, tzinfo=timezone.utc).astimezone(tz)))
+    assert judge._month() == "2026-11"  # GMT in winter: still November
+
+
+def test_a_user_confirmation_of_an_ai_filed_fp_series_leaves_the_auto_filed_list(monkeypatch):
+    monkeypatch.setattr(judge, "_call_model", ModelMock())
+    # a faster payment narrative with a date AND an hhmm time; same time each month so the
+    # user's plain-key pair also matches next month
+    def rows(month, tag=""):
+        day = BASE + timedelta(days=30 * month)
+        stamp = day.strftime("%d/%m/%y")
+        return [_row(f"{tag}fp-d{month}", "debit", 320.0, "barc", day, "JORDAN HARTLEY NATWEST STO"),
+                _row(f"{tag}fp-c{month}", "credit", 320.0, "natw", day + timedelta(days=2), f"HARTLEY JE FP {stamp} 0630 RP4653219{month}")]
+
+    async def run():
+        async with mongo_env(monkeypatch, rows(0) + rows(1)) as cols:
+            await judge.judge_user(UID)
+            listed = await judge.list_auto_filed(UID)
+            assert len(listed) == 1 and listed[0]["count"] == 2
+            ai_doc = await cols["confirmed_transfer_pairs"].find_one({"source": "ai"})
+            assert ai_doc is not None
+
+            async def _noop(*a, **k):
+                return None
+
+            import app.services.derived_caches as derived_caches
+            monkeypatch.setattr(derived_caches, "defer_transfer_review_recompute", _noop)
+            monkeypatch.setattr(analytics.response_cache, "ainvalidate", _noop)
+            for m in (0, 1):
+                await analytics.confirm_transfer_pair({"credit_id": f"fp-c{m}", "debit_id": f"fp-d{m}", "defer_recompute": True}, {"email": UID})
+            assert await cols["confirmed_transfer_pairs"].count_documents({"source": "ai"}) == 0, "the AI-learned pair is gone"
+            assert await judge.list_auto_filed(UID) == []
+            for rid in ("fp-d0", "fp-c1"):
+                marker = (await cols["transactions"].find_one({"_id": rid}))["own_transfer_match"]
+                assert marker["confirmed"] is True and "source" not in marker
+            # next month (same hhmm, new date and reference) matches as the user's pair, with no model call
+            await cols["transactions"].insert_many(rows(2, tag="n-"))
+            calls = len(judge._call_model.calls)
+            await judge.judge_user(UID)
+            assert len(judge._call_model.calls) == calls
+            await oat.reconcile_own_account_transfers(UID)
+            marker = (await cols["transactions"].find_one({"_id": "n-fp-d2"}))["own_transfer_match"]
+            assert "source" not in marker and marker["confirmed"] is False
+            assert await judge.list_auto_filed(UID) == [], "not shown as filed by the model"
+    _arun(run())

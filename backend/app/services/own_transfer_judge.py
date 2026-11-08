@@ -40,6 +40,7 @@ import httpx
 
 from app.core.config import OPENROUTER_API_KEY
 from app.core.llm import LLMCeilingReached, openrouter_chat
+from app.core.timeutil import user_now
 from app.db.collections import (
     accounts_col, confirmed_transfer_pairs_col, own_transfer_judgements_col, preferences_col,
     transactions_col, user_profiles_col,
@@ -321,7 +322,7 @@ async def _note_attempt(uid: str, credit: dict, debit: dict, sig: str) -> None:
 
 
 def _month() -> str:
-    return datetime.utcnow().strftime("%Y-%m")  # naive-ok: calendar month bucket for a usage counter
+    return user_now().strftime("%Y-%m")  # the user's calendar month (Europe/London)
 
 
 async def pairs_sent_this_month(uid: str) -> int:

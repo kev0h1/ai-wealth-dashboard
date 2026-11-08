@@ -101,6 +101,12 @@ class FakeCol:
             self._apply(new, update)
             self.docs.append(new)
 
+    async def delete_many(self, filt):
+        keep = [d for d in self.docs if not _match(d, filt)]
+        n = len(self.docs) - len(keep)
+        self.docs[:] = keep
+        return _ModifiedResult(n)
+
     async def update_many(self, filt, update):
         n = 0
         for d in self.docs:

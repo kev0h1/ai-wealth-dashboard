@@ -7069,6 +7069,15 @@ async def confirm_transfer_pair(body: dict, user: dict = Depends(current_user)):
         )
         learned = True
 
+    # G442: the user's answer also replaces a pair the MODEL learned for these
+    # two legs, which is stored under the model's own keys (a date plus hhmm in
+    # an FP reference makes them differ from the plain keys above). Removing it
+    # keeps later months out of the "Filed automatically" list; the rows below
+    # are stamped as the user's confirmation, never as the model's.
+    from app.services.own_account_transfers import ai_pair_keys
+    ai_a, ai_b = ai_pair_keys(credit_txn, debit_txn)
+    await confirmed_transfer_pairs_col.delete_many({"user_id": uid, "key_a": ai_a, "key_b": ai_b, "source": "ai"})
+
     # A successful decision must be visible to the very next read, including
     # another API process or the shared response cache.
     from app.services import transfer_review_store
