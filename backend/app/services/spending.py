@@ -307,14 +307,16 @@ def _scan_own_moves(docs: list[dict], kinds, identity: dict | None = None) -> tu
             continue  # already not spending; no evidence needed
         did = _txn_id(d)
 
-        # A194: a direct debit is never an own transfer. It stays in Spend (or,
-        # when already Debt, stays a card repayment), so nothing leaves Spend
-        # unasked.
-        if is_direct_debit(d) and normalise_name(cat) != normalise_name(DEBT_CATEGORY):
-            continue
-
         if d.get("linked_offline_account_id") or d.get("linked_goal_id"):
             own.add(did)
+            continue
+
+        # A194: a direct debit is never an own transfer by the bank's evidence.
+        # It stays in Spend (or, when already Debt, stays a card repayment), so
+        # nothing leaves Spend unasked. The user's own answers win both ways:
+        # a link (above) or a custom category (below) is never overridden.
+        if (is_direct_debit(d) and not d.get("custom_category")
+                and normalise_name(cat) != normalise_name(DEBT_CATEGORY)):
             continue
 
         # G437: the user's own category outranks every automatic evidence

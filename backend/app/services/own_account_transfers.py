@@ -867,6 +867,15 @@ def select_unique_pairs(
         rows, accounts, name_tokens, learned, movement_categories=movement_categories, exclude_ids=exclude_ids)]
 
 
+def _user_answered_pair(credit: dict, debit: dict, learned: set[tuple[str, str]], movement_categories: set[str]) -> bool:
+    """A194: the user's own answers outrank the bank code: a learned pair or an
+    explicit movement category on either leg."""
+    c_key = canonical_merchant_key(credit.get("merchant_name") or "", credit.get("description") or "")
+    d_key = canonical_merchant_key(debit.get("merchant_name") or "", debit.get("description") or "")
+    return (tuple(sorted((c_key, d_key))) in learned
+            or _is_custom_movement(credit, movement_categories) or _is_custom_movement(debit, movement_categories))
+
+
 def select_unique_pairs_detailed(
     rows: list[dict], accounts: dict[str, dict], name_tokens: list[str],
     learned: set[tuple[str, str]], *, movement_categories: set[str] | None = None,
@@ -926,8 +935,9 @@ def select_unique_pairs_detailed(
             if abs((c_date.date() - d_date.date()).days) > PAIR_DAYS:
                 continue
             issuer = card_repayment_issuer(credit, debit, accounts, cards_by_issuer, amount_rows.get(key, []))
-            if (is_direct_debit(credit) or is_direct_debit(debit)) and not issuer:
-                continue  # A194: a direct debit is never an own transfer
+            if (is_direct_debit(credit) or is_direct_debit(debit)) and not issuer and not _user_answered_pair(
+                    credit, debit, learned, movement_categories):
+                continue  # A194: a direct debit is never an own transfer by bank evidence
             if issuer or _strong_evidence(credit, debit, accounts, name_tokens, learned, movement_categories):
                 candidates.append((credit, debit, issuer))
     credit_counts: dict[object, int] = {}

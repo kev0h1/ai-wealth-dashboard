@@ -6617,7 +6617,9 @@ def _has_pair_evidence(c: dict, d: dict, identity: dict, credit_claims_move: boo
     # exactly what this review asks about.
     from app.services.own_account_transfers import is_direct_debit
     if is_direct_debit(c) or is_direct_debit(d):
-        return False  # A194: a direct debit is never an own transfer, so never asked as one
+        # A194: a direct debit is never an own transfer by the bank's evidence, so
+        # never asked as one; a user link on either leg still wins.
+        return any(x.get("linked_offline_account_id") or x.get("linked_goal_id") for x in (c, d))
     if credit_claims_move or c.get("linked_offline_account_id") or c.get("linked_goal_id"):
         return True
     c_text = f"{c.get('merchant_name') or ''} {c.get('description') or ''}"
@@ -6828,7 +6830,8 @@ async def _transfer_pair_suggestions(uid: str) -> list[dict]:
             # Evidence gate (owner review fix 2) — same amount + close dates
             # is not enough on its own; reject a coincidence like a £50
             # client-income credit paired with an unrelated £50 ATM debit.
-            if c.get("bank_code") == "DD" or d.get("bank_code") == "DD":
+            if (c.get("bank_code") == "DD" or d.get("bank_code") == "DD") and not any(
+                    x.get("linked_offline_account_id") or x.get("linked_goal_id") or x.get("custom_category") for x in (c, d)):
                 continue  # A194: a direct debit is never an own transfer
             if not (_has_pair_evidence(c, d, identity, kind_of(kind_map, c_eff) == MOVEMENT) or _has_named_bank_transfer_reference(c, d, owned_accounts)):
                 continue
