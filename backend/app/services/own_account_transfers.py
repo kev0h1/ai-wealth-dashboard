@@ -676,14 +676,15 @@ def pair_gap_days(a: datetime, b: datetime) -> int:
 
 def within_ask_window(a, b) -> bool:
     """G440: the legs are close enough for the transfers review to ask: within
-    ASK_PAIR_DAYS days by timestamp, or ASK_PAIR_DAYS calendar days when either
-    leg carries a midnight timestamp (date only). Beyond it, no offer."""
+    ASK_PAIR_DAYS days (72 hours) by timestamp. When either leg carries a
+    midnight timestamp (date only) the legs must be under ASK_PAIR_DAYS calendar
+    days apart (2 days asks, 3 or more gets no offer). Beyond it, no offer."""
     if not isinstance(a, datetime) or not isinstance(b, datetime):
         return False
+    if _is_date_only(a) or _is_date_only(b):
+        return pair_gap_days(a, b) < ASK_PAIR_DAYS
     if pair_gap_days(a, b) > ASK_PAIR_DAYS:
         return False
-    if _is_date_only(a) or _is_date_only(b):
-        return True
     try:
         return abs(a - b) <= timedelta(days=ASK_PAIR_DAYS)
     except TypeError:  # one aware and one naive: calendar days only

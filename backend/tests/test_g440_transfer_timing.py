@@ -105,10 +105,31 @@ def test_pair_beyond_three_days_is_not_offered(monkeypatch):
     assert asyncio.run(analytics._transfer_pair_suggestions(UID)) == []
 
 
+def test_date_only_pair_31_jul_to_3_aug_is_not_offered(monkeypatch):
+    credit, debit = _pair(60.0, "barclays", "monzo", datetime(2026, 7, 31), datetime(2026, 8, 3))
+    assert not within_ask_window(debit["date"], credit["date"])
+    pairs, own, pending = _classify(credit, debit)
+    assert pairs == [] and own == set() and pending == set()
+    assert is_spending(debit, SpendingContext.from_docs([debit, credit], KINDS, IDENTITY))
+    _review_fakes(monkeypatch, [credit, debit], IDENTITY)
+    assert asyncio.run(analytics._transfer_pair_suggestions(UID)) == []
+
+
+def test_date_only_pair_two_days_apart_asks(monkeypatch):
+    credit, debit = _pair(60.0, "barclays", "monzo", datetime(2026, 8, 1), datetime(2026, 8, 3))
+    pairs, own, pending = _classify(credit, debit)
+    assert pairs == [] and own == set() and pending == {"d1"}
+    _review_fakes(monkeypatch, [credit, debit], IDENTITY)
+    items = asyncio.run(analytics._transfer_pair_suggestions(UID))
+    assert [(i["credit"]["id"], i["debit"]["id"]) for i in items] == [("c1", "d1")]
+
+
 def test_ask_window_edges():
     assert within_ask_window(datetime(2026, 11, 3, 9, 0), datetime(2026, 11, 6, 9, 0))
     assert not within_ask_window(datetime(2026, 11, 3, 9, 0), datetime(2026, 11, 6, 9, 1))
-    assert within_ask_window(datetime(2026, 11, 3), datetime(2026, 11, 6))
+    # date-only legs: 2 calendar days asks, 3 or more gets no offer
+    assert within_ask_window(datetime(2026, 11, 3), datetime(2026, 11, 5))
+    assert not within_ask_window(datetime(2026, 11, 3), datetime(2026, 11, 6))
     assert not within_ask_window(datetime(2026, 11, 3), datetime(2026, 11, 7))
 
 
