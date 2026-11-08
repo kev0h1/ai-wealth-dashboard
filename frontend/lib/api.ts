@@ -3192,6 +3192,28 @@ export type TransferPairSuggestion = {
   date_diff_days: number;
   credit: TransferPairLeg;
   debit: TransferPairLeg;
+  // G442: a recurring series is one question. `pair_key`/`credit`/`debit` are the
+  // newest pair; `series.pairs` lists every pair one answer covers. Absent on a
+  // payload cached before the backend sent it.
+  series?: { key: string; count: number; first_date: string; pairs: { pair_key: string; credit_id: string; debit_id: string }[] };
+  // G442: the model's one-line reason when it could not tell (verdict unclear).
+  ai_reason?: string;
+};
+
+// G442: a recurring transfer series Sorted filed by itself from a model verdict
+// (GET /transactions/ai-filed-transfers), listed under "Filed automatically" so
+// the user can undo it.
+export type AiFiledTransfer = {
+  series_key: string;
+  count: number;
+  amount: number;
+  currency: string | null;
+  credit_account_id: string;
+  debit_account_id: string;
+  first_date: string | null;
+  last_date: string | null;
+  reason: string | null;
+  pairs: { credit_id: string; debit_id: string }[];
 };
 
 // GET /dismissed-series — mirrors backend/app/routers/analytics.py field
@@ -3892,6 +3914,10 @@ export const api = {
       "/transactions/confirm-transfer-pair",
       { credit_id: creditId, debit_id: debitId, ...(deferRecompute ? { defer_recompute: true } : {}) },
     ),
+  getAiFiledTransfers: () => get<{ items: AiFiledTransfer[] }>("/transactions/ai-filed-transfers"),
+  undoAiTransfer: (seriesKey: string, deferRecompute = true) =>
+    post<{ ok: boolean; undone: number }>("/transactions/undo-ai-transfer",
+      { series_key: seriesKey, ...(deferRecompute ? { defer_recompute: true } : {}) }),
   finishTransferReview: () => post<{ ok: boolean; recomputed?: boolean; pending?: boolean }>("/transactions/finish-transfer-review", {}),
   dismissTransferPair: (pairKey: string) =>
     post<{ ok: boolean }>("/transactions/dismiss-transfer-pair", { pair_key: pairKey }),
