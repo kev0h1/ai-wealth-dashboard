@@ -220,7 +220,7 @@ export type UpcomingBill = {
    * should mark the figure as an estimate (a leading "~"), never treat it
    * as a confirmed amount.
    */
-  amount_basis?: "balance_estimate" | null;
+  amount_basis?: "balance_estimate" | "statement_unknown" | null;
   /** Set when Penny (agent mode v1) created this planned payment via a
    * confirmed proposal, rather than the user adding it by hand in Planning.
    * Origin badge only — see Allocation's own `created_via` comment for the
@@ -2926,7 +2926,7 @@ export type CardStatementBill = {
   next_payment_due: string;
   payment_method: "full" | "minimum" | "fixed" | "manual" | null;
   payment_account_id: string | null;
-  status: "estimated" | "incomplete_history" | "payment_unverified" | "paid" | "source_unavailable";
+  status: "estimated" | "incomplete_history" | "amount_unknown" | "payment_unverified" | "paid" | "source_unavailable";
   reason: string | null;
   estimated: boolean;
   next_payday: string | null;

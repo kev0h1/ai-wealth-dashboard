@@ -217,8 +217,12 @@ def test_payment_methods_use_only_their_knowable_amounts():
 
 
 def test_fixed_instruction_is_dated_without_a_statement_estimate_but_full_is_not():
-    fixed = _estimate(terms=_terms(payment_method="fixed", fixed_payment_amount=100), rows=[])
-    full = _estimate(terms=_terms(payment_method="full"), rows=[])
+    # G441: the estimate needs a card balance, not the previous window. With no
+    # balance at all, fixed is still dated and full has no amount.
+    nobalance = _card(None)
+    accounts = {"card": nobalance, "cash": _payer()}
+    fixed = _estimate(card=nobalance, accounts=accounts, terms=_terms(payment_method="fixed", fixed_payment_amount=100), rows=[])
+    full = _estimate(card=nobalance, accounts=accounts, terms=_terms(payment_method="full"), rows=[])
 
     assert fixed["payment_due"] == "2026-04-09"
     assert fixed["estimated_bill"] is None
@@ -291,14 +295,15 @@ def test_matching_pending_repayment_is_display_only_not_a_second_cash_debit():
 
 
 def test_insufficient_history_and_overlapping_due_rules_fail_honestly():
-    insufficient = _estimate(rows=[])
+    nobalance = _card(None)
+    insufficient = _estimate(card=nobalance, accounts={"card": nobalance, "cash": _payer()}, rows=[])
     overlapping = _estimate(
         terms=_terms(statement_close_day=1, payment_due_days_after_close=33),
         rows=[_row("card", date(2026, 2, 2), -1, "debit")],
     )
 
     assert insufficient["status"] == "incomplete_history"
-    assert "not enough settled" in insufficient["reason"]
+    assert "no balance" in insufficient["reason"]
     assert overlapping["status"] == "incomplete_history"
     assert "overlaps statement periods" in overlapping["reason"]
 

@@ -45,7 +45,7 @@ export type UpcomingRowModel = {
   isSettling?: boolean;
   pending?: boolean;
   daysPastDue?: number;
-  amountBasis?: "balance_estimate" | null;
+  amountBasis?: "balance_estimate" | "statement_unknown" | null;
   flagged?: boolean;
   timingRisk?: boolean;
   accountShort?: boolean;
@@ -408,10 +408,13 @@ export default function UpcomingRow({
                   ? "font-semibold text-slate-500 dark:text-slate-400"
                   : "font-bold text-slate-800 dark:text-slate-100"
           }`}>
-            {amountSign}{model.amountBasis === "balance_estimate" && isCurrent ? "~" : ""}{sym}{model.amount.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            {amountSign}{(model.amountBasis === "balance_estimate" || model.amountBasis === "statement_unknown") && isCurrent ? "~" : ""}{sym}{model.amount.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </p>
           {model.amountBasis === "balance_estimate" && !isCurrent && (
             <p className="text-[10px] font-medium text-slate-400 dark:text-slate-500">estimated</p>
+          )}
+          {model.amountBasis === "statement_unknown" && (
+            <p className="text-[10px] font-medium text-slate-400 dark:text-slate-500">amount not known yet</p>
           )}
           {isAttention ? <AttentionCopy model={model} /> : isAccountCoverage && model.coverage ? <CoverageCopy coverage={model.coverage} /> : <AfterCopy model={model} compact={compact} />}
         </div>
