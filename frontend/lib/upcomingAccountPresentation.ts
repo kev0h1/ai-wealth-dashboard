@@ -36,9 +36,8 @@ export function accountActionReading(account: UpcomingAccountSummary, plans: Pla
   const combinedKnown = ready && !result.uncertain && account.status !== "unknown" && result.afterPlans !== null && Number.isSafeInteger(result.afterPlans);
   const afterPlans = combinedKnown ? result.afterPlans : null;
   const paymentGap = finitePence(accountPaymentGap(account)) ?? 0;
-  const transferGap = account.status === "unfunded" ? Math.max(0, finitePence(account.shortfall) ?? 0) : 0;
   const lowAfterPlans = combinedKnown ? finitePence(account.position?.lowPointAndPlans) : null;
-  const gap = Math.max(paymentGap, transferGap, -(afterPlans ?? afterPayments ?? 0), -(lowAfterPlans ?? 0), 0);
+  const gap = Math.max(paymentGap, -(afterPlans ?? afterPayments ?? 0), -(lowAfterPlans ?? 0), 0);
   const closingGap = Math.max(0, -(afterPlans ?? afterPayments ?? 0));
   const earlierGap = gap > closingGap;
   const headline = gap > 0 ? -gap : afterPlans ?? afterPayments;
@@ -64,14 +63,14 @@ export function accountActionReading(account: UpcomingAccountSummary, plans: Pla
   const remainingGap = gap > 0 ? Math.max(0, gap - netMove) : Math.max(0, -(afterMove ?? 0));
   const signal = paymentGap > 0 && paymentGap > Math.max(0, netMove) ? "risk" as const
     : account.status === "unknown" || ready && !combinedKnown ? "unknown" as const
-    : gap > 0 ? paymentGap > 0 && remainingGap === 0 ? "move" as const : transferGap > 0 ? "move" as const : "plan" as const
+    : gap > 0 ? paymentGap > 0 && remainingGap === 0 ? "move" as const : "plan" as const
     : moves.length ? "move" as const : null;
   const hasPlans = combinedKnown && (result.reservedPence > 0 || result.assigned.length > 0);
-  const caption = headline === null ? "Check balance" : gap > 0 ? earlierGap ? "Short before payday" : transferGap > 0 && paymentGap === 0 ? "Short for transfers" : "Short"
+  const caption = headline === null ? "Check balance" : gap > 0 ? earlierGap ? "Short before payday" : "Short"
     : ready && !combinedKnown ? "Payments only" : hasPlans ? "Left after plans" : "Left after payments";
   const futureIncome = earlierGap && paymentGap > 0 && account.firstShortDate !== null
     && account.events.some(event => event.credited !== false && event.kind === "income" && event.date > account.firstShortDate!);
-  return { result, ready, combinedKnown, afterPayments, afterPlans, headline, gap, paymentGap, transferGap, earlierGap, moves, incoming, outgoing, afterMove, remainingGap, signal, hasPlans, caption, futureIncome };
+  return { result, ready, combinedKnown, afterPayments, afterPlans, headline, gap, paymentGap, earlierGap, moves, incoming, outgoing, afterMove, remainingGap, signal, hasPlans, caption, futureIncome };
 }
 
 const upFirst = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
@@ -125,8 +124,6 @@ export function accountActionNote(account: UpcomingAccountSummary, reading: Retu
     const when = date && Number.isFinite(date.getTime()) ? ` by ${date.toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "UTC" })}` : "";
     return `Payments need more money${when}. Tap to see the gap.`;
   }
-  // G426: an own-savings standing order says so in the engine's plain wording; the "may stay put" line is for a move into another own spendable account.
-  if (reading.transferGap > 0) return account.position?.savingsAtRisk?.note ?? "A planned move is not fully funded when it leaves. It may stay put, with no fee.";
   if (gap > 0) return `Payments are covered. More money is needed for ${result.assigned.length === 1 ? result.assigned[0].name : "your plans"}.${result.estimated ? " Paying account based on recent transfers." : ""}`;
   return result.estimated ? "Paying account based on recent transfers." : "";
 }

@@ -8,7 +8,6 @@ from datetime import datetime, timedelta
 import app.routers.card_terms  # noqa: F401  (H143: pre-import before any collection patching)
 import app.services.debt_plan  # noqa: F401
 from app.services.own_account_transfers import own_account_index
-from app.services.own_savings import detect_savings_elsewhere
 from app.services.spending import find_own_move_ids
 from app.services.categories import BUILTIN_CATEGORY_KINDS
 
@@ -19,34 +18,6 @@ INDEX = own_account_index([SAVER, SOURCE])
 
 def _t(desc, **kw):
     return {"description": desc, "merchant_name": None, **kw}
-
-
-def test_evidence_a_counterparty_account_with_savings_words():
-    # Wording alone is not enough; wording plus a counterparty equal to an account on file is.
-    series = [_t("ACME REGULAR SAVER", party_sort_code="040004", party_number="12345678")]
-    assert detect_savings_elsewhere(series, name_tokens=[], account_name="Main", own_index=INDEX, source_account_id="src-acc")
-    assert not detect_savings_elsewhere([_t("ACME REGULAR SAVER")], name_tokens=[], account_name="Main",
-                                        own_index=INDEX, source_account_id="src-acc")
-
-
-def test_evidence_a_needs_both_parts_and_never_the_source_account():
-    only_sort = [_t("ACME SAVER", party_sort_code="040004")]
-    other_number = [_t("ACME SAVER", party_sort_code="040004", party_number="99999999")]
-    own_source = [_t("ACME SAVER", party_sort_code="112233", party_number="87654321")]
-    for series in (only_sort, other_number, own_source):
-        assert not detect_savings_elsewhere(series, name_tokens=[], account_name="Main",
-                                            own_index=INDEX, source_account_id="src-acc")
-
-
-def test_evidence_a_normalises_both_sides():
-    series = [_t("ACME ISA", party_sort_code="04 00 04", party_number="1234-5678")]
-    assert detect_savings_elsewhere(series, name_tokens=[], account_name="Main", own_index=INDEX, source_account_id="src-acc")
-
-
-def test_account_name_shape_alone_is_not_evidence():
-    series = [_t("Everyday Main to Regular Saver")]
-    assert not detect_savings_elsewhere(series, name_tokens=[], account_name="Everyday Main", provider="chase",
-                                        own_index=INDEX, source_account_id="src-acc")
 
 
 KINDS = dict(BUILTIN_CATEGORY_KINDS)
@@ -80,8 +51,10 @@ def test_spending_counterparty_equal_to_own_account_does_not_flag_itself():
 # --- the user's own category outranks every automatic evidence ---------------
 
 def _identity_with_digits():
+    # G438: text evidence is the sort code AND the number, never a bare number.
     return {"name_tokens": [], "own_ids": {"20202020"},
-            "own_map": {"20202020": {"account_id": "saver-acc"}}, "own_keys": {}}
+            "own_map": {"20202020": {"account_id": "saver-acc"}},
+            "own_keys": {("202020", "20202020"): {"saver-acc"}}}
 
 
 def test_counterparty_match_with_user_spend_category_stays_spending():
@@ -90,10 +63,10 @@ def test_counterparty_match_with_user_spend_category_stays_spending():
 
 
 def test_own_digits_text_match_with_user_spend_category_stays_spending():
-    d = _debit(description="PAYMENT 20202020", custom_category="Gifts")
+    d = _debit(description="PAYMENT 20-20-20 20202020", custom_category="Gifts")
     assert "d1" not in find_own_move_ids([d], KINDS, _identity_with_digits())
     # control: without the user category the same text is an own move
-    assert "d1" in find_own_move_ids([_debit(description="PAYMENT 20202020")], KINDS, _identity_with_digits())
+    assert "d1" in find_own_move_ids([_debit(description="PAYMENT 20-20-20 20202020")], KINDS, _identity_with_digits())
 
 
 def test_user_movement_category_still_counts():
@@ -104,18 +77,25 @@ def test_user_movement_category_still_counts():
     assert not flow.counts_as_spend
 
 
-def test_revoked_or_disconnected_account_still_on_file_counts_for_counterparty_evidence():
-    # Pins the current choice (Kevin to confirm): the account index reads every
-    # account doc on file, whatever its connection status.
-    revoked = {"_id": "old-acc", "sort_code": "20-00-00", "account_number": "11223344", "status": "revoked"}
-    idx = own_account_index([revoked, SOURCE])
-    series = [_t("ACME SAVER", party_sort_code="200000", party_number="11223344")]
-    assert detect_savings_elsewhere(series, name_tokens=[], account_name="Main", own_index=idx, source_account_id="src-acc")
-
-
 def test_user_business_or_other_category_keeps_option_b_own_move():
     for cat in ("Business", "Other"):
         d = _debit(party_sort_code="040004", party_number="12345678", custom_category=cat)
         assert "d1" in find_own_move_ids([d], KINDS, _identity())
-        d = _debit(description="PAYMENT 20202020", custom_category=cat)
+        d = _debit(description="PAYMENT 20-20-20 20202020", custom_category=cat)
         assert "d1" in find_own_move_ids([d], KINDS, _identity_with_digits())
+
+
+def test_a_disconnected_account_still_on_file_counts_for_counterparty_evidence(monkeypatch):
+    # Kevin confirmed 2026-11-07: the account index and the identity read every account
+    # doc on file, whatever its connection status.
+    import asyncio
+    import app.services.categorisation as categorisation
+    from test_transfer_pairs import FakeCol, UID
+    revoked = {"_id": "old-acc", "user_id": UID, "sort_code": "20-00-00", "account_number": "11223344", "status": "revoked"}
+    assert own_account_index([revoked, SOURCE])[("200000", "11223344")]
+    monkeypatch.setattr(categorisation, "accounts_col", FakeCol([revoked]))
+    monkeypatch.setattr(categorisation, "user_profiles_col", FakeCol([]))
+    identity = asyncio.run(categorisation.user_identity(UID))
+    assert identity["own_keys"][("200000", "11223344")] == {"old-acc"}
+    d = _debit(party_sort_code="200000", party_number="11223344")
+    assert "d1" in find_own_move_ids([d], KINDS, identity)

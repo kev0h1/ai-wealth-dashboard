@@ -138,7 +138,7 @@
    ]
   ],
   "result": {
-   "count": 4
+   "count": 5
   }
  },
  "companion": {
@@ -305,7 +305,7 @@
       "account_id": "lowsrc",
       "balance": 5.0,
       "display_label": "your account current account",
-      "incoming": "\u00a340 Card repayment expected Wednesday",
+      "incoming": "\u00a390 Standing order out expected tomorrow",
       "name": "lowsrc",
       "provider": "Bank"
      }
@@ -328,7 +328,7 @@
         "account_id": "lowsrc",
         "balance": 5.0,
         "display_label": "your account current account",
-        "incoming": "\u00a340 Card repayment expected Wednesday",
+        "incoming": "\u00a390 Standing order out expected tomorrow",
         "name": "lowsrc",
         "provider": "Bank"
        }

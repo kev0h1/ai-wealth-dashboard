@@ -295,7 +295,7 @@ def test_merged_items_place_the_allocation_card_after_the_unfunded_move(monkeypa
         mp.setattr(companion, "_reserved_for_allocations", _no_reserve)
         accounts = [um._account("barclays", 20.0), um._account("cur2", 100.0, name="Everyday")]
         bills = [um._mv_bill("KEVIN MAINGI HSBC FT", 81.67, "barclays", pending=True, days_past_due=9, original_date="2026-08-18")]
-        items, _ = um._run(mp, bills, accounts=accounts)
+        items, _ = um._run(mp, bills, accounts=accounts, show_regular_card=False)
     finally:
         mp.undo()
     kinds = _types(items)

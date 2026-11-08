@@ -13,7 +13,6 @@ assert.equal(buildForecast("short").shortfall, 26500);
 assert.equal(buildForecast("short").shortAccounts, 3);
 assert.equal(buildForecast("covered").shortfall, 0);
 assert.equal(buildForecast("covered").payments.every((item) => item.shortfall === 0), true);
-assert.equal(buildForecast("moves").payments.every((item) => item.model.flagged === false && item.model.coverage.optionalMove), true, "Optional own moves never inherit bill-risk flags");
 assert.equal(buildForecast("moves", new Set(["mortgage"])).shortfall, 8000, "Dismissing a move recomputes its source account and total");
 assert.equal(money(-8000), "−£80", "Negative account forecast keeps its minus sign");
 assert.equal(money(-8012), "−£80.12", "Edited amounts preserve meaningful pennies");

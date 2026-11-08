@@ -140,21 +140,21 @@ def test_external_destination_really_propagates_only_to_later_debits_and_undo_st
 
     _run_apply_rules_bulk(monkeypatch, rows)
     assert later_debit["category"] == "Investment"
-    # FORIS's STO narrative is already a Transfer under the built-in rules.
-    # The important direction guarantee is that this credit never inherits
-    # the user's private Investment decision.
-    assert incoming_credit["category"] == "Transfer"
+    # G438: an STO narrative alone is no longer filed as Transfer (wording never
+    # makes a row own money). The direction guarantee is unchanged: this credit
+    # never inherits the user's private Investment decision.
+    assert incoming_credit["category"] == "Other"
 
     # Undo removes the only explicit correction. Resetting the auto row is
     # what a newly fetched matching debit looks like on a later sync.
     source["custom_category"] = None
     later_debit["category"] = "Other"
     _run_apply_rules_bulk(monkeypatch, rows)
-    # Without the user correction the existing STO baseline returns. This
-    # proves undo does not leave the private Investment choice to revive on
-    # a later sync.
-    assert later_debit["category"] == "Transfer"
-    assert incoming_credit["category"] == "Transfer"
+    # Without the user correction the wording baseline returns (G438: plain
+    # Other, no own-transfer treatment). This proves undo does not leave the
+    # private Investment choice to revive on a later sync.
+    assert later_debit["category"] == "Other"
+    assert incoming_credit["category"] == "Other"
 
 
 @pytest.mark.parametrize("event_type", ["movement_mine_savings", "movement_mine_investment"])

@@ -46,7 +46,6 @@ from app.services.own_account_transfers import (  # G413: IssuerFallback*: saved
     IssuerFallbackDict, IssuerFallbackSet, saved_key_applies, series_key, repayment_display_name,
 )  # G403: per-card key for a linked repayment
 from app.services.categorisation import series_key as _base_series_key
-from app.services.own_savings import detect_savings_elsewhere
 from app.services.categorisation import (
     has_date_fragment, own_transfer_evidence, user_identity,
     canonical_merchant_key, refine_transfer_target, _byte_desc_key,
@@ -54,7 +53,7 @@ from app.services.categorisation import (
 )
 from app.services.account_kinds import is_credit_card_account, is_debt_account
 from app.services.spending import try_build_spending_context
-from app.services.categories import get_category_kinds, is_non_spend, is_spend, kind_of, CategoryKinds, BUILTIN_CATEGORY_KINDS, MOVEMENT, COMMITMENT, is_card_repayment
+from app.services.categories import get_category_kinds, is_non_spend, is_spend, kind_of, CategoryKinds, BUILTIN_CATEGORY_KINDS, MOVEMENT, INCOME, COMMITMENT, is_card_repayment
 from app.services import recurring_judge as _recurring_judge
 from app.services.recurring_judge import gate_failure_reason, judge_suspect_series, apply_verdicts
 from app.services.bnpl import is_bnpl_txn, build_bnpl_projections
@@ -2889,25 +2888,6 @@ async def _compute_cashflow_patterns(uid: str) -> dict:
     # `_card_repayment_projection` (the balance-aware cap and classifier) and
     # carried through `_serialise_pattern` on `card_dest_*` fields.
     card_dest_by_key = _learn_card_repayment_destinations(raw, account_map, kind_map)
-    # G434: an own-savings standing order at a bank that never shares the savings
-    # account has no learnable destination. Recognise it from wording PLUS
-    # independent own-money evidence (see app.services.own_savings); the user's
-    # own category choice outranks it. Read once here, stamped per series below.
-    try:
-        _own_name_tokens = (await user_identity(uid)).get("name_tokens") or []
-    except Exception:
-        _own_name_tokens = []
-    # G437 evidence (a): accounts on file by sort code and account number.
-    try:
-        from app.services.own_account_transfers import load_own_account_index
-        _own_index = await load_own_account_index(uid, account_collection=accounts_col)
-    except Exception:
-        _own_index = {}
-    _movement_debits_by_key: dict[str, list[dict]] = defaultdict(list)
-    for _t in raw:
-        if _t.get("transaction_type") == "debit" and kind_of(kind_map, _t.get("custom_category") or _t.get("category")) == MOVEMENT:
-            _movement_debits_by_key[series_key(_t)].append(_t)
-
     # Debits are NOT filtered by category (Transfer included): anything that
     # regularly leaves the account on a date belongs in the projection
     # regardless of what it's called, because it consumes balance and can
@@ -3144,15 +3124,6 @@ async def _compute_cashflow_patterns(uid: str) -> dict:
         # repayments in it.
         card_dest = card_dest_by_key.get(r["key"])
         card_proj = card_repayment_projection.get(r["key"])
-        own_savings_elsewhere = bool(
-            not dest and not card_dest and acct and not acct.get("is_credit_card")
-            and kind_of(kind_map, r.get("category")) == MOVEMENT
-            and detect_savings_elsewhere(
-                _movement_debits_by_key.get(r["key"]) or [], name_tokens=_own_name_tokens,
-                account_name=acct.get("name"), provider=acct.get("provider"),
-                own_index=_own_index, source_account_id=str(r.get("account_id") or ""),
-            )
-        )
         avg_amount = r["avg_amount"]
         amount_basis = None
         suppressed = False
@@ -3189,7 +3160,6 @@ async def _compute_cashflow_patterns(uid: str) -> dict:
             "dest_account_bank": dest["dest_account_bank"] if dest else None,
             "dest_account_spendable": dest["dest_account_spendable"] if dest else None,
             # G434: an own-savings standing order whose savings account is held elsewhere.
-            **({"own_savings_elsewhere": True} if own_savings_elsewhere else {}),
             # Card-repayment destination (Step 1) -- DELIBERATELY separate
             # fields from dest_account_id/spendable above: those feed
             # `internal_inflows` (see `_build_cashflow_response`), and a
@@ -3519,21 +3489,15 @@ async def at_risk_count(user: dict = Depends(current_user)):
     # late-income line for one (see the comment block above `walk_sort_key`
     # in services/companion.py). G360: an inflow counts only when its SOURCE
     # account is covered that day. G163: same-day, credits before debits.
-    from app.services.account_walk import count_at_risk, payment_only_walk, walk_events, window_events
+    from app.services.account_walk import count_at_risk, walk_events, window_events
 
     events, seed, _credited = window_events(_wi)
     _running, _min_running, _shortfall, bounced = walk_events(events, seed)
-    # G426: a bill that bounces only because an own-savings order went first
-    # is savings at risk, not a payment at risk.
-    _po_min, _po_bounced = payment_only_walk(events, seed)
 
     # A deficit cascades (a bounced bill still debits the balance, so every
-    # later bill on a short account counts until income recovers it), but a
-    # `movement` bill bouncing is never itself counted toward this badge: it
-    # is the user's own plan for their own money, matching the Planning page's
-    # own at-risk simulation (PlanningPage.tsx), which this badge must agree
-    # with. A commitment/discretionary bill a movement starves still counts.
-    at_risk = count_at_risk(bounced, _po_bounced)
+    # later item on a short account counts until income recovers it). G438: an
+    # own-account movement counts like any predicted payment.
+    at_risk = count_at_risk(bounced)
 
     return {"count": at_risk}
 
@@ -4742,7 +4706,6 @@ async def _build_cashflow_response(cached: dict, uid: str | None = None, prefs: 
                 # leaves both fields None.
                 "dest_account_id":        r.get("dest_account_id") if _occ_kind == MOVEMENT else None,
                 "dest_account_spendable": r.get("dest_account_spendable") if _occ_kind == MOVEMENT else None,
-                **({"own_savings_elsewhere": True} if _occ_kind == MOVEMENT and r.get("own_savings_elsewhere") else {}),
                 # Display name/bank for the two `_serialise_pattern` destination
                 # pairs (self-transfer and card-repayment, kept deliberately
                 # separate -- see the doctrine on `card_dest_account_id` above)
@@ -5964,7 +5927,7 @@ async def get_category_signals(offset: int = 0, user: dict = Depends(current_use
 
 
 async def _flagged_miscategorised(uid: str, exclude_ids: frozenset = frozenset()) -> list:
-    """Shared guardrail query: debit rows that look like own-account transfers
+    """Shared guardrail query: debit rows (and, since G438, lone Income credits) that look like own-account transfers
     (matched via user_identity/is_own_transfer) but sit in a spend category
     rather than a money-to-self category. Excludes rows/series already
     dismissed. Returns flat list of annotated txn docs (adds _series_key and
@@ -5983,10 +5946,8 @@ async def _flagged_miscategorised(uid: str, exclude_ids: frozenset = frozenset()
     also a pair leg drops out. Callers must compute the pair-suggestion set
     first and pass every leg id (credit and debit) in here."""
     identity = await user_identity(uid)
-    # is_own_transfer treats "no identity data at all" as own (legacy default),
-    # which would flag every spend row here. Guard: no identity → no guardrail.
-    if not identity.get("name_tokens") and not identity.get("own_ids"):
-        return []
+    # G438: the empty-identity default is gone from is_own_transfer, so a user
+    # with no name and no accounts simply has no name/account evidence.
 
     # Built from this user's actual kind map (built-ins + custom), not a
     # literal name set — a custom category the user declared `movement`
@@ -6031,21 +5992,62 @@ async def _flagged_miscategorised(uid: str, exclude_ids: frozenset = frozenset()
         )
         txns = [t for t in resolved if str(t["_id"]) in candidate_ids]
 
+    # G438 (Kevin 2026-11-07): a lone credit that carries the user's name (or an
+    # account of theirs) and has no matching debit is a question too. It stays
+    # Income until answered. Only plain Income credits with no user answer are
+    # read; a credit that is a leg of a pair suggestion is excluded below.
+    income_names = [name for name in kind_map if kind_of(kind_map, name) == INCOME]
+    # Bounded to the last 90 days: an older lone credit is history, not a question.
+    _lone_cutoff = datetime.combine(timeutil.user_today() - timedelta(days=90), datetime.min.time())
+    if income_names:
+        txns = txns + await transactions_col.find(
+            {"user_id": uid, "transaction_type": "credit", "custom_category": None,
+             "category": {"$in": income_names}, "date": {"$gte": _lone_cutoff}},
+            {"merchant_name": 1, "description": 1, "amount": 1, "date": 1,
+             "currency": 1, "category": 1, "custom_category": 1, "transaction_type": 1,
+             "account_id": 1, "own_transfer_match": 1, "is_pending": 1},
+        ).to_list(None)
+
+    # ONE batched read of the counterpart debits for every credit amount in the
+    # window (scoped to this user), instead of a query per credit.
+    debits_by_amount: dict = defaultdict(list)
+    _credit_amounts = list({t.get("amount") for t in txns if t.get("transaction_type") == "credit"} - {None})
+    if _credit_amounts:
+        for d in await transactions_col.find(
+            {"user_id": uid, "transaction_type": "debit", "amount": {"$in": _credit_amounts},
+             "date": {"$gte": _lone_cutoff - timedelta(days=5)}},
+            {"account_id": 1, "date": 1, "amount": 1},
+        ).to_list(None):
+            debits_by_amount[d.get("amount")].append(d)
+
     kept = []
     for t in txns:
-        if (t.get("transaction_type") != "debit" or t.get("custom_category") is not None
-                or t.get("category") in money_to_self):
+        is_credit = t.get("transaction_type") == "credit"
+        if (t.get("transaction_type") not in ("debit", "credit") or t.get("custom_category") is not None
+                or (t.get("category") in money_to_self and not (is_credit and t.get("category") in income_names))):
             continue
+        if is_credit and t.get("own_transfer_match"):
+            continue  # already part of an engine pair
         tid = str(t["_id"])
         if tid in dismissed:
             continue
         if tid in exclude_ids:
             continue
-        sk = series_key(t)
+        sk = series_key(t) + ("|credit" if is_credit else "")  # money in never groups with money out
         if sk in dismissed_series:
             continue
         text = f"{t.get('merchant_name') or ''} {t.get('description') or ''}"
         evidence = own_transfer_evidence(text, identity, own_account_id=t.get("account_id"))
+        if evidence is not None and is_credit:
+            # A credit with a same-amount debit on another account within the pair
+            # window already has a counterpart (asked as a pair, or answered): not lone.
+            c_day = t["date"].date() if hasattr(t.get("date"), "date") else t.get("date")
+            if any(
+                d.get("account_id") != t.get("account_id") and d.get("date") is not None
+                and abs(((d["date"].date() if hasattr(d["date"], "date") else d["date"]) - c_day).days) <= 5
+                for d in debits_by_amount.get(t.get("amount"), ())
+            ):
+                continue
         if evidence is not None:
             t["_series_key"] = sk
             t["_effective_category"] = t.get("custom_category") or t.get("category")
@@ -6589,7 +6591,7 @@ def _is_distinctive_amount(amount) -> bool:
     return abs(amount - round(amount)) > 0.005
 
 
-def _has_pair_evidence(c: dict, d: dict, identity: dict) -> bool:
+def _has_pair_evidence(c: dict, d: dict, identity: dict, credit_claims_move: bool = False) -> bool:
     """Evidence gate for a candidate transfer-pair suggestion (owner review
     fix 2, tightened after a follow-up false positive): same amount + close
     dates alone is not enough — two unrelated transactions can coincide on
@@ -6608,6 +6610,12 @@ def _has_pair_evidence(c: dict, d: dict, identity: dict) -> bool:
           exactly where coincidences concentrate: small ROUND amounts. A
           distinctive pence amount is enough corroboration to accept it.
     """
+    # G438: a credit that already says it is a move (a movement-kind category or a
+    # link to one of the user's accounts or goals) is evidence on its own leg, the
+    # same test spending's pair scan applies, so what leaves Spend as pending is
+    # exactly what this review asks about.
+    if credit_claims_move or c.get("linked_offline_account_id") or c.get("linked_goal_id"):
+        return True
     c_text = f"{c.get('merchant_name') or ''} {c.get('description') or ''}"
     d_text = f"{d.get('merchant_name') or ''} {d.get('description') or ''}"
     from app.services.own_account_transfers import has_owner_transfer_reference
@@ -6808,7 +6816,7 @@ async def _transfer_pair_suggestions(uid: str) -> list[dict]:
             # Evidence gate (owner review fix 2) — same amount + close dates
             # is not enough on its own; reject a coincidence like a £50
             # client-income credit paired with an unrelated £50 ATM debit.
-            if not (_has_pair_evidence(c, d, identity) or _has_named_bank_transfer_reference(c, d, owned_accounts)):
+            if not (_has_pair_evidence(c, d, identity, kind_of(kind_map, c_eff) == MOVEMENT) or _has_named_bank_transfer_reference(c, d, owned_accounts)):
                 continue
             pair_key = ":".join(sorted([str(c["_id"]), str(d["_id"])]))
             if pair_key in dismissed_pairs:

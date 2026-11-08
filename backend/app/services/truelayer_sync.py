@@ -109,11 +109,10 @@ async def _upsert_walk(txns: list, account_id: str, user_id: str, is_card: bool,
         is_credit   = (txn["amount"] < 0) if is_card else (txn["amount"] > 0)
 
         if is_credit:
-            # Incoming money: try user rules first, then identity corroboration.
-            # A credit whose description carries the user's OWN name is their own
-            # transfer (e.g. "From Kevin Maingi"), not income. Peer payments don't
-            # carry the owner's name, so the peer-payment trap (untrusted raw TRANSFER
-            # tags) is unaffected. Don't trust the raw TRANSFER tag for credits —
+            # Incoming money: try user rules first, then account corroboration.
+            # G438: a credit is a Transfer only when its text carries another of
+            # the user's accounts' sort code AND number; the owner's name alone
+            # is a question for the review, not a decision. Don't trust the raw TRANSFER tag for credits —
             # peer payments (e.g. Monzo requests) get tagged TRANSFER by TrueLayer
             # but are Income.
             category = rule_categorise_directed(merchant, description, is_credit=True) or (
@@ -122,11 +121,13 @@ async def _upsert_walk(txns: list, account_id: str, user_id: str, is_card: bool,
             )
         elif raw_cat == "TRANSFER":
             # Same distrust for debits: TrueLayer tags any P2P faster payment
-            # TRANSFER, including money sent to other people. Only accept it
-            # when the description corroborates the user's own identity —
-            # otherwise it's real spend and must stay visible ("Other").
+            # TRANSFER, including money sent to other people. G438: only accept
+            # it when the description carries another of the user's accounts'
+            # sort code AND number; the user's name alone is a question for the
+            # transfers review. Otherwise it stays visible ("Other"), and an
+            # unknown identity is no longer a reason to trust the tag.
             category = rule_categorise_directed(merchant, description, is_credit=False) or (
-                "Transfer" if identity is None or is_own_transfer(f"{merchant} {description}", identity, own_account_id=account_id)
+                "Transfer" if identity is not None and is_own_transfer(f"{merchant} {description}", identity, own_account_id=account_id)
                 else "Other"
             )
         else:

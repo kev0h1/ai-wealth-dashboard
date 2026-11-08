@@ -249,7 +249,8 @@ def test_savings_rule_has_word_boundary_and_amex_no_longer_hardcoded_transfer():
     assert rule_categorise("", "B/CARD PLAT VISA") is None
     assert rule_categorise("", "VISA PREMISES") is None
     assert rule_categorise("", "STOCKISA SHOP") is None
-    assert rule_categorise("", "CASH ISA TOP UP") == "Savings"
+    # G438: savings wording alone no longer makes a row own money (Kevin 2026-11-07)
+    assert rule_categorise("", "CASH ISA TOP UP") is None
     assert rule_categorise("", "AMERICAN EXPRESS PAYMENT") is None
     assert rule_categorise("", "AMEX DDR") == "Transfer"
 

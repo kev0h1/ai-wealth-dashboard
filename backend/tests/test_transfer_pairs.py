@@ -300,9 +300,9 @@ def test_learned_pair_excluded_from_suggestions(monkeypatch):
 
 # ── apply_rules_bulk's learned-pair sync pass ────────────────────────────────
 
-def _run_apply_rules_bulk(monkeypatch, txns, *, learned=None, custom_categories_docs=None, preferences_docs=None):
+def _run_apply_rules_bulk(monkeypatch, txns, *, learned=None, custom_categories_docs=None, preferences_docs=None, accounts=None):
     monkeypatch.setattr(categorisation, "transactions_col", FakeCol(txns))
-    monkeypatch.setattr(categorisation, "accounts_col", FakeCol([
+    monkeypatch.setattr(categorisation, "accounts_col", FakeCol(accounts if accounts is not None else [
         {"_id": aid, "user_id": UID, "currency": "GBP", "type": "current"}
         for aid in {t.get("account_id") for t in txns if t.get("user_id") == UID}
     ]))
@@ -457,12 +457,14 @@ def test_pair_with_account_number_evidence_is_suggested(monkeypatch):
     # again with zero shared vocabulary between the two legs' texts. Pence
     # amount, same reasoning as the name-evidence test above.
     identity = {
-        "name_tokens": [], "own_ids": {"123456"},
+        "name_tokens": [], "own_ids": {"123456", "12345678"},
         "own_map": {"123456": {"account_id": "accOther"}},
+        # G438: the text must carry the sort code AND the account number.
+        "own_keys": {("123456", "12345678"): {"accOther"}},
     }
     txns = [
         _t("c1", ttype="credit", amount=60.25, date=D0, account_id="accA",
-           merchant=None, desc="TRANSFER REF 123456", category="Income"),
+           merchant=None, desc="TRANSFER REF 12-34-56 12345678", category="Income"),
         _t("d1", ttype="debit", amount=60.25, date=D0, account_id="accB",
            merchant=None, desc="PAYMENT OUT REQUEST", category="Shopping"),
     ]

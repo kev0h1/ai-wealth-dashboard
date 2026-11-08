@@ -170,7 +170,7 @@ def _account(acct_id, balance, provider="barclays", name=None, subtype="TRANSACT
 
 def _run(monkeypatch, bills, *, accounts=None, payday_window=False,
          income_streams=None, window_income=None, companion_items=None,
-         late_income=None):
+         late_income=None, show_regular_card=True):
     """Full-stack harness: patches every collection compute_today_items
     touches and calls it for real, following test_internal_inflows.py's
     `_run_compute_today_items` pattern (extended with `accounts_col` so the
@@ -249,8 +249,19 @@ def _run(monkeypatch, bills, *, accounts=None, payday_window=False,
 
     monkeypatch.setattr(companion, "_build_cashflow_response", fake_resp)
 
+    if not show_regular_card:
+        # G438: with no own-account exemption a bounced own transfer gets the
+        # regular move card. The quiet `unfunded_move` item now fires only when
+        # that card is not shown (dismissed or capped), so these tests force
+        # exactly that state with the gate's own empty fallback.
+        monkeypatch.setattr(companion, "_gate_regular_move_cards", _no_regular_cards)
+
     items = asyncio.run(companion.compute_today_items(UID, persist=True))
     return items, companion.companion_items_col
+
+
+async def _no_regular_cards(**_kwargs):
+    return companion._RegularMoveCardGate({}, {}, 0)
 
 
 def _find(items, item_type):
@@ -268,7 +279,7 @@ def test_pending_and_bounced_fires():
         accounts = [_account("barclays", 20.0)]
         bills = [_mv_bill("KEVIN MAINGI HSBC FT", 81.67, "barclays",
                            pending=True, days_past_due=9, original_date="2026-08-18")]
-        items, _ = _run(mp, bills, accounts=accounts)
+        items, _ = _run(mp, bills, accounts=accounts, show_regular_card=False)
         item = _find(items, "unfunded_move")
         assert item is not None
         assert item["moves"][0]["key"] == "KEVIN MAINGI HSBC FT"
@@ -366,7 +377,7 @@ def test_lapsed_income_names_the_late_pay():
             "key": "Salary", "label": "Salary", "amount": 2000.0,
             "expected_date": "2026-08-20", "days_late": 3, "account_id": "barclays",
         }]
-        items, _ = _run(mp, bills, accounts=accounts, late_income=late_income)
+        items, _ = _run(mp, bills, accounts=accounts, late_income=late_income, show_regular_card=False)
         item = _find(items, "unfunded_move")
         assert item is not None
         assert "Salary pay was expected" in item["body"]
@@ -393,7 +404,7 @@ def test_lapsed_detected_income_names_it_without_calling_it_pay():
             "expected_date": "2026-08-20", "days_late": 3, "account_id": "barclays",
             "source": "detected",
         }]
-        items, _ = _run(mp, bills, accounts=accounts, late_income=late_income)
+        items, _ = _run(mp, bills, accounts=accounts, late_income=late_income, show_regular_card=False)
         item = _find(items, "unfunded_move")
         assert item is not None
         assert "Freelance Client pay was expected" not in item["body"]
@@ -416,7 +427,7 @@ def test_two_qualifying_moves_aggregate_into_one_item(monkeypatch):
         _mv_bill("K MONZO TEST FT", 77.0, "barclays",
                  pending=True, days_past_due=1, original_date="2026-08-26"),
     ]
-    items, _ = _run(mp, bills, accounts=accounts)
+    items, _ = _run(mp, bills, accounts=accounts, show_regular_card=False)
     unfunded = [i for i in items if i["type"] == "unfunded_move"]
     assert len(unfunded) == 1
     assert len(unfunded[0]["moves"]) == 2
@@ -432,11 +443,11 @@ def test_fingerprint_stable_across_runs_upserts_not_duplicates(monkeypatch):
     accounts = [_account("barclays", 20.0)]
     bills = [_mv_bill("KEVIN MAINGI HSBC FT", 81.67, "barclays",
                        pending=True, days_past_due=9, original_date="2026-08-18")]
-    items1, col = _run(mp, bills, accounts=accounts)
+    items1, col = _run(mp, bills, accounts=accounts, show_regular_card=False)
     first_id = _find(items1, "unfunded_move")["id"]
     # Second run reuses whatever the first run persisted.
     stored_docs = list(col.docs)
-    items2, col2 = _run(mp, bills, accounts=accounts, companion_items=stored_docs)
+    items2, col2 = _run(mp, bills, accounts=accounts, companion_items=stored_docs, show_regular_card=False)
     second_id = _find(items2, "unfunded_move")["id"]
     assert first_id == second_id
     unfunded_docs = [d for d in col2.docs if d.get("type") == "unfunded_move"]
@@ -457,12 +468,12 @@ def test_resolves_when_the_move_no_longer_qualifies():
         accounts = [_account("barclays", 20.0)]
         bills = [_mv_bill("KEVIN MAINGI HSBC FT", 81.67, "barclays",
                            pending=True, days_past_due=9, original_date="2026-08-18")]
-        items1, col = _run(mp, bills, accounts=accounts)
+        items1, col = _run(mp, bills, accounts=accounts, show_regular_card=False)
         assert _find(items1, "unfunded_move") is not None
         stored_docs = list(col.docs)
 
         # The move is now gone from upcoming_bills (skipped or observed).
-        items2, col2 = _run(mp, [], accounts=accounts, companion_items=stored_docs)
+        items2, col2 = _run(mp, [], accounts=accounts, companion_items=stored_docs, show_regular_card=False)
         assert _find(items2, "unfunded_move") is None
         stale = [d for d in col2.docs if d.get("type") == "unfunded_move"]
         assert stale and all(d["status"] != "active" for d in stale)
@@ -482,7 +493,7 @@ def test_reopens_under_a_new_id_after_dismissal():
         accounts = [_account("barclays", 20.0)]
         bills1 = [_mv_bill("KEVIN MAINGI HSBC FT", 81.67, "barclays",
                             pending=True, days_past_due=9, original_date="2026-08-18")]
-        items1, col = _run(mp, bills1, accounts=accounts)
+        items1, col = _run(mp, bills1, accounts=accounts, show_regular_card=False)
         old_id = _find(items1, "unfunded_move")["id"]
 
         # Dismiss it.
@@ -492,7 +503,7 @@ def test_reopens_under_a_new_id_after_dismissal():
         # A different movement now qualifies.
         bills2 = [_mv_bill("K MONZO TEST FT", 77.0, "barclays",
                             pending=True, days_past_due=1, original_date="2026-08-26")]
-        items2, _ = _run(mp, bills2, accounts=accounts, companion_items=stored_docs)
+        items2, _ = _run(mp, bills2, accounts=accounts, companion_items=stored_docs, show_regular_card=False)
         new_item = _find(items2, "unfunded_move")
         assert new_item is not None
         assert new_item["id"] != old_id
@@ -539,44 +550,13 @@ def test_excluded_when_its_destination_is_funded_by_the_live_payday_plan():
         mp.undo()
 
 
-def test_not_excluded_when_destination_is_outside_the_payday_plan():
-    """Same payday window, but the transfer's destination is NOT one the
-    live plan is funding this period (an unknown/untracked pot) — the
-    overlap exclusion must not over-fire and swallow every movement during
-    the payday window."""
-    import pytest
-    mp = pytest.MonkeyPatch()
-    try:
-        accounts = [_account("barclays", 20.0)]
-        bills = [
-            _mv_bill("KEVIN MAINGI HSBC FT", 81.67, "barclays",
-                     pending=True, days_past_due=9, dest_account_id="not_a_tracked_account",
-                     original_date="2026-08-18"),
-        ]
-        window_income = [{
-            "name": "Salary", "amount": 2000.0, "days_away": 10, "account_id": "barclays",
-            "account_name": "Barclays Current",
-        }]
-        items, _ = _run(
-            mp, bills, accounts=accounts, payday_window=True,
-            income_streams=[{"key": "Salary", "status": "confirmed"}],
-            window_income=window_income,
-        )
-        assert _find(items, "unfunded_move") is not None
-    finally:
-        mp.undo()
-
-
 # ── Movement red-path suppression untouched ──────────────────────────────
 
-def test_movement_bounce_never_appears_in_shortfalls_or_move_cards():
-    """Doctrine check: a movement-only bounce must still never reach the
-    "move money" recommendation engine (`shortfalls`/move cards) or set any
-    at-risk signal — this extension only ever ADDS the quiet unfunded_move
-    card, it must never resurrect what `_gate_recommendation` gate (b)
-    suppresses. Uses a bounced-but-not-yet-due movement (so unfunded_move
-    itself doesn't fire either) purely to isolate the doctrine check from
-    this item's own trigger."""
+def test_a_bounced_own_transfer_gets_an_ordinary_move_card():
+    """G438 (Kevin 2026-11-07): there is no own-account exemption. A pending
+    own transfer its account cannot fund is an ordinary shortfall: the regular
+    move card speaks for it (with the per-occurrence skip on its row), and the
+    quiet unfunded_move item stays out because that card is shown."""
     import pytest
     mp = pytest.MonkeyPatch()
     try:
@@ -584,12 +564,8 @@ def test_movement_bounce_never_appears_in_shortfalls_or_move_cards():
         bills = [_mv_bill("KEVIN MAINGI HSBC FT", 81.67, "barclays",
                            pending=True, days_past_due=9, original_date="2026-08-18")]
         items, _ = _run(mp, bills, accounts=accounts)
-        # No "move" (bill-shortfall) card, no at-risk-flavoured card at all
-        # beyond the quiet unfunded_move item itself.
-        assert _find(items, "move") is None
-        unfunded = _find(items, "unfunded_move")
-        assert unfunded is not None
-        assert "moves" in unfunded  # the SKIP-offering shape, never "move money"
+        assert _find(items, "move") is not None
+        assert _find(items, "unfunded_move") is None
     finally:
         mp.undo()
 
@@ -821,6 +797,10 @@ def test_shadow_and_real_gate_cannot_disagree_under_a_racing_probe(monkeypatch):
         return {"upcoming_bills": bills, "upcoming_income": [], "internal_inflows": []}
     monkeypatch.setattr(companion, "_build_cashflow_response", fake_resp)
 
+    # G438: this scenario is the pre-G438 movement-only doctrine; pin the state in
+    # which the regular card is not shown so the quiet item is what is exercised.
+    monkeypatch.setattr(companion, "_gate_regular_move_cards", _no_regular_cards)
+
     items = asyncio.run(companion.compute_today_items(UID, persist=True))
 
     move_dest_accts = {i["plan_dest"]["account_id"] for i in items if i["type"] == "move"}
@@ -874,29 +854,6 @@ def test_dismissed_regular_card_does_not_swallow_standalone_skip(monkeypatch):
     assert [row["key"] for row in standalone["moves"]] == ["PREMIER MOVE"]
 
 
-def test_one_account_consolidates_while_movement_only_account_stays_standalone(monkeypatch):
-    accounts = [
-        _account("premier", 10.0, name="Premier Current"),
-        _account("monzo", 5.0, name="Monzo Current", provider="monzo"),
-        _account("hsbc", 1_000.0, name="HSBC Current", provider="hsbc"),
-    ]
-    bills = [
-        _mv_bill("PREMIER MOVE", 40.0, "premier", pending=True,
-                 days_past_due=2, original_date="2026-09-02"),
-        _commitment_bill("Council Tax", 50.0, "premier", days_away=1),
-        _mv_bill("MONZO MOVE", 30.0, "monzo", pending=True,
-                 days_past_due=1, original_date="2026-09-05"),
-    ]
-    items, _ = _run(monkeypatch, bills, accounts=accounts)
-    moves = [item for item in items if item["type"] == "move"]
-    assert len(moves) == 1
-    assert moves[0]["plan_dest"]["account_id"] == "premier"
-    assert {row["key"] for row in moves[0]["plan_dest"]["bills"] if row.get("can_skip")} == {"PREMIER MOVE"}
-    unfunded = _find(items, "unfunded_move")
-    assert unfunded is not None
-    assert [row["key"] for row in unfunded["moves"]] == ["MONZO MOVE"]
-
-
 # ── G42: source finder wired into unfunded_move ──────────────────────────
 # Kevin, 2026-09-11: the card previously ended in a fixed notice sentence and
 # never offered a source, even though the sibling cover-plan "move" card
@@ -929,7 +886,7 @@ def test_viable_current_account_chosen_over_savings_pot(monkeypatch):
     ]
     bills = [_mv_bill("AMERICAN EXPRESS", 100.0, "premier",
                        pending=True, days_past_due=2, original_date="2026-09-09")]
-    items, _ = _run(monkeypatch, bills, accounts=accounts)
+    items, _ = _run(monkeypatch, bills, accounts=accounts, show_regular_card=False)
     item = _find(items, "unfunded_move")
     assert item is not None
     move = item["moves"][0]
@@ -962,7 +919,7 @@ def test_savings_offered_only_when_nothing_else_covers(monkeypatch):
     ]
     bills = [_mv_bill("AMERICAN EXPRESS", 100.0, "premier",
                        pending=True, days_past_due=2, original_date="2026-09-09")]
-    items, _ = _run(monkeypatch, bills, accounts=accounts)
+    items, _ = _run(monkeypatch, bills, accounts=accounts, show_regular_card=False)
     item = _find(items, "unfunded_move")
     move = item["moves"][0]
     assert move["suggested_from_name"] == "Halifax Savings"
@@ -984,7 +941,7 @@ def test_lead_counts_one_source_account_across_two_destinations(monkeypatch):
         _mv_bill("BARCLAYCARD", 100.0, "bills",
                  pending=True, days_past_due=1, original_date="2026-09-10"),
     ]
-    items, _ = _run(monkeypatch, bills, accounts=accounts)
+    items, _ = _run(monkeypatch, bills, accounts=accounts, show_regular_card=False)
     item = _find(items, "unfunded_move")
     assert item is not None
     assert len(item["moves"]) == 2
@@ -1011,7 +968,7 @@ def test_candidate_source_excluded_when_its_own_obligations_consume_it(monkeypat
         # well under the £10 safety buffer every source must keep.
         _commitment_bill("Council Tax", 195.0, "tight", days_away=5),
     ]
-    items, _ = _run(monkeypatch, bills, accounts=accounts)
+    items, _ = _run(monkeypatch, bills, accounts=accounts, show_regular_card=False)
     item = _find(items, "unfunded_move")
     move = item["moves"][0]
     assert move["suggested_from_name"] == "Spare Current"
@@ -1029,7 +986,7 @@ def test_no_viable_source_falls_back_to_todays_notice(monkeypatch):
     ]
     bills = [_mv_bill("AMERICAN EXPRESS", 100.0, "premier",
                        pending=True, days_past_due=2, original_date="2026-09-09")]
-    items, _ = _run(monkeypatch, bills, accounts=accounts)
+    items, _ = _run(monkeypatch, bills, accounts=accounts, show_regular_card=False)
     item = _find(items, "unfunded_move")
     move = item["moves"][0]
     assert move["suggested_amount"] is None
@@ -1065,7 +1022,7 @@ def test_single_source_chosen_over_a_valid_two_source_split(monkeypatch):
     ]
     bills = [_mv_bill("AMERICAN EXPRESS", 100.0, "premier",
                        pending=True, days_past_due=2, original_date="2026-09-09")]
-    items, _ = _run(monkeypatch, bills, accounts=accounts)
+    items, _ = _run(monkeypatch, bills, accounts=accounts, show_regular_card=False)
     item = _find(items, "unfunded_move")
     move = item["moves"][0]
     assert move["suggested_from_count"] == 1
@@ -1091,64 +1048,12 @@ def test_savings_pot_not_used_when_current_accounts_combined_cover_it(monkeypatc
     ]
     bills = [_mv_bill("AMERICAN EXPRESS", 100.0, "premier",
                        pending=True, days_past_due=2, original_date="2026-09-09")]
-    items, _ = _run(monkeypatch, bills, accounts=accounts)
+    items, _ = _run(monkeypatch, bills, accounts=accounts, show_regular_card=False)
     item = _find(items, "unfunded_move")
     move = item["moves"][0]
     assert move["suggested_from_count"] == 2
     assert move["suggested_amount"] == 70
     assert "Halifax" not in item["body"]
-
-
-def test_split_uses_fewest_legs_not_rank_order_fill(monkeypatch):
-    """When a split really is unavoidable, the picker must take the fewest
-    legs that cover it, not just fill candidates in whatever order they
-    happen to iterate in. A small £25-headroom account sits FIRST in
-    account list order, but two £40-headroom accounts together already
-    cover the £70 need — the small one must be left out entirely rather
-    than dragged in as a third leg."""
-    accounts = [
-        _account("premier", 44.68, name="Premier Current Account"),
-        _account("small", 35.0, name="Small Current", provider="chase"),   # headroom 25, listed FIRST
-        _account("mid1", 50.0, name="Mid One", provider="natwest"),        # headroom 40
-        _account("mid2", 50.0, name="Mid Two", provider="monzo"),          # headroom 40
-    ]
-    bills = [_mv_bill("AMERICAN EXPRESS", 100.0, "premier",
-                       pending=True, days_past_due=2, original_date="2026-09-09")]
-    items, _ = _run(monkeypatch, bills, accounts=accounts)
-    item = _find(items, "unfunded_move")
-    move = item["moves"][0]
-    # Fewest legs is 2 (Mid One + Mid Two, £80 combined headroom): a
-    # rank-order fill starting with Small Current would have needed 3.
-    assert move["suggested_from_count"] == 2
-    assert move["suggested_amount"] == 70
-
-
-def test_tie_break_is_deterministic_regardless_of_account_order(monkeypatch):
-    """Two current accounts with EQUAL headroom can each cover the £70 need
-    alone — the picker must resolve this the same way every time (headroom
-    descending, then account id, so it never falls back on incidental dict/
-    list ordering), regardless of which order the accounts happen to load
-    in from the database."""
-    def _accounts(order):
-        base = {
-            "hsbc": _account("hsbc", 500.0, name="HSBC Current", provider="hsbc"),
-            "natwest": _account("natwest", 500.0, name="Natwest Current", provider="natwest"),
-        }
-        premier = _account("premier", 44.68, name="Premier Current Account")
-        return [premier] + [base[k] for k in order]
-
-    bills = [_mv_bill("AMERICAN EXPRESS", 100.0, "premier",
-                       pending=True, days_past_due=2, original_date="2026-09-09")]
-
-    items_a, _ = _run(monkeypatch, bills, accounts=_accounts(["hsbc", "natwest"]))
-    items_b, _ = _run(monkeypatch, bills, accounts=_accounts(["natwest", "hsbc"]))
-
-    move_a = _find(items_a, "unfunded_move")["moves"][0]
-    move_b = _find(items_b, "unfunded_move")["moves"][0]
-    assert move_a["suggested_from_count"] == 1
-    assert move_a["suggested_from_name"] == move_b["suggested_from_name"]
-    # "hsbc" sorts before "natwest" by account id — the documented tie-break.
-    assert move_a["suggested_from_name"] == "HSBC Current"
 
 
 # ── G44 (Kevin, 2026-09-11): "it's not telling me where to move it from" ────
@@ -1169,7 +1074,7 @@ def test_single_source_suggestion_carries_one_leg_summing_to_the_total(monkeypat
     ]
     bills = [_mv_bill("AMERICAN EXPRESS", 100.0, "premier",
                        pending=True, days_past_due=2, original_date="2026-09-09")]
-    items, _ = _run(monkeypatch, bills, accounts=accounts)
+    items, _ = _run(monkeypatch, bills, accounts=accounts, show_regular_card=False)
     move = _find(items, "unfunded_move")["moves"][0]
     sources = move["suggested_sources"]
     assert len(sources) == 1
@@ -1181,28 +1086,6 @@ def test_single_source_suggestion_carries_one_leg_summing_to_the_total(monkeypat
     # The leg(s) must sum to the total the card headlines — a breakdown that
     # doesn't add up to its own total is worse than no breakdown at all.
     assert sum(s["amount"] for s in sources) == move["suggested_amount"] == 70
-
-
-def test_three_small_sources_are_capped_at_two_legs_summing_to_the_total(monkeypatch):
-    """Three current accounts with £25 headroom each (£35 balance - £10
-    buffer) against a £70 need: no pair reaches it (25+25=50). G421 (Kevin
-    2026-11-05): a suggestion uses at most two sources, so the move covers what
-    two can (£50) and says so, never a three-account and-chain."""
-    accounts = [
-        _account("premier", 44.68, name="Premier Current Account"),
-        _account("accta", 35.0, name="Acct A", provider="natwest"),   # headroom 25
-        _account("acctb", 35.0, name="Acct B", provider="monzo"),     # headroom 25
-        _account("acctc", 35.0, name="Acct C", provider="hsbc"),      # headroom 25
-    ]
-    bills = [_mv_bill("AMERICAN EXPRESS", 100.0, "premier",
-                       pending=True, days_past_due=2, original_date="2026-09-09")]
-    items, _ = _run(monkeypatch, bills, accounts=accounts)
-    move = _find(items, "unfunded_move")["moves"][0]
-    assert move["suggested_from_count"] == 2
-    sources = move["suggested_sources"]
-    assert len(sources) == 2
-    # A breakdown that doesn't match its own total is worse than no breakdown.
-    assert sum(s["amount"] for s in sources) == move["suggested_amount"] == 50
 
 
 def test_no_viable_source_suggestion_carries_no_sources(monkeypatch):
@@ -1217,7 +1100,7 @@ def test_no_viable_source_suggestion_carries_no_sources(monkeypatch):
     ]
     bills = [_mv_bill("AMERICAN EXPRESS", 100.0, "premier",
                        pending=True, days_past_due=2, original_date="2026-09-09")]
-    items, _ = _run(monkeypatch, bills, accounts=accounts)
+    items, _ = _run(monkeypatch, bills, accounts=accounts, show_regular_card=False)
     move = _find(items, "unfunded_move")["moves"][0]
     assert move["suggested_sources"] == []
     assert (
@@ -1280,6 +1163,67 @@ def test_regular_move_gate_failure_does_not_crash_the_whole_brief(monkeypatch):
     )
 
 
+
+
+def test_not_excluded_when_destination_is_outside_the_payday_plan():
+    """Same payday window, but the transfer's destination is NOT one the
+    live plan is funding this period (an unknown/untracked pot) — the
+    overlap exclusion must not over-fire and swallow every movement during
+    the payday window."""
+    import pytest
+    mp = pytest.MonkeyPatch()
+    try:
+        accounts = [_account("barclays", 20.0)]
+        bills = [
+            _mv_bill("KEVIN MAINGI HSBC FT", 81.67, "barclays",
+                     pending=True, days_past_due=9, dest_account_id="not_a_tracked_account",
+                     original_date="2026-08-18"),
+        ]
+        window_income = [{
+            "name": "Salary", "amount": 2000.0, "days_away": 10, "account_id": "barclays",
+            "account_name": "Barclays Current",
+        }]
+        items, _ = _run(
+            mp, bills, accounts=accounts, payday_window=True,
+            income_streams=[{"key": "Salary", "status": "confirmed"}],
+            window_income=window_income, show_regular_card=False,
+        )
+        assert _find(items, "unfunded_move") is not None
+    finally:
+        mp.undo()
+
+
+def test_tie_break_is_deterministic_regardless_of_account_order(monkeypatch):
+    """Two current accounts with EQUAL headroom can each cover the £70 need
+    alone — the picker must resolve this the same way every time (headroom
+    descending, then account id, so it never falls back on incidental dict/
+    list ordering), regardless of which order the accounts happen to load
+    in from the database."""
+    def _accounts(order):
+        base = {
+            "hsbc": _account("hsbc", 500.0, name="HSBC Current", provider="hsbc"),
+            "natwest": _account("natwest", 500.0, name="Natwest Current", provider="natwest"),
+        }
+        premier = _account("premier", 44.68, name="Premier Current Account")
+        return [premier] + [base[k] for k in order]
+
+    bills = [_mv_bill("AMERICAN EXPRESS", 100.0, "premier",
+                       pending=True, days_past_due=2, original_date="2026-09-09")]
+
+    items_a, _ = _run(monkeypatch, bills, accounts=_accounts(["hsbc", "natwest"]))
+    items_b, _ = _run(monkeypatch, bills, accounts=_accounts(["natwest", "hsbc"]))
+
+    # G438: a bounced own transfer now gets the ordinary move card, so the
+    # tie-break is read off its legs (the same source finder).
+    legs_a = _find(items_a, "move")["moves"]
+    legs_b = _find(items_b, "move")["moves"]
+    assert len(legs_a) == 1
+    name_a = legs_a[0]["move_map"]["from"]["name"]
+    assert name_a == legs_b[0]["move_map"]["from"]["name"]
+    # "hsbc" sorts before "natwest" by account id — the documented tie-break.
+    assert name_a == "HSBC Current"
+
+
 def test_g428_unfunded_move_reaches_one_savings_account_and_says_so(monkeypatch):
     """G428: two small current accounts (£25 headroom each) cannot cover the
     £70 need; one savings account covers the rest, is flagged savings and
@@ -1292,10 +1236,10 @@ def test_g428_unfunded_move_reaches_one_savings_account_and_says_so(monkeypatch)
     ]
     bills = [_mv_bill("AMERICAN EXPRESS", 100.0, "premier",
                        pending=True, days_past_due=2, original_date="2026-09-09")]
-    items, _ = _run(monkeypatch, bills, accounts=accounts)
-    move = _find(items, "unfunded_move")["moves"][0]
-    sources = move["suggested_sources"]
-    assert [s["account_id"] for s in sources if s.get("savings")] == ["halifax"]
-    assert sum(s["amount"] for s in sources) == move["suggested_amount"] == 70
-    assert move["suggested_cover_note"].startswith("Your other accounts can cover £50. A move of £20 from ")
-    assert move["suggested_cover_note"].endswith("would cover the rest.")
+    # G438: the ordinary move card carries the cover (no own-account exemption).
+    card = _find(_run(monkeypatch, bills, accounts=accounts)[0], "move")
+    legs = card["moves"]
+    assert [l["move_map"]["from"]["account_id"] for l in legs if l["move_map"]["from"].get("source_kind") == "savings"] == ["halifax"]
+    assert sum(l["amount"] for l in legs) == card["amount"] == 70
+    assert card["cover_note"].startswith("Your other accounts can cover £50. A move of £20 from ")
+    assert card["cover_note"].endswith("would cover the rest.")

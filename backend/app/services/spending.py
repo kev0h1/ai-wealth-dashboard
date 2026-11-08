@@ -36,9 +36,9 @@ Own-account detection (``find_own_move_ids``), strongest evidence first:
        resolve-movement answer),
     2. its counterparty sort code AND account number (the bank's own fields)
        match an account on file other than its own (G437, Kevin's rule), or
-       its text carries the number or sort code of ANOTHER of the user's
-       accounts,
-    3. a transfer-pair match: a credit of the same amount (within 2p), on a
+       its text carries the sort code AND number of ANOTHER of the user's
+       accounts (G438: a bare number or bare sort code is not enough),
+    3. (G438: pending, not decided, see 4) a transfer-pair match: a credit of the same amount (within 2p), on a
        DIFFERENT account of the user's, within five days (the closest date
        wins), categorised Transfer/movement or unplaced (never Income), not
        already paired, whose own text/category carries own-account evidence
@@ -46,8 +46,10 @@ Own-account detection (``find_own_move_ids``), strongest evidence first:
        number), and only for Business, Other or transfer-like rows. Never on
        amount and date alone. Debits that are already movements claim their
        partner credits first,
-    4. the user's own name in the text counts only together with a pair match
-       (never alone: "MR K MAINGI RENT REF" is a rent payment).
+    4. the user's own name in the text is never evidence by itself ("MR K MAINGI
+       RENT REF" is a rent payment) and, with a pair match, only a QUESTION
+       (G438, Kevin 2026-11-07): such rows are `find_pending_transfer_ids`, left
+       out of Spend as before, never own moves, and the transfers review asks.
 A payee that is merely called the same as a provider ("TIDE PLATFORM LIMI", a
 fee) is NOT evidence: only an account number, a pair or a link is.
 
@@ -73,7 +75,7 @@ from app.services.categories import (
     normalise_name,
 )
 from app.services.categorisation import own_transfer_evidence, user_identity
-from app.services.own_account_transfers import counterparty_key
+from app.services.own_account_transfers import account_name_in_text, counterparty_key
 
 logger = logging.getLogger(__name__)
 
@@ -183,14 +185,37 @@ def _user_category_blocks_own_move(doc: dict, kinds) -> bool:
 
 
 def find_own_move_ids(docs: list[dict], kinds, identity: dict | None = None) -> set[str]:
-    """Ids of spend-kind rows that are really a move between the user's own
-    accounts. ``docs`` are raw transaction documents (``_id``, ``amount``,
+    """Ids of spend-kind rows that are DECIDED own-account moves (G438: a link,
+    or counterparty evidence naming an account on file). Rows that merely look
+    like a pair are in ``find_pending_transfer_ids``, never here."""
+    return _scan_own_moves(docs, kinds, identity)[0]
+
+
+def _pair_is_askable(credit: dict, debit: dict, identity: dict, credit_claims_move: bool) -> bool:
+    """True when the transfers review would ask about this pair: the same gate
+    the pair suggestions use, so a pending row never leaves Spend unasked."""
+    from app.routers.analytics import _has_pair_evidence  # lazy: the router imports this module
+    return _has_pair_evidence(credit, debit, identity, credit_claims_move)
+
+
+def find_pending_transfer_ids(docs: list[dict], kinds, identity: dict | None = None) -> set[str]:
+    """G438: rows that look like the two legs of an own transfer (opposite
+    directions, same amount, a few days apart, with evidence on the incoming leg)
+    but carry no counterparty evidence and no answer from the user. They are
+    not own moves. Spend keeps leaving them out, as it did before, so totals do
+    not move overnight, and the transfers review asks the user."""
+    return _scan_own_moves(docs, kinds, identity)[1]
+
+
+def _scan_own_moves(docs: list[dict], kinds, identity: dict | None = None) -> tuple[set[str], set[str]]:
+    """Returns (decided own moves, pending review rows). ``docs`` are raw transaction documents (``_id``, ``amount``,
     ``date``, ``category``/``custom_category``, ``transaction_type``,
     ``account_id``, ``description``, ``merchant_name``, optional links),
     ideally the period padded by ``PAIR_WINDOW_DAYS`` each side so a pair that
     straddles the period edge is still found."""
-    identity = identity or {"name_tokens": [], "own_ids": set(), "own_map": {}}
+    identity = identity or {"name_tokens": [], "own_ids": set(), "own_map": {}, "own_keys": {}}
     own: set[str] = set()
+    pending: set[str] = set()
 
     def credit_evidence(cr: dict) -> bool:
         """The incoming leg itself says it is the user's own money: a
@@ -218,7 +243,19 @@ def find_own_move_ids(docs: list[dict], kinds, identity: dict | None = None) -> 
 
     used: set[str] = set()
 
-    def closest_partner(d: dict, allow_income: bool, need_evidence: bool) -> dict | None:
+    names = identity.get("account_names") or {}
+
+    def pair_named(d: dict, cr: dict) -> bool:
+        """G438 (b): either leg carries the user's name or an account on file, or
+        one leg names the other leg's account or pot."""
+        for leg in (d, cr):
+            if own_transfer_evidence(_text(leg), identity, own_account_id=leg.get("account_id")) is not None:
+                return True
+        return (account_name_in_text(_text(d), {"name": names.get(str(cr.get("account_id")))})
+                or account_name_in_text(_text(cr), {"name": names.get(str(d.get("account_id")))}))
+
+    def closest_partner(d: dict, allow_income: bool, need_evidence: bool, income_with_text: bool = False,
+                        named_income_only: bool = False) -> dict | None:
         amt = abs(float(d.get("amount") or 0))
         cents = round(amt * 100)
         best, best_gap = None, None
@@ -227,12 +264,17 @@ def find_own_move_ids(docs: list[dict], kinds, identity: dict | None = None) -> 
                 if _txn_id(cr) in used or cr.get("account_id") == d.get("account_id"):
                     continue
                 if not allow_income and kind_of(kinds, _effective_category(cr)) == INCOME:
-                    continue
+                    if not (income_with_text and pair_named(d, cr)):
+                        continue
                 if abs(abs(float(cr.get("amount") or 0)) - amt) >= PAIR_AMOUNT_TOLERANCE:
                     continue
                 gap = abs((cr["date"] - d["date"]).days)
                 if gap > PAIR_WINDOW_DAYS:
                     continue
+                if named_income_only and not (
+                    kind_of(kinds, _effective_category(cr)) == INCOME and pair_named(d, cr)
+                ):
+                    continue  # G438: only a named Income credit may skip the evidence test
                 if need_evidence and not credit_evidence(cr):
                     continue
                 if best is None or gap < best_gap:
@@ -298,12 +340,32 @@ def find_own_move_ids(docs: list[dict], kinds, identity: dict | None = None) -> 
         need = True  # a name-bearing debit still needs the credit's own evidence
         partner = closest_partner(d, allow_income=False, need_evidence=need)
         if partner is None:
+            # G438: a credit that arrives as Income can be the other leg of a pair
+            # when the pair carries a name (the user's, or an account or pot on
+            # file). Salary and refunds carry no such name.
+            partner = closest_partner(d, allow_income=False, need_evidence=False, income_with_text=True,
+                                      named_income_only=True)
+        if partner is None:
             continue  # the user's name alone never flags a row
+        if not pair_named(d, partner) and not _pair_is_askable(
+                partner, d, identity, kind_of(kinds, _effective_category(partner)) == MOVEMENT):
+            continue  # a row that leaves Spend must be one the review can ask about
         used.add(_txn_id(partner))
-        own.add(did)
-        if kind_of(kinds, _effective_category(partner)) not in (INCOME, MOVEMENT) and not _user_category_blocks_own_move(partner, kinds):
-            own.add(_txn_id(partner))  # an unplaced credit leg is a move too, not a refund
-    return own
+        if d.get("custom_category"):
+            continue  # the user answered this row: a pair never overrides it
+        # G438 (b): a pair where either leg carries the user's name, or the other
+        # leg's account or pot name on file, is decided. A pair with no name is a
+        # question (pending): Spend leaves it out as before but it is not own.
+        if pair_named(d, partner):
+            own.add(did)
+            if kind_of(kinds, _effective_category(partner)) not in (INCOME, MOVEMENT) and not partner.get("custom_category"):
+                own.add(_txn_id(partner))
+            continue
+        pending.add(did)
+        if (kind_of(kinds, _effective_category(partner)) not in (INCOME, MOVEMENT)
+                and not partner.get("custom_category")):
+            pending.add(_txn_id(partner))  # an unplaced credit leg is not a refund either
+    return own, pending - own
 
 
 # ── Credit card repayment detection (spending side) ──────────────────────────
@@ -448,6 +510,11 @@ class SpendingContext:
     kinds: dict
     own_move_ids: set[str] = field(default_factory=set)
     card_repayment_ids: set[str] = field(default_factory=set)
+    #: G438: what Spend leaves out of its totals, `own_move_ids`, is the decided
+    #: own moves PLUS the pending pairs below. Only `confirmed_own_move_ids` are
+    #: own transfers; money-engine code never reads the pending set as own money.
+    pending_transfer_ids: set[str] = field(default_factory=set)
+    confirmed_own_move_ids: set[str] = field(default_factory=set)
 
     def is_own_move(self, txn_id: str | None) -> bool:
         return bool(txn_id) and str(txn_id) in self.own_move_ids
@@ -458,10 +525,13 @@ class SpendingContext:
     @classmethod
     def from_docs(cls, docs: list[dict], kinds, identity: dict | None = None,
                   cards: list[CardAccount] | None = None) -> "SpendingContext":
+        own, pending = _scan_own_moves(docs, kinds, identity)
         return cls(
             kinds=kinds,
-            own_move_ids=find_own_move_ids(docs, kinds, identity),
+            own_move_ids=own | pending,
             card_repayment_ids=find_card_repayment_ids(docs, kinds, cards or []),
+            pending_transfer_ids=pending,
+            confirmed_own_move_ids=own,
         )
 
 

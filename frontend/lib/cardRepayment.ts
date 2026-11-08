@@ -10,16 +10,9 @@ export function isCardRepayment(item: { kind?: string; is_card_repayment?: boole
   return item.kind === "movement" && item.is_card_repayment === true;
 }
 
-/** True for an own-account move (savings top-up, pot transfer) that may simply stay put. */
-export function isOptionalMove(item: { kind?: string; is_card_repayment?: boolean | null }): boolean {
+/** True for an own-account move (savings top-up, pot transfer, payment to another account). It is described as a planned move but assessed like any other payment (G438). */
+export function isOwnAccountMove(item: { kind?: string; is_card_repayment?: boolean | null }): boolean {
   return item.kind === "movement" && !isCardRepayment(item);
-}
-
-/** G426/G434: a recurring transfer into the user's own non-spendable (savings or investment) account: a learned own destination that is not spendable; with none learned, the server's own-savings-held-elsewhere stamp (user filed it as Savings or Investment, or wording plus own-money evidence). An engine-assigned category alone never counts. Mirrors the backend `is_savings_order`. */
-export function isSavingsOrder(item: { kind?: string; category?: string | null; own_savings_elsewhere?: boolean | null; is_card_repayment?: boolean | null; dest_account_id?: string | null; dest_account_spendable?: boolean | null }): boolean {
-  if (!isOptionalMove(item)) return false;
-  if (item.dest_account_id) return item.dest_account_spendable !== true;
-  return item.own_savings_elsewhere === true;
 }
 
 /** "NW World Mastercard repayment", without doubling the word when the series already says it. */

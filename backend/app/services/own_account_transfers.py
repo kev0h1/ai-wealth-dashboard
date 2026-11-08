@@ -18,7 +18,7 @@ from typing import Iterable
 from app.db.collections import accounts_col, confirmed_transfer_pairs_col, preferences_col, transactions_col, user_profiles_col
 from app.services.card_issuers import CARD_ISSUERS
 from app.services.card_names import last_four
-from app.services.categorisation import canonical_merchant_key, name_matches_owner, series_key as _base_series_key
+from app.services.categorisation import _NOT_INITIALS, _text_has_account_pair, canonical_merchant_key, name_matches_owner, series_key as _base_series_key
 from app.services.categories import BUILTIN_CATEGORY_KINDS, MOVEMENT, get_category_kinds
 
 OWN_TRANSFER_MATCH_VERSION = 2
@@ -376,10 +376,32 @@ def _text(row: dict) -> str:
     return f"{row.get('merchant_name') or ''} {row.get('description') or ''}".strip()
 
 
-def _account_number_tokens(account: dict) -> set[str]:
-    """Only account-number length identifiers count, never a shared sort code."""
-    value = re.sub(r"\D", "", str(account.get("account_number") or ""))
-    return {value} if len(value) >= 7 else set()
+_STRIP_ACCOUNT_WORDS = frozenset({"account", "pot", "current", "savings", "saving", "the", "my"})
+_GENERIC_ACCOUNT_WORDS = _STRIP_ACCOUNT_WORDS | frozenset({
+    "main", "bills", "bill", "rent", "joint", "home", "spend", "spending", "everyday", "daily",
+    "personal", "business", "reserve", "emergency", "budget", "card", "credit", "debit", "fund",
+    "money", "cash",
+})
+
+
+def _norm_words(text) -> list[str]:
+    return re.sub(r"[^a-z0-9]+", " ", str(text or "").lower()).split()
+
+
+def account_name_in_text(text: str, account: dict | None) -> bool:
+    """G438: the text carries the name of this account or pot on file as a whole
+    word phrase (generic words such as "account" or "savings" do not count on
+    their own, and a name under 4 letters never matches). Pots are accounts, so
+    there is no pot-specific path."""
+    if not account:
+        return False
+    words = [w for w in _norm_words(account.get("name") or account.get("display_name")) if w not in _STRIP_ACCOUNT_WORDS]
+    if all(w in _GENERIC_ACCOUNT_WORDS for w in words):
+        return False  # a name made only of generic words ("Main", "Bills") is never evidence
+    phrase = " ".join(words)
+    if len(phrase) < 4:
+        return False
+    return f" {phrase} " in f" {' '.join(_norm_words(text))} "
 
 
 def _compact_owner_name(text: str, name_tokens: list[str]) -> bool:
@@ -400,7 +422,7 @@ def _compact_owner_name(text: str, name_tokens: list[str]) -> bool:
     pairs = {initials[i] + initials[j] for i in range(len(initials)) for j in range(i + 1, len(initials))}
     has_name = any(word == token or word.startswith(token) or token.startswith(word)
                    for word in words for token in name_tokens if len(word) >= 3)
-    return has_name and any(word in pairs for word in words)
+    return has_name and any(word in pairs and word not in _NOT_INITIALS and len(set(word)) > 1 for word in words)
 
 
 def has_owner_transfer_reference(row: dict, name_tokens: list[str]) -> bool:
@@ -625,23 +647,34 @@ def _pair_key(row: dict) -> tuple[str, Decimal] | None:
 
 
 def _strong_evidence(credit: dict, debit: dict, accounts: dict[str, dict], name_tokens: list[str], learned: set[tuple[str, str]], movement_categories: set[str]) -> bool:
+    """Evidence strong enough to decide a pair without asking (G438, Kevin's
+    rule): counterparty evidence (a), a pair where either leg names the user or
+    the other account or pot on file (b), a pair the user already answered
+    (learned description pair, an explicit movement choice) or a card
+    repayment (checked by the caller). A pair with no name, a name with no pair
+    and a bare account number are only reasons to ASK, which the transfers
+    review does (`has_pair_evidence` in the analytics router)."""
     c_text, d_text = _text(credit), _text(debit)
-    # A reference to the specific other account is strongest.  Sort codes
-    # are intentionally absent from `_account_number_tokens`.
-    c_other = _account_number_tokens(accounts[debit["account_id"]])
-    d_other = _account_number_tokens(accounts[credit["account_id"]])
-    digits_c = set(re.findall(r"\d{7,}", c_text))
-    digits_d = set(re.findall(r"\d{7,}", d_text))
-    if digits_c & c_other or digits_d & d_other:
+    # G438 (b), Kevin's refined rule: a matched pair (the caller has already
+    # required opposite directions, equal amounts, a few days, both legs on the
+    # user's accounts) where either leg carries the user's own name, or the name
+    # of the OTHER leg's account or pot on file, is decided without asking. A pair
+    # with no name is a question for the review instead.
+    if _compact_owner_name(c_text, name_tokens) or _compact_owner_name(d_text, name_tokens):
         return True
+    if (account_name_in_text(c_text, accounts.get(debit["account_id"]))
+            or account_name_in_text(d_text, accounts.get(credit["account_id"]))):
+        return True
+    # The text of either leg carries the OTHER leg's sort code AND account
+    # number together. A bare account number, or a bare sort code, is not enough.
+    for text, other in ((c_text, accounts.get(debit["account_id"])), (d_text, accounts.get(credit["account_id"]))):
+        key = counterparty_key((other or {}).get("sort_code"), (other or {}).get("account_number"))
+        if key is not None and _text_has_account_pair(text, key[0], key[1]):
+            return True
     # A183: Finexer's own counterparty fields on either leg name the other
     # leg's account (sort code and account number both equal).
     if (counterparty_matches_account(credit, accounts.get(debit["account_id"]))
             or counterparty_matches_account(debit, accounts.get(credit["account_id"]))):
-        return True
-    # Both legs must independently identify the owner and the rail language.
-    if (_TRANSFER_NARRATIVE.search(c_text) and _TRANSFER_NARRATIVE.search(d_text)
-            and _compact_owner_name(c_text, name_tokens) and _compact_owner_name(d_text, name_tokens)):
         return True
     c_key = canonical_merchant_key(credit.get("merchant_name") or "", credit.get("description") or "")
     d_key = canonical_merchant_key(debit.get("merchant_name") or "", debit.get("description") or "")
@@ -832,7 +865,7 @@ async def reconcile_own_account_transfers(
     confirmed_rows = [row for row in stamped if (row.get("own_transfer_match") or {}).get("confirmed")]
     if confirmed_only and not confirmed_rows:
         return 0
-    account_rows = await account_collection.find({"user_id": user_id}, {"account_number": 1, "sort_code": 1, "provider": 1, "type": 1, "subtype": 1, "account_type": 1, "currency": 1}).to_list(None)
+    account_rows = await account_collection.find({"user_id": user_id}, {"name": 1, "display_name": 1, "account_number": 1, "sort_code": 1, "provider": 1, "type": 1, "subtype": 1, "account_type": 1, "currency": 1}).to_list(None)
     accounts = {row["_id"]: row for row in account_rows}
     profile = await profile_collection.find_one({"_id": user_id}, {"name_tokens": 1}) or {}
     if movement_categories is None:

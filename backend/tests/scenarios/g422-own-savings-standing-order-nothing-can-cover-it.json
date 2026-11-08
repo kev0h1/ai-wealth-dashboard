@@ -80,10 +80,6 @@
         "low_point": -200.0,
         "verdict": "short",
         "no_earmark": true,
-        "savings_at_risk": {
-          "amount": 200.0,
-          "no_cover": true
-        },
         "spend_from": -200.0
       },
       "acc-mz": {
@@ -91,7 +87,6 @@
         "low_point": 0.0,
         "verdict": "covered",
         "no_earmark": true,
-        "savings_at_risk": null,
         "spend_from": 0.0
       }
     },
@@ -100,7 +95,7 @@
       "moves": []
     },
     "payday_plan": null,
-    "at_risk_count": 0,
-    "notes": "G422 (Kevin 2026-11-06). The same day, accounts and standing order as the covered scenario, but Monzo Current holds 0, so no account anywhere can spare anything. Barclays: 50 - 250 = -200 after payments and at the low point, short, and the only bounced item is a movement into savings (never a payment at risk, at risk count 0). Gap 200, target 210. The finder needs a source with at least 5 of headroom above its 10 cushion: Monzo has 0 - 10 = -10, Barclays Saver is the account the order pays into so it is never a source, so there are no legs: no move card, no earmark, no covered-by-move. The account carries the savings at risk fact with no_cover true, whose note reads 'There may not be enough to fund this savings transfer this period. You could pause or cancel the standing order with your bank for this month.' (recommendation in words only). Left to spend: pool 50 + 0 = 50, less the 250 leaving it = -200. Nothing is spendable so Spend from is 0 on both current accounts. The payday plan is unchanged (null). G436 (Kevin 2026-11-07), which supersedes the Left to spend and Spend from figures worked above where they differ: Barclays has no cover, so its own figure stays -200 (after payments -200, low point -200) instead of the old floor of 0; Monzo is 0 (balance 0, nothing leaves it). Left to spend is their sum, -200 + 0 = -200, unchanged."
+    "at_risk_count": 1,
+    "notes": "G422 (Kevin 2026-11-06), read under G438 (Kevin 2026-11-07). The same day, accounts and standing order as the covered scenario, but Monzo Current holds 0, so no account anywhere can spare anything. The 250 order into Barclays Saver is an ordinary predicted payment on Barclays: 50 - 250 = -200 after payments and at the low point, short, one bounce, at risk count 1. Gap 200, target 210. The finder needs a source with at least 5 of headroom above its 10 cushion: Monzo has 0 - 10 = -10, and Barclays Saver is the account the order pays into so it is never a source. There are no legs: no move card, no earmark, no covered-by-move. Each account keeps its own figure: Barclays -200 (after payments -200, low point -200), Monzo 0 (balance 0, nothing leaves it). Left to spend is their sum, -200 + 0 = -200 (pool 50 + 0 = 50, less the 250 leaving it). The payday plan is null."
   }
 }

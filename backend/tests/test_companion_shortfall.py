@@ -82,11 +82,11 @@ def test_same_day_income_covering_same_day_outflow_suppresses_recommendation():
     assert "acc" not in bounced_bills
 
 
-def test_movement_only_shortfall_suppresses_recommendation():
-    """Every bill this account's deficit bounces is `movement` (a standing
-    order to the user's own savings/another own account). Money going into
-    the owner's own accounts is not an obligation that can fail expensively
-    — no recommendation should fire."""
+def test_movement_only_shortfall_now_recommends():
+    """G438 (Kevin 2026-11-07): no own-account exemption. A standing order to
+    the user's own savings that its account cannot fund is an ordinary
+    predicted payment, so the shortfall reaches the move engine and the
+    standing order represents the card."""
     b = bill("Rainy Day Saver STO", 5, 100, kind="movement")
     events = [(5, "acc", 100.0, False, b)]
 
@@ -94,7 +94,7 @@ def test_movement_only_shortfall_suppresses_recommendation():
     assert min_running["acc"] < 0
 
     result = _gate_recommendation("acc", min_running["acc"], shortfall_bill, bounced_bills)
-    assert result is None
+    assert result is b
 
 
 def test_genuine_commitment_shortfall_still_recommends():
@@ -114,32 +114,24 @@ def test_genuine_commitment_shortfall_still_recommends():
     assert result["kind"] == "commitment"
 
 
-def test_movement_that_starves_a_real_commitment_still_flags_the_commitment():
-    """A large movement drains the account first (and is itself what tips
-    the balance negative — the FIRST bounced item), but a real commitment
-    later in the same window also fails as a result. The recommendation
-    must still fire, and must be represented by the commitment, never by
-    the movement that merely started the drain."""
+def test_movement_that_starves_a_real_commitment_is_the_first_bounce():
+    """A large own-account transfer drains the account first and is itself what
+    tips the balance negative. G438: it is an ordinary payment, so the card is
+    represented by the first bounced item, the transfer, with the later
+    commitment bouncing behind it."""
     starve = bill("Big Standing Order to Savings", 3, 150, kind="movement")
     rent = bill("Rent", 5, 60, kind="commitment")
     events = [(3, "acc", 150.0, False, starve), (5, "acc", 60.0, False, rent)]
 
     running, min_running, shortfall_bill, bounced_bills = walk(events)
-    # Starting balance defaults to £0 (no seed) — the movement itself is
-    # already what tips the account negative.
     assert shortfall_bill["acc"]["name"] == "Big Standing Order to Savings"
     assert [b["name"] for b in bounced_bills["acc"]] == ["Big Standing Order to Savings", "Rent"]
 
     result = _gate_recommendation("acc", min_running["acc"], shortfall_bill, bounced_bills)
-    assert result is not None
-    assert result["name"] == "Rent"
-    assert result["kind"] == "commitment"
+    assert result is starve
 
 
-def test_movement_bounce_that_never_reaches_a_real_bill_stays_suppressed():
-    """Same shape as above, but with no real bill after the movement at
-    all — confirms the all-movement suppression still holds even when the
-    movement itself is the sole bounced item across a multi-event window."""
+def test_a_movement_only_bounce_across_a_window_still_recommends():
     starve = bill("Big Standing Order to Savings", 3, 150, kind="movement")
     top_up = bill("Weekly Pot Top-up", 6, 20, kind="movement")
     events = [(3, "acc", 150.0, False, starve), (6, "acc", 20.0, False, top_up)]
@@ -148,7 +140,7 @@ def test_movement_bounce_that_never_reaches_a_real_bill_stays_suppressed():
     assert all(b["kind"] == MOVEMENT for b in bounced_bills["acc"])
 
     result = _gate_recommendation("acc", min_running["acc"], shortfall_bill, bounced_bills)
-    assert result is None
+    assert result is starve
 
 
 # ── Reactivation + celebration-damping ───────────────────────────────────────
@@ -400,28 +392,25 @@ def test_today_income_that_falls_short_does_not_suppress():
 # decides, per destination, which (if either) route fires — and guarantees
 # at most one entry, since it structurally can only ever `return` once.
 
-def test_movement_only_bounce_but_live_overdrawn_still_flags_via_overdraft_route():
-    """The exact scenario from the coordinator's note: an account already at
-    -£40 live, with an in-window bill that's movement-only (a standing
-    order to savings). Gate (b) rightly suppresses recommending THAT — it's
-    the user's own money move — but the account is independently overdrawn
-    right now, and the overdraft route must still fire, sized off the LIVE
-    balance (£40), not the deeper post-movement min_running figure (£240)."""
+def test_movement_bounce_on_a_live_overdrawn_account_is_one_bill_backed_shortfall():
+    """An account already at -40 live with a 200 standing order to savings due.
+    G438: the standing order is an ordinary payment, so the bill-backed route
+    fires (one entry, never two), sized off the full walk deficit (-240)."""
     b = bill("Rainy Day Saver STO", 3, 200, kind="movement")
     events = sorted([(3, "acc", 200.0, False, b)], key=walk_sort_key)
     _, min_running, shortfall_bill, bounced_bills = _walk_events(events, {"acc": -40.0})
-    assert min_running["acc"] == -240.0  # conservative walk: -£40 live, then -£200 more
+    assert min_running["acc"] == -240.0
 
-    overdraft_today = {"acc": -40.0}  # the LIVE balance, independent of the walk
+    overdraft_today = {"acc": -40.0}
     result = _shortfall_for_destination(
         "acc", min_running["acc"], shortfall_bill, bounced_bills,
         overdraft_today, window_income=[], confirmed_income_keys=set(),
     )
     assert result is not None
     days_away, amount, display_bill = result
-    assert display_bill is None  # overdraft route — not the suppressed movement bill
-    assert amount == 40.0  # sized off the LIVE balance, NOT the -£240 post-movement figure
-    assert days_away == 0
+    assert display_bill is b
+    assert amount == 240.0
+    assert days_away == 3
 
 
 def test_bill_backed_shortfall_wins_over_overdraft_route_no_double_emission():

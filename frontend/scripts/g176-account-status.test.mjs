@@ -53,8 +53,8 @@ for (const scenario of SCENARIOS) {
 const resultFor = (state, id) => { const data = fixtureFor(state); return statusFor(data.accounts.find((account) => account.id === id), data.plans); };
 assert.deepEqual(resultFor("covered", "monzo"), { amount: 131, label: "Left after plans", signal: null, estimated: false });
 assert.deepEqual(resultFor("estimated", "monzo"), { amount: 131, label: "Left after plans", signal: null, estimated: true });
-assert.equal(resultFor("moves", "hsbc").signal, "move");
-assert.equal(resultFor("moves", "hsbc").label, "Short for transfers");
+assert.equal(resultFor("moves", "hsbc").signal, "risk", "G438: a short own-account move reads like any short payment");
+assert.equal(resultFor("moves", "hsbc").label, "Short for payments");
 assert.equal(resultFor("unknown", "monzo").amount, null);
 assert.equal(resultFor("overlap", "monzo").label, "Calculation needs checking");
 

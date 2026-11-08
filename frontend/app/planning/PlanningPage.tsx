@@ -28,7 +28,7 @@ import UpcomingDivider from "@/components/upcoming/UpcomingDivider";
 import type { UpcomingRowModel } from "@/components/upcoming/UpcomingRow";
 import type { PaymentDetail, UpcomingDetailView } from "@/components/upcoming/UpcomingDetailFlow";
 import { canDismissUpcomingOccurrence, upcomingPaymentKey as atRiskKey } from "@/lib/upcomingAttention";
-import { isOptionalMove } from "@/lib/cardRepayment";
+import { isOwnAccountMove } from "@/lib/cardRepayment";
 import { withCoverSuggestions } from "@/lib/coverSuggestion";
 import { compareUpcomingEvents, upcomingAccountAssessment, walkUpcomingAccounts } from "@/lib/upcomingAccountWalk";
 import { accountsWithPeriodActivity, paymentsThroughLabel, positionsFromToday, reconcileWithServerPosition, upcomingAccountWindow } from "@/lib/upcomingAccounts";
@@ -792,7 +792,7 @@ export default function PlanningPage() {
           // This is the existing pooled working, not account coverage.
           // Its cash-transfer/card exclusions and hero arithmetic stay intact.
           if (!doesNotTouchCash(item)) running -= item.amount;
-          return { ...item, balance_after: running, is_credit_card: Boolean(item.is_credit_card), isMovement: isOptionalMove(item) };
+          return { ...item, balance_after: running, is_credit_card: Boolean(item.is_credit_card), isMovement: isOwnAccountMove(item) };
         });
 
         const billsBeforePayday = rawItems.filter(item => {
@@ -888,7 +888,7 @@ export default function PlanningPage() {
             next_period: new Date(b.expected_date).getTime() > accountEndMs,
             balance_after: spendableNow,
             is_credit_card: Boolean(b.is_credit_card),
-            isMovement: isOptionalMove(b),
+            isMovement: isOwnAccountMove(b),
           }));
         const displayItems = [...items, ...observedPendingItems];
 
@@ -946,8 +946,6 @@ export default function PlanningPage() {
           const atRiskMatch = item.type === "bill"
             ? accountWalk?.riskByBill.get(item.source)
             : undefined;
-          // G422: the engine's note for an own-savings standing order its account cannot fund.
-          const savingsRisk = item.type === "bill" && item.isMovement ? accountPositions[item.account_id ?? ""]?.savingsAtRisk : null;
           const isSettling = item.type === "bill" && !!item.observed_pending;
           const rowKey = `${item.type}-${item.name}-${item.expected_date}`;
           const highlighted = highlightTarget === rowKey;
@@ -971,7 +969,6 @@ export default function PlanningPage() {
             daysPastDue: item.days_past_due,
             amountBasis: item.type === "bill" ? item.amount_basis : null,
             ...upcomingAccountAssessment(item.source, accountWalk!),
-            savingsNote: savingsRisk?.orders.some((order) => order.name === item.name) ? savingsRisk.note : undefined,
             highlighted,
             why: atRiskMatch?.movementCulprit ? {
               open: false,

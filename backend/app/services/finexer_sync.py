@@ -1411,11 +1411,11 @@ async def _upsert_finexer_walk(
 
         is_credit = txn_type == "credit"
         if is_credit:
-            # Incoming money: try user rules first, then identity corroboration.
-            # A credit whose description carries the user's OWN name is their own
-            # transfer (e.g. "From Kevin Maingi"), not income. Peer payments don't
-            # carry the owner's name, so the peer-payment trap (untrusted raw TRANSFER
-            # tags) is unaffected.
+            # Incoming money: try user rules first, then account corroboration.
+            # G438: a credit is a Transfer only when its text carries another of
+            # the user's accounts' sort code AND number (or the A183 counterparty
+            # fields below match); the owner's name alone is a question for the
+            # transfers review, not a decision.
             category = rule_categorise_directed(merchant, description, is_credit=True) or (
                 "Transfer" if identity is not None and is_own_transfer(f"{merchant} {description}", identity, own_account_id=account_id)
                 else "Income"
