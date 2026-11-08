@@ -23,9 +23,14 @@ assert.doesNotMatch(html, /—/, "no em dashes");
 // The amount entry shows only while the amount is unknown.
 assert.match(html, /data-statement-amount-entry/);
 assert.match(html, /Enter this statement&#x27;s amount/);
-assert.match(html, />£</);
+assert.match(html, /Enter this statement&#x27;s amount \(£\)/);
+assert.doesNotMatch(html, /<span[^>]*aria-hidden="true">£<\/span>/, "no separate pound prefix span");
 assert.match(html, /Save amount/);
 assert.doesNotMatch(html, /—|!/, "no em dashes or exclamation marks in the rendered copy");
+const incomplete = { ...card, statement_bill: { ...card.statement_bill, status: "incomplete_history", reason: "This card has no balance from your bank yet, so the statement cannot be estimated." } };
+assert.match(renderToStaticMarkup(React.createElement(PaymentSheet, { card: incomplete, hiddenOverride: false, onClose: noop, services })), /data-statement-amount-entry/, "a full-method card with no readable amount can enter one");
+const incompleteFixed = { ...incomplete, statement_bill: { ...incomplete.statement_bill, payment_method: "fixed" } };
+assert.doesNotMatch(renderToStaticMarkup(React.createElement(PaymentSheet, { card: incompleteFixed, hiddenOverride: false, onClose: noop, services })), /data-statement-amount-entry/, "other methods never show it");
 const known = { ...card, statement_bill: { ...card.statement_bill, status: "estimated", estimated_bill: 99.8, payment_amount: 99.8, payment_remaining: 99.8, reason: null } };
 const knownHtml = renderToStaticMarkup(React.createElement(PaymentSheet, { card: known, hiddenOverride: false, onClose: noop, services }));
 assert.doesNotMatch(knownHtml, /data-statement-amount-entry/, "no entry once the amount is known");
