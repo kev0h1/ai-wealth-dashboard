@@ -39,15 +39,16 @@ Own-account detection (``find_own_move_ids``), strongest evidence first:
        its text carries the sort code AND number of ANOTHER of the user's
        accounts (G438: a bare number or bare sort code is not enough),
     3. (G438: pending, not decided, see 4) a transfer-pair match: a credit of the same amount (within 2p), on a
-       DIFFERENT account of the user's, within five days (the closest date
-       wins), categorised Transfer/movement or unplaced (never Income), not
+       DIFFERENT account of the user's, within three days (G440, the closest
+       date wins; a named pair within 24 hours is decided, later is asked), categorised Transfer/movement or unplaced (never Income), not
        already paired, whose own text/category carries own-account evidence
        (Transfer or movement kind, a link, the user's name, an own account
        number), and only for Business, Other or transfer-like rows. Never on
        amount and date alone. Debits that are already movements claim their
        partner credits first,
     4. the user's own name in the text is never evidence by itself ("MR K MAINGI
-       RENT REF" is a rent payment) and, with a pair match, only a QUESTION
+       RENT REF" is a rent payment) and, with a pair match within 24 hours it IS decided (G440); a pair
+       up to three days apart, or with no name, is only a QUESTION
        (G438, Kevin 2026-11-07): such rows are `find_pending_transfer_ids`, left
        out of Spend as before, never own moves, and the transfers review asks.
 A payee that is merely called the same as a provider ("TIDE PLATFORM LIMI", a
@@ -75,7 +76,9 @@ from app.services.categories import (
     normalise_name,
 )
 from app.services.categorisation import own_transfer_evidence, user_identity
-from app.services.own_account_transfers import account_name_in_text, counterparty_key
+from app.services.own_account_transfers import (
+    account_name_in_text, counterparty_key, pair_is_named, within_ask_window, within_auto_window,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -246,13 +249,11 @@ def _scan_own_moves(docs: list[dict], kinds, identity: dict | None = None) -> tu
     names = identity.get("account_names") or {}
 
     def pair_named(d: dict, cr: dict) -> bool:
-        """G438 (b): either leg carries the user's name or an account on file, or
-        one leg names the other leg's account or pot."""
-        for leg in (d, cr):
-            if own_transfer_evidence(_text(leg), identity, own_account_id=leg.get("account_id")) is not None:
-                return True
-        return (account_name_in_text(_text(d), {"name": names.get(str(cr.get("account_id")))})
-                or account_name_in_text(_text(cr), {"name": names.get(str(d.get("account_id")))}))
+        """G438 (b), widened by G440: either leg carries the user's name in any
+        form (full, truncated, initials in any order) or an account on file, or
+        one leg names the other leg's account or pot. Shared with sync and the
+        review gate (`pair_is_named`)."""
+        return pair_is_named(cr, d, identity)
 
     def closest_partner(d: dict, allow_income: bool, need_evidence: bool, income_with_text: bool = False,
                         named_income_only: bool = False) -> dict | None:
@@ -268,9 +269,9 @@ def _scan_own_moves(docs: list[dict], kinds, identity: dict | None = None) -> tu
                         continue
                 if abs(abs(float(cr.get("amount") or 0)) - amt) >= PAIR_AMOUNT_TOLERANCE:
                     continue
-                gap = abs((cr["date"] - d["date"]).days)
-                if gap > PAIR_WINDOW_DAYS:
+                if not within_ask_window(cr["date"], d["date"]):  # G440: beyond three days nothing is offered
                     continue
+                gap = abs((cr["date"].date() - d["date"].date()).days)
                 if named_income_only and not (
                     kind_of(kinds, _effective_category(cr)) == INCOME and pair_named(d, cr)
                 ):
@@ -356,7 +357,10 @@ def _scan_own_moves(docs: list[dict], kinds, identity: dict | None = None) -> tu
         # G438 (b): a pair where either leg carries the user's name, or the other
         # leg's account or pot name on file, is decided. A pair with no name is a
         # question (pending): Spend leaves it out as before but it is not own.
-        if pair_named(d, partner):
+        # G440: and only within 24 hours (same or next day for date-only
+        # timestamps); a named pair up to three days apart is asked, like an
+        # unnamed one.
+        if pair_named(d, partner) and within_auto_window(d["date"], partner["date"]):
             own.add(did)
             if kind_of(kinds, _effective_category(partner)) not in (INCOME, MOVEMENT) and not partner.get("custom_category"):
                 own.add(_txn_id(partner))

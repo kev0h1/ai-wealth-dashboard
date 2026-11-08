@@ -350,16 +350,32 @@ async def user_identity(user_id: str) -> dict:
             "account_names": account_names}
 
 
+MIN_TRUNCATED_NAME_LETTERS = 4
+
+
+def word_matches_name_token(word: str, token: str) -> bool:
+    """G440: does one lower-case word carry one profile name token, in full or
+    as a bank truncation? A word is the token, or starts with it (the bank ran
+    other text on), or is a TRUNCATION of it: a prefix of at least
+    `MIN_TRUNCATED_NAME_LETTERS` letters ("MAIN" or "KEVI" for a token that
+    starts that way). A shorter prefix ("MAI", "KEV", "CAR") never matches, so a
+    short common word cannot pass as part of a name."""
+    if not word or not token:
+        return False
+    if len(word) >= 3 and (word == token or word.startswith(token)):
+        return True
+    return len(word) >= MIN_TRUNCATED_NAME_LETTERS and token.startswith(word)
+
+
 def _name_token_hits(description: str, name_tokens: list[str]) -> set:
-    """Return a set of indices into name_tokens whose token fuzzy-matches any
-    word in the description.  A match is a >=3-char prefix overlap either way
-    (so 'MAING' matches 'maingi' and vice-versa).  Only words of length >=3
-    are considered for full-token matching."""
+    """Return a set of indices into name_tokens that match any word in the
+    description (G440: whole token, or a bank truncation of 4+ letters; word
+    order never matters because each token is matched on its own)."""
     words = re.split(r"[^a-zA-Z]+", description.lower())
     words = [w for w in words if len(w) >= 3]
     matched_indices: set = set()
     for idx, tok in enumerate(name_tokens):
-        if any(w == tok or w.startswith(tok) or tok.startswith(w) for w in words):
+        if any(word_matches_name_token(w, tok) for w in words):
             matched_indices.add(idx)
     return matched_indices
 
