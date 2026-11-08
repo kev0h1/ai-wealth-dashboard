@@ -43,7 +43,8 @@ from app.services import response_cache
 from app.services import derived_caches as _derived_caches  # E20: bound at import, never first imported while a test patches db_collections (H143)
 from app.services.sync_freshness import first_sync_state, last_bank_sync
 from app.services.own_account_transfers import (  # G413: IssuerFallback*: saved decisions under the old merged issuer key still apply
-    IssuerFallbackDict, IssuerFallbackSet, saved_key_applies, series_key, repayment_display_name,
+    ASK_PAIR_DAYS, IssuerFallbackDict, IssuerFallbackSet, saved_key_applies, series_key, repayment_display_name,
+    within_ask_window,
 )  # G403: per-card key for a linked repayment
 from app.services.categorisation import series_key as _base_series_key
 from app.services.categorisation import (
@@ -6618,7 +6619,14 @@ def _has_pair_evidence(c: dict, d: dict, identity: dict, credit_claims_move: boo
         return True
     c_text = f"{c.get('merchant_name') or ''} {c.get('description') or ''}"
     d_text = f"{d.get('merchant_name') or ''} {d.get('description') or ''}"
-    from app.services.own_account_transfers import has_owner_transfer_reference
+    from app.services.own_account_transfers import has_owner_transfer_reference, pair_is_named, within_auto_window
+    # G440: a named pair (the user's name in any form, or an account or pot name
+    # on file) that sync and Spend do NOT decide automatically, because the legs
+    # are more than 24 hours apart, is asked here. Every pair the timing rule
+    # defers to the review is therefore accepted by this gate. Within 24 hours a
+    # named pair is decided, so the weaker one-leg tests below still apply.
+    if pair_is_named(c, d, identity) and not within_auto_window(c.get("date"), d.get("date")):
+        return True
     c_evidence = own_transfer_evidence(c_text, identity, own_account_id=c.get("account_id")) is not None or has_owner_transfer_reference(c, identity.get("name_tokens") or [])
     d_evidence = own_transfer_evidence(d_text, identity, own_account_id=d.get("account_id")) is not None or has_owner_transfer_reference(d, identity.get("name_tokens") or [])
     if c_evidence and d_evidence:
@@ -6796,7 +6804,7 @@ async def _transfer_pair_suggestions(uid: str) -> list[dict]:
             if c.get("account_id") == d.get("account_id"):
                 continue
             date_diff = abs((c_day - _day(d)).days)
-            if date_diff > 5:
+            if date_diff > ASK_PAIR_DAYS or not within_ask_window(c["date"], d["date"]):  # G440: beyond three days, no offer
                 continue
             # A prior "this is spending" dismissal also answers the same
             # transaction when it later becomes a pair candidate after sync.
