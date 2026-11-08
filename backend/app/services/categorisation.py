@@ -349,10 +349,11 @@ async def user_identity(user_id: str) -> dict:
     # G442: the model's standing verdicts on pairs (never an undone one), so Spend,
     # the review gate and the matcher all read the same answer. Absent means
     # today's rules apply unchanged.
-    from app.services.own_account_transfers import load_ai_verdicts
+    from app.services.own_account_transfers import load_ai_blocked, load_ai_verdicts
     ai_pairs = await load_ai_verdicts(user_id)
+    ai_blocked = await load_ai_blocked(user_id, ai_pairs)
     return {"name_tokens": name_tokens, "own_ids": own_ids, "own_map": own_map, "own_keys": own_keys,
-            "account_names": account_names, "ai_pairs": ai_pairs}
+            "account_names": account_names, "ai_pairs": ai_pairs, "ai_blocked": ai_blocked}
 
 
 MIN_TRUNCATED_NAME_LETTERS = 4

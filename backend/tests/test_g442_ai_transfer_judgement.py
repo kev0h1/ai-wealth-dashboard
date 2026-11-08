@@ -104,6 +104,9 @@ class ModelMock:
             return None, "error"
         if self.behaviour == "budget":
             return None, "budget"
+        if self.behaviour == "not_transfer":
+            items = [json.loads(line) for line in prompt.split("Pairs:\n", 1)[1].splitlines()]
+            return json.dumps({str(i["n"]): {"verdict": "not_transfer", "reason": "Different counterparties."} for i in items}), "ok"
         if self.behaviour == "garbage":
             return "I could not decide, sorry", "ok"
         items = [json.loads(line) for line in prompt.split("Pairs:\n", 1)[1].splitlines()]
@@ -188,7 +191,7 @@ def test_candidate_set_is_only_what_no_rule_decides():
         # leftover: named, 2 days apart (not within 24 hours), no other evidence
         _row("l-d", "debit", 41.0, "barc", d0, "JORDAN HARTLEY HSBC STO"),
         _row("l-c", "credit", 41.0, "hsbc", d0 + timedelta(days=2), "HARTLEY J E HSBC"),
-        # decided by the G440 rule: named, within 24 hours
+        # named, within 24 hours: the G440 rule is only a fallback, so the model judges it too
         _row("a-d", "debit", 42.0, "barc", d0, "JORDAN HARTLEY HSBC STO"),
         _row("a-c", "credit", 42.0, "hsbc", d0 + timedelta(hours=5), "HARTLEY J E HSBC"),
         # decided by sort code and account number in the text
@@ -212,7 +215,7 @@ def test_candidate_set_is_only_what_no_rule_decides():
         _row("same-c", "credit", 48.0, "barc", d0 + timedelta(days=1), "Z"),
     ]
     pairs = oat.ai_candidate_pairs(rows, accts, TOKENS, set(), movement_categories={"Transfer"})
-    assert {(c["_id"], d["_id"]) for c, d in pairs} == {("l-c", "l-d")}
+    assert {(c["_id"], d["_id"]) for c, d in pairs} == {("l-c", "l-d"), ("a-c", "a-d")}
     # a learned pair removes the leftover too (the user's answer, learned)
     key_a = categorisation.canonical_merchant_key("", "HARTLEY J E HSBC")
     key_b = categorisation.canonical_merchant_key("", "JORDAN HARTLEY HSBC STO")
@@ -669,4 +672,91 @@ def test_review_state_fingerprint_changes_with_a_verdict(monkeypatch):
             await judge.judge_user(UID)
             after = await oat.ai_state_signature(UID)
             assert before == [] and len(after) == 1 and after != before
+    _arun(run())
+
+
+# ── Precedence (coordinator 2026-11-08): the model decides; G440 is only the fallback ──
+
+def _close_pair_rows(tag="x"):
+    """Both legs named and within 24 hours: G440 alone would file this."""
+    day = datetime(2026, 10, 20, 9, 0)
+    return [_row(f"{tag}-d", "debit", 65.0, "natw", day, "JORDAN HARTLEY CREDIT VIA MOBILE - PYMT FP 20/10/26 0900 ABC123456789"),
+            _row(f"{tag}-c", "credit", 65.0, "barc", day + timedelta(hours=3), "JORDAN HARTLEY CHASE BGC")]
+
+
+async def _ask_list(monkeypatch):
+    identity = await categorisation.user_identity(UID)
+    monkeypatch.setattr(analytics, "user_identity", lambda uid: _async(identity))
+    return await analytics._transfer_pair_suggestions(UID)
+
+
+def test_a_named_pair_within_24_hours_is_judged_and_unclear_reaches_the_review(monkeypatch):
+    mock = ModelMock()  # amount 65.00 -> unclear
+    monkeypatch.setattr(judge, "_call_model", mock)
+
+    async def run():
+        async with mongo_env(monkeypatch, _close_pair_rows()) as cols:
+            result = await judge.judge_user(UID)
+            assert result["judged"] == 1 and mock.pair_count == 1, "the G440 pair goes to the model"
+            await oat.reconcile_own_account_transfers(UID)
+            assert await _stamped(cols) == {}, "an unclear verdict switches the G440 fallback off"
+            items = await _ask_list(monkeypatch)
+            assert [(i["credit"]["id"], i["debit"]["id"]) for i in items] == [("x-c", "x-d")]
+            assert items[0]["ai_reason"].startswith("The credit names Chase")
+    _arun(run())
+
+
+def test_without_a_verdict_the_g440_fallback_still_files_the_named_pair(monkeypatch):
+    monkeypatch.setattr(judge, "_call_model", ModelMock("error"))
+
+    async def run():
+        async with mongo_env(monkeypatch, _close_pair_rows()) as cols:
+            await judge.judge_user(UID)  # the model could not judge it
+            await oat.reconcile_own_account_transfers(UID)
+            stamped = await _stamped(cols)
+            assert set(stamped) == {"x-d", "x-c"}
+            assert "source" not in stamped["x-d"]["own_transfer_match"]  # filed by the rule, not the model
+    _arun(run())
+
+
+def test_not_transfer_keeps_the_named_pair_in_spend_and_unasked(monkeypatch):
+    monkeypatch.setattr(judge, "_call_model", ModelMock("not_transfer"))
+
+    async def run():
+        async with mongo_env(monkeypatch, _close_pair_rows()) as cols:
+            await judge.judge_user(UID)
+            await oat.reconcile_own_account_transfers(UID)
+            assert await _stamped(cols) == {}
+            assert (await cols["transactions"].find_one({"_id": "x-d"}))["category"] == "Other"
+            identity = await categorisation.user_identity(UID)
+            docs = [r async for r in cols["transactions"].find({})]
+            assert find_own_move_ids(docs, KINDS, identity) == set()
+            assert find_pending_transfer_ids(docs, KINDS, identity) == set()
+            assert await _ask_list(monkeypatch) == []
+    _arun(run())
+
+
+def test_an_undone_series_is_asked_not_refiled_by_the_g440_fallback(monkeypatch):
+    mock = ModelMock("rule")
+    monkeypatch.setattr(judge, "_call_model", mock)
+    rule_rows = [dict(r, amount=70.0) for r in _close_pair_rows("y")]
+
+    async def run():
+        async with mongo_env(monkeypatch, rule_rows) as cols:
+            await judge.judge_user(UID)  # amount != 65.00: same_transfer, filed by the model
+            assert set(await _stamped(cols)) == {"y-d", "y-c"}
+            sig = (await judge.list_auto_filed(UID))[0]["series_key"]
+            await judge.undo_series(UID, sig)
+            await oat.reconcile_own_account_transfers(UID)
+            assert await _stamped(cols) == {}, "the G440 fallback must not re-file a series the user undid"
+            calls = len(mock.calls)
+            await judge.judge_user(UID)
+            assert len(mock.calls) == calls, "and it is not judged again"
+            items = await _ask_list(monkeypatch)
+            assert [(i["credit"]["id"], i["debit"]["id"]) for i in items] == [("y-c", "y-d")]
+            # Spend agrees: the pair is left out as pending (asked), not decided as an own move
+            identity = await categorisation.user_identity(UID)
+            docs = [r async for r in cols["transactions"].find({})]
+            assert find_own_move_ids(docs, KINDS, identity) == set()
+            assert "y-d" in find_pending_transfer_ids(docs, KINDS, identity)
     _arun(run())

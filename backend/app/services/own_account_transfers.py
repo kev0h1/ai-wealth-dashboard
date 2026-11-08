@@ -691,6 +691,28 @@ async def load_ai_verdicts(user_id: str, *, collection=None) -> dict[frozenset, 
     return {frozenset(str(i) for i in d.get("ids") or ()): d for d in docs if d.get("ids")}
 
 
+async def load_ai_blocked(user_id: str, verdicts: dict | None = None, *, collection=None) -> frozenset:
+    """G442: what switches the G440 named-within-24-hours fallback off. The pair
+    ids of every standing not_transfer or unclear verdict, the pair ids the user
+    overrode, and the series signatures the user undid (the user's undo is a
+    user answer: it neither falls back nor is judged again). Never raises."""
+    collection = own_transfer_judgements_col if collection is None else collection
+    out: set = {k for k, v in (verdicts or {}).items() if v.get("verdict") in ("not_transfer", "unclear")}
+    try:
+        docs = await collection.find(
+            {"user_id": user_id, "$or": [{"kind": "undo"}, {"kind": "pair", "user_override": True}]},
+            {"kind": 1, "ids": 1, "series_sig": 1},
+        ).to_list(None)
+    except Exception:
+        return frozenset(out)
+    for d in docs:
+        if d.get("kind") == "undo" and d.get("series_sig"):
+            out.add(d["series_sig"])
+        elif d.get("ids"):
+            out.add(frozenset(str(i) for i in d["ids"]))
+    return frozenset(out)
+
+
 async def ai_state_signature(user_id: str, *, collection=None) -> list:
     """G442: a sortable summary of every verdict and undo override for this user,
     folded into the review state's fingerprint so a new verdict rebuilds it.
@@ -816,7 +838,8 @@ def series_signature(credit: dict, debit: dict) -> str:
 
 
 def _strong_evidence(credit: dict, debit: dict, accounts: dict[str, dict], name_tokens: list[str], learned: set[tuple[str, str]], movement_categories: set[str],
-                     ai_same: frozenset = frozenset()) -> bool:
+                     ai_same: frozenset = frozenset(), named_blocked: frozenset = frozenset(),
+                     skip_named_auto: bool = False) -> bool:
     """Evidence strong enough to decide a pair without asking (G438, Kevin's
     rule): counterparty evidence (a), a pair where either leg names the user or
     the other account or pot on file (b), a pair the user already answered
@@ -835,7 +858,13 @@ def _strong_evidence(credit: dict, debit: dict, accounts: dict[str, dict], name_
     # G440 (Kevin 2026-11-08): a name alone files the pair only within 24 hours
     # (same or next calendar day for date-only timestamps). Up to three days apart
     # it is a question for the review, and beyond that nothing is offered.
-    if within_auto_window(credit.get("date"), debit.get("date")):
+    # G442 precedence: this named-within-24-hours rule is only the FALLBACK for a
+    # pair the model has not judged (or could not). A standing not_transfer or
+    # unclear verdict, or the user's undo of the series, switches it off; and the
+    # model's own candidate set never counts it as already decided.
+    named_ok = not skip_named_auto and not (
+        named_blocked and (pair_ids(credit, debit) in named_blocked or series_signature(credit, debit) in named_blocked))
+    if named_ok and within_auto_window(credit.get("date"), debit.get("date")):
         if _compact_owner_name(c_text, name_tokens) or _compact_owner_name(d_text, name_tokens):
             return True
         if (account_name_in_text(c_text, accounts.get(debit["account_id"]))
@@ -931,11 +960,12 @@ def select_unique_pairs(
     rows: list[dict], accounts: dict[str, dict], name_tokens: list[str],
     learned: set[tuple[str, str]], *, movement_categories: set[str] | None = None,
     exclude_ids: set[str] | frozenset[str] = frozenset(), ai_same: frozenset = frozenset(),
+    named_blocked: frozenset = frozenset(),
 ) -> list[tuple[dict, dict]]:
     """Return only unambiguous `(credit, debit)` pairs from plain documents."""
     return [(c, d) for c, d, _ in select_unique_pairs_detailed(
         rows, accounts, name_tokens, learned, movement_categories=movement_categories,
-        exclude_ids=exclude_ids, ai_same=ai_same)]
+        exclude_ids=exclude_ids, ai_same=ai_same, named_blocked=named_blocked)]
 
 
 def _user_answered_pair(credit: dict, debit: dict, learned: set[tuple[str, str]], movement_categories: set[str]) -> bool:
@@ -1028,6 +1058,7 @@ def select_unique_pairs_detailed(
     rows: list[dict], accounts: dict[str, dict], name_tokens: list[str],
     learned: set[tuple[str, str]], *, movement_categories: set[str] | None = None,
     exclude_ids: set[str] | frozenset[str] = frozenset(), ai_same: frozenset = frozenset(),
+    named_blocked: frozenset = frozenset(),
 ) -> list[tuple[dict, dict, str | None]]:
     """`select_unique_pairs` plus the card issuer key (G403) when the pair is a
     card repayment found by `card_repayment_issuer`, else None."""
@@ -1041,7 +1072,7 @@ def select_unique_pairs_detailed(
         if (is_direct_debit(credit) or is_direct_debit(debit)) and not issuer and not _user_answered_pair(
                 credit, debit, learned, movement_categories):
             continue  # A194: a direct debit is never an own transfer by bank evidence
-        if issuer or _strong_evidence(credit, debit, accounts, name_tokens, learned, movement_categories, ai_same):
+        if issuer or _strong_evidence(credit, debit, accounts, name_tokens, learned, movement_categories, ai_same, named_blocked):
             candidates.append((credit, debit, issuer))
     return confirmed + _unique_only(candidates)
 
@@ -1055,8 +1086,9 @@ def ai_candidate_pairs(
     as the automatic matcher, over the G440 ask window (three days), then
     stripped of everything a rule already decides: a card repayment, a direct
     debit, a pair the user answered or learned, and any pair automatic evidence
-    files (a sort code and account number, the G440 named pair within 24
-    hours). A leg that sits in more than one candidate is ambiguous and never
+    files (a sort code and account number or counterparty fields). The G440
+    named-within-24-hours rule does not pre-empt the model: it is the fallback
+    for a pair not yet judged. A leg that sits in more than one candidate is ambiguous and never
     sent (the matcher would refuse it too). Returns `(credit, debit)`."""
     if movement_categories is None:
         movement_categories = {name for name, kind in BUILTIN_CATEGORY_KINDS.items() if kind == MOVEMENT}
@@ -1069,8 +1101,8 @@ def ai_candidate_pairs(
             continue
         if _user_answered_pair(credit, debit, learned, movement_categories):
             continue
-        if _strong_evidence(credit, debit, accounts, name_tokens, learned, movement_categories):
-            continue
+        if _strong_evidence(credit, debit, accounts, name_tokens, learned, movement_categories, skip_named_auto=True):
+            continue  # G442: a named pair within 24 hours is NOT decided here; the model judges it
         leftovers.append((credit, debit, None))
     return [(c, d) for c, d, _ in _unique_only(leftovers)]
 
@@ -1148,13 +1180,14 @@ async def reconcile_own_account_transfers(
     # pair learned from one of them stamps its later occurrences as the model's.
     ai_verdicts = {} if confirmed_only else await load_ai_verdicts(user_id, collection=judgement_collection)
     ai_same = frozenset(k for k, v in ai_verdicts.items() if v.get("verdict") == "same_transfer")
+    named_blocked = frozenset() if confirmed_only else await load_ai_blocked(user_id, ai_verdicts, collection=judgement_collection)
     ai_learned = _learned_pair_keys(row for row in learned_rows if row.get("source") == "ai")
     queued_ids = await active_separate_review_ids(
         user_id, rows, accounts, preference_collection=preference_collection, movement_categories=movement_categories,
     )
     detailed = (
         select_unique_pairs_detailed(rows, accounts, profile.get("name_tokens") or [], _learned_pair_keys(learned_rows),
-                                     movement_categories=movement_categories, exclude_ids=queued_ids, ai_same=ai_same)
+                                     movement_categories=movement_categories, exclude_ids=queued_ids, ai_same=ai_same, named_blocked=named_blocked)
         if len(accounts) >= 2 else []
     )
     if confirmed_only:

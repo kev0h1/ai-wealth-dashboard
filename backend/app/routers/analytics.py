@@ -6629,6 +6629,13 @@ def _has_pair_evidence(c: dict, d: dict, identity: dict, credit_claims_move: boo
     # G442: the model's standing verdict on this pair. not_transfer drops it from
     # the review and leaves it in Spend; unclear is asked, whatever rule evidence
     # exists, with the model's reason shown. A user link above always wins.
+    from app.services.own_account_transfers import series_signature
+    blocked = identity.get("ai_blocked") or frozenset()
+    if blocked and (frozenset((str(c.get("_id")), str(d.get("_id")))) in blocked or series_signature(c, d) in blocked):
+        # the user undid this series (or the model said unclear): asked, never decided by the G440 fallback
+        ai = (identity.get("ai_pairs") or {}).get(frozenset((str(c.get("_id")), str(d.get("_id")))))
+        if not ai or ai.get("verdict") != "not_transfer":
+            return True
     ai = (identity.get("ai_pairs") or {}).get(frozenset((str(c.get("_id")), str(d.get("_id")))))
     if ai:
         if ai.get("verdict") == "not_transfer":
