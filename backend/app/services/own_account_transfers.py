@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import re
 import hashlib
+import itertools
 import json
 from datetime import datetime, timedelta
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
@@ -18,13 +19,20 @@ from typing import Iterable
 from app.db.collections import accounts_col, confirmed_transfer_pairs_col, preferences_col, transactions_col, user_profiles_col
 from app.services.card_issuers import CARD_ISSUERS
 from app.services.card_names import last_four
-from app.services.categorisation import _NOT_INITIALS, _text_has_account_pair, canonical_merchant_key, name_matches_owner, series_key as _base_series_key
+from app.services.categorisation import _NOT_INITIALS, _text_has_account_pair, canonical_merchant_key, name_matches_owner, own_transfer_evidence, series_key as _base_series_key, word_matches_name_token
 from app.services.categories import BUILTIN_CATEGORY_KINDS, MOVEMENT, get_category_kinds
 
 OWN_TRANSFER_MATCH_VERSION = 2
 RECONCILE_DAYS = 90
 PAIR_DAYS = 5
 CARD_REPAY_DAYS = 3
+# G440 (Kevin 2026-11-08): a pair that is named (the user's name in any form, or
+# another account's or pot's name) files by itself only when the legs are within
+# AUTO_PAIR_HOURS of each other; up to ASK_PAIR_DAYS apart it is a question for
+# the transfers review; beyond that nothing is offered. The sort code and
+# account number route, learned pairs and card repayments keep their own rules.
+AUTO_PAIR_HOURS = 24
+ASK_PAIR_DAYS = 3
 
 # G403: the issuer table lives in card_issuers (shared with categorisation).
 _ISSUER_PRINTED = {
@@ -405,24 +413,33 @@ def account_name_in_text(text: str, account: dict | None) -> bool:
 
 
 def _compact_owner_name(text: str, name_tokens: list[str]) -> bool:
-    """Recognise `Maingi KM` only when both surname and two initials appear.
+    """Recognise `Maingi KM` only when a name token and initials both appear.
 
     A single surname, or a lone initial, is too weak to turn somebody else's
     payment into an internal transfer.  The normal full-name matcher remains
     accepted as well.
+
+    G440: every order of the initials is accepted ("MK", "KM", or three in any
+    order), and a name token may be a bank truncation of 4+ letters ("MAIN" for
+    a surname starting that way). Common words and a repeated letter are never
+    initials, and a shorter truncation never matches.
     """
     if name_matches_owner(text, name_tokens):
         return True
     if len(name_tokens) < 2:
         return False
     words = [w.lower() for w in re.findall(r"[A-Za-z]+", text)]
-    initials = "".join(token[0].lower() for token in name_tokens if token)
-    # Banks commonly compress first and last names to two initials.  Accept
-    # any ordered two-initial subsequence, but only beside a full owner token.
-    pairs = {initials[i] + initials[j] for i in range(len(initials)) for j in range(i + 1, len(initials))}
-    has_name = any(word == token or word.startswith(token) or token.startswith(word)
+    initials = [token[0].lower() for token in name_tokens if token]
+    # Banks compress names to initials in any order. Accept any two or three
+    # initials from distinct tokens, in any order, but only beside a name token.
+    combos = {
+        "".join(c)
+        for size in (2, 3)
+        for c in itertools.permutations(initials, size)
+    }
+    has_name = any(word_matches_name_token(word, token)
                    for word in words for token in name_tokens if len(word) >= 3)
-    return has_name and any(word in pairs and word not in _NOT_INITIALS and len(set(word)) > 1 for word in words)
+    return has_name and any(word in combos and word not in _NOT_INITIALS and len(set(word)) > 1 for word in words)
 
 
 def has_owner_transfer_reference(row: dict, name_tokens: list[str]) -> bool:
@@ -646,6 +663,64 @@ def _pair_key(row: dict) -> tuple[str, Decimal] | None:
     return (currency, amount) if currency and amount is not None else None
 
 
+def _is_date_only(value: datetime) -> bool:
+    """True when the timestamp is exactly midnight: banks that send only a date
+    arrive as 00:00:00, so the time of day carries no information."""
+    return value.hour == value.minute == value.second == value.microsecond == 0
+
+
+def pair_gap_days(a: datetime, b: datetime) -> int:
+    """Calendar days between two legs."""
+    return abs((a.date() - b.date()).days)
+
+
+def within_ask_window(a, b) -> bool:
+    """G440: the legs are close enough for the transfers review to ask: within
+    ASK_PAIR_DAYS days by timestamp, or ASK_PAIR_DAYS calendar days when either
+    leg carries a midnight timestamp (date only). Beyond it, no offer."""
+    if not isinstance(a, datetime) or not isinstance(b, datetime):
+        return False
+    if pair_gap_days(a, b) > ASK_PAIR_DAYS:
+        return False
+    if _is_date_only(a) or _is_date_only(b):
+        return True
+    try:
+        return abs(a - b) <= timedelta(days=ASK_PAIR_DAYS)
+    except TypeError:  # one aware and one naive: calendar days only
+        return True
+
+
+def within_auto_window(a, b) -> bool:
+    """G440: the legs are within 24 hours by timestamp. When either leg carries
+    a midnight timestamp (the bank sent a date only) the same or the next
+    calendar day counts as within 24 hours."""
+    if not isinstance(a, datetime) or not isinstance(b, datetime):
+        return False
+    if _is_date_only(a) or _is_date_only(b):
+        return pair_gap_days(a, b) <= 1
+    try:
+        return abs(a - b) <= timedelta(hours=AUTO_PAIR_HOURS)
+    except TypeError:  # one aware and one naive: fall back to calendar days
+        return pair_gap_days(a, b) <= 1
+
+
+def pair_is_named(credit: dict, debit: dict, identity: dict) -> bool:
+    """G440 (G438 rule 2 name test, shared by sync, Spend and the review gate):
+    either leg carries the user's own name in any form (full, truncated,
+    initials in any order) or an account on file, or one leg names the OTHER
+    leg's account or pot on file."""
+    tokens = identity.get("name_tokens") or []
+    for leg in (credit, debit):
+        text = _text(leg)
+        if own_transfer_evidence(text, identity, own_account_id=leg.get("account_id")) is not None:
+            return True
+        if _compact_owner_name(text, tokens):
+            return True
+    names = identity.get("account_names") or {}
+    return (account_name_in_text(_text(debit), {"name": names.get(str(credit.get("account_id")))})
+            or account_name_in_text(_text(credit), {"name": names.get(str(debit.get("account_id")))}))
+
+
 def _strong_evidence(credit: dict, debit: dict, accounts: dict[str, dict], name_tokens: list[str], learned: set[tuple[str, str]], movement_categories: set[str]) -> bool:
     """Evidence strong enough to decide a pair without asking (G438, Kevin's
     rule): counterparty evidence (a), a pair where either leg names the user or
@@ -660,11 +735,15 @@ def _strong_evidence(credit: dict, debit: dict, accounts: dict[str, dict], name_
     # user's accounts) where either leg carries the user's own name, or the name
     # of the OTHER leg's account or pot on file, is decided without asking. A pair
     # with no name is a question for the review instead.
-    if _compact_owner_name(c_text, name_tokens) or _compact_owner_name(d_text, name_tokens):
-        return True
-    if (account_name_in_text(c_text, accounts.get(debit["account_id"]))
-            or account_name_in_text(d_text, accounts.get(credit["account_id"]))):
-        return True
+    # G440 (Kevin 2026-11-08): a name alone files the pair only within 24 hours
+    # (same or next calendar day for date-only timestamps). Up to three days apart
+    # it is a question for the review, and beyond that nothing is offered.
+    if within_auto_window(credit.get("date"), debit.get("date")):
+        if _compact_owner_name(c_text, name_tokens) or _compact_owner_name(d_text, name_tokens):
+            return True
+        if (account_name_in_text(c_text, accounts.get(debit["account_id"]))
+                or account_name_in_text(d_text, accounts.get(credit["account_id"]))):
+            return True
     # The text of either leg carries the OTHER leg's sort code AND account
     # number together. A bare account number, or a bare sort code, is not enough.
     for text, other in ((c_text, accounts.get(debit["account_id"])), (d_text, accounts.get(credit["account_id"]))):
