@@ -9,6 +9,7 @@ from typing import List, Optional
 from bson import ObjectId
 from bson.errors import InvalidId
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.params import Param
 import httpx
 
 from app.core.auth import current_user
@@ -96,6 +97,8 @@ async def _txn_source(account_id: str, uid: str):
 _CONTROL_CHARS_RE = re.compile(r'[\x00-\x1f\x7f-\x9f]')
 _SEARCH_WHITESPACE_RE = re.compile(r'\s+')
 _SEARCH_QUERY_MAX_LEN = 200  # comfortably above anything the search box lets a user type
+_SOURCE_TRANSACTION_IDS_MAX = 100
+_SOURCE_TRANSACTION_ID_MAX_LEN = 200
 
 
 def _normalise_search_text(q: Optional[str]) -> Optional[str]:
@@ -120,6 +123,46 @@ def _normalise_search_text(q: Optional[str]) -> Optional[str]:
     if not cleaned:
         return None
     return cleaned[:_SEARCH_QUERY_MAX_LEN]
+
+
+def _source_transaction_id_values(transaction_ids: Optional[List[str]]) -> Optional[list]:
+    """Validate an exact transaction-source scope for the global hub.
+
+    This deliberately rejects malformed input rather than treating it as no
+    filter: a link to a small piece of historical evidence must never widen
+    into the customer's full transaction history. Legacy imports used string
+    ids while some stored rows use Mongo ObjectIds, so valid 24-hex values
+    match both representations.
+    """
+    if transaction_ids is None:
+        return None
+    if not isinstance(transaction_ids, (list, tuple)):
+        raise HTTPException(status_code=422, detail="transaction_id must be a repeated query parameter")
+    if not transaction_ids or len(transaction_ids) > _SOURCE_TRANSACTION_IDS_MAX:
+        raise HTTPException(status_code=422, detail="transaction_id must contain between 1 and 100 values")
+
+    values: list = []
+    seen: set[tuple[str, str]] = set()
+    for transaction_id in transaction_ids:
+        if not isinstance(transaction_id, str):
+            raise HTTPException(status_code=422, detail="transaction_id values must be strings")
+        if (not transaction_id.strip() or len(transaction_id) > _SOURCE_TRANSACTION_ID_MAX_LEN
+                or _CONTROL_CHARS_RE.search(transaction_id)):
+            raise HTTPException(status_code=422, detail="transaction_id is invalid")
+        for value in (transaction_id,):
+            key = (type(value).__name__, value)
+            if key not in seen:
+                seen.add(key)
+                values.append(value)
+        try:
+            object_id = ObjectId(transaction_id)
+        except (InvalidId, TypeError):
+            continue
+        key = (type(object_id).__name__, str(object_id))
+        if key not in seen:
+            seen.add(key)
+            values.append(object_id)
+    return values
 
 
 def _category_clause(cat: str) -> dict:
@@ -296,6 +339,7 @@ def _search_query(
     txn_type: Optional[str] = None,
     categories: Optional[List[str]] = None,
     filter_by_date: bool = True,
+    transaction_ids: Optional[List[str]] = None,
 ) -> dict:
     """Filter shared by every collection in the global search's gather —
     generalises the account-scoped `q` clause in `get_transactions` above
@@ -331,6 +375,13 @@ def _search_query(
     `$or`. Otherwise `category` behaves exactly as it always has (a single
     exact name, no delimiter splitting)."""
     base: dict = {"user_id": uid}
+    source_values = _source_transaction_id_values(transaction_ids)
+    if source_values is not None:
+        base["_id"] = {"$in": source_values}
+        # Some providers leave a superseded pending row in their booked
+        # collection briefly. Exact historical evidence must contain only
+        # confirmed rows, never a teachable provisional duplicate.
+        base["is_pending"] = {"$ne": True}
     from_dt = _parse_date_bound(date_from)
     to_dt   = _parse_date_bound(date_to, end_of_day=True)
     if filter_by_date and (from_dt or to_dt):
@@ -534,6 +585,7 @@ async def search_transactions(
     page_size: int = 20,
     category: Optional[str] = None,
     categories: Optional[List[str]] = Query(None),
+    transaction_id: Optional[List[str]] = Query(None),
     merchants: Optional[str] = None,
     days: Optional[int] = None,
     date_from: Optional[str] = Query(None, alias="from"),
@@ -564,7 +616,23 @@ async def search_transactions(
     direction, e.g. pairing with `categories` to show only the debits behind
     a "money you moved" bucket.
 
+    `transaction_id` is an optional repeated exact-ID scope for historical
+    evidence. It is bounded and validated before querying, matches string and
+    ObjectId legacy storage forms, and deliberately returns booked rows only.
+
     Read-only: no writes, no categorisation side effects."""
+    # Direct function callers do not receive FastAPI's Query(None) coercion.
+    # Treat only untouched FastAPI defaults as absent; a caller-supplied
+    # malformed source value remains a loud 422 from
+    # `_source_transaction_id_values`.
+    if isinstance(categories, Param):
+        categories = None
+    if isinstance(transaction_id, Param):
+        transaction_id = None
+    if isinstance(date_from, Param):
+        date_from = None
+    if isinstance(date_to, Param):
+        date_to = None
     uid       = user["email"]
     page      = max(1, page)
     page_size = max(1, min(page_size, 100))
@@ -572,7 +640,7 @@ async def search_transactions(
 
     query = _search_query(
         uid, q, category, days, merchants, date_from, date_to, txn_type, categories,
-        filter_by_date=not activity_order,
+        filter_by_date=not activity_order, transaction_ids=transaction_id,
     )
     cols  = (transactions_col, yapily_transactions_col, statement_transactions_col)
 
@@ -603,7 +671,10 @@ async def search_transactions(
         "pages": max(1, -(-total // page_size)),
     }
     if page == 1:
-        pending, pending_total = await _live_pending_items(
+        # An exact source drill-in is historical booked evidence. Pending rows
+        # cannot be one of those confirmed IDs and must never be shown beside
+        # it, even when the selected source has no category filter.
+        pending, pending_total = ([], 0) if transaction_id is not None else await _live_pending_items(
             query, uid, activity_order=activity_order, days=days,
             date_from=date_from, date_to=date_to, category_filtered=bool(category or categories), pending_page=pending_page,
         )

@@ -4,6 +4,7 @@ import { isAppLocked } from "./appLock";
 import { invalidateEndpoint, TRANSACTIONS_CHANGED_KEYS } from "./endpointCache";
 import { LEGACY_BANK_AVAILABLE, LEGACY_BANK_ID } from "./legacyBankProvider";
 import type { AccountRefreshResult } from "./accountRefresh";
+import type { IncomeForecastEvidence } from "./incomeEvidence";
 import type { GoLiveItem, GoLiveQuestion, GoLiveOwner } from "./goLive";
 import type {
   Account, Connection, Transaction, KPIs, Insight,
@@ -808,6 +809,8 @@ export type SafeToSpend =
        * the spendable pool; exposed so the calculation can say this plainly. */
       pooled_transfers_excluded?: number;
       income_before_payday: number;
+      /** G446: provenance for the exact income totals, without changing the forecast. */
+      income_evidence?: IncomeForecastEvidence;
       buffer: number;
       state: "comfortable" | "tight" | "short";
       estimated: boolean;
@@ -3564,7 +3567,7 @@ export const api = {
   // `from`/`to` (ISO dates) scope to a pay period as a removable chip on the
   // hub — mirrors backend/app/routers/transactions.py's `from`/`to` query
   // params field-for-field. Both optional; omitted means all history.
-  transactionsSearch: (params: { q?: string; page?: number; page_size?: number; category?: string; categories?: string[]; merchants?: string; days?: number; from?: string; to?: string; txn_type?: "debit" | "credit"; activity_order?: boolean; pending_page?: number } = {}) => {
+  transactionsSearch: (params: { q?: string; page?: number; page_size?: number; category?: string; categories?: string[]; transaction_id?: string[]; merchants?: string; days?: number; from?: string; to?: string; txn_type?: "debit" | "credit"; activity_order?: boolean; pending_page?: number } = {}) => {
     const p = new URLSearchParams();
     if (params.q) p.set("q", params.q);
     if (params.page) p.set("page", String(params.page));
@@ -3578,6 +3581,12 @@ export const api = {
       for (const c of params.categories) p.append("categories", c);
     } else if (params.category) {
       p.set("category", params.category);
+    }
+    // Historical evidence uses exact, opaque transaction IDs. Keep these as
+    // repeated parameters rather than joining them, so legacy IDs remain
+    // lossless and the server can fail closed on malformed source scopes.
+    if (params.transaction_id && params.transaction_id.length > 0) {
+      for (const id of params.transaction_id) p.append("transaction_id", id);
     }
     if (params.merchants) p.set("merchants", params.merchants);
     if (params.days) p.set("days", String(params.days));

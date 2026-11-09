@@ -32,14 +32,6 @@ type PreviewRoute = {
 
 const ROUTES: PreviewRoute[] = [
   {
-    slug: "income-before-payday",
-    name: "Explain income before payday · G446",
-    description: "Two proposals inside the existing Left to spend working: A expands the evidence in place, B opens a shared detail sheet. Each expected payment shows its payer, amount, date, account and observed history, with the same list in Penny. Open the fictional historical credits and change their category to inspect the resulting income evidence. Home context and recalculation are illustrative. No live data or saved changes.",
-    variants: [{ label: "A · Explain in place", value: "a" }, { label: "B · Income detail sheet", value: "b" }],
-    states: [{ label: "Predicted income", value: "income" }, { label: "No predicted income", value: "none" }, { label: "History unavailable", value: "partial" }, { label: "Loading history", value: "loading" }, { label: "History failed", value: "error" }, { label: "Updating bank data", value: "syncing" }, { label: "Long names", value: "long" }, { label: "Category save failed", value: "save-error" }],
-    group: "current",
-  },
-  {
     slug: "statements-house-ads",
     name: "Statements house ads · B58",
     description:
