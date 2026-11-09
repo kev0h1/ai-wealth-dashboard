@@ -450,6 +450,7 @@ export default function SafeToSpendCard({ data, loading, error, onRetry, spendFr
     const sign = value < 0 ? "−" : "";
     return hidden ? `${sign}£••••` : `${sign}${exact ? fmt2(value) : formatSafeToSpendAmount(value)}`;
   };
+  const formatIncomeEvidence = (value: number) => `${value > 0 ? "+" : ""}${formatEvidence(value, true)}`;
   const recovery = sync ? null : state === "short"
     ? { label: "See what’s due", href: "/upcoming" }
     : null;
@@ -521,8 +522,10 @@ export default function SafeToSpendCard({ data, loading, error, onRetry, spendFr
       data={data}
       evidence={evidence}
       format={formatEvidence}
+      formatIncome={formatIncomeEvidence}
       paydayLabel={paydayLabel}
       syncing={!!sync}
+      onRetry={onRetry}
       showCardsLink={showCardsLink}
       freshnessLabel={freshnessLabel}
       earmarkedMoves={coverMoveVisible && !sync ? earmarkedMoves : []}

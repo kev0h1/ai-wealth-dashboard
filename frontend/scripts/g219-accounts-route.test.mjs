@@ -74,9 +74,11 @@ assert.ok(!hrefs(named).includes("/accounts"), "name rows are not links");
 
 // 6. Genuine shortfall recovery still renders inside the hero.
 const short = render({ data: FIGURE_DATA["short-cash"] });
-const row = short.slice(short.indexOf("data-g219-action-row"));
+const shortHero = short.slice(short.indexOf("data-g324-hero"), short.indexOf("data-g324-evidence"));
+const row = shortHero.slice(shortHero.indexOf("data-g219-action-row"));
 assert.ok(row.includes("See what’s due"), "recovery button in the action row");
-assert.equal(count(short, "<button"), count(short, "See what’s due"), "one primary button only");
+assert.equal(count(shortHero, "<button"), 1, "one primary button in the hero; income disclosure triggers are separate");
+assert.equal(count(row, "See what’s due"), 1, "one recovery action in its row");
 assert.doesNotMatch(render({ data: FIGURE_DATA.card }), /Review card bill/, "G413: no card-bill recovery action");
 
 // 7. The existing tight/high-card-debt route lives inside card evidence,

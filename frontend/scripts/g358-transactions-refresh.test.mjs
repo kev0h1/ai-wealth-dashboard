@@ -77,7 +77,8 @@ ok("TransactionsPage listens to the event and reloads via a key in the fetch dep
   const src = read("app/transactions/TransactionsPage.tsx");
   assert.match(src, /addEventListener\(TRANSACTIONS_CHANGED_EVENT/);
   assert.match(src, /removeEventListener\(TRANSACTIONS_CHANGED_EVENT/);
-  assert.match(src, /txnType, page, reloadKey\]\)/);
+  assert.match(src, /txnType, sourceTransactionIds, page, reloadKey\]\)/);
+  assert.match(src, /transaction_id: sourceTransactionIds/, "source-credit scope survives a correction refetch");
   assert.match(src, /applyCategoryChange\(/);
 });
 

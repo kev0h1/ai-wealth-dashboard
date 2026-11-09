@@ -1,5 +1,6 @@
 """KPI, insights, and budget pace-profile endpoints."""
 from app.services.counted_accounts import connection_ended, is_excluded
+from app.services.income_provenance import build_income_evidence, income_history as _income_history
 import asyncio
 import hashlib
 import json
@@ -16,7 +17,7 @@ logger = logging.getLogger(__name__)
 # Persisted response-cache entries outlive deployments. Bump this whenever
 # Safe-to-Spend arithmetic or response semantics change so an older payload
 # cannot briefly contradict the current Home card after a release.
-SAFE_TO_SPEND_CALCULATION_VERSION = 3
+SAFE_TO_SPEND_CALCULATION_VERSION = 4
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
@@ -186,7 +187,8 @@ OBSERVATION_LOOKBACK_DAYS = 6   # real bills land up to 5 days before their anch
 # including the interval between a provider refresh and its reclassification.
 # v16 (G377 follow-up): credit corrections apply before the Income filter,
 # including confirmed fallback, so old occurrences cannot revive a transfer.
-PATTERNS_VERSION = 16
+# v17 (G446): retain the exact source credits and last receipt for income evidence.
+PATTERNS_VERSION = 17
 
 def _next_working_day(d):  # d: datetime.date -> datetime.date
     while d.weekday() >= 5 or d.isoformat() in UK_BANK_HOLIDAYS_EW:
@@ -1143,6 +1145,8 @@ def _detect_recurring(txns: list, min_occurrences: int = 2, trusted_categories: 
             "next_date":    next_date,
             "monthly_anchor": monthly_anchor_desc,
             "occurrences":  len(items),
+            # G446: provenance only, captured from the detector's own rows.
+            **({"income_history": _income_history(items)} if is_income else {}),
             "account_id":   attributed_acct,
             "amounts_recent": amounts_recent,
             "category":     bucket_cat,
@@ -1496,6 +1500,7 @@ def _confirmed_income_fallback(
             "next_date":    next_date,
             "monthly_anchor": None,
             "occurrences":  len(matching),
+            "income_history": _income_history(matching),
             "account_id":   attributed_acct,
             "amounts_recent": amounts_recent,
             "category":     "Income",
@@ -3231,6 +3236,7 @@ async def _compute_cashflow_patterns(uid: str) -> dict:
             {
                 **_serialise_pattern(r),
                 "occurrences": r.get("occurrences"),
+                "income_history": r.get("income_history"),
                 "amounts_recent": r.get("amounts_recent"),
                 # G157 build step 4: missed-cycles lapse marker, carried
                 # through to the cache doc so the companion ask pipeline can
@@ -5005,6 +5011,9 @@ async def _build_cashflow_response(cached: dict, uid: str | None = None, prefs: 
             "occurrences":     r.get("occurrences"),
             "amounts_recent":  r.get("amounts_recent"),
             "avg_interval":    r.get("avg_interval"),
+            "income_history":  r.get("income_history"),
+            "monthly_anchor":  r.get("monthly_anchor"),
+            "source":          r.get("source"),
         })
     upcoming_income = sorted(raw_income, key=lambda x: x["days_away"])
     observed_income = sorted(raw_observed_income, key=lambda x: x["days_away"])
@@ -5747,6 +5756,13 @@ async def compute_safe_to_spend(uid: str) -> dict:
         "window_bills":        window_bills,
         "pooled_transfers_excluded": pooled_transfers_excluded,
         "income_before_payday": income_before,
+        "income_evidence": build_income_evidence(
+            before_payday=pooled.window_income,
+            expected_pay=wi.payday_day_income,
+            income_total=income_before, pay_total=payday_income,
+            today=_today_d, confirmed_keys=wi.confirmed_income_keys,
+            income_streams=_prefs.get("income_streams"),
+        ),
         "buffer":              buffer,
         "state":               state,
         "short_reason":        short_reason,

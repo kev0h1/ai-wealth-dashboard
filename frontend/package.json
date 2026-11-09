@@ -230,6 +230,7 @@
     "check:g379-home-transfers": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g379-home-transfers.test.mjs",
     "check:g387-transfer-review": "node --no-warnings --experimental-strip-types scripts/g387-transfer-review.test.mjs",
     "check:g442-transfer-series": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g442-transfer-series.test.mjs",
+    "check:g446-income-evidence": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g446-income-evidence.test.mjs",
     "check:g394-bank-icons": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g394-bank-icons.test.mjs",
     "check:g412-card-details": "node scripts/g412-card-details.test.mjs",
     "check:g412-card-sections": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g412-card-sections.test.mjs",

@@ -68,6 +68,7 @@ goals summary) is reimplemented here in miniature, each marked with a
 import asyncio
 import difflib
 import logging
+import math
 import re
 import uuid
 from datetime import date, datetime, timedelta, timezone
@@ -301,7 +302,12 @@ TOOL_SCHEMAS = [
                 "The user's current estimated left-to-spend figure (shown in the app as "
                 "Left to spend): the estimated cash left before their next payday, "
                 "already net of upcoming bills and set-asides. Card balance growth is returned as a separate fact, "
-                "never add or subtract it from the cash figure yourself. Use this for "
+                "never add or subtract it from the cash figure yourself. "
+                "It also returns exact evidence for expected income before payday and "
+                "expected on payday when the current forecast supplies it. Those are "
+                "expected credits, not balances or guarantees. Keep the two buckets "
+                "separate: expected-on-payday is excluded from income before payday. "
+                "Use this for "
                 "ANY question about how much the user can afford, has spare, or has "
                 "left until payday. Figures are authoritative: quote them verbatim, "
                 "never recompute, derive, or round them yourself. `state` is a "
@@ -2151,6 +2157,105 @@ def _tool_error(reason: str) -> dict:
 
 # ── Executors ────────────────────────────────────────────────────────────────
 
+def _incoming_money(amount: float) -> dict:
+    """The app's money shape, with an explicit sign for valid incoming cash."""
+    result = _money(amount, 2)
+    if amount > 0:
+        result["formatted"] = "+" + result["formatted"]
+    return result
+
+
+def _pence(amount: object) -> int | None:
+    """An exact comparable money value, or None for impossible income data."""
+    if isinstance(amount, bool) or not isinstance(amount, (int, float)):
+        return None
+    if not math.isfinite(amount) or amount < 0:
+        return None
+    return int(round(amount * 100))
+
+
+def _income_evidence_for_tool(sts: dict) -> dict | None:
+    """Present engine-owned income provenance without deriving a forecast.
+
+    Older cached safe-to-spend payloads predate this metadata.  In that case
+    absence is more honest than reconstructing a source list from the two
+    totals, which could incorrectly turn a detected credit into a promise.
+    """
+    evidence = sts.get("income_evidence")
+    if not isinstance(evidence, dict) or not isinstance(evidence.get("as_of"), str):
+        return None
+
+    def group(raw: object, scalar_name: str) -> dict | None:
+        if not isinstance(raw, dict):
+            return None
+        if raw.get("status") not in {"complete", "unavailable"}:
+            return None
+        total_pence = _pence(raw.get("total"))
+        scalar_pence = _pence(sts.get(scalar_name))
+        if total_pence is None or scalar_pence is None or total_pence != scalar_pence:
+            return None
+        if not isinstance(raw.get("items"), list):
+            return None
+        if raw.get("transactions_scope") not in {"sources", "income_period", "none"}:
+            return None
+        if raw["status"] == "unavailable":
+            # An unavailable group must not carry an unverified source list.
+            if raw["items"]:
+                return None
+            return {
+                "total": _incoming_money(sts[scalar_name]),
+                "status": "unavailable",
+                "items": [],
+                "transactions_href": raw.get("transactions_href"),
+                "transactions_scope": raw["transactions_scope"],
+            }
+        items = []
+        item_total_pence = 0
+        for item in raw["items"]:
+            if not isinstance(item, dict):
+                return None
+            item_pence = _pence(item.get("amount"))
+            if item_pence is None:
+                return None
+            if item.get("transactions_scope") not in {"sources", "income_period", "none"}:
+                return None
+            item_total_pence += item_pence
+            items.append({
+                "key": item.get("key"),
+                "payer": item.get("payer"),
+                "amount": _incoming_money(item["amount"]),
+                "expected_date": item.get("expected_date"),
+                "account_id": item.get("account_id"),
+                "account_name": item.get("account_name"),
+                "account_bank": item.get("account_bank"),
+                "cadence": item.get("cadence"),
+                "last_received": item.get("last_received"),
+                "occurrences": item.get("occurrences"),
+                "confirmed": item.get("confirmed"),
+                "basis": item.get("basis"),
+                "transactions_href": item.get("transactions_href"),
+                "transactions_scope": item.get("transactions_scope"),
+            })
+        if item_total_pence != total_pence:
+            return None
+        return {
+            "total": _incoming_money(sts[scalar_name]),
+            "status": raw["status"],
+            "items": items,
+            "transactions_href": raw.get("transactions_href"),
+            "transactions_scope": raw["transactions_scope"],
+        }
+
+    before_payday = group(evidence.get("before_payday"), "income_before_payday")
+    expected_pay = group(evidence.get("expected_pay"), "payday_income")
+    if before_payday is None or expected_pay is None:
+        return None
+    return {
+        "as_of": evidence["as_of"],
+        "before_payday": before_payday,
+        "expected_pay": expected_pay,
+    }
+
 async def _exec_get_safe_to_spend(uid: str) -> dict:
     try:
         sts = await compute_safe_to_spend(uid)
@@ -2159,7 +2264,7 @@ async def _exec_get_safe_to_spend(uid: str) -> dict:
         return _tool_error("left-to-spend lookup failed")
     if sts.get("status") != "ok":
         return {"insufficient_data": True, "reason": "no account data connected yet"}
-    return {
+    result = {
         "safe_to_spend": _money(sts.get("safe_to_spend")),
         "safe_to_spend_cash": _money(sts.get("safe_to_spend_cash")),
         "next_payday": sts.get("next_payday"),
@@ -2173,6 +2278,16 @@ async def _exec_get_safe_to_spend(uid: str) -> dict:
         "card_growth_due_date": sts.get("card_growth_due_date"),
         "estimated": sts.get("estimated"), **(await _per_account_extras(uid)),  # G336, same line keeps the leak allowlist stable
     }
+    # Totals are supplied verbatim when the current engine supplied them;
+    # neither substitutes for the evidence above on older snapshots.
+    if _pence(sts.get("income_before_payday")) is not None:
+        result["income_before_payday"] = _incoming_money(sts["income_before_payday"])
+    if _pence(sts.get("payday_income")) is not None:
+        result["payday_income"] = _incoming_money(sts["payday_income"])
+    income_evidence = _income_evidence_for_tool(sts)
+    if income_evidence is not None:
+        result["income_evidence"] = income_evidence
+    return result
 
 
 # Audit fix, 2026-08-26: a cache miss used to be treated as "no account

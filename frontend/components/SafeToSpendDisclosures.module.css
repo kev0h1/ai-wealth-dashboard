@@ -20,6 +20,8 @@
   background: #1e293b;
   box-shadow: none;
 }
+.sheetTheme { --ink: #0f172a; --voice: #475569; --hairline: #e2e8f0; --amber: #b45309; }
+:global(.dark) .sheetTheme { --ink: #f1f5f9; --voice: #cbd5e1; --hairline: #334155; --amber: #fbbf24; }
 
 .item + .item { border-top: 1px solid var(--hairline); }
 .summary { min-height: 48px; padding: 12px 16px; color: var(--ink); font-size: 13px; font-weight: 600; line-height: 20px; cursor: pointer; touch-action: manipulation; }
@@ -44,6 +46,35 @@
 .fact { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, auto); gap: 12px; padding: 4px 0; }
 .fact dt { color: var(--voice); }
 .fact dd { color: var(--ink); text-align: right; }
+.incomeFact { align-items: center; min-height: 52px; }
+.incomeFact button, .incomeLedgerTrigger { min-height: 44px; max-width: 100%; color: var(--ink); font: inherit; font-weight: 600; text-align: left; text-decoration: underline; text-decoration-color: #94a3b8; text-underline-offset: 4px; }
+.incomeFact button span { display: block; margin-top: 2px; color: var(--voice); font-size: 11px; font-weight: 400; line-height: 16px; text-decoration: none; }
+.incomeLedgerTrigger { margin: -10px 0; padding: 10px 0; }
+.incomeFact button:hover, .incomeLedgerTrigger:hover { color: #4338ca; }
+:global(.dark) .incomeFact button:hover, :global(.dark) .incomeLedgerTrigger:hover { color: #c7d2fe; }
+.incomeFact button:focus-visible, .incomeLedgerTrigger:focus-visible, .evidenceLink:focus-visible, .evidenceButton:focus-visible, .sheetDone:focus-visible { outline: 2px solid #4f46e5; outline-offset: 3px; }
+.sheetIncomeTotal { margin-bottom: 12px; color: var(--ink); font-size: 26px; font-weight: 700; line-height: 32px; }
+.incomeEvidence { --income-line: var(--hairline); color: var(--ink); font-size: 13px; line-height: 20px; }
+.evidenceHelp, .evidenceContext { color: var(--voice); text-wrap: pretty; }
+.evidenceContext { margin-top: 8px; font-size: 12px; line-height: 18px; }
+.incomeList { margin-top: 12px; }
+.incomeItem { padding: 12px 0 8px; border-top: 1px solid var(--income-line); }
+.incomeHeading { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; color: var(--ink); font-size: 14px; font-weight: 600; }
+.incomeHeading p:first-child { min-width: 0; overflow-wrap: anywhere; }
+.incomeHeading p:last-child { flex: none; white-space: nowrap; }
+.incomeMeta, .incomeBasis { margin-top: 4px; color: var(--voice); font-size: 12px; line-height: 18px; overflow-wrap: anywhere; }
+.incomeBasis { margin-top: 8px; }
+.evidenceLink { display: inline-flex; min-height: 44px; align-items: center; max-width: 100%; color: #4338ca; font-size: 13px; font-weight: 600; text-align: left; text-decoration: underline; text-underline-offset: 3px; }
+:global(.dark) .evidenceLink { color: #a5b4fc; }
+.evidenceButton, .sheetDone { display: flex; min-height: 44px; width: 100%; align-items: center; justify-content: center; border: 1px solid var(--hairline); border-radius: 12px; padding: 10px 12px; color: #4338ca; font-size: 13px; font-weight: 600; }
+.evidenceButton { margin-top: 8px; }
+.evidenceLink:hover, .evidenceButton:hover { color: #312e81; }
+.sheetDone:hover { background: #f8fafc; }
+.evidenceLink, .evidenceButton, .sheetDone, .incomeLedgerTrigger, .incomeFact button { touch-action: manipulation; }
+:global(.dark) .evidenceButton, :global(.dark) .sheetDone { color: #a5b4fc; }
+:global(.dark) .evidenceLink:hover, :global(.dark) .evidenceButton:hover { color: #c7d2fe; }
+:global(.dark) .sheetDone:hover { background: #334155; }
+.sheetDone { color: var(--ink); }
 .cardHeading { display: inline-flex; min-width: 0; align-items: center; gap: 8px; }
 .dot { width: 6px; height: 6px; flex: none; border-radius: 999px; background: var(--amber); }
 .warning { display: flex; align-items: center; gap: 8px; color: var(--ink); font-weight: 600; }

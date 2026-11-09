@@ -141,9 +141,12 @@
         "display_name": "Acme Payroll",
         "edited": false,
         "expected_date": "2026-10-15",
+        "income_history": null,
+        "monthly_anchor": null,
         "name": "acme|payroll::acc-bc",
         "occurrences": 1,
         "rule_label": null,
+        "source": null,
         "steady_salary": false
       }
     ]

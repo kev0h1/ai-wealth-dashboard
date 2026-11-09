@@ -38,7 +38,7 @@
   "bills_total": 490.0,
   "buffer": 0.0,
   "calculation_status": "complete",
-  "calculation_version": 3,
+  "calculation_version": 4,
   "card_debt": 350.0,
   "card_growth_due_date": null,
   "card_growth_total": 90.0,
@@ -57,6 +57,73 @@
   ],
   "excluded_accounts_count": 1,
   "income_before_payday": 240.0,
+  "income_evidence": {
+   "as_of": "2026-10-12",
+   "before_payday": {
+    "items": [
+     {
+      "account_bank": null,
+      "account_id": "cur",
+      "account_name": null,
+      "amount": 100.0,
+      "basis": "Predicted from recurring credits categorised as Income. Source history is not available in this snapshot.",
+      "cadence": null,
+      "confirmed": false,
+      "expected_date": "2026-10-17",
+      "key": "Refund",
+      "last_received": null,
+      "occurrences": null,
+      "payer": "Expected income",
+      "transactions_href": "/transactions?category=Income&txn_type=credit&from=2026-07-14&to=2026-10-12",
+      "transactions_scope": "income_period"
+     },
+     {
+      "account_bank": null,
+      "account_id": "cur",
+      "account_name": null,
+      "amount": 140.0,
+      "basis": "Predicted from recurring credits categorised as Income. Source history is not available in this snapshot.",
+      "cadence": null,
+      "confirmed": false,
+      "expected_date": "2026-10-19",
+      "key": "Side gig",
+      "last_received": null,
+      "occurrences": 2,
+      "payer": "Expected income",
+      "transactions_href": "/transactions?category=Income&txn_type=credit&from=2026-07-14&to=2026-10-12",
+      "transactions_scope": "income_period"
+     }
+    ],
+    "status": "complete",
+    "total": 240.0,
+    "transactions_href": "/transactions?category=Income&txn_type=credit&from=2026-07-14&to=2026-10-12",
+    "transactions_scope": "income_period"
+   },
+   "expected_pay": {
+    "items": [
+     {
+      "account_bank": null,
+      "account_id": "cur",
+      "account_name": null,
+      "amount": 2000.0,
+      "basis": "Predicted from recurring credits categorised as Income. Shown as Expected pay because it is forecast on payday. It has not been confirmed as pay. Source history is not available in this snapshot.",
+      "cadence": null,
+      "confirmed": false,
+      "expected_date": "2026-10-22",
+      "key": "Salary",
+      "last_received": null,
+      "occurrences": 6,
+      "payer": "Expected income",
+      "transactions_href": "/transactions?category=Income&txn_type=credit&from=2026-07-14&to=2026-10-12",
+      "transactions_scope": "income_period"
+     }
+    ],
+    "status": "complete",
+    "total": 2000.0,
+    "transactions_href": "/transactions?category=Income&txn_type=credit&from=2026-07-14&to=2026-10-12",
+    "transactions_scope": "income_period"
+   }
+  },
   "last_synced": null,
   "left_to_spend_lines": {
    "accounts_total": 650.0,
