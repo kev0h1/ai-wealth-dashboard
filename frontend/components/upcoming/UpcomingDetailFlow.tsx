@@ -19,14 +19,18 @@ import type { UpcomingRowModel } from "./UpcomingRow";
 import { CategoryIcon, PlanIcon, detailFocus } from "./detailPrimitives";
 import { useEditorRequest } from "./editorSupport";
 import UpcomingGoalPlan, { type UpcomingGoalServices } from "./UpcomingGoalPlan";
+import { CardBillAmountEdit, type CardBillServices } from "./CardBillAmountEdit";
 
 export type PaymentDetail = { id: string; model: UpcomingRowModel; editor: UpcomingEditItem; planned?: PlannedEditItem; skip?: () => Promise<void>;
   /** The cashflow item this payment was built from, so an account event (UpcomingAccountEvent.source) can open it. */
-  source?: object };
+  source?: object;
+  /** G444: set on a defined card bill (statement estimate, entered or unknown); Edit opens its statement amount instead of the prediction editor. */
+  cardId?: string };
 export type UpcomingDetailView = { kind: "account"; id: string } | { kind: "plan" | "edit-plan" | "goal-contribution" | "allocation-contribution"; id: string; step?: "details" } | { kind: "payment" | "edit-payment"; id: string };
 export type UpcomingDetailServices = {
   upcoming?: UpcomingEditServices;
   planned?: PlannedEditServices;
+  cardBill?: CardBillServices;
   allocation?: AllocationEditServices;
   /** Complete records only. Upcoming plan rows are read-only forecast projections. */
   goal?: UpcomingGoalServices;
@@ -110,6 +114,9 @@ export default function UpcomingDetailFlow(props: UpcomingDetailFlowProps) {
         leading: <CategoryIcon Icon={payment.model.CategoryIcon} colour={payment.model.categoryColour} />,
         body: <UpcomingRowDetails model={payment.model} ruleLabel={payment.editor.rule_label} />,
         footer: <PaymentActions payment={payment} navigation={navigation} />,
+      };
+      if (payment.cardId && !payment.planned) return { title: "Edit card bill", subtitle: payment.model.name,
+        body: <CardBillAmountEdit key={payment.id} cardId={payment.cardId} services={services?.cardBill} onCancel={navigation.back} onDone={leavePayment(navigation, navigation.back)} onSaved={saved} renderActions={actionsInFooter} />,
       };
       return { title: payment.planned ? "Edit planned payment" : "Edit prediction", subtitle: payment.model.name,
         body: payment.planned

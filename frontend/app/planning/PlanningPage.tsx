@@ -993,6 +993,7 @@ export default function PlanningPage() {
             id: detailId, model, source: item.source,
             editor: { name: item.name, amount: item.amount, expected_date: item.expected_date, original_date: item.original_date, type: item.type, edited: item.edited, rule_label: item.rule_label },
             planned: isPlanned ? { id: item.planned_id!, name: item.name, amount: item.amount, date: item.expected_date, account_id: item.account_id ?? null } : undefined,
+            cardId: item.type === "bill" && !isPlanned && item.is_card_repayment && item.card_dest_account_id && (item.amount_basis === "statement_estimate" || item.amount_basis === "user_entered" || item.amount_basis === "statement_unknown") ? item.card_dest_account_id : undefined,
             skip: canDismissUpcomingOccurrence(model) ? () => skipOccurrence(item) : undefined,
           });
           return {

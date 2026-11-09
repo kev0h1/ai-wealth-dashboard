@@ -20,7 +20,7 @@ assert.doesNotMatch(html, /not enough settled card history/);
 assert.doesNotMatch(html, /data-estimated-bill/, "no bill figure is invented");
 assert.doesNotMatch(html, /—/, "no em dashes");
 
-// The amount entry shows only while the amount is unknown.
+// The amount entry shows for every in-full status (G444 widened it from unknown only).
 assert.match(html, /data-statement-amount-entry/);
 assert.match(html, /Enter this statement&#x27;s amount/);
 assert.match(html, /Enter this statement&#x27;s amount \(£\)/);
@@ -33,7 +33,7 @@ const incompleteFixed = { ...incomplete, statement_bill: { ...incomplete.stateme
 assert.doesNotMatch(renderToStaticMarkup(React.createElement(PaymentSheet, { card: incompleteFixed, hiddenOverride: false, onClose: noop, services })), /data-statement-amount-entry/, "other methods never show it");
 const known = { ...card, statement_bill: { ...card.statement_bill, status: "estimated", estimated_bill: 99.8, payment_amount: 99.8, payment_remaining: 99.8, reason: null } };
 const knownHtml = renderToStaticMarkup(React.createElement(PaymentSheet, { card: known, hiddenOverride: false, onClose: noop, services }));
-assert.doesNotMatch(knownHtml, /data-statement-amount-entry/, "no entry once the amount is known");
+assert.match(knownHtml, /data-statement-amount-entry/, "G444: an estimated in-full bill can be corrected too");
 assert.doesNotMatch(knownHtml, /Entered by you/);
 const entered = { ...known, terms: { ...terms, statement_amount_override: { close_date: "2026-10-22", amount: 99.8 } }, statement_bill: { ...known.statement_bill, user_entered: true } };
 const enteredHtml = renderToStaticMarkup(React.createElement(PaymentSheet, { card: entered, hiddenOverride: false, onClose: noop, services }));
