@@ -693,13 +693,13 @@ async def update_transaction(transaction_id: str, body: dict, user: dict = Depen
 
     await transactions_col.update_one(
         {"_id": transaction_id, "user_id": user["email"]},
-        {"$set": {"custom_category": category, "custom_category_at": stamp}},
+        {"$set": {"custom_category": category, "custom_category_at": stamp}, "$unset": {"card_repayment_taught": ""}},
     )
     bulk_count = 0
     if additional_ids:
         result = await transactions_col.update_many(
             {"_id": {"$in": additional_ids}, "user_id": user["email"]},
-            {"$set": {"custom_category": category, "custom_category_at": stamp}},
+            {"$set": {"custom_category": category, "custom_category_at": stamp}, "$unset": {"card_repayment_taught": ""}},
         )
         bulk_count = result.modified_count
 
@@ -823,7 +823,7 @@ def _try_oid(v: str):
 _MOVEMENT_CATEGORY = "Transfer"
 _MOVEMENT_RESOLUTIONS = {
     "mine-here", "mine-goal", "mine-offline", "mine-savings",
-    "mine-investment", "someone-else", "spending",
+    "mine-investment", "mine-card", "someone-else", "spending",
 }
 
 
@@ -868,6 +868,14 @@ async def resolve_movement(transaction_id: str, body: dict, user: dict = Depends
                       correction is the private, direction-aware teaching
                       signal used by the normal structural pass for later
                       outgoing rows from the same payee.
+      mine-card     — G381: a payment towards one of the user's own credit cards
+                      (Debt, a movement kind). The row is filed Debt and marked
+                      `card_repayment_taught`, so Spend reads it, and later
+                      debits from the same payee, as a card repayment (the
+                      purchases were already counted) and not a loan. The
+                      payee is remembered by the normal key-level override
+                      pass. No pot, balance or goal is created, and a card
+                      Sorted cannot see is fine.
       someone-else  — money left the household for someone else's account
                       (the WISE-remittance case). Keeps whatever spend-kind
                       category the row already carries — never forced into
@@ -893,7 +901,7 @@ async def resolve_movement(transaction_id: str, body: dict, user: dict = Depends
         raise HTTPException(404, "Transaction not found")
 
     if resolution in (
-        "mine-here", "mine-goal", "mine-offline", "mine-savings", "mine-investment",
+        "mine-here", "mine-goal", "mine-offline", "mine-savings", "mine-investment", "mine-card",
     ) and doc.get("transaction_type") != "debit":
         # A movement resolution files the row under the movement-kind
         # _MOVEMENT_CATEGORY (Transfer), which the arithmetic then excludes
@@ -919,7 +927,7 @@ async def resolve_movement(transaction_id: str, body: dict, user: dict = Depends
         await transactions_col.update_one(
             {"_id": transaction_id, "user_id": uid},
             {"$set": {"custom_category": _MOVEMENT_CATEGORY, "custom_category_at": _correction_stamp()},
-             "$unset": {"linked_goal_id": "", "linked_offline_account_id": ""}},
+             "$unset": {"linked_goal_id": "", "linked_offline_account_id": "", "card_repayment_taught": ""}},
         )
         category_changed = True
         result["custom_category"] = _MOVEMENT_CATEGORY
@@ -991,7 +999,7 @@ async def resolve_movement(transaction_id: str, body: dict, user: dict = Depends
         await transactions_col.update_one(
             {"_id": transaction_id, "user_id": uid},
             {"$set": {"custom_category": category, "custom_category_at": stamp},
-             "$unset": {"linked_goal_id": "", "linked_offline_account_id": ""}},
+             "$unset": {"linked_goal_id": "", "linked_offline_account_id": "", "card_repayment_taught": ""}},
         )
         category_changed = True
         result["custom_category"] = category
@@ -1001,6 +1009,18 @@ async def resolve_movement(transaction_id: str, body: dict, user: dict = Depends
         await _log_teaching_event(
             uid, event_type, transaction_id=transaction_id, merchant_key=merchant_key,
             payload={"destination_name": destination_name} if destination_name else {},
+        )
+
+    elif resolution == "mine-card":
+        await transactions_col.update_one(
+            {"_id": transaction_id, "user_id": uid},
+            {"$set": {"custom_category": "Debt", "custom_category_at": stamp, "card_repayment_taught": True},
+             "$unset": {"linked_goal_id": "", "linked_offline_account_id": "", "card_repayment_rule": ""}},
+        )
+        category_changed = True
+        result["custom_category"] = "Debt"
+        await _log_teaching_event(
+            uid, "movement_mine_card", transaction_id=transaction_id, merchant_key=merchant_key,
         )
 
     elif resolution == "someone-else":
@@ -1024,7 +1044,7 @@ async def resolve_movement(transaction_id: str, body: dict, user: dict = Depends
             await transactions_col.update_one(
                 {"_id": transaction_id, "user_id": uid},
                 {"$set": {"custom_category": category, "custom_category_at": stamp},
-                 "$unset": {"linked_goal_id": "", "linked_offline_account_id": ""}},
+                 "$unset": {"linked_goal_id": "", "linked_offline_account_id": "", "card_repayment_taught": ""}},
             )
             if len(merchant_key) >= 3:
                 # A built-in category MAY go global, but only after
@@ -1042,7 +1062,7 @@ async def resolve_movement(transaction_id: str, body: dict, user: dict = Depends
                 await transactions_col.update_one(
                     {"_id": transaction_id, "user_id": uid},
                     {"$set": {"custom_category": None},
-                     "$unset": {"linked_goal_id": "", "linked_offline_account_id": ""}},
+                     "$unset": {"linked_goal_id": "", "linked_offline_account_id": "", "card_repayment_taught": ""}},
                 )
                 category_changed = True
                 result["custom_category"] = None

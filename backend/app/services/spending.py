@@ -75,7 +75,7 @@ from app.services.categories import (
     kind_of,
     normalise_name,
 )
-from app.services.categorisation import own_transfer_evidence, user_identity
+from app.services.categorisation import canonical_merchant_key, own_transfer_evidence, user_identity
 from app.services.transfer_pruning import pair_pruned_reason
 from app.services.own_account_transfers import (
     account_name_in_text, counterparty_key, is_direct_debit, pair_is_named, within_ask_window, within_auto_window,
@@ -103,6 +103,7 @@ _PROJECTION = {
     "transaction_type": 1, "description": 1, "merchant_name": 1,
     "account_id": 1, "linked_offline_account_id": 1, "linked_goal_id": 1,
     "currency": 1, "party_sort_code": 1, "party_number": 1, "bank_code": 1,
+    "card_repayment_rule": 1, "card_repayment_taught": 1,
 }
 
 
@@ -503,8 +504,16 @@ def find_card_repayment_ids(docs: list[dict], kinds, cards: list[CardAccount]) -
     transaction form of the learned card destination), or the row's text
     matching one of those cards. A Debt debit leaving a card is never a
     repayment. Without either, the row is a loan repayment and counts."""
-    if not cards:
-        return set()
+    # G381: a debit the repayment rule filed (`card_repayment_rule`), a row the user
+    # taught as "Paying off one of my cards" (`card_repayment_taught`), and later
+    # Debt debits from a payee the user taught that way. A user answer is evidence
+    # whether or not the card is one Sorted can see.
+    taught_keys = {
+        key for d in docs if d.get("card_repayment_taught") and _is_debit(d)
+        and normalise_name(_effective_category(d)) == normalise_name(DEBT_CATEGORY)
+        for key in [canonical_merchant_key(d.get("merchant_name") or "", d.get("description") or "")]
+        if len(key) >= 3
+    }
     card_ids = {c.account_id for c in cards}
     credits: dict[int, list[dict]] = {}
     for d in docs:
@@ -520,6 +529,12 @@ def find_card_repayment_ids(docs: list[dict], kinds, cards: list[CardAccount]) -
         key=lambda d: d["date"],
     )
     for d in debts:
+        if d.get("card_repayment_rule") or d.get("card_repayment_taught") or (taught_keys and canonical_merchant_key(
+                d.get("merchant_name") or "", d.get("description") or "") in taught_keys):
+            out.add(_txn_id(d))
+            continue
+        if not cards:
+            continue
         amt = abs(float(d.get("amount") or 0))
         cents = round(amt * 100)
         best, gap_best = None, None

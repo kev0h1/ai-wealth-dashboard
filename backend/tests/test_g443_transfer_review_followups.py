@@ -240,8 +240,14 @@ def test_the_card_repayment_respects_the_users_answers_and_other_cards():
     # a second same-amount debit from a non-card account makes the money ambiguous
     rows = _repay_rows() + [_row("x-d", "debit", 61.78, "barc", datetime(2026, 7, 31), "SOMETHING")]
     assert oat.select_unique_pairs_detailed(rows, BY_ID, TOKENS, set(), movement_categories={"Transfer"}) == []
-    # a debit that does not name the bank is not this rule (no bank evidence)
-    assert oat.select_unique_pairs_detailed(_repay_rows(text="TRANSFER"), BY_ID, TOKENS, set(), movement_categories={"Transfer"}) == []
+    # a debit that does not name the bank is not THIS rule (no bank evidence). G381 (Kevin 2026-10-31) adds the
+    # card account type route: a card credit with payment wording, this card's own tail and ONE debit of the
+    # amount is that card's repayment even when the debit names nobody (see test_g381_card_repayment_rule.py),
+    # so the negative case here is a credit WITHOUT payment wording.
+    no_wording = _repay_rows(text="TRANSFER")
+    no_wording[1]["description"] = "CARD CREDIT 7788"
+    assert oat.select_unique_pairs_detailed(no_wording, BY_ID, TOKENS, set(), movement_categories={"Transfer"}) == []
+    assert [i for _, _, i in oat.select_unique_pairs_detailed(_repay_rows(text="TRANSFER"), BY_ID, TOKENS, set(), movement_categories={"Transfer"})] == ["natwest"]
 
 
 # ── (c) the HSBC to NatWest pair ────────────────────────────────────────────

@@ -1131,7 +1131,7 @@ async def tavily_lookup_merchants(merchants: list[str]) -> dict[str, str]:
 _CORRECTION_EVENT_TYPES = {
     "correction", "movement_mine_here", "movement_mine_goal",
     "movement_mine_offline", "movement_mine_savings", "movement_mine_investment",
-    "movement_spending",
+    "movement_mine_card", "movement_spending",
 }
 
 
@@ -1266,10 +1266,10 @@ async def apply_rules_bulk(user_id: str, structural: bool = False) -> int:
         # G377: bank descriptions differ across the two legs. Use the same
         # evidence and one-to-one matching policy as the post-sync repair.
         # Amount/date coincidences, refunds and ambiguous repeats stay for review.
-        from app.services.own_account_transfers import active_separate_review_ids, select_unique_pairs
+        from app.services.own_account_transfers import HISTORY_DAYS, active_separate_review_ids, select_unique_pairs
         kind_map = await get_category_kinds(user_id)
         movement_categories = {k for k in kind_map if kind_of(kind_map, k) == MOVEMENT}
-        cutoff = datetime.utcnow() - timedelta(days=90)  # naive-ok: Mongo bank dates are naive UTC
+        cutoff = datetime.utcnow() - timedelta(days=HISTORY_DAYS)  # naive-ok: Mongo bank dates are naive UTC
         pair_accounts = {a["_id"]: a async for a in accounts_col.find({"user_id": user_id})}
         all_txns = await transactions_col.find(
             {"user_id": user_id, "date": {"$gte": cutoff}, "is_pending": {"$ne": True}},

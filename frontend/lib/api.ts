@@ -607,7 +607,7 @@ export type PatchTransactionResult = {
 
 export type ResolveMovementResult = {
   updated: string;
-  resolution: "mine-here" | "mine-goal" | "mine-offline" | "mine-savings" | "mine-investment" | "someone-else" | "spending";
+  resolution: "mine-here" | "mine-goal" | "mine-offline" | "mine-savings" | "mine-investment" | "mine-card" | "someone-else" | "spending";
   custom_category?: string | null;
   linked_goal_id?: string;
   linked_offline_account_id?: string;
@@ -3594,7 +3594,7 @@ export const api = {
   // transactions.py:resolve_movement for the full resolution contract.
   resolveMovement: (id: string, body: {
     defer_recompute?: boolean;
-    resolution: "mine-here" | "mine-goal" | "mine-offline" | "mine-savings" | "mine-investment" | "someone-else" | "spending";
+    resolution: "mine-here" | "mine-goal" | "mine-offline" | "mine-savings" | "mine-investment" | "mine-card" | "someone-else" | "spending";
     goal_id?: string;
     offline_pot_name?: string;
     destination_name?: string;

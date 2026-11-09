@@ -1,0 +1,174 @@
+{
+  "account_eligibility": {
+    "acc-bc": {
+      "after_payments": 1274.47,
+      "after_payments_and_money_in": 1274.47,
+      "after_payments_and_plans": 1274.47,
+      "estimated": false,
+      "headroom": 1264.47,
+      "is_current_account": true,
+      "low_point": 1274.47,
+      "low_point_and_plans": 1274.47,
+      "plans_reserved": 0.0,
+      "short": false,
+      "spend_from_headroom": 1274.47,
+      "uncertain": false
+    }
+  },
+  "account_plans": [],
+  "accounts": [
+    {
+      "balance": 1500.0,
+      "currency": "GBP",
+      "id": "acc-bc",
+      "include_in_safe_to_spend": true,
+      "name": "Barclays Current",
+      "provider": "barclays",
+      "status": "connected",
+      "subtype": "TRANSACTION",
+      "type": "BANK"
+    },
+    {
+      "balance": -300.0,
+      "currency": "GBP",
+      "id": "acc-nw",
+      "include_in_safe_to_spend": true,
+      "name": "NatWest Mastercard",
+      "provider": "natwest",
+      "status": "connected",
+      "subtype": "CREDIT_CARD",
+      "type": "CREDIT"
+    }
+  ],
+  "at_risk_count": 0,
+  "cashflow": {
+    "internal_inflows": [],
+    "next_payday": "2026-10-30",
+    "observed_pending_bills": [],
+    "period": {
+      "day_number": 18,
+      "end": "2026-10-29",
+      "label": "25 Sep to 29 Oct",
+      "length_days": 35,
+      "payday": "2026-10-30",
+      "payday_observed": null,
+      "start": "2026-09-25",
+      "type": "last_friday"
+    },
+    "spendable_balance": 1500.0,
+    "upcoming_bills": [
+      {
+        "account_balance": 1500.0,
+        "account_bank": "Barclays",
+        "account_id": "acc-bc",
+        "account_name": "Barclays Current",
+        "amount": 150.0,
+        "amount_basis": null,
+        "card_dest_account_bank": null,
+        "card_dest_account_id": null,
+        "card_dest_account_name": null,
+        "category": "Bills",
+        "days_away": 8,
+        "days_past_due": 0,
+        "dest_account_bank": null,
+        "dest_account_id": null,
+        "dest_account_name": null,
+        "dest_account_spendable": null,
+        "edited": false,
+        "expected_date": "2026-10-20",
+        "is_card_repayment": false,
+        "is_credit_card": false,
+        "kind": "commitment",
+        "name": "COUNCIL TAX",
+        "observed_pending": false,
+        "original_date": null,
+        "pending": false,
+        "rule_label": null
+      },
+      {
+        "account_balance": 1500.0,
+        "account_bank": "Barclays",
+        "account_id": "acc-bc",
+        "account_name": "Barclays Current",
+        "amount": 75.53,
+        "amount_basis": null,
+        "card_dest_account_bank": "NatWest",
+        "card_dest_account_id": "acc-nw",
+        "card_dest_account_name": "NatWest Mastercard",
+        "category": "Debt",
+        "days_away": 14,
+        "days_past_due": 0,
+        "dest_account_bank": null,
+        "dest_account_id": null,
+        "dest_account_name": null,
+        "dest_account_spendable": null,
+        "edited": false,
+        "expected_date": "2026-10-26",
+        "is_card_repayment": true,
+        "is_credit_card": false,
+        "kind": "movement",
+        "name": "NatWest acc-nw",
+        "observed_pending": false,
+        "original_date": "2026-10-24",
+        "pending": false,
+        "rule_label": null
+      }
+    ],
+    "upcoming_income": [
+      {
+        "account_balance": 1500.0,
+        "account_bank": "Barclays",
+        "account_id": "acc-bc",
+        "account_name": "Barclays Current",
+        "amount": 3000.0,
+        "amounts_recent": [
+          3000.0,
+          3000.0,
+          3000.0
+        ],
+        "avg_interval": 30,
+        "category": "Income",
+        "confirmed_alias": null,
+        "credit_basis": "reliable",
+        "days_away": 18,
+        "display_name": "Acme Payroll",
+        "edited": false,
+        "expected_date": "2026-10-30",
+        "name": "acme|payroll::acc-bc",
+        "occurrences": 3,
+        "rule_label": null,
+        "steady_salary": true
+      }
+    ]
+  },
+  "days_to_payday": 18,
+  "items": [
+    {
+      "id": "trajectory:bad:2026-10",
+      "type": "trajectory"
+    },
+    {
+      "id": "ask:card_terms",
+      "type": "ask"
+    }
+  ],
+  "name": "Card repayment seen only from the current account (G381): a NATWEST debit with a NatWest card on file is Debt, predicted as an ordinary payment",
+  "period": {
+    "end": "2026-10-29",
+    "start": "2026-09-25"
+  },
+  "safe_to_spend": {
+    "allocations_reserved": 0.0,
+    "calculation_status": "complete",
+    "commitments_reserved": 0,
+    "left_to_spend_lines": {
+      "accounts_total": 1274.47,
+      "buffer": 0.0,
+      "plans_total": 0
+    },
+    "lowest_projected_balance": 1274.47,
+    "safe_to_spend": 1274.47,
+    "safe_to_spend_cash": 1274.47
+  },
+  "today": "2026-10-12"
+}

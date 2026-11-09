@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "check:g381-card-payment-option": "node scripts/g381-card-payment-option.test.mjs",
     "check:g432-nav-and-income-scroll": "node scripts/g432-nav-and-income-scroll.test.mjs",
     "check:g433-tap-feedback": "node scripts/g433-tap-feedback.test.mjs",
     "check:g431-upcoming-category-icons": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g431-upcoming-category-icons.test.mjs",
