@@ -6,7 +6,7 @@ written by sync/review and uses the Spend loader for a period's headline.
 """
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from math import ceil
 
 from app.db.collections import accounts_col, own_transfer_judgements_col, transactions_col, yapily_transactions_col
@@ -249,4 +249,6 @@ async def list_filed_transfers(uid: str, *, start: date | None = None, end: date
             "pages": ceil(total / page_size) if total else 0,
             "scope": {"start": start.isoformat(), "end": end.isoformat()} if start and end else None,
             "scope_total": scope_total, "scope_currency": "GBP" if scope_total is not None else None,
-            "source": source, "updated_at": datetime.utcnow().isoformat(), "complete": not invalid_evidence}
+            "source": source,
+            "updated_at": datetime.now(timezone.utc).isoformat(),  # naive-ok: aware UTC response instant, not user-calendar arithmetic
+            "complete": not invalid_evidence}

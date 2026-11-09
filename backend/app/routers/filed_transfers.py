@@ -1,4 +1,5 @@
 """HTTP boundary for the persisted Transfers Sorted history."""
+import logging
 from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -7,6 +8,7 @@ from app.core.auth import current_user
 from app.services.filed_transfers import list_filed_transfers
 
 router = APIRouter(tags=["filed-transfers"])
+logger = logging.getLogger(__name__)
 
 
 @router.get("/transactions/filed-transfers")
@@ -36,7 +38,8 @@ async def undo_filed_transfer(body: dict, user: dict = Depends(current_user)):
     try:
         result = await undo_filed_series(user["email"], series_key)
     except ValueError as exc:
-        raise HTTPException(409, str(exc)) from exc
+        logger.info("G449 transfer undo needs a history reload", exc_info=True)
+        raise HTTPException(409, "This series changed or could not be undone safely. Reload history before trying again.") from exc
     if not result.get("undone"):
         raise HTTPException(404, "That transfer series is no longer filed")
     # The helper records one durable H145 marker before any possible write,
