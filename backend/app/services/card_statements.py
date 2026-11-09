@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from app.services.counted_accounts import is_counted
 import calendar
+import logging
 import re
 import math
 import hashlib
@@ -19,6 +20,13 @@ from decimal import Decimal, ROUND_HALF_UP
 
 from app.core import timeutil
 from app.services.account_kinds import is_credit_card_account, is_current_account, is_debt_account, is_savings_account
+
+logger = logging.getLogger(__name__)
+
+# G444: a movement the sync first saw more than this long after the balance was
+# read cannot be in that balance. Same-pass rows arrive seconds to minutes after
+# the balance fetch, so the grace keeps them counted.
+BALANCE_GRACE = timedelta(minutes=30)
 
 PAYMENT_FIELDS = (
     "statement_close_day", "payment_due_day", "payment_due_days_after_close",
@@ -242,14 +250,28 @@ def estimate_statement(
     card_rows = [r for r in rows if str(r.get("account_id")) == aid and (_day(r.get("date")) or date.max) <= today]
     booked = [r for r in card_rows if is_settled_row(r) and r.get("transaction_type") in ("credit", "debit") and str(r.get("currency") or card.get("currency") or "GBP").upper() == str(card.get("currency") or "GBP").upper()]
     after = [r for r in booked if _day(r["date"]) > close]
-    after_debits = sum(abs(float(r["amount"])) for r in after if r["transaction_type"] == "debit")
-    after_credits = sum(abs(float(r["amount"])) for r in after if r["transaction_type"] == "credit")
+    # G444 (f): a stale balance does not contain movements the sync saw after
+    # the balance was read. Backing those out would subtract money that was
+    # never in the balance and understate the closed statement. Without a
+    # balance timestamp (an older sync) every movement counts, as before.
+    as_of = timeutil.as_utc(card.get("balance_as_of")) if isinstance(card.get("balance_as_of"), datetime) else None
+    def _in_balance(r: dict) -> bool:
+        seen = r.get("first_seen")
+        return not (as_of and isinstance(seen, datetime) and timeutil.as_utc(seen) > as_of + BALANCE_GRACE)
+    counted = [r for r in after if _in_balance(r)]
+    late = [r for r in after if not _in_balance(r)]
+    after_debits = sum(abs(float(r["amount"])) for r in counted if r["transaction_type"] == "debit")
+    after_credits = sum(abs(float(r["amount"])) for r in counted if r["transaction_type"] == "credit")
+    all_after_debits = sum(abs(float(r["amount"])) for r in after if r["transaction_type"] == "debit")
+    pending_after = sum(abs(float(r["amount"])) for r in card_rows
+                        if (r.get("is_pending") or str(r.get("status") or "").strip().lower() == "pending")
+                        and r.get("transaction_type", "debit") == "debit" and (_day(r.get("date")) or date.min) > close)
     result = {
         "statement_start": start.isoformat(), "statement_close": close.isoformat(),
         "payment_due": due.isoformat(), "next_payment_due": next_due.isoformat(),
         "payment_method": method, "payment_account_id": source_id or None,
         "estimated_bill": None, "payment_amount": None, "payment_remaining": None,
-        "paid_since_close": 0.0, "spending_since_close": _money(after_debits),
+        "paid_since_close": 0.0, "spending_since_close": _money(all_after_debits),
         "estimated": True, "status": "incomplete_history", "reason": None,
         "next_payday": next_payday.isoformat() if next_payday else None,
         "due_before_payday": due < next_payday if next_payday else None,
@@ -325,6 +347,28 @@ def estimate_statement(
         result["reason"] = "This card has no balance from your bank yet, so the statement cannot be estimated."
     else:
         result["reason"] = "A card payment from the statement period is still pending, so the statement cannot be estimated yet."
+    if _finite(card.get("balance")):
+        # G444: the working, amounts only, so a wrong estimate can be diagnosed
+        # (and shown in the Payment sheet). card_estimate is what the card
+        # alone says, whatever the person has entered over it.
+        owed = -float(card["balance"])
+        raw = owed - after_debits + after_credits
+        result["working"] = {
+            "balance_owed": _money(owed),
+            "balance_as_of": as_of.isoformat() if as_of else None,
+            "spent_since_close": _money(after_debits),
+            "credits_since_close": _money(after_credits),
+            "pending_excluded": _money(pending_after),
+            "stale_excluded": _money(sum(abs(float(r["amount"])) for r in late)),
+            "stale_excluded_count": len(late),
+            "card_estimate": _money(max(0.0, raw)) if not pending_in_statement else None,
+        }
+        logger.debug(
+            "card statement working: owed=%.2f spent_since_close=%.2f credits_since_close=%.2f "
+            "pending_excluded=%.2f stale_excluded=%.2f (%d rows) as_of=%s estimate=%s",
+            owed, after_debits, after_credits, pending_after,
+            result["working"]["stale_excluded"], len(late), result["working"]["balance_as_of"],
+            result["working"]["card_estimate"])
     # A fixed cash instruction is known independently of the statement
     # balance. For in-full DD, overlapping cycles make the payable statement
     # ambiguous, so retain learned evidence instead of inventing a total.

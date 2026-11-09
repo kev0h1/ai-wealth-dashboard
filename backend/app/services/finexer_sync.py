@@ -2034,7 +2034,6 @@ async def sync_finexer_consent(
                 "name":           name,
                 "type":           acc_type,
                 "subtype":        subtype,
-                "balance":        balance,
                 "currency":       currency,
                 "provider":       provider_name,
                 "provider_id":    provider_code,
@@ -2078,6 +2077,15 @@ async def sync_finexer_consent(
                 set_doc["card_available_sign"] = card_diag["available_sign"]
             set_doc.update(bank_sync_set)
             unset_doc: dict = {}
+            if balance_seen:
+                # G444: only a balance the bank actually returned is stored,
+                # with the instant it was read. A failed or empty balance fetch
+                # used to write 0.0 over the last good balance, and a stale
+                # balance had no timestamp to tell it apart from a fresh one.
+                set_doc["balance"] = balance
+                set_doc["balance_as_of"] = datetime.now(timezone.utc)
+            if balance_seen and is_card and card_diag.get("entry_type"):
+                set_doc["card_balance_entry_type"] = card_diag["entry_type"]
             if debt_sign is not None:
                 set_doc["debt_current_sign"] = debt_sign  # raw sign only, for diagnostics
             if balance_seen and is_card:
@@ -2105,6 +2113,7 @@ async def sync_finexer_consent(
                 "$setOnInsert": {
                     "_id":     account_id,
                     "user_id": user_id,
+                    **({} if balance_seen else {"balance": 0.0}),
                 },
             }
             if unset_doc:
