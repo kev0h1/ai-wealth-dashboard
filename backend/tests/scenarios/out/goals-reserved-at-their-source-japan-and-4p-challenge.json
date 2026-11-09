@@ -274,9 +274,12 @@
         "display_name": "Acme Payroll",
         "edited": false,
         "expected_date": "2026-10-30",
+        "income_history": null,
+        "monthly_anchor": null,
         "name": "acme|payroll::acc-prem",
         "occurrences": 4,
         "rule_label": null,
+        "source": null,
         "steady_salary": true
       },
       {
@@ -299,9 +302,12 @@
         "display_name": "Acme Payroll",
         "edited": false,
         "expected_date": "2026-11-30",
+        "income_history": null,
+        "monthly_anchor": null,
         "name": "acme|payroll::acc-prem",
         "occurrences": 4,
         "rule_label": null,
+        "source": null,
         "steady_salary": false
       }
     ]

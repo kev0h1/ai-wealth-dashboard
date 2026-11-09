@@ -449,9 +449,12 @@
         "display_name": "Side Income",
         "edited": false,
         "expected_date": "2026-11-06",
+        "income_history": null,
+        "monthly_anchor": null,
         "name": "side|income::acc-nw",
         "occurrences": 2,
         "rule_label": null,
+        "source": null,
         "steady_salary": false
       },
       {
@@ -472,9 +475,12 @@
         "display_name": "Side Income",
         "edited": false,
         "expected_date": "2026-12-06",
+        "income_history": null,
+        "monthly_anchor": null,
         "name": "side|income::acc-nw",
         "occurrences": 2,
         "rule_label": null,
+        "source": null,
         "steady_salary": false
       }
     ]
