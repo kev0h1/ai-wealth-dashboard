@@ -14,6 +14,10 @@ import { formatCurrency } from "@/lib/currency";
 import { remainingReviewItem, seriesPairs, seriesSinceLabel, type MiscategorisedItem } from "@/lib/transferReview";
 export type { MiscategorisedItem, MiscategorisedMember } from "@/lib/transferReview";
 import Spinner from "@/components/Spinner";
+import dynamic from "next/dynamic";
+import FilingSourceIcon from "@/components/FilingSourceIcon";
+
+const FiledTransfersSheet = dynamic(() => import("@/components/FiledTransfersSheet"));
 
 const button = "min-h-11 rounded-xl px-3 py-2 text-sm font-semibold disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500";
 const surface = "rounded-2xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900";
@@ -46,7 +50,9 @@ function toTransaction(item: MiscategorisedItem): Transaction {
 export default function MiscategorisedReviewSheet({ onClose, onChanged, accounts, initialItems, initialPairs, initialAutoFiled, periodStart }: MiscategorisedReviewSheetProps) {
   const [items, setItems] = useState<MiscategorisedItem[]>(initialItems ?? []);
   const [pairs, setPairs] = useState<TransferPairSuggestion[]>(initialPairs ?? []);
-  const [autoFiled, setAutoFiled] = useState<AiFiledTransfer[]>(initialAutoFiled ?? []);
+  const [filedCount, setFiledCount] = useState<number | null>(initialAutoFiled?.length ?? null);
+  const [filedCountError, setFiledCountError] = useState(false);
+  const [filedOpen, setFiledOpen] = useState(false);
   const [loading, setLoading] = useState(initialItems === undefined || initialPairs === undefined);
   const [loadError, setLoadError] = useState(false);
   const [revision, setRevision] = useState(0);
@@ -87,6 +93,8 @@ export default function MiscategorisedReviewSheet({ onClose, onChanged, accounts
         onChanged?.();
       }
       pendingRef.current = 0;
+      setPendingCount(0);
+      changedIds.current.clear();
       return true;
     } catch {
       setCloseError("Your choices are saved. Totals could not be updated yet. Try Done again.");
@@ -106,18 +114,29 @@ export default function MiscategorisedReviewSheet({ onClose, onChanged, accounts
     Promise.all([
       initialItems !== undefined ? Promise.resolve({ items: initialItems, separate_items: [] }) : api.getMiscategorised(),
       initialPairs !== undefined ? Promise.resolve({ items: initialPairs }) : api.getTransferPairSuggestions(),
-      // The "Filed automatically" list is extra: if it cannot load, the review itself still shows.
-      initialAutoFiled !== undefined ? Promise.resolve({ items: initialAutoFiled }) : api.getAiFiledTransfers().catch(() => ({ items: [] as AiFiledTransfer[] })),
-    ]).then(([review, suggestions, filed]) => {
+    ]).then(([review, suggestions]) => {
       if (cancelled) return;
       setItems([...review.items, ...(review.separate_items ?? [])]);
       setPairs(suggestions.items);
-      setAutoFiled(filed.items);
       setResolved(new Set());
     }).catch(() => { if (!cancelled) setLoadError(true); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, [revision, initialItems, initialPairs, initialAutoFiled]);
+
+  // History remains reachable even when the review queue is empty or fails.
+  useEffect(() => {
+    let cancelled = false;
+    // This independent remote count restarts when review changes are saved.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setFiledCountError(false);
+    if (initialAutoFiled !== undefined) { setFiledCount(initialAutoFiled.length); return; }
+    setFiledCount(null);
+    api.getFiledTransfers({ source: "sorted", page_size: 1 }).then(result => {
+      if (!cancelled) setFiledCount(result.total_series);
+    }).catch(() => { if (!cancelled) setFiledCountError(true); });
+    return () => { cancelled = true; };
+  }, [revision, initialAutoFiled]);
 
   function begin(key: string) {
     if (busyRef.current) return false;
@@ -181,19 +200,6 @@ export default function MiscategorisedReviewSheet({ onClose, onChanged, accounts
       announce("Review each payment separately. Neither category has changed.");
       if (covered.length > 1) refresh();
     })().catch(() => failed(pair.pair_key)).finally(end);
-  }
-
-  // G442: undo a series Sorted filed by itself. The server unlearns the pair and
-  // returns the rows to how they were; the review then reloads to show them.
-  function handleUndo(entry: AiFiledTransfer) {
-    const key = `undo:${entry.series_key}`;
-    if (!begin(key)) return;
-    api.undoAiTransfer(entry.series_key, true).then(() => {
-      saved(entry.pairs.flatMap(item => [item.credit_id, item.debit_id]));
-      setAutoFiled(previous => previous.filter(value => value.series_key !== entry.series_key));
-      announce("Undone. Those payments are back as they were before.");
-      refresh();
-    }).catch(() => failed(key)).finally(end);
   }
 
   function handleSingle(item: MiscategorisedItem, category: "Transfer" | "Income") {
@@ -265,27 +271,6 @@ export default function MiscategorisedReviewSheet({ onClose, onChanged, accounts
     </article>;
   }
 
-  function renderAutoFiled() {
-    const nameOf = (id: string) => { const account = accounts.find(value => value.id === id); return account?.name ? displayAccountName(account.name) : "Account"; };
-    return <details className={`${surface} group mb-4 px-3`} data-auto-filed>
-      <summary className="min-h-11 cursor-pointer list-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500">
-        <span className="flex min-h-11 items-center justify-between gap-2 text-sm font-semibold text-slate-900 dark:text-slate-100">Filed automatically: {autoFiled.length} series<ChevronDown size={16} aria-hidden="true" className="shrink-0 group-open:rotate-180" /></span>
-      </summary>
-      <div className="divide-y divide-slate-200 border-t border-slate-200 dark:divide-slate-700 dark:border-slate-700">{autoFiled.map(entry => {
-        const since = seriesSinceLabel(entry.count, entry.first_date);
-        const amountText = hidden ? "••••" : formatCurrency(Math.abs(entry.amount), entry.currency ?? "GBP");
-        const key = `undo:${entry.series_key}`;
-        return <div key={entry.series_key} className="py-3" data-auto-filed-id={entry.series_key}>
-          <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{nameOf(entry.debit_account_id)} to {nameOf(entry.credit_account_id)}</p>
-          <p className="mt-1 text-xs leading-5 text-slate-600 dark:text-slate-400">{since ? `${amountText}, ${since}.` : `${amountText}.`}</p>
-          {entry.reason && <p className="mt-1 text-xs leading-5 text-slate-600 dark:text-slate-400">{entry.reason}</p>}
-          <button type="button" aria-label={`Undo ${nameOf(entry.debit_account_id)} to ${nameOf(entry.credit_account_id)}, ${amountText}`} disabled={!!busy || closing} onClick={() => handleUndo(entry)} className={`${button} mt-2 border border-slate-200 text-slate-700 dark:border-slate-600 dark:text-slate-200`}>{busy === key ? "Undoing…" : "Undo"}</button>
-          {error(key)}
-        </div>;
-      })}</div>
-    </details>;
-  }
-
   const groups = new Map<string, { items: MiscategorisedItem[]; pairs: TransferPairSuggestion[] }>();
   for (const pair of pairs) {
     const group = groups.get(pair.debit.account_id) ?? { items: [], pairs: [] };
@@ -307,7 +292,11 @@ export default function MiscategorisedReviewSheet({ onClose, onChanged, accounts
         <button type="button" disabled={!!busy || closing} onClick={close} className={`${button} w-full bg-indigo-600 text-white hover:bg-indigo-700 active:opacity-80`}>{closing ? "Updating totals…" : "Done"}</button>
       </>}>
       <div className="mb-5"><div className="flex items-start justify-between gap-3"><h2 ref={reviewHeading} tabIndex={-1} className="text-lg font-bold outline-none text-slate-900 dark:text-slate-100">Check the possible match first</h2>{!loading && !loadError && <span className="shrink-0 rounded-full bg-indigo-50 px-2.5 py-1 text-xs font-semibold text-indigo-700 dark:bg-indigo-400/15 dark:text-indigo-300">{count} {count === 1 ? "review" : "reviews"} left</span>}</div><p className="mt-2 text-sm leading-6 text-slate-600 dark:text-slate-300">Confirm a match, or review each payment separately. Includes earlier pay periods.</p></div>
-      {!loading && !loadError && autoFiled.length > 0 && renderAutoFiled()}
+      <button type="button" onClick={() => setFiledOpen(true)} disabled={!!busy || closing} className={`${button} mb-4 flex w-full items-center gap-2.5 border border-slate-200 text-left text-slate-800 dark:border-slate-700 dark:text-slate-100`} data-filed-transfers-link>
+        <FilingSourceIcon actor="sorted" size={18} className="shrink-0" />
+        <span className="flex-1">{filedCount !== null ? `Filed automatically: ${filedCount} series` : "Transfers Sorted filed"}<span className="mt-0.5 block text-xs font-normal text-slate-600 dark:text-slate-400">{filedCountError ? "Count unavailable. Open history to try again." : filedCount === null ? "Loading history count…" : "Open your filed transfer history"}</span></span>
+        <ChevronRight size={16} aria-hidden="true" className="shrink-0" />
+      </button>
       {message && <p role="status" className="mb-4 text-sm text-slate-700 dark:text-slate-300">{message}</p>}
       {loading ? <div role="status" className="flex items-center justify-center gap-3 py-12 text-sm text-slate-600 dark:text-slate-300"><Spinner size={24} />Checking your transfers</div> : loadError ? <div role="alert" className="py-8 text-center"><p className="text-sm font-semibold text-slate-900 dark:text-slate-100">We could not load these transfers</p><p className="mt-2 text-sm text-slate-600 dark:text-slate-300">Your saved choices have not changed.</p><button type="button" onClick={() => setRevision(value => value + 1)} className={`${button} mt-4 bg-indigo-600 text-white`}>Try again</button></div> : count === 0 && unlistedCount === 0 ? <div className="py-10 text-center"><ShieldCheck size={28} className="mx-auto text-emerald-700 dark:text-emerald-300" aria-hidden="true" /><h2 className="mt-3 text-base font-semibold text-slate-900 dark:text-slate-100">Nothing needs review</h2><p className="mt-2 text-sm text-slate-600 dark:text-slate-300">Nothing left to check for now.</p></div> : <div className="space-y-4">{Array.from(groups, ([key, group]) => {
         const account = accounts.find(value => value.id === key);
@@ -315,6 +304,16 @@ export default function MiscategorisedReviewSheet({ onClose, onChanged, accounts
       })}</div>}
       {unlistedCount > 0 && <div className="mt-4"><p className="text-sm text-slate-600 dark:text-slate-300">{unlistedCount} more payments in these groups still need checking.</p><button type="button" disabled={!!busy || closing} onClick={refresh} className={`${button} mt-2 text-indigo-700 dark:text-indigo-300 active:opacity-80`}>Load remaining payments</button></div>}
     </SheetFrame>
+    {filedOpen && <FiledTransfersSheet nested initialSource="sorted" onClose={() => setFiledOpen(false)} onOpenReview={() => setFiledOpen(false)} onChanged={() => {
+      // The child has flushed the complete H145 batch, including this review's
+      // earlier choices. Reload the queue so undone legs are immediately visible.
+      pendingRef.current = 0;
+      setPendingCount(0);
+      changedIds.current.clear();
+      setCloseError("");
+      refresh();
+      onChanged?.();
+    }} />}
     {selected && <TeachingSheet nested deferRecompute key={`${selected.tx.id}:${selected.choice}`} transaction={selected.tx} initialReviewChoice={selected.choice} account={accounts.find(account => account.id === selected.tx.account_id)} onClose={() => setSelected(null)} onUpdated={(tx, ids, reverted) => {
       const affected = [tx.id, ...(ids ?? [])];
       saved(affected);

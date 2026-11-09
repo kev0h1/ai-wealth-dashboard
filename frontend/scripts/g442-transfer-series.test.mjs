@@ -40,28 +40,11 @@ assert.match(sheet, /\$\{amountText\}, \$\{since\}\./, "amount, 3 times since Se
 assert.match(sheet, /\{pair\.ai_reason && <p [^>]*text-xs leading-5 text-slate-600[^>]*data-ai-reason>\{pair\.ai_reason\}<\/p>\}/, "the model's reason is a short secondary line in the existing style");
 assert.ok(!/invalidateAfterTransactionCorrection\(/.test(sheet.match(/function handleConfirmPair[\s\S]*?\n  }\n/)[0]), "no cache wipe per answer; one recompute when the sheet closes");
 
-// the header: Filed automatically: N opens a list; each series can be undone
-assert.match(sheet, /Filed automatically: \{autoFiled\.length\} series</, "the header says what it counts: series");
-assert.match(sheet, /aria-label=\{`Undo \$\{nameOf\(entry\.debit_account_id\)\} to \$\{nameOf\(entry\.credit_account_id\)\}, \$\{amountText\}`\}/, "each Undo names its series");
-assert.match(sheet, /autoFiled\.length > 0 && renderAutoFiled\(\)/, "hidden when nothing was filed");
-assert.match(sheet, /api\.undoAiTransfer\(entry\.series_key, true\)/, "undo goes through the deferred-recompute path");
-assert.match(sheet, /setAutoFiled\(previous => previous\.filter\(value => value\.series_key !== entry\.series_key\)\)/);
-assert.match(sheet, /api\.getAiFiledTransfers\(\)\.catch\(\(\) => \(\{ items: \[\] as AiFiledTransfer\[\] \}\)\)/, "a failed list never blocks the review");
-assert.equal((sheet.match(/function renderPair\(/g) ?? []).length, 1, "one pair component for singles and series");
-assert.equal((sheet.match(/function renderItem\(/g) ?? []).length, 1, "the row component is unchanged");
-
-// reuse: only classes the sheet already used before G442, no new colour
-const added = sheet.slice(sheet.indexOf("function renderAutoFiled"), sheet.indexOf("const groups = new Map"));
-const classes = new Set([...added.matchAll(/className=\{?[`"]([^`"]+)[`"]/g)].flatMap(m => m[1].split(/\s+/)));
-const colour = [...classes].filter(c => /^(bg|text|border|divide|ring)-(?!white)/.test(c) && /-(slate|indigo|emerald|red|amber|rose|orange)-/.test(c));
-for (const c of colour) assert.match(readFileSync(new URL("../components/MiscategorisedReviewSheet.tsx", import.meta.url), "utf8").slice(0, sheet.indexOf("function renderAutoFiled")), new RegExp(c.replace(/[/]/g, "\\/")), `${c} is an existing sheet colour`);
-assert.ok(!/(red|rose|amber|orange)-/.test(added), "no risk colours: red means genuine risk only");
-
-// copy rules: British English, no em dashes, no exclamation marks in what was added
-for (const text of [added, sheet.slice(sheet.indexOf("function handleUndo"), sheet.indexOf("function handleSingle"))]) {
-  assert.ok(!/—/.test(text), "no em dashes");
-  const copy = [...text.matchAll(/"([^"\n]*)"|`([^`\n]*)`|>([^<>{}\n]+)</g)].map(m => m[1] ?? m[2] ?? m[3]);
-  assert.ok(copy.length >= 1, "found the copy to check");
-  assert.ok(copy.every(line => !line.includes("!")), "no exclamation marks in user-facing copy");
-}
+// G449 retains the history door when the review queue becomes empty and
+// moves the receipt/Undo interaction into the shared history sheet.
+assert.match(sheet, /data-filed-transfers-link/);
+assert.match(sheet, /api\.getFiledTransfers\(\{ source: "sorted", page_size: 1 \}\)/);
+assert.match(sheet, /FiledTransfersSheet nested initialSource="sorted"/);
+assert.equal((sheet.match(/function renderPair\(/g) ?? []).length, 1);
+assert.equal((sheet.match(/function renderItem\(/g) ?? []).length, 1);
 console.log("g442-transfer-series: ok");

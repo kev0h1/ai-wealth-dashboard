@@ -5,6 +5,7 @@ import { invalidateEndpoint, TRANSACTIONS_CHANGED_KEYS } from "./endpointCache";
 import { LEGACY_BANK_AVAILABLE, LEGACY_BANK_ID } from "./legacyBankProvider";
 import type { AccountRefreshResult } from "./accountRefresh";
 import type { IncomeForecastEvidence } from "./incomeEvidence";
+import type { FiledTransfersQuery, FiledTransfersResponse, FiledTransfersUndoResult } from "./filedTransfers";
 import type { GoLiveItem, GoLiveQuestion, GoLiveOwner } from "./goLive";
 import type {
   Account, Connection, Transaction, KPIs, Insight,
@@ -3956,6 +3957,16 @@ export const api = {
       { credit_id: creditId, debit_id: debitId, ...(deferRecompute ? { defer_recompute: true } : {}) },
     ),
   getAiFiledTransfers: () => get<{ items: AiFiledTransfer[] }>("/transactions/ai-filed-transfers"),
+  getFiledTransfers: (query: FiledTransfersQuery = {}) => {
+    const params = new URLSearchParams();
+    if (query.from) params.set("from", query.from);
+    if (query.to) params.set("to", query.to);
+    if (query.source) params.set("source", query.source);
+    if (query.page != null) params.set("page", String(query.page));
+    if (query.page_size != null) params.set("page_size", String(query.page_size));
+    return get<FiledTransfersResponse>(`/transactions/filed-transfers${params.size ? `?${params}` : ""}`);
+  },
+  undoFiledTransfer: (seriesKey: string) => post<FiledTransfersUndoResult>("/transactions/filed-transfers/undo", { series_key: seriesKey }),
   undoAiTransfer: (seriesKey: string, deferRecompute = true) =>
     post<{ ok: boolean; undone: number }>("/transactions/undo-ai-transfer",
       { series_key: seriesKey, ...(deferRecompute ? { defer_recompute: true } : {}) }),

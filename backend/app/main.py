@@ -57,7 +57,7 @@ from app.routers import (
     commitments, spend_verdict, tax, allocations, money_shape,
     penny_chip, penny_conversations, ops, ops_people, ops_people_subscription, admin_usage, admin_allowlist, billing as billing_router,
     mcp as mcp_router, oauth as oauth_router, broadcast as broadcast_router,
-    diagnostics, uat_trial_reset, play_billing as play_billing_router,
+    diagnostics, uat_trial_reset, play_billing as play_billing_router, filed_transfers,
 )
 
 # E6: Sentry is a no-op without SENTRY_DSN; every event and breadcrumb is
@@ -135,6 +135,7 @@ def _routers(
         play_billing_router.router,
         broadcast_router.router,
         diagnostics.router,
+        filed_transfers.router,
     ]
     if mcp_connector_enabled:
         routers += [mcp_router.router, oauth_router.router]
