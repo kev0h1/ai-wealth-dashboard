@@ -802,9 +802,9 @@ def _strong_evidence(credit: dict, debit: dict, accounts: dict[str, dict], name_
     # user's accounts) where either leg carries the user's own name, or the name
     # of the OTHER leg's account or pot on file, is decided without asking. A pair
     # with no name is a question for the review instead.
-    # G440 (Kevin 2026-11-08): a name alone files the pair only within 24 hours
-    # (same or next calendar day for date-only timestamps). Up to three days apart
-    # it is a question for the review, and beyond that nothing is offered.
+    # G440 (Kevin 2026-11-08), timing superseded by G447 (Kevin 2026-11-09): a
+    # name alone files the pair only on the same London calendar day, which is
+    # the only day the builder offers between current accounts.
     # G442 precedence: this named-within-24-hours rule is only the FALLBACK for a
     # pair the model has not judged (or could not). A standing not_transfer or
     # unclear verdict, or the user's undo of the series, switches it off; and the

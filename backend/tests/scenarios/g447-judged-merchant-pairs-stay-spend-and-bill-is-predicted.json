@@ -1,0 +1,132 @@
+{
+  "name": "G447: merchant debits whose same-day own-looking credit was judged not_transfer stay spend, the bills stay predicted payments out of their own account, and no figure moves",
+  "today": "2026-11-04",
+  "pay_period_config": {
+    "type": "last_friday"
+  },
+  "accounts": [
+    {
+      "_id": "acc-nw",
+      "name": "NatWest Current",
+      "provider": "natwest",
+      "type": "BANK",
+      "subtype": "TRANSACTION",
+      "balance": 900.0,
+      "currency": "GBP",
+      "status": "connected",
+      "include_in_safe_to_spend": true
+    },
+    {
+      "_id": "acc-star",
+      "name": "Starling Current",
+      "provider": "starling",
+      "type": "BANK",
+      "subtype": "TRANSACTION",
+      "balance": 120.0,
+      "currency": "GBP",
+      "status": "connected",
+      "include_in_safe_to_spend": true
+    }
+  ],
+  "cashflow_cache": {
+    "recurring_spend": [
+      {
+        "key": "EE LIMITED",
+        "avg_amount": 31.0,
+        "avg_interval": 30,
+        "next_date": "2026-11-06",
+        "account_id": "acc-nw",
+        "account_name": "NatWest Current",
+        "account_bank": "natwest",
+        "account_balance": 900.0,
+        "is_credit_card": false,
+        "category": "Bills"
+      },
+      {
+        "key": "NOBILITY HEALTH",
+        "avg_amount": 65.0,
+        "avg_interval": 30,
+        "next_date": "2026-11-12",
+        "account_id": "acc-nw",
+        "account_name": "NatWest Current",
+        "account_bank": "natwest",
+        "account_balance": 900.0,
+        "is_credit_card": false,
+        "category": "Health"
+      }
+    ],
+    "recurring_income": [],
+    "bnpl_commitments": [],
+    "avg_daily_spend": 0
+  },
+  "transactions": [
+    {
+      "_id": "ee-d-oct",
+      "account_id": "acc-nw",
+      "date": "2026-10-06",
+      "amount": 31.0,
+      "transaction_type": "debit",
+      "description": "EE LIMITED",
+      "merchant_name": "EE Limited",
+      "category": "Bills"
+    },
+    {
+      "_id": "ee-c-oct",
+      "account_id": "acc-star",
+      "date": "2026-10-06",
+      "amount": 31.0,
+      "transaction_type": "credit",
+      "description": "STARLING",
+      "category": "Transfer"
+    },
+    {
+      "_id": "nob-d-oct",
+      "account_id": "acc-nw",
+      "date": "2026-10-12",
+      "amount": 65.0,
+      "transaction_type": "debit",
+      "description": "Nobility Healt",
+      "merchant_name": "Nobility Health",
+      "category": "Health"
+    },
+    {
+      "_id": "nob-c-oct",
+      "account_id": "acc-star",
+      "date": "2026-10-12",
+      "amount": 65.0,
+      "transaction_type": "credit",
+      "description": "STARLING",
+      "category": "Transfer"
+    }
+  ],
+  "manual_accounts": [],
+  "confirmed_income_streams": [],
+  "commitments": [],
+  "allocations": [],
+  "card_terms": [],
+  "expected": {
+    "left_to_spend": 924.0,
+    "spendable_balance": 1020.0,
+    "accounts": {
+      "acc-nw": {
+        "spend_from": 804.0,
+        "after_payments": 804.0,
+        "low_point": 804.0,
+        "verdict": "covered"
+      },
+      "acc-star": {
+        "spend_from": 120.0,
+        "after_payments": 120.0,
+        "low_point": 120.0,
+        "verdict": "covered"
+      }
+    },
+    "cover_plan": {
+      "moves_total": 0,
+      "moves": []
+    },
+    "payday_plan": null,
+    "at_risk_count": 0,
+    "notes": "G447 (Kevin 2026-11-09): the EE LIMITED and Nobility Health debits on NatWest each sit on the same day as a same-amount credit on Starling whose text is only STARLING and whose category is Transfer (the engine's own guess). The model judged both pairs not_transfer, and a not_transfer verdict now beats the credit's claim, so neither pair is in the transfers review and neither debit is an own move: both stay spend and both bills stay predicted payments leaving NatWest, with nothing arriving on Starling. If either were wrongly an own transfer the bill would have a destination and Starling would gain money. Today Wed 4 Nov 2026; the last Friday of October was 30 Oct, so the period runs 30 Oct to Thu 26 Nov and payday is outside the window, so no salary is credited. Items inside the window on NatWest: EE LIMITED 31 (Fri 6 Nov), Nobility Health 65 (Thu 12 Nov). Each account on its own (G436). NatWest: 900 - 31 = 869 (6 Nov); 869 - 65 = 804 (12 Nov). After payments 804; the lowest running balance including the opening 900 is 804, so the low point is 804 and Spend from 804. Starling: no items, so the walk is flat at 120: after payments 120, low point 120, Spend from 120. Left to spend: 804 + 120 = 924, equal to the pooled figure (900 + 120 - 31 - 65 = 924); no buffer and no plans. Spendable balance 900 + 120 = 1,020. Both accounts are at or above zero on every measure, so both read covered, no cover move, at risk 0. The period began 30 Oct (day 5), payday is 23 days away, so there is no payday plan."
+  }
+}
