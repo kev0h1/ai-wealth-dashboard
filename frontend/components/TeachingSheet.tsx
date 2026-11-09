@@ -27,7 +27,7 @@
 
 import { displayAccountName } from "@/lib/accountName";
 import { useState, useEffect, useRef, type MutableRefObject } from "react";
-import { Check, Undo2, ChevronRight, ChevronLeft, Home, Landmark, PiggyBank, ReceiptText, Target } from "lucide-react";
+import { Check, Undo2, ChevronRight, ChevronLeft, CreditCard, Home, Landmark, PiggyBank, ReceiptText, Target } from "lucide-react";
 import { Transaction, Commitment, Account, api, ApiError } from "@/lib/api";
 import { SheetFrame } from "@/components/SheetFrame";
 import { getCategoryColour, inferCategoryKind, type CategoryKind } from "@/lib/categories";
@@ -295,7 +295,7 @@ export default function TeachingSheet({ transaction, onClose, onUpdated, account
 
   // ── Movement fork: destination resolutions ─────────────────────────────
   async function commitMovement(
-    resolution: "mine-here" | "mine-goal" | "mine-offline" | "mine-savings" | "mine-investment",
+    resolution: "mine-here" | "mine-goal" | "mine-offline" | "mine-savings" | "mine-investment" | "mine-card",
     extra: { goal_id?: string; offline_pot_name?: string; destination_name?: string },
     successMessage: string,
   ) {
@@ -307,7 +307,9 @@ export default function TeachingSheet({ transaction, onClose, onUpdated, account
         ? "Savings"
         : resolution === "mine-investment"
           ? "Investment"
-          : "Transfer";
+          : resolution === "mine-card"
+            ? "Debt"
+            : "Transfer";
       notifyUpdated({ ...transaction, category: result.custom_category ?? category });
       finish(successMessage, [{ id: "primary", run: undoMovement }]);
     } catch (e) {
@@ -592,6 +594,14 @@ export default function TeachingSheet({ transaction, onClose, onUpdated, account
                   className="w-full min-h-[56px] rounded-xl border border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-700/60 px-3 py-2.5 text-left active:scale-[0.99] transition disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
                 >
                   <span className="flex items-center gap-3"><span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-indigo-100 bg-indigo-50 text-indigo-600 dark:border-transparent dark:bg-indigo-400/15 dark:text-indigo-300"><Landmark size={18} aria-hidden="true" /></span><span className="min-w-0 flex-1 text-[13px] font-semibold text-slate-800 dark:text-slate-100">Another of my accounts in Sorted</span><ChevronRight size={17} className="shrink-0 text-slate-400" aria-hidden="true" /></span>
+                </button>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => commitMovement("mine-card", {}, "Filed as a card payment.")}
+                  className="w-full min-h-[56px] rounded-xl border border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-700/60 px-3 py-2.5 text-left active:scale-[0.99] transition disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+                >
+                  <span className="flex items-center gap-3"><span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-indigo-100 bg-indigo-50 text-indigo-600 dark:border-transparent dark:bg-indigo-400/15 dark:text-indigo-300"><CreditCard size={18} aria-hidden="true" /></span><span className="min-w-0 flex-1 text-[13px] font-semibold text-slate-800 dark:text-slate-100">Paying off one of my cards</span><ChevronRight size={17} className="shrink-0 text-slate-400" aria-hidden="true" /></span>
                 </button>
                 <button
                   type="button"

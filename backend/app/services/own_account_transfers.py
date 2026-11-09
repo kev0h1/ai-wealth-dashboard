@@ -19,6 +19,12 @@ from typing import Iterable
 
 from app.db.collections import accounts_col, confirmed_transfer_pairs_col, own_transfer_judgements_col, preferences_col, transactions_col, user_profiles_col
 from app.services.card_issuers import CARD_ISSUERS
+from app.services.card_repayment import (  # noqa: F401  G381: re-exported, one module owns the rules
+    CARD_REPAY_DAYS, DIRECT_DEBIT_CODE, _CARD_PAYMENT_WORDING, _ISSUER_PRINTED, _PAN_FRAGMENT, _card_tail,
+    _card_tail_from_name, _fragment_matches_card, _names_issuer, _pan_fragments, _provider_code, _text,
+    bank_code_of, card_issuer_key, card_repayment_issuer, is_direct_debit, refine_transfer_target,
+    same_bank_card_repayment, card_account_type_repayment, debit_only_repayment,
+)
 from app.services.card_names import last_four
 from app.services.categorisation import NUMERIC_DATE_RE, _CHANNEL_CODES, _NOT_INITIALS, _text_has_account_pair, canonical_merchant_key, name_matches_owner, own_transfer_evidence, series_key as _base_series_key, word_matches_name_token
 from app.services.categories import BUILTIN_CATEGORY_KINDS, MOVEMENT, get_category_kinds
@@ -35,7 +41,6 @@ RECONCILE_DAYS = HISTORY_DAYS
 # G443: what the review shows for a pair the model could not decide and gave no reason for.
 UNCLEAR_FALLBACK_REASON = "Sorted could not decide."
 PAIR_DAYS = 5
-CARD_REPAY_DAYS = 3
 # G440 (Kevin 2026-11-08): a pair that is named (the user's name in any form, or
 # another account's or pot's name) files by itself only when the legs are within
 # AUTO_PAIR_HOURS of each other; up to ASK_PAIR_DAYS apart it is a question for
@@ -49,16 +54,6 @@ ASK_PAIR_DAYS = 3
 # file). The transfer rails make a row a candidate, never proof: the G438/G440
 # name, pair and timing rules still decide. An absent code changes nothing.
 TRANSFER_RAIL_CODES = frozenset({"BP", "FP", "STO", "FT"})
-DIRECT_DEBIT_CODE = "DD"
-
-
-def bank_code_of(row: dict | None) -> str | None:
-    code = str((row or {}).get("bank_code") or "").strip().upper()
-    return code or None
-
-
-def is_direct_debit(row: dict | None) -> bool:
-    return bank_code_of(row) == DIRECT_DEBIT_CODE
 
 
 def is_transfer_rail_candidate(row: dict | None) -> bool:
@@ -67,16 +62,6 @@ def is_transfer_rail_candidate(row: dict | None) -> bool:
     return bank_code_of(row) in TRANSFER_RAIL_CODES
 
 
-# G403: the issuer table lives in card_issuers (shared with categorisation).
-_ISSUER_PRINTED = {
-    key: re.compile(r"(?<![A-Za-z0-9])(?:" + "|".join(spec["printed"]) + r")(?![A-Za-z0-9])", re.I)
-    for key, spec in CARD_ISSUERS.items()
-}
-# Card-side wording of a payment credit on the card's own statement.
-_CARD_PAYMENT_WORDING = re.compile(
-    r"payment\s+received|payment\s+by\s+direct\s+debit|direct\s+debit\s+payment|thank\s+you", re.I,
-)
-_PAN_FRAGMENT = re.compile(r"(?<!\d)\d{4,}(?:[- ]\d{4,}){0,4}(?!\d)")
 _TRANSFER_NARRATIVE = re.compile(
     r"\b(?:transfer|xfer|xfr|ft|sto|standing\s+order|faster\s+payment|mobile\s+(?:bank\s+)?transfer|bank\s+transfer)\b",
     re.I,
@@ -159,202 +144,6 @@ def counterparty_category(own_account: dict, transaction_type: str) -> str:
     if transaction_type == "debit":
         return refine_transfer_target(own_account) or "Transfer"
     return "Transfer"
-
-
-def _provider_code(account: dict) -> str:
-    code = re.sub(r"[^a-z0-9]", "", str(account.get("provider") or "").lower())
-    return code[:-2] if code.endswith("uk") and len(code) > 4 else code
-
-
-def card_issuer_key(account: dict | None) -> str | None:
-    """Issuer table key for a CREDIT CARD account, from its provider code."""
-    if not account or refine_transfer_target(account) != "Debt":
-        return None
-    code = _provider_code(account)
-    if not code:
-        return None
-    for key, spec in CARD_ISSUERS.items():
-        if any(code.startswith(c) for c in spec["codes"]):
-            return key
-    return None
-
-
-def _names_issuer(text: str, issuer: str) -> bool:
-    return bool(_ISSUER_PRINTED[issuer].search(text))
-
-
-def _card_tail(account: dict) -> str | None:
-    tail = last_four(account.get("account_number"))
-    return tail if tail and tail.isdigit() else None
-
-
-def _pan_fragments(text: str) -> list[str]:
-    """Digit runs of 12 to 19 digits with hyphen or space separators removed."""
-    out = []
-    for match in _PAN_FRAGMENT.finditer(text):
-        digits = re.sub(r"\D", "", match.group(0))
-        if 12 <= len(digits) <= 19:
-            out.append(digits)
-    return out
-
-
-def _fragment_matches_card(fragment: str, card: dict) -> bool:
-    """Route 1 for ONE fragment against ONE card's stored number.
-
-    A 15 digit fragment (an Amex PAN) is checked against the stored digits S
-    with masks removed: with 4 digits stored it may END or START with S (Amex
-    stores are sometimes the leading four); with a visible prefix and suffix
-    both must match; a bare unmasked number must equal the fragment. Any other
-    length keeps the suffix-only rule on the stored last four."""
-    stored = str(card.get("account_number") or "")
-    parts = re.findall(r"\d+", stored)
-    if len(fragment) != 15:
-        tail = _card_tail(card)
-        return bool(tail) and fragment.endswith(tail)
-    digits = "".join(parts)
-    if len(digits) == 4:
-        return fragment.endswith(digits) or fragment.startswith(digits)
-    if len(parts) >= 2:
-        return fragment.startswith(parts[0]) and fragment.endswith(parts[-1])
-    if len(digits) >= 8:
-        return fragment == digits
-    tail = _card_tail(card)
-    return bool(tail) and fragment.endswith(tail)
-
-
-def card_repayment_issuer(
-    credit: dict, debit: dict, accounts: dict[str, dict],
-    cards_by_issuer: dict[str, list[str]], same_amount: list[dict],
-) -> str | None:
-    """G403 deterministic evidence route: a bank debit and a card credit of one
-    amount within `CARD_REPAY_DAYS` that name the same card on file.
-
-    Returns the issuer key when ONE of three routes identifies the card, else
-    None (ambiguity is no match):
-      1. a 12+ digit fragment in either narrative ends in the card's stored
-         last four, and the issuer is named on either leg;
-      2. the card credit carries its own four digit tail and the bank debit
-         names that card's issuer;
-      3. the bank debit names an issuer the user holds exactly one card with,
-         the card credit has payment-received wording, and no other debit or
-         credit of the amount sits within the window.
-    The credit must land on a credit card and the debit must leave a non-card
-    account, so a balance transfer between two cards, or to a current account,
-    is never a repayment. Narratives are inspected, never stored or logged."""
-    card = accounts.get(credit.get("account_id"))
-    bank = accounts.get(debit.get("account_id"))
-    issuer = card_issuer_key(card)
-    if issuer is None or bank is None or refine_transfer_target(bank) == "Debt":
-        return None
-    if credit.get("account_id") == debit.get("account_id"):
-        return None
-    c_date, d_date = credit.get("date"), debit.get("date")
-    if not isinstance(c_date, datetime) or not isinstance(d_date, datetime):
-        return None
-    if abs((c_date.date() - d_date.date()).days) > CARD_REPAY_DAYS:
-        return None
-    c_text, d_text = _text(credit), _text(debit)
-    tail = _card_tail(card)
-    fragments = _pan_fragments(c_text) + _pan_fragments(d_text)
-    if fragments and (_names_issuer(d_text, issuer) or _names_issuer(c_text, issuer)):
-        # Exactly one of the user's cards from this issuer may match a 15 digit
-        # fragment (two Amex cards sharing a prefix or suffix never link).
-        siblings = [accounts[i] for i in cards_by_issuer.get(issuer, []) if i in accounts]
-        for frag in fragments:
-            if len(frag) == 15:
-                matching = [c for c in siblings if _fragment_matches_card(frag, c)]
-                if len(matching) == 1 and matching[0] is card:
-                    return issuer
-            elif _fragment_matches_card(frag, card):
-                return issuer
-    if tail:
-        if _names_issuer(d_text, issuer) and re.search(rf"(?<!\d){tail}(?!\d)", c_text):
-            return issuer
-    # A194: a bank-coded direct debit from the issuer's name stands in for the
-    # card's payment-received wording (the bank itself says it is a direct
-    # debit); every other route 3 condition, including uniqueness, still holds.
-    if (_names_issuer(d_text, issuer) and len(cards_by_issuer.get(issuer, [])) == 1
-            and (_CARD_PAYMENT_WORDING.search(c_text) or is_direct_debit(debit))):
-        for other in same_amount:
-            if other is credit or other is debit:
-                continue
-            o_date = other.get("date")
-            if not isinstance(o_date, datetime) or abs((o_date.date() - c_date.date()).days) > CARD_REPAY_DAYS:
-                continue
-            o_card = refine_transfer_target(accounts.get(other.get("account_id")) or {}) == "Debt"
-            if (other.get("transaction_type") == "debit" and not o_card) or (
-                    other.get("transaction_type") == "credit" and other.get("account_id") == credit.get("account_id")):
-                return None
-        return issuer
-    return same_bank_card_repayment(credit, debit, accounts, cards_by_issuer, same_amount)
-
-
-def _card_tail_from_name(account: dict | None) -> str | None:
-    """The four digit tail a card account carries in its own name or display name
-    ("NatWest Mastercard 1432"), for a card whose number was not stored."""
-    for field in ("display_name", "name"):
-        match = re.search(r"(?<!\d)(\d{4})\s*$", str((account or {}).get(field) or ""))
-        if match:
-            return match.group(1)
-    return None
-
-
-def same_bank_card_repayment(
-    credit: dict, debit: dict, accounts: dict[str, dict],
-    cards_by_issuer: dict[str, list[str]], same_amount: list[dict],
-) -> str | None:
-    """G443 narrow rule (Kevin 2026-11-09), kept in this one helper so G381 can
-    absorb it: a current account debit whose narrative names the same bank as a
-    card on file ("NATWEST" for a NatWest Mastercard) or a named card issuer, and
-    a credit on THAT card account with the card's own payment wording ("DIRECT
-    DEBIT PAYMENT <tail>") for the same amount within `CARD_REPAY_DAYS`, is that
-    card's repayment, filed exactly as the G403 link files it (the debit is Debt
-    against the card, the credit stays Transfer).
-
-    It adds to G403's routes the card's tail read from its name when no number was
-    stored, and keeps G403's ambiguity doctrine: with more than one card from the
-    issuer, the credit must print THIS card's tail, never another card's; and the
-    money must be unambiguous (no second non-card debit, and no second credit from
-    the issuer's cards, of the amount inside the window). The payment wording must
-    be on the credit itself; a bank code alone is not enough here (A194 route 3
-    keeps that case)."""
-    card = accounts.get(credit.get("account_id"))
-    bank = accounts.get(debit.get("account_id"))
-    issuer = card_issuer_key(card)
-    if issuer is None or bank is None or refine_transfer_target(bank) == "Debt":
-        return None
-    if credit.get("account_id") == debit.get("account_id"):
-        return None
-    c_date, d_date = credit.get("date"), debit.get("date")
-    if not isinstance(c_date, datetime) or not isinstance(d_date, datetime):
-        return None
-    if abs((c_date.date() - d_date.date()).days) > CARD_REPAY_DAYS:
-        return None
-    c_text, d_text = _text(credit), _text(debit)
-    if not _CARD_PAYMENT_WORDING.search(c_text) or not _names_issuer(d_text, issuer):
-        return None
-    tail = _card_tail(card) or _card_tail_from_name(card)
-    siblings = cards_by_issuer.get(issuer, [])
-    if len(siblings) > 1:
-        if not tail or not re.search(rf"(?<!\d){tail}(?!\d)", c_text):
-            return None
-        for sibling_id in siblings:
-            sibling = accounts.get(sibling_id)
-            sib_tail = (_card_tail(sibling) or _card_tail_from_name(sibling)) if sibling else None
-            if sibling is not card and sib_tail and sib_tail != tail and re.search(rf"(?<!\d){sib_tail}(?!\d)", c_text):
-                return None
-    for other in same_amount:
-        if other is credit or other is debit:
-            continue
-        o_date = other.get("date")
-        if not isinstance(o_date, datetime) or abs((o_date.date() - c_date.date()).days) > CARD_REPAY_DAYS:
-            continue
-        o_card = refine_transfer_target(accounts.get(other.get("account_id")) or {}) == "Debt"
-        if (other.get("transaction_type") == "debit" and not o_card) or (
-                other.get("transaction_type") == "credit" and o_card
-                and issuer == card_issuer_key(accounts.get(other.get("account_id")))):
-            return None
-    return issuer
 
 
 def repayment_series_key(txn: dict) -> str | None:
@@ -484,10 +273,6 @@ def series_key(txn: dict) -> str:
     return repayment_series_key(txn) or pan_repayment_series_key(txn) or _base_series_key(txn)
 
 
-def _text(row: dict) -> str:
-    return f"{row.get('merchant_name') or ''} {row.get('description') or ''}".strip()
-
-
 _STRIP_ACCOUNT_WORDS = frozenset({"account", "pot", "current", "savings", "saving", "the", "my"})
 _GENERIC_ACCOUNT_WORDS = _STRIP_ACCOUNT_WORDS | frozenset({
     "main", "bills", "bill", "rent", "joint", "home", "spend", "spending", "everyday", "daily",
@@ -558,19 +343,6 @@ def _is_custom_movement(row: dict, movement_categories: set[str]) -> bool:
 def _custom_blocks_auto(row: dict, movement_categories: set[str]) -> bool:
     """Every explicit user choice wins, including an explicit income choice."""
     return row.get("custom_category") is not None and not _is_custom_movement(row, movement_categories)
-
-
-def refine_transfer_target(account: dict) -> str | None:
-    # Type metadata is bank/account data.  Do not infer a category from a
-    # display name such as "Postcard current account".
-    values = {str(account.get(k) or "").lower() for k in ("type", "subtype", "account_type")}
-    if values & {"investment", "investment_account", "brokerage"}:
-        return "Investment"
-    if values & {"saving", "savings"}:
-        return "Savings"
-    if values & {"credit_card", "credit-card", "card"}:
-        return "Debt"
-    return None
 
 
 def build_match_metadata(row: dict, counterpart: dict, category: str, *, confirmed: bool = False,
@@ -1375,6 +1147,68 @@ async def _series_single_matches(
         return []
 
 
+CARD_REPAYMENT_RULE_VERSION = 1
+
+
+def card_repayment_rule_hits(rows: list[dict], accounts: dict[str, dict], paired_ids: set[str],
+                             queued_ids) -> dict[str, dict]:
+    """G381: {row id: {"issuer", "card_account_id"}} for every unpaired, unanswered
+    debit that `debit_only_repayment` files as a card repayment. A user's own
+    category, any own-transfer stamp, a queued review row and a row already
+    selected as a pair are skipped, so a user answer always wins."""
+    cards_by_issuer: dict[str, list[str]] = {}
+    for account_id, account in accounts.items():
+        issuer_key = card_issuer_key(account)
+        if issuer_key:
+            cards_by_issuer.setdefault(issuer_key, []).append(account_id)
+    if not cards_by_issuer:
+        return {}
+    hits: dict[str, dict] = {}
+    for row in rows:
+        rid = str(row.get("_id"))
+        if (rid in paired_ids or rid in queued_ids or row.get("custom_category") is not None
+                or row.get("own_transfer_match") or row.get("transaction_type") != "debit"):
+            continue
+        hit = debit_only_repayment(row, accounts, cards_by_issuer)
+        if hit:
+            hits[rid] = hit
+    return hits
+
+
+async def _apply_card_repayment_rules(transaction_collection, user_id: str, rows: list[dict], hits: dict[str, dict],
+                                      paired_ids: set[str] = frozenset()) -> int:
+    """Write the route 6 category and marker, and unwind a marker whose row no
+    longer qualifies (the user answered it, a loan appeared, the card went).
+    Idempotent. Returns the number of rows changed."""
+    changed = 0
+    for row in rows:
+        rid = str(row.get("_id"))
+        prior = row.get("card_repayment_rule")
+        hit = hits.get(rid)
+        if hit is None:
+            if prior and row.get("custom_category") is None:
+                update: dict = {"$unset": {"card_repayment_rule": ""}}
+                previous = prior.get("previous_category")
+                if previous and rid not in paired_ids and row.get("category") == prior.get("matched_category"):
+                    update["$set"] = {"category": previous}
+                result = await transaction_collection.update_one(
+                    {"_id": row["_id"], "user_id": user_id, "custom_category": None}, update)
+                changed += 1 if getattr(result, "modified_count", 0) else 0
+            continue
+        marker = {
+            "issuer": hit["issuer"], "card_account_id": hit["card_account_id"],
+            "previous_category": (prior or {}).get("previous_category", row.get("category")),
+            "matched_category": "Debt", "version": CARD_REPAYMENT_RULE_VERSION,
+        }
+        if prior == marker and row.get("category") == "Debt":
+            continue
+        result = await transaction_collection.update_one(
+            {"_id": row["_id"], "user_id": user_id, "custom_category": None},
+            {"$set": {"category": "Debt", "card_repayment_rule": marker}})
+        changed += 1 if getattr(result, "modified_count", 0) else 0
+    return changed
+
+
 async def reconcile_own_account_transfers(
     user_id: str,
     *,
@@ -1419,7 +1253,7 @@ async def reconcile_own_account_transfers(
         movement_categories = {name for name, kind in kinds.items() if kind == MOVEMENT}
     projection = {"account_id": 1, "amount": 1, "currency": 1, "date": 1, "transaction_type": 1,
                   "merchant_name": 1, "description": 1, "category": 1, "custom_category": 1,
-                  "is_pending": 1, "own_transfer_match": 1,
+                  "is_pending": 1, "own_transfer_match": 1, "card_repayment_rule": 1,
                   "party_sort_code": 1, "party_number": 1, "bank_code": 1}
     rows = [] if confirmed_only else await transaction_collection.find(
         {"user_id": user_id, "date": {"$gte": cutoff},
@@ -1470,6 +1304,11 @@ async def reconcile_own_account_transfers(
         user_id, transaction_collection, preference_collection, accounts, detailed, set(selected_ids),
         {**projection, "linked_offline_account_id": 1, "linked_goal_id": 1})
     selected_ids |= {str(row["_id"]) for row, _ in singles}
+    # G381 route 6: a debit whose only visible leg is the current account side and
+    # whose narrative is a card issuer the user holds a card with. Never touches a
+    # row that is paired, answered by the user, or already a confirmed own move.
+    rule_hits = {} if (confirmed_only or len(accounts) < 2) else card_repayment_rule_hits(
+        rows, accounts, selected_ids, queued_ids)
     changed = 0
     # A row can remain after its counterpart is deleted, becomes pending, or
     # is no longer uniquely matched.  Unwind only our own automatic result;
@@ -1516,6 +1355,7 @@ async def reconcile_own_account_transfers(
             )
             if getattr(result, "modified_count", 0):
                 changed += 1
+    changed += await _apply_card_repayment_rules(transaction_collection, user_id, rows, rule_hits, selected_ids)
     for row, category in singles:
         prior = row.get("own_transfer_match") or {}
         marker = {
