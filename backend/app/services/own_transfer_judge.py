@@ -214,7 +214,7 @@ def clean_reason(value) -> str | None:
 _UNRELATED_REASON = re.compile(
     r"\bunrelated\b|\bnot related\b|\bno relation\b|\bnothing (?:links|connects|ties)\b"
     r"|\bneither (?:of (?:the|these) )?(?:leg|legs|record|records|payment|payments|transaction|transactions)\b"
-    r"[^.]{0,40}\b(?:fit|fits|match|matches|belong|belongs|part of|is|are)\b"
+    r"[^.]{0,40}\b(?:fit|fits|match|matches|belong|belongs|part of|is (?:this|the|a|one|part)|are (?:this|the|a|part))\b"
     r"|\bdifferent (?:payee|merchant|counterpart(?:y|ies))\b|\bseparate payments?\b",
     re.I,
 )
