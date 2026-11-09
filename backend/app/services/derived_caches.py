@@ -273,6 +273,12 @@ async def _finish_transfer_review_recompute(uid: str) -> dict:
     if after.get("dirty_since") is not None:
         return {"recomputed": False, "pending": True, "failed": True}
 
+    # G447 (H145): the batch's answers change the stored transfers review; rebuild it now.
+    try:
+        from app.services import transfer_review_store
+        transfer_review_store.refresh_soon(uid)
+    except Exception:
+        logger.exception("finish_transfer_review_recompute(%s): review store refresh failed to start", uid)
     # Finish the cross-process cache invalidation before acknowledging the batch.
     # A failure here retains the marker so Done can safely be retried.
     await response_cache.ainvalidate(uid)

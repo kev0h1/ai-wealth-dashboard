@@ -39,16 +39,17 @@ Own-account detection (``find_own_move_ids``), strongest evidence first:
        its text carries the sort code AND number of ANOTHER of the user's
        accounts (G438: a bare number or bare sort code is not enough),
     3. (G438: pending, not decided, see 4) a transfer-pair match: a credit of the same amount (within 2p), on a
-       DIFFERENT account of the user's, within three days (G440, the closest
-       date wins; a named pair within 24 hours is decided, later is asked), categorised Transfer/movement or unplaced (never Income), not
+       DIFFERENT account of the user's, on the same London calendar day (G447, replacing
+       G440's three day window; a card repayment keeps its few days and a learned pair
+       matches on any date; a named same-day pair is decided), categorised Transfer/movement or unplaced (never Income), not
        already paired, whose own text/category carries own-account evidence
        (Transfer or movement kind, a link, the user's name, an own account
        number), and only for Business, Other or transfer-like rows. Never on
        amount and date alone. Debits that are already movements claim their
        partner credits first,
     4. the user's own name in the text is never evidence by itself ("MR K MAINGI
-       RENT REF" is a rent payment) and, with a pair match within 24 hours it IS decided (G440); a pair
-       up to three days apart, or with no name, is only a QUESTION
+       RENT REF" is a rent payment) and, with a same-day pair match it IS decided (G440, G447); a pair
+       with no name is only a QUESTION; a pair on another day is no pair at all
        (G438, Kevin 2026-11-07): such rows are `find_pending_transfer_ids`, left
        out of Spend as before, never own moves, and the transfers review asks.
 A payee that is merely called the same as a provider ("TIDE PLATFORM LIMI", a
@@ -78,7 +79,7 @@ from app.services.categories import (
 from app.services.categorisation import canonical_merchant_key, own_transfer_evidence, user_identity
 from app.services.transfer_pruning import pair_pruned_reason
 from app.services.own_account_transfers import (
-    account_name_in_text, counterparty_key, is_direct_debit, pair_is_named, within_ask_window, within_auto_window,
+    account_name_in_text, counterparty_key, is_direct_debit, pair_is_named, pair_timing_ok, user_set_movement, within_auto_window,
 )
 
 logger = logging.getLogger(__name__)
@@ -252,6 +253,8 @@ def _scan_own_moves(docs: list[dict], kinds, identity: dict | None = None) -> tu
     ai_pairs = identity.get("ai_pairs") or {}
     ai_blocked = identity.get("ai_blocked") or frozenset()
     account_meta = identity.get("account_meta") or {}
+    learned_pairs = identity.get("learned_pairs") or frozenset()  # G447: a learned pair matches on any date
+    learned_keys: dict = {}
 
     def _series_sig(cr: dict, db: dict) -> str | None:
         from app.services.own_account_transfers import series_signature
@@ -285,14 +288,14 @@ def _scan_own_moves(docs: list[dict], kinds, identity: dict | None = None) -> tu
                 if pair_pruned_reason(cr, d, account_meta, identity,
                                       kind_of(kinds, _effective_category(cr)) == MOVEMENT) is not None:
                     continue  # G443: bank facts rule it out, so it stays in Spend and is not asked
-                if ai_pairs and ai_verdict(cr, d) == "not_transfer":
+                if ai_pairs and ai_verdict(cr, d) == "not_transfer" and not (user_set_movement(cr) or user_set_movement(d)):
                     continue  # G442: judged not a transfer, so it stays in Spend and is not asked
                 if not allow_income and kind_of(kinds, _effective_category(cr)) == INCOME:
                     if not (income_with_text and pair_named(d, cr)):
                         continue
                 if abs(abs(float(cr.get("amount") or 0)) - amt) >= PAIR_AMOUNT_TOLERANCE:
                     continue
-                if not within_ask_window(cr["date"], d["date"]):  # G440: beyond three days nothing is offered
+                if not pair_timing_ok(cr, d, account_meta, learned_pairs, learned_keys):  # G447: same calendar day (card repayments a few days, learned pairs any date)
                     continue
                 gap = abs((cr["date"].date() - d["date"].date()).days)
                 if named_income_only and not (
@@ -389,9 +392,8 @@ def _scan_own_moves(docs: list[dict], kinds, identity: dict | None = None) -> tu
         # G438 (b): a pair where either leg carries the user's name, or the other
         # leg's account or pot name on file, is decided. A pair with no name is a
         # question (pending): Spend leaves it out as before but it is not own.
-        # G440: and only within 24 hours (same or next day for date-only
-        # timestamps); a named pair up to three days apart is asked, like an
-        # unnamed one.
+        # G447 (superseding G440's 24 hours): and only on the same London
+        # calendar day, which is the only day `closest_partner` offers.
         # G442: the model's verdict decides; the G440 named-within-24-hours rule is only
         # the fallback while there is no verdict, and never after the user undid the series.
         fallback_ok = not (ai_blocked and (frozenset((_txn_id(d), _txn_id(partner))) in ai_blocked

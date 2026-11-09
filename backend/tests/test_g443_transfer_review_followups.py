@@ -81,19 +81,19 @@ def test_the_four_vendor_purchase_shapes_are_pruned_before_the_model():
     rows = [
         # Chase card purchase against a Revolut credit "Payment from <name>"
         _row("a1-d", "debit", 20.0, "chcc", D0, "THATCHED HOUSE", category="Eating Out"),
-        _row("a1-c", "credit", 20.0, "revo", D0 + timedelta(days=1), "Payment from Hartley J E"),
+        _row("a1-c", "credit", 20.0, "revo", D0, "Payment from Hartley J E"),
         # NatWest EE LIMITED (bank named the merchant) against Barclays "<name> Sent from Revolut BGC"
         _row("a2-d", "debit", 20.0, "natw", D0, "EE LIMITED", merchant_name="EE Limited", category="Mobile"),
-        _row("a2-c", "credit", 20.0, "barc", D0 + timedelta(days=2), "Jordan Hartley Sent from Revolut BGC"),
+        _row("a2-c", "credit", 20.0, "barc", D0, "Jordan Hartley Sent from Revolut BGC"),
         # the same EE debit one month on, against a Starling credit with just the name
         _row("a3-d", "debit", 21.0, "natw", D0, "EE LIMITED", category="Bills"),
-        _row("a3-c", "credit", 21.0, "star", D0 + timedelta(days=2), "Jordan Hartley"),
+        _row("a3-c", "credit", 21.0, "star", D0, "Jordan Hartley"),
         # Monzo card spend "Byond Card" against NatWest "HARTLEY J E MAIN FP"
         _row("a4-d", "debit", 22.0, "monz", D0, "Byond Card", merchant_name="Byond"),
-        _row("a4-c", "credit", 22.0, "natw", D0 + timedelta(days=2), "HARTLEY J E MAIN FP 10/08/26"),
+        _row("a4-c", "credit", 22.0, "natw", D0, "HARTLEY J E MAIN FP 10/08/26"),
         # control: a real pair still reaches the model
         _row("ok-d", "debit", 23.0, "barc", D0, "JORDAN HARTLEY HSBC STO"),
-        _row("ok-c", "credit", 23.0, "hsbc", D0 + timedelta(days=2), "HARTLEY J E HSBC"),
+        _row("ok-c", "credit", 23.0, "hsbc", D0, "HARTLEY J E HSBC"),
     ]
     assert _ids(_pairs(rows)) == {("ok-c", "ok-d")}
     legs = {"a1-d": (rows[1], rows[0]), "a2-d": (rows[3], rows[2]), "a3-d": (rows[5], rows[4]), "a4-d": (rows[7], rows[6])}
@@ -103,10 +103,10 @@ def test_the_four_vendor_purchase_shapes_are_pruned_before_the_model():
 
 def test_a_card_purchase_marker_prunes_a_debit_by_whole_token_only():
     barclays_cpm = _row("c-d", "debit", 5.0, "barc", D0, "RENEWAL ON 23 AUG CPM")
-    credit = _row("c-c", "credit", 5.0, "hsbc", D0 + timedelta(days=1), "Jordan Hartley Sent from Revolut")
+    credit = _row("c-c", "credit", 5.0, "hsbc", D0, "Jordan Hartley Sent from Revolut")
     assert pruning.pair_pruned_reason(credit, barclays_cpm, BY_ID) == "card_purchase"
     # the marker alone prunes it: the credit names no one
-    plain_credit = _row("p-c", "credit", 5.0, "hsbc", D0 + timedelta(days=1), "Jordan Hartley")
+    plain_credit = _row("p-c", "credit", 5.0, "hsbc", D0, "Jordan Hartley")
     assert pruning.pair_pruned_reason(plain_credit, barclays_cpm, BY_ID) == "card_purchase"
     # whole tokens only: CPMX or a word that merely contains the letters is no marker
     assert not pruning.is_card_purchase_text("DEPOT CPMX LTD")
@@ -122,9 +122,9 @@ def test_a_card_purchase_marker_prunes_a_debit_by_whole_token_only():
 
 def test_cpm_pair_never_reaches_the_model_and_is_not_asked(monkeypatch):
     rows = [_row("c-d", "debit", 5.0, "barc", D0, "RENEWAL ON 23 AUG CPM"),
-            _row("c-c", "credit", 5.0, "hsbc", D0 + timedelta(days=1), "Jordan Hartley"),  # names no institution: only CPM prunes it
+            _row("c-c", "credit", 5.0, "hsbc", D0, "Jordan Hartley"),  # names no institution: only CPM prunes it
             _row("ok-d", "debit", 23.0, "barc", D0, "JORDAN HARTLEY HSBC STO"),
-            _row("ok-c", "credit", 23.0, "hsbc", D0 + timedelta(days=2), "HARTLEY J E HSBC")]
+            _row("ok-c", "credit", 23.0, "hsbc", D0, "HARTLEY J E HSBC")]
     model = ScriptedModel(lambda i: ("same_transfer", "Standing order out names the other bank."))
     monkeypatch.setattr(judge, "_call_model", model)
 
@@ -170,7 +170,7 @@ def test_the_users_answer_beats_every_prune():
     assert pruning.pair_pruned_reason(c, linked, BY_ID) is None
     # and a learned pair (the user confirmed it once) is never pruned by the builder
     d3 = _row("d3", "debit", 20.0, "natw", D0, "EE LIMITED", merchant_name="EE Limited", category="Mobile")
-    c3 = _row("c3", "credit", 20.0, "barc", D0 + timedelta(days=2), "Jordan Hartley")
+    c3 = _row("c3", "credit", 20.0, "barc", D0, "Jordan Hartley")
     keys = tuple(sorted((categorisation.canonical_merchant_key("", "Jordan Hartley"),
                          categorisation.canonical_merchant_key("EE Limited", "EE LIMITED"))))
     assert _pairs([d3, c3]) == []
@@ -185,7 +185,7 @@ def test_the_prune_is_the_same_in_the_review_gate_and_in_spend():
     identity = {"name_tokens": TOKENS, "own_ids": set(), "own_map": {}, "account_meta": meta}
     d = _row("d", "debit", 20.0, "natw", D0, "EE LIMITED", merchant_name="EE Limited", category="Mobile")
     # two days apart and named: on origin/main this is a pending pair the review asks and Spend leaves out
-    c = _row("c", "credit", 20.0, "barc", D0 + timedelta(days=2), "Jordan Hartley Sent from Revolut BGC")
+    c = _row("c", "credit", 20.0, "barc", D0, "Jordan Hartley Sent from Revolut BGC")
     assert analytics._has_pair_evidence(c, d, identity) is False
     assert find_pending_transfer_ids([c, d], KINDS, identity) == set()
     # the same legs with no bank facts against them are still asked (control)
@@ -305,7 +305,7 @@ def test_an_unclear_without_a_reason_is_asked_with_a_fallback_line(monkeypatch):
     assert "—" not in oat.UNCLEAR_FALLBACK_REASON
 
     rows = [_row("u-d", "debit", 30.0, "barc", D0, "JORDAN HARTLEY STO"),
-            _row("u-c", "credit", 30.0, "hsbc", D0 + timedelta(days=2), "JORDAN HARTLEY BGC")]
+            _row("u-c", "credit", 30.0, "hsbc", D0, "JORDAN HARTLEY BGC")]
 
     async def run():
         async with mongo_env(monkeypatch, rows, accounts=ACCTS) as cols:
@@ -322,7 +322,7 @@ def test_an_unclear_without_a_reason_is_asked_with_a_fallback_line(monkeypatch):
 
 def test_a_not_transfer_from_the_reason_check_leaves_the_pair_unasked(monkeypatch):
     rows = [_row("n-d", "debit", 5.0, "barc", D0, "SOME RENEWAL ON 23 AUG"),
-            _row("n-c", "credit", 5.0, "hsbc", D0 + timedelta(days=1), "JORDAN HARTLEY")]
+            _row("n-c", "credit", 5.0, "hsbc", D0, "JORDAN HARTLEY")]
     model = ScriptedModel(lambda i: ("unclear", "The debit is a renewal at a merchant, so neither leg fits this transfer."))
     monkeypatch.setattr(judge, "_call_model", model)
 
@@ -410,8 +410,11 @@ def test_series_single_legs_pure_rule_near_start_only():
     late = _row("late", "debit", 50.0, "barc", first_b + timedelta(days=oat.SERIES_SINGLE_MARGIN_DAYS + 1), "MONTHLY STO")
     got = oat.series_single_legs(ev, {"barc": [near, edge, late], "hsbc": b_rows})
     assert [r["_id"] for r, _ in got] == ["near", "edge"]
-    # a possible counterpart inside the ask window hands the leg to the pair rules
-    counterpart = _row("cp", "credit", 50.0, "hsbc", first_b, "ANYTHING")
+    # a possible counterpart on the SAME DAY (G447) hands the leg to the pair rules
+    counterpart = _row("cp", "credit", 50.0, "hsbc", edge["date"], "ANYTHING")
+    # ... while one on another day is no pair, so the leg is still filed as a single
+    off_day = _row("od", "credit", 50.0, "hsbc", edge["date"] + timedelta(days=1), "ANYTHING")
+    assert [r["_id"] for r, _ in oat.series_single_legs(ev, {"barc": [edge], "hsbc": [off_day]})] == ["edge"]
     assert [r["_id"] for r, _ in oat.series_single_legs(ev, {"barc": [edge], "hsbc": [counterpart]})] == []
     # a direct debit is never filed here
     dd = _row("dd", "debit", 50.0, "barc", first_b - timedelta(days=20), "MONTHLY STO", bank_code="DD")
@@ -422,7 +425,7 @@ def test_series_single_legs_pure_rule_near_start_only():
 
 def _unclear_pair_rows():
     return [_row("u-d", "debit", 30.0, "barc", D0, "JORDAN HARTLEY STO"),
-            _row("u-c", "credit", 30.0, "hsbc", D0 + timedelta(days=2), "JORDAN HARTLEY BGC")]
+            _row("u-c", "credit", 30.0, "hsbc", D0, "JORDAN HARTLEY BGC")]
 
 
 def test_a_verdict_from_an_older_prompt_is_judged_once_more_and_counts_against_the_cap(monkeypatch):
@@ -490,8 +493,8 @@ def test_an_old_backfill_marker_runs_the_backfill_once_more(monkeypatch):
 
 def test_run_counts_reach_the_health_reader_as_counts_only(monkeypatch):
     rows = _unclear_pair_rows() + [
-        _row("w-d", "debit", 31.0, "barc", D0, "JORDAN HARTLEY STO"), _row("w-c", "credit", 31.0, "hsbc", D0 + timedelta(days=2), "JORDAN HARTLEY BGC"),
-        _row("x-d", "debit", 32.0, "barc", D0, "JORDAN HARTLEY STO"), _row("x-c", "credit", 32.0, "hsbc", D0 + timedelta(days=2), "JORDAN HARTLEY BGC")]
+        _row("w-d", "debit", 31.0, "barc", D0, "JORDAN HARTLEY STO"), _row("w-c", "credit", 31.0, "hsbc", D0, "JORDAN HARTLEY BGC"),
+        _row("x-d", "debit", 32.0, "barc", D0, "JORDAN HARTLEY STO"), _row("x-c", "credit", 32.0, "hsbc", D0, "JORDAN HARTLEY BGC")]
     model = ScriptedModel(lambda i: ("unclear", "The evidence is thin."))
     monkeypatch.setattr(judge, "_call_model", model)
 
@@ -549,7 +552,7 @@ def test_the_review_gate_ignores_pairs_older_than_the_history_window(monkeypatch
     rows = []
     for tag, day in (("old", old), ("new", recent)):
         rows += [_row(f"{tag}-d", "debit", 41.0, "barc", day, "JORDAN HARTLEY HSBC STO"),
-                 _row(f"{tag}-c", "credit", 41.0, "hsbc", day + timedelta(days=2), "HARTLEY J E HSBC")]
+                 _row(f"{tag}-c", "credit", 41.0, "hsbc", day, "HARTLEY J E HSBC")]
 
     async def run():
         async with mongo_env(monkeypatch, rows, accounts=ACCTS):

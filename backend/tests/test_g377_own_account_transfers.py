@@ -80,12 +80,16 @@ def test_zero_nan_infinite_and_unknown_currency_values_never_form_pair():
     assert pairs(unknown) == []
 
 
-def test_five_day_window_is_inclusive_six_days_is_not():
+def test_only_the_same_calendar_day_pairs_between_current_accounts():
+    # G447 (Kevin 2026-11-09) replaced the five day window: even a pair with the other
+    # account's sort code and number in the text must be on the same day.
     credit = row("credit", "credit", "natwest", text="TO 11-22-33 12345678")
+    same_day = row("same", "debit", "hsbc", text="TO 44-55-66 87654321", days=0)
+    next_day = row("next", "debit", "hsbc", text="TO 44-55-66 87654321", days=1)
     at_five = row("five", "debit", "hsbc", text="TO 44-55-66 87654321", days=5)
-    at_six = row("six", "debit", "hsbc", text="TO 44-55-66 87654321", days=6)
-    assert pairs([credit, at_five]) == [(credit, at_five)]
-    assert pairs([credit, at_six]) == []
+    assert pairs([credit, same_day]) == [(credit, same_day)]
+    assert pairs([credit, next_day]) == []
+    assert pairs([credit, at_five]) == []
 
 
 def test_ambiguous_duplicate_counterparts_never_auto_choose():

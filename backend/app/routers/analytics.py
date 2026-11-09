@@ -44,8 +44,8 @@ from app.services import response_cache
 from app.services import derived_caches as _derived_caches  # E20: bound at import, never first imported while a test patches db_collections (H143)
 from app.services.sync_freshness import first_sync_state, last_bank_sync
 from app.services.own_account_transfers import (  # G413: IssuerFallback*: saved decisions under the old merged issuer key still apply
-    ASK_PAIR_DAYS, IssuerFallbackDict, IssuerFallbackSet, saved_key_applies, series_key, repayment_display_name,
-    within_ask_window,
+    IssuerFallbackDict, IssuerFallbackSet, saved_key_applies, series_key, repayment_display_name,
+    pair_timing_ok, ai_verdict_for,
 )  # G403: per-card key for a linked repayment
 from app.services.categorisation import series_key as _base_series_key
 from app.services.categorisation import (
@@ -6033,10 +6033,14 @@ async def _flagged_miscategorised(uid: str, exclude_ids: frozenset = frozenset()
         for d in await transactions_col.find(
             {"user_id": uid, "transaction_type": "debit", "amount": {"$in": _credit_amounts},
              "date": {"$gte": _lone_cutoff - timedelta(days=5)}},
-            {"account_id": 1, "date": 1, "amount": 1},
+            {"account_id": 1, "date": 1, "amount": 1, "merchant_name": 1, "description": 1},
         ).to_list(None):
             debits_by_amount[d.get("amount")].append(d)
 
+    account_meta = identity.get("account_meta") or {}
+    learned_pairs = identity.get("learned_pairs") or frozenset()
+    learned_keys: dict = {}
+    from app.services.transfer_pruning import is_card_purchase
     kept = []
     for t in txns:
         is_credit = t.get("transaction_type") == "credit"
@@ -6056,15 +6060,17 @@ async def _flagged_miscategorised(uid: str, exclude_ids: frozenset = frozenset()
         text = f"{t.get('merchant_name') or ''} {t.get('description') or ''}"
         evidence = own_transfer_evidence(text, identity, own_account_id=t.get("account_id"))
         if evidence is not None and is_credit:
-            # A credit with a same-amount debit on another account within the pair
-            # window already has a counterpart (asked as a pair, or answered): not lone.
-            c_day = t["date"].date() if hasattr(t.get("date"), "date") else t.get("date")
+            # A credit with a same-amount debit on another account that the pair rules
+            # accept (G447: the same calendar day, a card repayment a few days, a learned
+            # pair any date) already has a counterpart (asked as a pair, or answered): not lone.
             if any(
                 d.get("account_id") != t.get("account_id") and d.get("date") is not None
-                and abs(((d["date"].date() if hasattr(d["date"], "date") else d["date"]) - c_day).days) <= 5
+                and pair_timing_ok(t, d, account_meta, learned_pairs, learned_keys)
                 for d in debits_by_amount.get(t.get("amount"), ())
             ):
                 continue
+        if evidence is not None and not is_credit and is_card_purchase(t, account_meta.get(t.get("account_id"))):
+            continue  # G447: a card purchase is never an own-account move (G443 pruning), so it is not asked as a lone leg either
         if evidence is not None:
             t["_series_key"] = sk
             t["_effective_category"] = t.get("custom_category") or t.get("category")
@@ -6351,7 +6357,7 @@ async def _review_inputs_fingerprint(uid: str) -> str:
          "dismissed_transfer_pairs": 1, "separate_transfer_pair_reviews": 1},
     ) or {}
     learned = await confirmed_transfer_pairs_col.find(
-        {"user_id": uid}, {"key_a": 1, "key_b": 1},
+        {"user_id": uid}, {"key_a": 1, "key_b": 1, "source": 1},
     ).to_list(None)
     kinds = await get_category_kinds(uid)
     identity = await user_identity(uid)
@@ -6364,14 +6370,19 @@ async def _review_inputs_fingerprint(uid: str) -> str:
     txn_count = await transactions_col.count_documents({"user_id": uid})
     # G442: the model's verdicts (and the user's undo overrides) change what the
     # review asks, so they are part of the stored state's identity.
-    from app.services.own_account_transfers import ai_state_signature
+    from app.services.own_account_transfers import (
+        HISTORY_DAYS, OWN_TRANSFER_MATCH_VERSION, REVIEW_RULES_VERSION, ai_state_signature,
+    )
+    from app.services.own_transfer_judge import PROMPT_VERSION
     material = {
         "ai_verdicts": await ai_state_signature(uid),
+        # G447: a changed rule or prompt rebuilds the stored list (deploy -> worker refresh)
+        "rules": [REVIEW_RULES_VERSION, PROMPT_VERSION, OWN_TRANSFER_MATCH_VERSION, HISTORY_DAYS],
         "dismissed_rows": sorted(str(x) for x in prefs.get("dismissed_miscategorised") or []),
         "dismissed_series": sorted(str(x) for x in prefs.get("dismissed_miscategorised_series") or []),
         "dismissed_pairs": sorted(str(x) for x in prefs.get("dismissed_transfer_pairs") or []),
         "separate": prefs.get("separate_transfer_pair_reviews") or [],
-        "learned": sorted(tuple(sorted((str(d.get("key_a")), str(d.get("key_b"))))) for d in learned),
+        "learned": sorted((*sorted((str(d.get("key_a")), str(d.get("key_b")))), str(d.get("source") or "")) for d in learned),
         "kinds": sorted((str(k), str(v)) for k, v in dict(kinds).items()),
         "name_tokens": sorted(str(x) for x in identity.get("name_tokens") or []),
         "own_ids": sorted(identity.get("own_ids") or []),
@@ -6512,6 +6523,8 @@ async def dismiss_miscategorised(txn_id: str, user: dict = Depends(current_user)
     # A successful decision must be visible to the very next read, including
     # another API process or the shared response cache.
     await response_cache.ainvalidate(uid)
+    from app.services import transfer_review_store as _review_store  # G447 (H145): rebuild the stored list now, off this request
+    _review_store.refresh_soon(uid)
     return {"ok": True}
 
 
@@ -6532,6 +6545,8 @@ async def dismiss_miscategorised_series(body: dict, user: dict = Depends(current
     # A successful decision must be visible to the very next read, including
     # another API process or the shared response cache.
     await response_cache.ainvalidate(uid)
+    from app.services import transfer_review_store as _review_store  # G447 (H145): rebuild the stored list now, off this request
+    _review_store.refresh_soon(uid)
     return {"ok": True}
 
 
@@ -6647,34 +6662,29 @@ def _has_pair_evidence(c: dict, d: dict, identity: dict, credit_claims_move: boo
     from app.services.transfer_pruning import pair_pruned_reason
     if pair_pruned_reason(c, d, identity.get("account_meta"), identity, credit_claims_move) is not None:
         return False
-    if credit_claims_move:
+    # G442/G447: the model's standing verdict on this pair comes BEFORE any "the credit
+    # already says it is a move" shortcut (G447: it used to follow it, so a credit
+    # categorised as a transfer kept a not_transfer pair in the review). not_transfer
+    # drops it and leaves it in Spend; unclear is asked, whatever rule evidence exists,
+    # with the model's reason shown. A user link above always wins.
+    from app.services.own_account_transfers import series_signature, user_set_movement
+    # G447: a USER-set movement category on either leg is the user's answer and beats a stale
+    # verdict (the engine's own category, `credit_claims_move`, does not: it follows the verdict).
+    if user_set_movement(c) or user_set_movement(d):
         return True
-    # G442: the model's standing verdict on this pair. not_transfer drops it from
-    # the review and leaves it in Spend; unclear is asked, whatever rule evidence
-    # exists, with the model's reason shown. A user link above always wins.
-    from app.services.own_account_transfers import series_signature
+    verdict = ai_verdict_for(identity, c, d)
+    if verdict == "not_transfer":
+        return False
     blocked = identity.get("ai_blocked") or frozenset()
     if blocked and (frozenset((str(c.get("_id")), str(d.get("_id")))) in blocked or series_signature(c, d) in blocked):
-        # the user undid this series (or the model said unclear): asked, never decided by the G440 fallback
-        ai = (identity.get("ai_pairs") or {}).get(frozenset((str(c.get("_id")), str(d.get("_id")))))
-        if not ai or ai.get("verdict") != "not_transfer":
-            return True
-    ai = (identity.get("ai_pairs") or {}).get(frozenset((str(c.get("_id")), str(d.get("_id")))))
-    if ai:
-        if ai.get("verdict") == "not_transfer":
-            return False
-        if ai.get("verdict") == "unclear":
-            return True
+        return True  # the user undid this series (or the model said unclear): asked, never decided by the G440 fallback
+    if verdict == "unclear":
+        return True
+    if credit_claims_move:
+        return True
     c_text = f"{c.get('merchant_name') or ''} {c.get('description') or ''}"
     d_text = f"{d.get('merchant_name') or ''} {d.get('description') or ''}"
-    from app.services.own_account_transfers import has_owner_transfer_reference, pair_is_named, within_auto_window
-    # G440: a named pair (the user's name in any form, or an account or pot name
-    # on file) that sync and Spend do NOT decide automatically, because the legs
-    # are more than 24 hours apart, is asked here. Every pair the timing rule
-    # defers to the review is therefore accepted by this gate. Within 24 hours a
-    # named pair is decided, so the weaker one-leg tests below still apply.
-    if pair_is_named(c, d, identity) and not within_auto_window(c.get("date"), d.get("date")):
-        return True
+    from app.services.own_account_transfers import has_owner_transfer_reference
     c_evidence = own_transfer_evidence(c_text, identity, own_account_id=c.get("account_id")) is not None or has_owner_transfer_reference(c, identity.get("name_tokens") or [])
     d_evidence = own_transfer_evidence(d_text, identity, own_account_id=d.get("account_id")) is not None or has_owner_transfer_reference(d, identity.get("name_tokens") or [])
     if c_evidence and d_evidence:
@@ -6731,8 +6741,15 @@ def _pair_leg(t: dict) -> dict:
 async def _transfer_pair_suggestions(uid: str) -> list[dict]:
     """Candidate cross-account transfer pairs the conservative sync-time
     matcher could not confirm: a credit + a debit that look like the two legs of one
-    real transfer (same amount, close dates, different accounts) but carry
+    real transfer (same amount, the same calendar day, different accounts) but carry
     different descriptions.
+
+    G447: the ONLY pair source is the shared builder
+    (`own_account_transfers._same_amount_pairs`, the one the matcher and the
+    model's candidates read), so the G443 pruning, the G447 timing rule and the
+    card repayment routes apply here exactly as there. A pair the model judged
+    not_transfer is never offered; one judged unclear is offered with its reason;
+    one with no verdict yet is offered only through the G442 fallback evidence.
 
     Candidates come from `transactions_col` only — the same stable-_id
     caveat that applies to the miscategorised-dismiss machinery applies here
@@ -6770,9 +6787,10 @@ async def _transfer_pair_suggestions(uid: str) -> list[dict]:
     learned_pair_keys = _learned_pair_keys(learned_docs)  # G442: AI-learned pairs held under their own normaliser
 
     owned_accounts = {a["_id"]: a async for a in accounts_col.find(
-        {"user_id": uid}, {"currency": 1, "provider": 1},
+        {"user_id": uid},
+        {"currency": 1, "provider": 1, "type": 1, "subtype": 1, "account_type": 1, "name": 1,
+         "display_name": 1, "account_number": 1, "sort_code": 1},
     )}
-    from app.services.own_account_transfers import _pair_key
 
     # Manual choices win only when they mean "this leg is genuinely
     # spending" (owner device-testing fix 1a) — a custom SPEND-kind category
@@ -6781,15 +6799,14 @@ async def _transfer_pair_suggestions(uid: str) -> list[dict]:
     # custom movement category) does NOT block: it agrees with the transfer
     # hypothesis and ANCHORS it, so the pair still surfaces to fix the OTHER
     # leg — confirm-transfer-pair below then leaves the movement-kind leg
-    # completely untouched and writes only the other. The query can no
-    # longer exclude custom_category at the source, so gating moves to
-    # Python (_leg_blocks_pair below).
+    # completely untouched and writes only the other.
     txns = await transactions_col.find(
         {"user_id": uid, "transaction_type": {"$in": ["credit", "debit"]}, "is_pending": {"$ne": True}},
         {"account_id": 1, "amount": 1, "date": 1, "description": 1,
          "merchant_name": 1, "category": 1, "custom_category": 1,
          "transaction_type": 1, "currency": 1, "own_transfer_match": 1, "is_pending": 1,
-         "bank_code": 1, "party_sort_code": 1, "party_number": 1},
+         "bank_code": 1, "party_sort_code": 1, "party_number": 1,
+         "linked_offline_account_id": 1, "linked_goal_id": 1},
     ).to_list(None)
 
     # G443: the same history window reconcile and the judge read, so nothing is asked
@@ -6802,16 +6819,11 @@ async def _transfer_pair_suggestions(uid: str) -> list[dict]:
 
     from app.services.own_account_transfers import resolve_transfer_evidence
     txns = resolve_transfer_evidence(
-        txns, {name for name in kind_map if is_non_spend(kind_map, name)},
-        owned_account_ids=set(owned_accounts),
-    )
+        txns, {name for name in kind_map if is_non_spend(kind_map, name)}, owned_account_ids=set(owned_accounts))
+    movement_names = {name for name in kind_map if kind_of(kind_map, name) == MOVEMENT}
 
     def _effective_category(t: dict):
         return t.get("custom_category") or t.get("category")
-
-    def _leg_blocks_pair(t: dict) -> bool:
-        cc = t.get("custom_category")
-        return cc is not None and is_spend(kind_map, cc)
 
     def _debit_needs_fixing(cat) -> bool:
         return cat == "Other" or is_spend(kind_map, cat)
@@ -6819,80 +6831,58 @@ async def _transfer_pair_suggestions(uid: str) -> list[dict]:
     def _credit_needs_fixing(cat) -> bool:
         return cat in ("Income", "Other") or is_spend(kind_map, cat)
 
-    credits = [t for t in txns if t.get("transaction_type") == "credit" and t.get("date") is not None]
-    debits  = [t for t in txns if t.get("transaction_type") == "debit" and t.get("date") is not None]
-
-    def _day(t):
-        d = t["date"]
-        return d.date() if hasattr(d, "date") else d
-
-    # G390: bucket debits by (currency, pennies) once. The all-pairs scan used
-    # to recompute both rows' keys inside the inner loop (a Decimal parse per
-    # comparison), which dominated the cold read; only same-key rows can pair,
-    # and the candidates are fully re-sorted below, so visit order is moot.
-    debits_by_key: dict = defaultdict(list)
-    for d in debits:
-        if str(d["_id"]) in active_separate_ids:
-            continue
-        d_key = _pair_key(d)
-        if d_key is not None:
-            debits_by_key[d_key].append(d)
+    from app.services.own_account_transfers import _confirmed_pairs, _same_amount_pairs, ai_verdict_for, pair_gap_days
+    _, consumed = _confirmed_pairs(txns, owned_accounts, movement_names)
 
     candidates = []  # (date_diff, amount, credit, debit, pair_key)
-    for c in credits:
-        if str(c["_id"]) in active_separate_ids:
+    for c, d, issuer in _same_amount_pairs(
+            txns, owned_accounts, movement_names, consumed=consumed, exclude_ids=active_separate_ids,
+            learned=learned_pair_keys, name_tokens=identity.get("name_tokens") or [], identity=identity,
+            blocks=lambda t: t.get("custom_category") is not None and is_spend(kind_map, t["custom_category"])):
+        if issuer:
+            continue  # a card repayment is filed by its own rule, never asked here
+        date_diff = pair_gap_days(c["date"], d["date"])
+        # A prior "this is spending" dismissal also answers the same
+        # transaction when it later becomes a pair candidate after sync.
+        if (str(d["_id"]) in dismissed_rows or series_key(d) in dismissed_series):
             continue
-        c_pair_key = _pair_key(c)
-        if c_pair_key is None:
+        # Actionability (fix 1b) — at least one leg must still need
+        # fixing: the debit's effective category is spend-kind or
+        # Other, or the credit's effective category is Income, Other,
+        # or spend-kind. Both legs already movement-kind -> genuinely
+        # nothing to do -> skip.
+        c_eff = _effective_category(c)
+        d_eff = _effective_category(d)
+        if not (_debit_needs_fixing(d_eff) or _credit_needs_fixing(c_eff)):
             continue
-        c_day = _day(c)
-        for d in debits_by_key.get(c_pair_key, ()):
-            if c.get("account_id") == d.get("account_id"):
+        # Evidence gate (owner review fix 2) — same amount + same day
+        # is not enough on its own; reject a coincidence like a £50
+        # client-income credit paired with an unrelated £50 ATM debit.
+        if (c.get("bank_code") == "DD" or d.get("bank_code") == "DD") and not any(
+                x.get("linked_offline_account_id") or x.get("linked_goal_id") or x.get("custom_category") for x in (c, d)):
+            continue  # A194: a direct debit is never an own transfer
+        # G447: a bank-labelled balance transfer is evidence, but never against the model's not_transfer.
+        if not (_has_pair_evidence(c, d, identity, kind_of(kind_map, c_eff) == MOVEMENT)
+                or (ai_verdict_for(identity, c, d) != "not_transfer" and _has_named_bank_transfer_reference(c, d, owned_accounts))):
+            continue
+        pair_key = ":".join(sorted([str(c["_id"]), str(d["_id"])]))
+        if pair_key in dismissed_pairs:
+            snapshots = snapshots_by_key.get(pair_key)
+            # Legacy bare dismissals deliberately retain their permanent
+            # behaviour. New snapshot-backed dismissals apply only while
+            # both original bank records still match, so two amended
+            # records can be reviewed as a fresh possible pair.
+            if not snapshots or any(
+                _same_separate_review_leg(c, snapshot.get("credit") or {})
+                and _same_separate_review_leg(d, snapshot.get("debit") or {})
+                for snapshot in snapshots
+            ):
                 continue
-            date_diff = abs((c_day - _day(d)).days)
-            if date_diff > ASK_PAIR_DAYS or not within_ask_window(c["date"], d["date"]):  # G440: beyond three days, no offer
-                continue
-            # A prior "this is spending" dismissal also answers the same
-            # transaction when it later becomes a pair candidate after sync.
-            if (str(d["_id"]) in dismissed_rows or series_key(d) in dismissed_series):
-                continue
-            if _leg_blocks_pair(c) or _leg_blocks_pair(d):
-                continue
-            # Actionability (fix 1b) — at least one leg must still need
-            # fixing: the debit's effective category is spend-kind or
-            # Other, or the credit's effective category is Income, Other,
-            # or spend-kind. Both legs already movement-kind -> genuinely
-            # nothing to do -> skip.
-            c_eff = _effective_category(c)
-            d_eff = _effective_category(d)
-            if not (_debit_needs_fixing(d_eff) or _credit_needs_fixing(c_eff)):
-                continue
-            # Evidence gate (owner review fix 2) — same amount + close dates
-            # is not enough on its own; reject a coincidence like a £50
-            # client-income credit paired with an unrelated £50 ATM debit.
-            if (c.get("bank_code") == "DD" or d.get("bank_code") == "DD") and not any(
-                    x.get("linked_offline_account_id") or x.get("linked_goal_id") or x.get("custom_category") for x in (c, d)):
-                continue  # A194: a direct debit is never an own transfer
-            if not (_has_pair_evidence(c, d, identity, kind_of(kind_map, c_eff) == MOVEMENT) or _has_named_bank_transfer_reference(c, d, owned_accounts)):
-                continue
-            pair_key = ":".join(sorted([str(c["_id"]), str(d["_id"])]))
-            if pair_key in dismissed_pairs:
-                snapshots = snapshots_by_key.get(pair_key)
-                # Legacy bare dismissals deliberately retain their permanent
-                # behaviour. New snapshot-backed dismissals apply only while
-                # both original bank records still match, so two amended
-                # records can be reviewed as a fresh possible pair.
-                if not snapshots or any(
-                    _same_separate_review_leg(c, snapshot.get("credit") or {})
-                    and _same_separate_review_leg(d, snapshot.get("debit") or {})
-                    for snapshot in snapshots
-                ):
-                    continue
-            # A learned description-pair auto-matches at the next sync — no
-            # need to ask again.
-            if learned_match(learned_pair_keys, c, d):
-                continue
-            candidates.append((date_diff, c.get("amount") or 0, c, d, pair_key))
+        # A learned description-pair auto-matches at the next sync — no
+        # need to ask again.
+        if learned_match(learned_pair_keys, c, d):
+            continue
+        candidates.append((date_diff, c.get("amount") or 0, c, d, pair_key))
 
     # Greedy matching: nearest date-diff first (same-day beats 1-day), then
     # largest amount first, then pair_key as a final deterministic tiebreak
@@ -7113,6 +7103,8 @@ async def confirm_transfer_pair(body: dict, user: dict = Depends(current_user)):
     from app.services import transfer_review_store
     await transfer_review_store.mark_stale(uid)
     await response_cache.ainvalidate(uid)
+    from app.services import transfer_review_store as _review_store  # G447 (H145): rebuild the stored list now, off this request
+    _review_store.refresh_soon(uid)
 
     if changed:
         from app.services.derived_caches import defer_transfer_review_recompute, mark_stale
@@ -7163,6 +7155,8 @@ async def undo_ai_transfer(body: dict, user: dict = Depends(current_user)):
     from app.services import transfer_review_store
     await transfer_review_store.mark_stale(uid)
     await response_cache.ainvalidate(uid)
+    from app.services import transfer_review_store as _review_store  # G447 (H145): rebuild the stored list now, off this request
+    _review_store.refresh_soon(uid)
     from app.services.derived_caches import defer_transfer_review_recompute, mark_stale
     if body.get("defer_recompute") is True:
         await defer_transfer_review_recompute(uid)
@@ -7235,4 +7229,6 @@ async def dismiss_transfer_pair(body: dict, user: dict = Depends(current_user)):
     )
     # Await the shared version bump before the UI reloads its review queue.
     await response_cache.ainvalidate(uid)
+    from app.services import transfer_review_store as _review_store  # G447 (H145): rebuild the stored list now, off this request
+    _review_store.refresh_soon(uid)
     return {"ok": True}

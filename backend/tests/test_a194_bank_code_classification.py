@@ -35,8 +35,8 @@ def test_dd_from_an_issuer_matching_a_card_is_a_card_repayment():
     assert link([other, credit], [BANK, card]) == []
 
 
-def test_fp_pair_with_a_name_within_24_hours_is_automatic():
-    credit, debit = _coded(_pair(1885.0, "barclays", "hsbc", datetime(2026, 11, 3, 22, 10), datetime(2026, 11, 4, 20, 0)), "FP")
+def test_fp_pair_with_a_name_on_the_same_day_is_automatic():  # G447: same London calendar day
+    credit, debit = _coded(_pair(1885.0, "barclays", "hsbc", datetime(2026, 11, 3, 8, 10), datetime(2026, 11, 3, 20, 0)), "FP")
     pairs, own, pending = _classify(credit, debit)
     assert pairs == [(credit, debit)] and own == {"d1"} and pending == set()
     from app.services.own_account_transfers import is_transfer_rail_candidate
@@ -62,11 +62,11 @@ def test_absent_code_keeps_the_same_behaviour():
     assert plain[1] == {"d1"} and not is_transfer_rail_candidate(pair[1])
 
 
-def test_cr_with_the_users_name_still_asks_three_days_apart():
+def test_cr_with_the_users_name_on_another_day_is_no_pair():  # G447: only the same day pairs
     credit, debit = _coded(_pair(110.0, "hsbc", "barclays", datetime(2026, 11, 3, 9, 30), datetime(2026, 11, 6, 8, 0)), "FP")
     credit = {**credit, "bank_code": "CR"}
     pairs, own, pending = _classify(credit, debit)
-    assert pairs == [] and own == set() and pending == {"d1"}
+    assert pairs == [] and own == set() and pending == set()
 
 
 # ── user answers override the bank code, both ways ────────────────────────────

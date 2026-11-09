@@ -9,8 +9,10 @@ module-level collection handle repointed at per-test collections.
 Names, amounts and ids are invented, shaped like the 8 Nov review rows:
 profile Jordan Ellis Hartley; an HSBC STO with an incoming "HARTLEY J E HSBC",
 a NatWest STO with an FP reference, a Chase STO with "From HARTLEY J E", and a
-NatWest to HSBC move. The legs are two calendar days apart (the date-only
-shape banks send), so the G440 24 hour rule leaves them for the model.
+NatWest to HSBC move. The legs are on one calendar day (the date-only
+shape banks send). G447 (Kevin 2026-11-09): both legs now sit on the SAME calendar
+day, because between current accounts only a same-day pair is a candidate; the
+G440 24 hour rule is gone, so the model judges them as the named fallback.
 """
 import asyncio
 import contextlib
@@ -68,7 +70,7 @@ UNCLEAR = (65.0, "natw", "JORDAN HARTLEY CREDIT VIA MOBILE - PYMT FP {d} {t} {r}
 
 
 def _series_rows(months, *, series=None, tag=""):
-    """Debit on the last day of the month, credit two days later (date only)."""
+    """Debit and credit on the same day each month (date only)."""
     rows = []
     for m in months:
         first = BASE + timedelta(days=30 * m)
@@ -76,7 +78,7 @@ def _series_rows(months, *, series=None, tag=""):
         for key, (amount, d_acc, d_text, c_acc, c_text) in (series or SERIES).items():
             ref = {"d": stamp, "t": f"{(6 + m) % 24:02d}{(15 * m) % 60:02d}", "r": f"{46532197 + m * 7919}"}
             rows.append(_row(f"{tag}{key}-d{m}", "debit", amount, d_acc, first, d_text.format(**ref)))
-            rows.append(_row(f"{tag}{key}-c{m}", "credit", amount, c_acc, first + timedelta(days=2), c_text.format(**ref)))
+            rows.append(_row(f"{tag}{key}-c{m}", "credit", amount, c_acc, first, c_text.format(**ref)))
     return rows
 
 
@@ -87,7 +89,7 @@ def _unclear_rows(months):
         day = BASE + timedelta(days=30 * m)
         ref = {"d": day.strftime("%d/%m/%y"), "t": "1015", "r": f"ABC12345{m}789"}
         rows.append(_row(f"u-d{m}", "debit", amount, d_acc, day, d_text.format(**ref)))
-        rows.append(_row(f"u-c{m}", "credit", amount, c_acc, day + timedelta(days=2), c_text))
+        rows.append(_row(f"u-c{m}", "credit", amount, c_acc, day, c_text))
     return rows
 
 
@@ -188,31 +190,31 @@ def test_candidate_set_is_only_what_no_rule_decides():
     accts["barc"] = {**accts["barc"], "sort_code": "202020", "account_number": "11112222"}
     d0 = datetime(2026, 10, 1, 9, 0)
     rows = [
-        # leftover: named, 2 days apart (not within 24 hours), no other evidence
+        # leftover: named, the same day, no other evidence
         _row("l-d", "debit", 41.0, "barc", d0, "JORDAN HARTLEY HSBC STO"),
-        _row("l-c", "credit", 41.0, "hsbc", d0 + timedelta(days=2), "HARTLEY J E HSBC"),
-        # named, within 24 hours: the G440 rule is only a fallback, so the model judges it too
+        _row("l-c", "credit", 41.0, "hsbc", d0 + timedelta(hours=2), "HARTLEY J E HSBC"),
+        # named, the same day: the G440 rule is only a fallback, so the model judges it too
         _row("a-d", "debit", 42.0, "barc", d0, "JORDAN HARTLEY HSBC STO"),
         _row("a-c", "credit", 42.0, "hsbc", d0 + timedelta(hours=5), "HARTLEY J E HSBC"),
         # decided by sort code and account number in the text
         _row("s-d", "debit", 43.0, "hsbc", d0, "TO 20-20-20 11112222"),
-        _row("s-c", "credit", 43.0, "barc", d0 + timedelta(days=2), "BANK TRANSFER"),
+        _row("s-c", "credit", 43.0, "barc", d0, "BANK TRANSFER"),
         # a direct debit is never an own transfer
         _row("dd-d", "debit", 44.0, "barc", d0, "SOME DD", bank_code="DD"),
-        _row("dd-c", "credit", 44.0, "hsbc", d0 + timedelta(days=2), "SOMETHING"),
-        # beyond three days
+        _row("dd-c", "credit", 44.0, "hsbc", d0, "SOMETHING"),
+        # G447: the next day is no candidate between current accounts
         _row("far-d", "debit", 45.0, "barc", d0, "JORDAN HARTLEY HSBC STO"),
-        _row("far-c", "credit", 45.0, "hsbc", d0 + timedelta(days=4), "HARTLEY J E HSBC"),
+        _row("far-c", "credit", 45.0, "hsbc", d0 + timedelta(days=1), "HARTLEY J E HSBC"),
         # the user already answered with a movement category
         _row("ans-d", "debit", 46.0, "barc", d0, "SOME STO", custom_category="Transfer"),
-        _row("ans-c", "credit", 46.0, "hsbc", d0 + timedelta(days=2), "OTHER"),
+        _row("ans-c", "credit", 46.0, "hsbc", d0, "OTHER"),
         # ambiguous: one credit, two debits
         _row("amb-d1", "debit", 47.0, "barc", d0, "X ONE"),
-        _row("amb-d2", "debit", 47.0, "natw", d0 + timedelta(days=1), "X TWO"),
-        _row("amb-c", "credit", 47.0, "hsbc", d0 + timedelta(days=2), "Y"),
+        _row("amb-d2", "debit", 47.0, "natw", d0 + timedelta(hours=1), "X TWO"),
+        _row("amb-c", "credit", 47.0, "hsbc", d0, "Y"),
         # same account both legs
         _row("same-d", "debit", 48.0, "barc", d0, "Z"),
-        _row("same-c", "credit", 48.0, "barc", d0 + timedelta(days=1), "Z"),
+        _row("same-c", "credit", 48.0, "barc", d0, "Z"),
     ]
     pairs = oat.ai_candidate_pairs(rows, accts, TOKENS, set(), movement_categories={"Transfer"})
     assert {(c["_id"], d["_id"]) for c, d in pairs} == {("l-c", "l-d"), ("a-c", "a-d")}
@@ -543,7 +545,7 @@ def test_an_ai_learned_pair_is_not_a_user_answer_so_the_dd_guard_still_applies()
     accts = {a["_id"]: a for a in ACCOUNTS}
     d0 = datetime(2026, 10, 1)
     debit = _row("dd-d", "debit", 55.0, "barc", d0, "JORDAN HARTLEY HSBC STO", bank_code="DD")
-    credit = _row("dd-c", "credit", 55.0, "hsbc", d0 + timedelta(days=1), "HARTLEY J E HSBC")
+    credit = _row("dd-c", "credit", 55.0, "hsbc", d0, "HARTLEY J E HSBC")
     ai_keys = oat.ai_pair_keys(credit, debit)
     ai_learned = oat._learned_pair_keys([{"key_a": ai_keys[0], "key_b": ai_keys[1], "source": "ai"}])
     assert oat.select_unique_pairs([credit, debit], accts, TOKENS, ai_learned, movement_categories={"Transfer"}) == []
@@ -715,21 +717,27 @@ def test_sync_pass_is_capped(monkeypatch):
 
 def _spend_pair():
     debit = _row("sd", "debit", 120.0, "barc", datetime(2026, 11, 3), "JORDAN HARTLEY STO")
-    credit = _row("sc", "credit", 120.0, "hsbc", datetime(2026, 11, 5), "HARTLEY J E")
+    credit = _row("sc", "credit", 120.0, "hsbc", datetime(2026, 11, 3), "HARTLEY J E")
     return credit, debit
 
 
 def _identity(verdict=None, reason=None):
     ai = {frozenset(("sc", "sd")): {"verdict": verdict, "reason": reason}} if verdict else {}
     return {"name_tokens": TOKENS, "own_ids": set(), "own_map": {}, "own_keys": {},
-            "account_names": {"barc": "Everyday", "hsbc": "Advance"}, "ai_pairs": ai}
+            "account_names": {"barc": "Everyday", "hsbc": "Advance"}, "ai_pairs": ai,
+            # what load_ai_blocked builds: a standing not_transfer or unclear verdict switches the fallback off
+            "ai_blocked": frozenset(k for k, v in ai.items() if v["verdict"] in ("not_transfer", "unclear"))}
 
 
 def test_not_transfer_goes_back_into_spend_and_is_not_asked(monkeypatch):
     credit, debit = _spend_pair()
     docs = [credit, debit]
-    # without a verdict a named pair two days apart is left out of Spend and asked
-    assert "sd" in find_pending_transfer_ids(docs, KINDS, _identity())
+    # G447: without a verdict a named pair on the same day is the G440 fallback: decided as an own move
+    assert "sd" in find_own_move_ids(docs, KINDS, _identity())
+    # and a named pair the next day is no pair at all between current accounts: it stays in Spend, unasked
+    late = {**credit, "date": datetime(2026, 11, 4)}
+    assert find_pending_transfer_ids([late, debit], KINDS, _identity()) == set()
+    assert find_own_move_ids([late, debit], KINDS, _identity()) == set()
     ident = _identity("not_transfer", "Different counterparties.")
     assert find_pending_transfer_ids(docs, KINDS, ident) == set()
     assert find_own_move_ids(docs, KINDS, ident) == set()
@@ -899,7 +907,7 @@ def test_a_user_confirmation_of_an_ai_filed_fp_series_leaves_the_auto_filed_list
         day = BASE + timedelta(days=30 * month)
         stamp = day.strftime("%d/%m/%y")
         return [_row(f"{tag}fp-d{month}", "debit", 320.0, "barc", day, "JORDAN HARTLEY NATWEST STO"),
-                _row(f"{tag}fp-c{month}", "credit", 320.0, "natw", day + timedelta(days=2), f"HARTLEY JE FP {stamp} 0630 RP4653219{month}")]
+                _row(f"{tag}fp-c{month}", "credit", 320.0, "natw", day, f"HARTLEY JE FP {stamp} 0630 RP4653219{month}")]
 
     async def run():
         async with mongo_env(monkeypatch, rows(0) + rows(1)) as cols:
