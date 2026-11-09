@@ -6624,7 +6624,14 @@ def _has_pair_evidence(c: dict, d: dict, identity: dict, credit_claims_move: boo
         # A194: a direct debit is never an own transfer by the bank's evidence, so
         # never asked as one; a user link on either leg still wins.
         return any(x.get("linked_offline_account_id") or x.get("linked_goal_id") for x in (c, d))
-    if credit_claims_move or c.get("linked_offline_account_id") or c.get("linked_goal_id"):
+    if c.get("linked_offline_account_id") or c.get("linked_goal_id"):
+        return True
+    # G443: bank facts rule it out (a card purchase, a business, a third institution),
+    # before the model and before the user is asked. A user answer on either leg wins.
+    from app.services.transfer_pruning import pair_pruned_reason
+    if pair_pruned_reason(c, d, identity.get("account_meta"), identity, credit_claims_move) is not None:
+        return False
+    if credit_claims_move:
         return True
     # G442: the model's standing verdict on this pair. not_transfer drops it from
     # the review and leaves it in Spend; unclear is asked, whatever rule evidence
@@ -6766,9 +6773,14 @@ async def _transfer_pair_suggestions(uid: str) -> list[dict]:
         {"account_id": 1, "amount": 1, "date": 1, "description": 1,
          "merchant_name": 1, "category": 1, "custom_category": 1,
          "transaction_type": 1, "currency": 1, "own_transfer_match": 1, "is_pending": 1,
-         "bank_code": 1},
+         "bank_code": 1, "party_sort_code": 1, "party_number": 1},
     ).to_list(None)
 
+    # G443: the same history window reconcile and the judge read, so nothing is asked
+    # that they will never see.
+    from app.services.own_account_transfers import HISTORY_DAYS
+    _history_cutoff = datetime.utcnow() - timedelta(days=HISTORY_DAYS)  # naive-ok: Mongo booked dates are naive UTC
+    txns = [t for t in txns if not isinstance(t.get("date"), datetime) or t["date"] >= _history_cutoff]
     txns = [{**t, "currency": t.get("currency") or owned_accounts[t["account_id"]].get("currency")}
             for t in txns if t.get("account_id") in owned_accounts]
 
@@ -6913,8 +6925,10 @@ async def _transfer_pair_suggestions(uid: str) -> list[dict]:
                 "pairs": [{"pair_key": e[3], "credit_id": str(e[1]["_id"]), "debit_id": str(e[2]["_id"])} for e in members],
             },
         }
-        if verdict.get("verdict") == "unclear" and verdict.get("reason"):
-            suggestion["ai_reason"] = verdict["reason"]
+        if verdict.get("verdict") == "unclear":
+            # G443: an unclear item always shows a reason; none stored reads as the fallback line
+            from app.services.own_account_transfers import UNCLEAR_FALLBACK_REASON
+            suggestion["ai_reason"] = verdict.get("reason") or UNCLEAR_FALLBACK_REASON
         suggestions.append((_latest(members[0]), suggestion))
 
     # Newest first (G442), the largest amount breaking a tie.

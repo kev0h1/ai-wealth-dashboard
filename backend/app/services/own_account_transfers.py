@@ -8,6 +8,7 @@ user's own accounts.
 """
 from __future__ import annotations
 
+import logging
 import re
 import hashlib
 import itertools
@@ -21,9 +22,18 @@ from app.services.card_issuers import CARD_ISSUERS
 from app.services.card_names import last_four
 from app.services.categorisation import NUMERIC_DATE_RE, _CHANNEL_CODES, _NOT_INITIALS, _text_has_account_pair, canonical_merchant_key, name_matches_owner, own_transfer_evidence, series_key as _base_series_key, word_matches_name_token
 from app.services.categories import BUILTIN_CATEGORY_KINDS, MOVEMENT, get_category_kinds
+from app.services.transfer_pruning import pair_pruned_reason
 
 OWN_TRANSFER_MATCH_VERSION = 2
-RECONCILE_DAYS = 90
+logger = logging.getLogger(__name__)
+# G443: one history window for everything that reads pairs (reconcile, the model's
+# candidates). It was 90 days, which left a pair imported at the start of history
+# (10 Aug, read on 9 Nov) outside both, so it was never filed and never judged,
+# yet the review (which has no window) asked it. Longer than any import.
+HISTORY_DAYS = 400
+RECONCILE_DAYS = HISTORY_DAYS
+# G443: what the review shows for a pair the model could not decide and gave no reason for.
+UNCLEAR_FALLBACK_REASON = "Sorted could not decide."
 PAIR_DAYS = 5
 CARD_REPAY_DAYS = 3
 # G440 (Kevin 2026-11-08): a pair that is named (the user's name in any form, or
@@ -276,7 +286,75 @@ def card_repayment_issuer(
                     other.get("transaction_type") == "credit" and other.get("account_id") == credit.get("account_id")):
                 return None
         return issuer
+    return same_bank_card_repayment(credit, debit, accounts, cards_by_issuer, same_amount)
+
+
+def _card_tail_from_name(account: dict | None) -> str | None:
+    """The four digit tail a card account carries in its own name or display name
+    ("NatWest Mastercard 1432"), for a card whose number was not stored."""
+    for field in ("display_name", "name"):
+        match = re.search(r"(?<!\d)(\d{4})\s*$", str((account or {}).get(field) or ""))
+        if match:
+            return match.group(1)
     return None
+
+
+def same_bank_card_repayment(
+    credit: dict, debit: dict, accounts: dict[str, dict],
+    cards_by_issuer: dict[str, list[str]], same_amount: list[dict],
+) -> str | None:
+    """G443 narrow rule (Kevin 2026-11-09), kept in this one helper so G381 can
+    absorb it: a current account debit whose narrative names the same bank as a
+    card on file ("NATWEST" for a NatWest Mastercard) or a named card issuer, and
+    a credit on THAT card account with the card's own payment wording ("DIRECT
+    DEBIT PAYMENT <tail>") for the same amount within `CARD_REPAY_DAYS`, is that
+    card's repayment, filed exactly as the G403 link files it (the debit is Debt
+    against the card, the credit stays Transfer).
+
+    It adds to G403's routes the card's tail read from its name when no number was
+    stored, and keeps G403's ambiguity doctrine: with more than one card from the
+    issuer, the credit must print THIS card's tail, never another card's; and the
+    money must be unambiguous (no second non-card debit, and no second credit from
+    the issuer's cards, of the amount inside the window). The payment wording must
+    be on the credit itself; a bank code alone is not enough here (A194 route 3
+    keeps that case)."""
+    card = accounts.get(credit.get("account_id"))
+    bank = accounts.get(debit.get("account_id"))
+    issuer = card_issuer_key(card)
+    if issuer is None or bank is None or refine_transfer_target(bank) == "Debt":
+        return None
+    if credit.get("account_id") == debit.get("account_id"):
+        return None
+    c_date, d_date = credit.get("date"), debit.get("date")
+    if not isinstance(c_date, datetime) or not isinstance(d_date, datetime):
+        return None
+    if abs((c_date.date() - d_date.date()).days) > CARD_REPAY_DAYS:
+        return None
+    c_text, d_text = _text(credit), _text(debit)
+    if not _CARD_PAYMENT_WORDING.search(c_text) or not _names_issuer(d_text, issuer):
+        return None
+    tail = _card_tail(card) or _card_tail_from_name(card)
+    siblings = cards_by_issuer.get(issuer, [])
+    if len(siblings) > 1:
+        if not tail or not re.search(rf"(?<!\d){tail}(?!\d)", c_text):
+            return None
+        for sibling_id in siblings:
+            sibling = accounts.get(sibling_id)
+            sib_tail = (_card_tail(sibling) or _card_tail_from_name(sibling)) if sibling else None
+            if sibling is not card and sib_tail and sib_tail != tail and re.search(rf"(?<!\d){sib_tail}(?!\d)", c_text):
+                return None
+    for other in same_amount:
+        if other is credit or other is debit:
+            continue
+        o_date = other.get("date")
+        if not isinstance(o_date, datetime) or abs((o_date.date() - c_date.date()).days) > CARD_REPAY_DAYS:
+            continue
+        o_card = refine_transfer_target(accounts.get(other.get("account_id")) or {}) == "Debt"
+        if (other.get("transaction_type") == "debit" and not o_card) or (
+                other.get("transaction_type") == "credit" and o_card
+                and issuer == card_issuer_key(accounts.get(other.get("account_id")))):
+            return None
+    return issuer
 
 
 def repayment_series_key(txn: dict) -> str | None:
@@ -634,6 +712,25 @@ def resolve_transfer_evidence(
         row = dict(original)
         marker = row.get("own_transfer_match") or {}
         if not marker:
+            resolved.append(row)
+            continue
+        if marker.get("series_single"):
+            # G443: a single leg filed from a learned series has no counterpart row
+            # to check; its own source fingerprint and the user's answers decide.
+            single_ok = (
+                marker.get("version") == OWN_TRANSFER_MATCH_VERSION
+                and marker.get("source_signature") == transfer_source_signature(original)
+                and not original.get("is_pending") and original.get("custom_category") is None
+            )
+            if single_ok:
+                if marker.get("matched_category"):
+                    row["category"] = marker["matched_category"]
+            else:
+                previous = marker.get("previous_category")
+                if original.get("custom_category") is None and previous and (
+                        row.get("category") == marker.get("matched_category") or row.get("category") in movement_categories):
+                    row["category"] = previous
+                row.pop("own_transfer_match", None)
             resolved.append(row)
             continue
         counterpart = originals.get(str(marker.get("counterpart_id")))
@@ -1044,6 +1141,7 @@ def _confirmed_pairs(
 def _same_amount_pairs(
     rows: list[dict], accounts: dict[str, dict], movement_categories: set[str], *,
     consumed: set[str], exclude_ids: set[str] | frozenset[str], in_window,
+    learned: set[tuple[str, str]] | frozenset = frozenset(), name_tokens: list[str] | None = None,
 ):
     """The ONE pair builder (G438/G440, reused by G442): every same-amount,
     opposite-direction pair on two different accounts on file whose legs
@@ -1057,6 +1155,8 @@ def _same_amount_pairs(
         key = _pair_key(debit)
         if key is not None:
             debit_buckets.setdefault(key, []).append(debit)
+    prune_identity = {"name_tokens": name_tokens or [], "own_ids": set(), "own_map": {}, "own_keys": {},
+                      "account_names": {str(i): a.get("name") or a.get("display_name") for i, a in accounts.items()}}
     cards_by_issuer: dict[str, list[str]] = {}
     for account_id, account in accounts.items():
         issuer_key = card_issuer_key(account)
@@ -1081,7 +1181,14 @@ def _same_amount_pairs(
                 continue
             if not in_window(c_date, d_date):
                 continue
-            yield credit, debit, card_repayment_issuer(credit, debit, accounts, cards_by_issuer, amount_rows.get(key, []))
+            issuer = card_repayment_issuer(credit, debit, accounts, cards_by_issuer, amount_rows.get(key, []))
+            if (issuer is None and pair_pruned_reason(credit, debit, accounts, prune_identity,
+                                                      credit.get("category") in movement_categories) is not None
+                    and not _user_answered_pair(credit, debit, learned, movement_categories)
+                    and not counterparty_matches_account(debit, accounts.get(credit.get("account_id")))
+                    and not counterparty_matches_account(credit, accounts.get(debit.get("account_id")))):
+                continue  # G443: bank facts rule it out (a card purchase, a business, a third institution)
+            yield credit, debit, issuer
 
 
 def _unique_only(candidates: list[tuple[dict, dict, str | None]]) -> list[tuple[dict, dict, str | None]]:
@@ -1108,7 +1215,7 @@ def select_unique_pairs_detailed(
     candidates: list[tuple[dict, dict, str | None]] = []
     for credit, debit, issuer in _same_amount_pairs(
             rows, accounts, movement_categories, consumed=consumed, exclude_ids=exclude_ids,
-            in_window=lambda c, d: abs((c.date() - d.date()).days) <= PAIR_DAYS):
+            in_window=lambda c, d: abs((c.date() - d.date()).days) <= PAIR_DAYS, learned=learned, name_tokens=name_tokens):
         if (is_direct_debit(credit) or is_direct_debit(debit)) and not issuer and not _user_answered_pair(
                 credit, debit, learned, movement_categories):
             continue  # A194: a direct debit is never an own transfer by bank evidence
@@ -1136,7 +1243,7 @@ def ai_candidate_pairs(
     leftovers: list[tuple[dict, dict, str | None]] = []
     for credit, debit, issuer in _same_amount_pairs(
             rows, accounts, movement_categories, consumed=consumed, exclude_ids=exclude_ids,
-            in_window=within_ask_window):
+            in_window=within_ask_window, learned=learned, name_tokens=name_tokens):
         if issuer or is_direct_debit(credit) or is_direct_debit(debit):
             continue
         if _user_answered_pair(credit, debit, learned, movement_categories):
@@ -1145,6 +1252,127 @@ def ai_candidate_pairs(
             continue  # G442: a named pair within 24 hours is NOT decided here; the model judges it
         leftovers.append((credit, debit, None))
     return [(c, d) for c, d, _ in _unique_only(leftovers)]
+
+
+SERIES_SINGLE_MARGIN_DAYS = ASK_PAIR_DAYS
+
+
+def series_evidence(pairs: Iterable[tuple[dict, dict, dict]]) -> list[dict]:
+    """G443: one evidence entry per leg of every filed own-transfer pair (a card
+    repayment is not part of this): the leg's account, the other leg's account,
+    its direction, amount and normalised description, and the category the series
+    was filed under. `pairs` yields (credit, debit, {credit_category, debit_category})."""
+    out: list[dict] = []
+    for credit, debit, cats in pairs:
+        for row, other, category in ((credit, debit, cats["credit"]), (debit, credit, cats["debit"])):
+            pair_key = _pair_key(row)
+            text_key = transfer_text_key(row.get("merchant_name"), row.get("description"))
+            if pair_key is None or too_generic_to_learn(text_key):
+                continue
+            out.append({"account_id": row.get("account_id"), "other_account_id": other.get("account_id"),
+                        "transaction_type": row.get("transaction_type"), "pair_key": pair_key,
+                        "text_key": text_key, "category": category})
+    return out
+
+
+def series_single_legs(
+    evidence: list[dict], account_rows: dict[str, list[dict]], *,
+    skip_ids: set[str] | frozenset[str] = frozenset(), dismissed_rows: set[str] | frozenset[str] = frozenset(),
+    dismissed_series: set[str] | frozenset[str] = frozenset(),
+) -> list[tuple[dict, str]]:
+    """G443 (e): a single leg whose counterpart falls BEFORE the imported history.
+
+    The first occurrence of a monthly standing order at the start of history has
+    no other leg, because the other account's import starts later. When its
+    normalised description (`transfer_text_key`), account, direction and amount
+    equal a series already filed (AI-learned, user-confirmed or by bank evidence),
+    it is filed as that series' own transfer, no question.
+
+    Only NEAR THE START of history: the counterpart is expected on the other
+    account at about this leg's date, and that date must fall before the other
+    account's earliest imported transaction plus `SERIES_SINGLE_MARGIN_DAYS`.
+    A same-description leg in the MIDDLE of history, where its counterpart should
+    exist, is never filed here (it stays a question), and neither is a leg that has
+    a possible counterpart within the ask window (the pair rules handle that). A
+    user's answers win: a custom category, a link, a dismissed row or series.
+    Returns [(row, category)]."""
+    earliest = {aid: min(r["date"] for r in rows if isinstance(r.get("date"), datetime))
+                for aid, rows in account_rows.items()
+                if any(isinstance(r.get("date"), datetime) for r in rows)}
+    out: list[tuple[dict, str]] = []
+    done: set[str] = set()
+    for ev in evidence:
+        first = earliest.get(ev["other_account_id"])
+        if first is None:
+            continue
+        horizon = first + timedelta(days=SERIES_SINGLE_MARGIN_DAYS)
+        others = account_rows.get(ev["other_account_id"], [])
+        for row in account_rows.get(ev["account_id"], []):
+            rid = str(row.get("_id"))
+            if rid in done or rid in skip_ids or rid in dismissed_rows:
+                continue
+            marker = row.get("own_transfer_match")
+            if marker and not (isinstance(marker, dict) and marker.get("series_single")):
+                continue
+            if (row.get("custom_category") is not None or row.get("is_pending") or is_direct_debit(row)
+                    or row.get("linked_offline_account_id") or row.get("linked_goal_id")):
+                continue
+            if row.get("transaction_type") != ev["transaction_type"] or not isinstance(row.get("date"), datetime):
+                continue
+            if row["date"] >= horizon or _pair_key(row) != ev["pair_key"]:
+                continue
+            if transfer_text_key(row.get("merchant_name"), row.get("description")) != ev["text_key"]:
+                continue
+            if (series_key(row) + ("|credit" if row.get("transaction_type") == "credit" else "")) in dismissed_series:
+                continue
+            if any(o.get("transaction_type") != row.get("transaction_type") and _pair_key(o) == ev["pair_key"]
+                   and not o.get("is_pending") and isinstance(o.get("date"), datetime)
+                   and within_ask_window(row["date"], o["date"]) for o in others):
+                continue  # a possible counterpart exists: the pair rules decide, not this one
+            done.add(rid)
+            out.append((row, ev["category"]))
+    return out
+
+
+async def _series_single_matches(
+    user_id: str, transaction_collection, preference_collection, accounts: dict[str, dict],
+    detailed: list[tuple[dict, dict, str | None]], skip_ids: set[str], projection: dict,
+) -> list[tuple[dict, str]]:
+    """G443 (e): the single legs `series_single_legs` files, found from the pairs
+    this pass filed. Never raises: a failure here files nothing, which is today's
+    behaviour (the leg is asked)."""
+    try:
+        triples = []
+        for credit, debit, issuer in detailed:
+            if issuer:
+                continue  # a card repayment is not an own-transfer series
+            credit_target = refine_transfer_target(accounts[credit["account_id"]])
+            debit_target = refine_transfer_target(accounts[debit["account_id"]])
+            if credit_target and not debit_target:
+                cats = {"credit": "Transfer", "debit": credit_target}
+            elif debit_target and not credit_target:
+                cats = {"credit": debit_target, "debit": "Transfer"}
+            else:
+                cats = {"credit": "Transfer", "debit": "Transfer"}
+            triples.append((credit, debit, cats))
+        evidence = series_evidence(triples)
+        if not evidence:
+            return []
+        prefs = await preference_collection.find_one(
+            {"user_id": user_id}, {"dismissed_miscategorised": 1, "dismissed_miscategorised_series": 1}) or {}
+        account_rows: dict[str, list[dict]] = {}
+        for account_id in {e["account_id"] for e in evidence} | {e["other_account_id"] for e in evidence}:
+            fetched = await transaction_collection.find(
+                {"user_id": user_id, "account_id": account_id}, projection).to_list(None)
+            currency = str((accounts.get(account_id) or {}).get("currency") or "").upper()
+            account_rows[account_id] = [{**r, "currency": str(r.get("currency") or currency).upper()} for r in fetched]
+        return series_single_legs(
+            evidence, account_rows, skip_ids=skip_ids,
+            dismissed_rows=set(str(x) for x in prefs.get("dismissed_miscategorised") or []),
+            dismissed_series=set(prefs.get("dismissed_miscategorised_series") or []))
+    except Exception:
+        logger.exception("series single legs could not be checked for %s", user_id)
+        return []
 
 
 async def reconcile_own_account_transfers(
@@ -1237,6 +1465,11 @@ async def reconcile_own_account_transfers(
     pairs = [(credit, debit) for credit, debit, _ in detailed]
     issuers = {(str(credit["_id"]), str(debit["_id"])): issuer for credit, debit, issuer in detailed}
     selected_ids = {str(item["_id"]) for pair in pairs for item in pair}
+    # G443 (e): a single leg at the start of history whose series is already filed.
+    singles = [] if (confirmed_only or len(accounts) < 2) else await _series_single_matches(
+        user_id, transaction_collection, preference_collection, accounts, detailed, set(selected_ids),
+        {**projection, "linked_offline_account_id": 1, "linked_goal_id": 1})
+    selected_ids |= {str(row["_id"]) for row, _ in singles}
     changed = 0
     # A row can remain after its counterpart is deleted, becomes pending, or
     # is no longer uniquely matched.  Unwind only our own automatic result;
@@ -1283,6 +1516,25 @@ async def reconcile_own_account_transfers(
             )
             if getattr(result, "modified_count", 0):
                 changed += 1
+    for row, category in singles:
+        prior = row.get("own_transfer_match") or {}
+        marker = {
+            "series_single": True,
+            "previous_category": prior.get("previous_category", row.get("category")),
+            "matched_category": category,
+            "source_signature": transfer_source_signature(row),
+            "confirmed": False,
+            "version": OWN_TRANSFER_MATCH_VERSION,
+            "source": "series",
+        }
+        if prior == marker and row.get("category") == category:
+            continue
+        result = await transaction_collection.update_one(
+            {"_id": row["_id"], "user_id": user_id, "custom_category": None},
+            {"$set": {"category": category, "own_transfer_match": marker}},
+        )
+        if getattr(result, "modified_count", 0):
+            changed += 1
     if changed:
         if mark_stale_fn is None:
             from app.services.derived_caches import mark_stale
