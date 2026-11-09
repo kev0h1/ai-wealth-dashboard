@@ -6776,6 +6776,11 @@ async def _transfer_pair_suggestions(uid: str) -> list[dict]:
          "bank_code": 1, "party_sort_code": 1, "party_number": 1},
     ).to_list(None)
 
+    # G443: the same history window reconcile and the judge read, so nothing is asked
+    # that they will never see.
+    from app.services.own_account_transfers import HISTORY_DAYS
+    _history_cutoff = datetime.utcnow() - timedelta(days=HISTORY_DAYS)  # naive-ok: Mongo booked dates are naive UTC
+    txns = [t for t in txns if not isinstance(t.get("date"), datetime) or t["date"] >= _history_cutoff]
     txns = [{**t, "currency": t.get("currency") or owned_accounts[t["account_id"]].get("currency")}
             for t in txns if t.get("account_id") in owned_accounts]
 

@@ -220,8 +220,12 @@ _UNRELATED_REASON = re.compile(
 )
 
 
+# A hedged reason is not a finding: it stays unclear and stays asked.
+_HEDGE = re.compile(r"\bwhether\b|\bcould\b|\bcannot\b|\bcan't\b|\bnot clearly\b|\bmay\b|\bmight\b|\bpossibly\b|\bunsure\b|\bor a transfer\b", re.I)
+
+
 def reason_says_unrelated(reason) -> bool:
-    return isinstance(reason, str) and bool(_UNRELATED_REASON.search(reason))
+    return isinstance(reason, str) and bool(_UNRELATED_REASON.search(reason)) and not _HEDGE.search(reason)
 
 
 def parse_response(content, expected: list[int]) -> dict[int, dict]:

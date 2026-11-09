@@ -122,7 +122,7 @@ def test_a_card_purchase_marker_prunes_a_debit_by_whole_token_only():
 
 def test_cpm_pair_never_reaches_the_model_and_is_not_asked(monkeypatch):
     rows = [_row("c-d", "debit", 5.0, "barc", D0, "RENEWAL ON 23 AUG CPM"),
-            _row("c-c", "credit", 5.0, "hsbc", D0 + timedelta(days=1), "Jordan Hartley Sent from Revolut"),
+            _row("c-c", "credit", 5.0, "hsbc", D0 + timedelta(days=1), "Jordan Hartley"),  # names no institution: only CPM prunes it
             _row("ok-d", "debit", 23.0, "barc", D0, "JORDAN HARTLEY HSBC STO"),
             _row("ok-c", "credit", 23.0, "hsbc", D0 + timedelta(days=2), "HARTLEY J E HSBC")]
     model = ScriptedModel(lambda i: ("same_transfer", "Standing order out names the other bank."))
@@ -132,7 +132,7 @@ def test_cpm_pair_never_reaches_the_model_and_is_not_asked(monkeypatch):
         async with mongo_env(monkeypatch, rows, accounts=ACCTS) as cols:
             await judge.judge_user(UID)
             sent_pairs = model.sent.split("Pairs:\n", 1)[1]
-            assert "RENEWAL" not in sent_pairs and "Revolut" not in sent_pairs and "JORDAN HARTLEY HSBC STO" in sent_pairs
+            assert "RENEWAL" not in sent_pairs and "CPM" not in sent_pairs and "JORDAN HARTLEY HSBC STO" in sent_pairs
             assert await cols["own_transfer_judgements"].count_documents({"ids": ["c-c", "c-d"]}) == 0
             identity = await categorisation.user_identity(UID)
             monkeypatch.setattr(analytics, "user_identity", lambda uid: _async(identity))
@@ -510,3 +510,45 @@ def test_the_ops_health_route_carries_the_judge_counts():
     import app.routers.ops as ops
     source = inspect.getsource(ops.ops_health)
     assert "last_run_health" in source and '"transfer_judge"' in source
+
+
+def test_hedged_reasons_stay_unclear_and_a_plain_finding_still_downgrades():
+    for hedged in ("Not clearly unrelated, the evidence is thin.",
+                   "Cannot say whether the payments are related or unrelated.",
+                   "Could be a separate payment to a different payee, or a transfer."):
+        out = judge.parse_response(json.dumps({"1": {"verdict": "unclear", "reason": hedged}}), [1])
+        assert out[1]["verdict"] == "unclear", hedged
+    out = judge.parse_response(json.dumps({"1": {"verdict": "unclear", "reason": "Neither record fits this transfer."}}), [1])
+    assert out[1]["verdict"] == "not_transfer"
+
+
+def test_a_credit_naming_a_bank_is_not_pruned_when_its_own_account_has_no_known_bank():
+    unknown = {**BY_ID, "barc": {**BY_ID["barc"], "provider": "Obscure Credit Union", "name": "Savings"}}
+    debit = _row("d", "debit", 20.0, "natw", D0, "JORDAN HARTLEY STO")
+    credit = _row("c", "credit", 20.0, "barc", D0, "Jordan Hartley Sent from Revolut BGC")
+    assert pruning.pair_pruned_reason(credit, debit, BY_ID) == "third_institution"
+    assert pruning.pair_pruned_reason(credit, debit, unknown) is None
+
+
+def test_nwb_and_bank_name_variants_map_to_their_institution():
+    assert pruning.institutions_named("Sent from NWB") == frozenset({"natwest"})
+    assert pruning.account_institutions({"provider": "HSBC UK"}) == frozenset({"hsbc"})
+    assert pruning.account_institutions({"provider": "Monzo Bank"}) == frozenset({"monzo"})
+    assert pruning.account_institutions({"provider": "RBS"}) == frozenset({"natwest"})
+
+
+def test_the_review_gate_ignores_pairs_older_than_the_history_window(monkeypatch):
+    old = NOW - timedelta(days=oat.HISTORY_DAYS + 5)
+    recent = NOW - timedelta(days=20)
+    rows = []
+    for tag, day in (("old", old), ("new", recent)):
+        rows += [_row(f"{tag}-d", "debit", 41.0, "barc", day, "JORDAN HARTLEY HSBC STO"),
+                 _row(f"{tag}-c", "credit", 41.0, "hsbc", day + timedelta(days=2), "HARTLEY J E HSBC")]
+
+    async def run():
+        async with mongo_env(monkeypatch, rows, accounts=ACCTS):
+            identity = await categorisation.user_identity(UID)
+            monkeypatch.setattr(analytics, "user_identity", lambda uid: _async(identity))
+            items = await analytics._transfer_pair_suggestions(UID)
+            assert [i["debit"]["id"] for i in items] == ["new-d"]
+    _arun(run())

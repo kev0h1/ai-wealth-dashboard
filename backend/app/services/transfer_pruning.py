@@ -50,7 +50,7 @@ TRANSFER_RAILS = frozenset({"STO", "FT"})
 # display name contains the form. Common words (Wise, Atom) are left out on
 # purpose: a false "different institution" would hide a real transfer.
 INSTITUTIONS: dict[str, tuple[str, ...]] = {
-    "natwest": (r"nat\s*west", r"rbs", r"royal\s+bank\s+of\s+scotland", r"ulster\s+bank"),
+    "natwest": (r"nat\s*west", r"nwb", r"rbs", r"royal\s+bank\s+of\s+scotland", r"ulster\s+bank"),
     "barclays": (r"barclays", r"barclaycard", r"b/card"),
     "hsbc": (r"hsbc",),
     "lloyds": (r"lloyds",),
@@ -177,7 +177,10 @@ def names_third_institution(credit: dict, credit_account: dict | None, debit_acc
     debit_banks = account_institutions(debit_account)
     if not debit_banks:
         return False
-    return not (named & (debit_banks | account_institutions(credit_account)))
+    credit_banks = account_institutions(credit_account)
+    if not credit_banks:
+        return False  # the credit's own bank is unknown: a name may well be it
+    return not (named & (debit_banks | credit_banks))
 
 
 def _user_answered(*legs: dict) -> bool:
