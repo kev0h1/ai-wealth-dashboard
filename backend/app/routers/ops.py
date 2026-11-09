@@ -312,8 +312,15 @@ async def ops_health(user: dict = Depends(current_user)):
         finexer_events = await reconcile_health()
     except Exception:
         finexer_events = None
+    # G443: the own-transfer judge's last run counts (aggregate only). Never blanks the page.
+    try:
+        from app.services.own_transfer_judge import last_run_health
+        transfer_judge = await last_run_health()
+    except Exception:
+        transfer_judge = None
     return {**host_metrics.snapshot(), "mongo": mongo, "finexer_webhooks": finexer_webhooks,
-            "finexer_sync": finexer_sync, "finexer_events": finexer_events, "finexer_consents": await _finexer_consents_health()}
+            "finexer_sync": finexer_sync, "finexer_events": finexer_events, "finexer_consents": await _finexer_consents_health(),
+            "transfer_judge": transfer_judge}
 
 
 @router.post("/health/finexer-events/reconcile")

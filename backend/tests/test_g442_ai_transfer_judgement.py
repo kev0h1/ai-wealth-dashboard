@@ -64,7 +64,7 @@ SERIES = {
     "chase": (50.0, "barc", "JORDAN HARTLEY CHASEACCOUNT STO", "chas", "Chase Main G From HARTLEY J E"),
     "natwest_hsbc": (150.0, "natw", "NATWEST HARTLEY JE", "hsbc", "HARTLEY J E HSBC"),
 }
-UNCLEAR = (65.0, "natw", "JORDAN HARTLEY CREDIT VIA MOBILE - PYMT FP {d} {t} {r}", "barc", "JORDAN HARTLEY CHASE BGC")
+UNCLEAR = (65.0, "natw", "JORDAN HARTLEY CREDIT VIA MOBILE - PYMT FP {d} {t} {r}", "barc", "JORDAN HARTLEY BGC")
 
 
 def _series_rows(months, *, series=None, tag=""):
@@ -581,7 +581,8 @@ def test_reasons_are_clean_british_copy():
 def test_prompt_states_the_name_only_rule_and_the_validator_refuses_unevidenced_same_transfer():
     prompt = judge.build_prompt([{"n": 1}])
     assert "The user's own name alone in a reference never makes it same_transfer" in prompt
-    assert "different bank" in prompt and "unclear" in prompt and "STRICT JSON" in prompt
+    assert "third institution" in prompt and "never unclear" in prompt and "STRICT JSON" in prompt
+    assert "names a different bank from the other record" not in prompt  # G443: naming the receiving bank is no reason for doubt
     assert "—" not in judge.RULES and "!" not in judge.RULES.replace("no exclamation marks", "")
     # a name-only same_transfer with no stated evidence is refused by the validator
     out = judge.parse_response('{"1": {"verdict": "same_transfer"}}', [1])
@@ -595,7 +596,7 @@ def test_payload_carries_only_the_allowed_fields():
     debit = _row("d", "debit", 65.0, "natw", datetime(2026, 9, 1, 10, 15), "JORDAN HARTLEY CREDIT VIA MOBILE",
                  party_name="J HARTLEY", party_sort_code="112233", party_number="12345678", reference="REF1",
                  bank_code="FP", balance=500.0, user_id=UID, merchant_name="Hartley")
-    credit = _row("c", "credit", 65.0, "barc", datetime(2026, 9, 3), "JORDAN HARTLEY CHASE BGC", email="x@y.z")
+    credit = _row("c", "credit", 65.0, "barc", datetime(2026, 9, 3), "JORDAN HARTLEY BGC", email="x@y.z")
     item = judge.pair_payload(1, credit, debit, accts)
     assert set(item) <= judge.ALLOWED_PAIR_FIELDS
     for leg in (item["out"], item["in"]):
@@ -791,7 +792,7 @@ def _close_pair_rows(tag="x"):
     """Both legs named and within 24 hours: G440 alone would file this."""
     day = datetime(2026, 10, 20, 9, 0)
     return [_row(f"{tag}-d", "debit", 65.0, "natw", day, "JORDAN HARTLEY CREDIT VIA MOBILE - PYMT FP 20/10/26 0900 ABC123456789"),
-            _row(f"{tag}-c", "credit", 65.0, "barc", day + timedelta(hours=3), "JORDAN HARTLEY CHASE BGC")]
+            _row(f"{tag}-c", "credit", 65.0, "barc", day + timedelta(hours=3), "JORDAN HARTLEY BGC")]
 
 
 async def _ask_list(monkeypatch):

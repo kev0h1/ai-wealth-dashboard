@@ -326,11 +326,15 @@ async def user_identity(user_id: str) -> dict:
     own_keys: dict[tuple[str, str], set[str]] = {}
     # G438: account and pot names on file, for the pair-plus-name rule.
     account_names: dict[str, str] = {}
+    account_meta: dict[str, dict] = {}
     from app.services.own_account_transfers import counterparty_key
     async for a in accounts_col.find(
         {"user_id": user_id},
-        {"account_number": 1, "sort_code": 1, "type": 1, "subtype": 1, "name": 1, "display_name": 1},
+        {"account_number": 1, "sort_code": 1, "type": 1, "subtype": 1, "name": 1, "display_name": 1,
+         "provider": 1, "account_type": 1},
     ):
+        # G443: the bank facts the transfer pruning reads (provider, account type).
+        account_meta[str(a["_id"])] = {k: a.get(k) for k in ("provider", "name", "display_name", "type", "subtype", "account_type")}
         _nm = a.get("name") or a.get("display_name")
         if _nm:
             account_names[str(a["_id"])] = str(_nm)
@@ -353,7 +357,8 @@ async def user_identity(user_id: str) -> dict:
     ai_pairs = await load_ai_verdicts(user_id)
     ai_blocked = await load_ai_blocked(user_id, ai_pairs)
     return {"name_tokens": name_tokens, "own_ids": own_ids, "own_map": own_map, "own_keys": own_keys,
-            "account_names": account_names, "ai_pairs": ai_pairs, "ai_blocked": ai_blocked}
+            "account_names": account_names, "account_meta": account_meta,
+            "ai_pairs": ai_pairs, "ai_blocked": ai_blocked}
 
 
 MIN_TRUNCATED_NAME_LETTERS = 4
