@@ -182,7 +182,7 @@ def test_income_is_not_spending():
 def _business_period():
     own = doc("Business", 15000, day=4, desc="AURIQ AURIQ TIDE", merchant="Auriq Auriq Tide")
     # The incoming leg lands on the (connected) business account two days later.
-    credit = doc("Transfer", 15000, debit=False, day=5, account="tide-acc", desc="FASTER PAYMENT RECEIVED")
+    credit = doc("Transfer", 15000, debit=False, day=4, account="tide-acc", desc="FASTER PAYMENT RECEIVED")
     third_party = doc("Business", 500, day=6, desc="ACME SUPPLIES LTD", merchant="Acme Supplies Ltd")
     fee = doc("Business", 30, day=6, desc="TIDE PLATFORM LIMI", merchant="Tide Platform Limi")
     return own, credit, third_party, fee
@@ -233,7 +233,7 @@ def test_a_credit_on_the_same_account_is_a_refund_not_a_partner():
 def test_a_credit_pairs_only_one_debit():
     a = doc("Business", 100, day=2)
     b = doc("Business", 100, day=2)
-    c = doc("Transfer", 100, debit=False, day=3, account="other")
+    c = doc("Transfer", 100, debit=False, day=2, account="other")
     assert len(find_pending_transfer_ids([a, b, c], KINDS, IDENTITY)) == 1
 
 
@@ -246,7 +246,7 @@ def test_the_users_name_alone_never_flags_a_row():
 
 def test_the_users_name_with_a_pair_match_flags_the_row():
     out = doc("Business", 300, day=2, desc="KEVIN MAINGI")
-    inn = doc("Transfer", 300, debit=False, day=3, account="tide-acc")
+    inn = doc("Transfer", 300, debit=False, day=2, account="tide-acc")
     # G438 (b): a pair where a leg carries the user's name is decided, not asked.
     assert find_own_move_ids([out, inn], KINDS, IDENTITY) == {out["_id"]}
     assert find_pending_transfer_ids([out, inn], KINDS, IDENTITY) == set()
@@ -255,9 +255,9 @@ def test_the_users_name_with_a_pair_match_flags_the_row():
 
 def test_a_name_bearing_debit_pairs_only_with_a_credit_that_carries_evidence():
     rent = doc("Bills", 900, day=2, account="cur", desc="MR K MAINGI RENT REF 7")
-    plain = doc("Other", 900, debit=False, day=3, account="x", desc="REFUND FROM SHOP")
+    plain = doc("Other", 900, debit=False, day=2, account="x", desc="REFUND FROM SHOP")
     assert find_pending_transfer_ids([rent, plain], KINDS, IDENTITY) == set()
-    evidenced = doc("Other", 900, debit=False, day=3, account="x", desc="KEVIN MAINGI")
+    evidenced = doc("Other", 900, debit=False, day=2, account="x", desc="KEVIN MAINGI")
     assert rent["_id"] in find_own_move_ids([rent, evidenced], KINDS, IDENTITY)
 
 
@@ -281,7 +281,7 @@ def test_a_purchase_does_not_pair_with_a_salary_credit_of_the_same_amount():
 
 def test_a_purchase_never_pairs_by_amount_even_with_a_transfer_credit():
     purchase = doc("Groceries", 100, day=2, account="card-c")
-    transfer_in = doc("Transfer", 100, debit=False, day=3, account="cur")
+    transfer_in = doc("Transfer", 100, debit=False, day=2, account="cur")
     assert find_own_move_ids([purchase, transfer_in], KINDS, IDENTITY) == set()
 
 
@@ -308,7 +308,7 @@ def test_the_closest_dated_partner_is_preferred():
 
 def test_a_business_payment_does_not_pair_with_an_unrelated_other_credit():
     acme = doc("Business", 500, day=2, account="A", desc="ACME SUPPLIES LTD")
-    stray = doc("Other", 500, debit=False, day=3, account="B", desc="PAYMENT FROM SOMEONE")
+    stray = doc("Other", 500, debit=False, day=2, account="B", desc="PAYMENT FROM SOMEONE")
     assert find_own_move_ids([acme, stray], KINDS, IDENTITY) == set()
 
 
@@ -325,7 +325,7 @@ def test_a_genuine_tide_pair_with_evidence_is_found_by_transfer_category_name_or
         {"category": "Other", "desc": "FROM 20-20-20 20202020"},
     ):
         out = doc("Business", 15000, day=4, account="cur", desc="AURIQ AURIQ TIDE")
-        inn = doc(credit_kwargs["category"], 15000, debit=False, day=5, account="tide-acc", desc=credit_kwargs["desc"])
+        inn = doc(credit_kwargs["category"], 15000, debit=False, day=4, account="tide-acc", desc=credit_kwargs["desc"])
         # G438: a leg naming the user or an account on file decides the pair; a
         # Transfer-category credit with no name is a pending pair (asked).
         if credit_kwargs["desc"] == "FASTER PAYMENT":
