@@ -889,6 +889,10 @@ def _setup_pair_and_series(monkeypatch, *, dismissed_pairs=None):
     monkeypatch.setattr(analytics, "response_cache", fake_cache)
     import app.services.transfer_review_store as review_store
     monkeypatch.setattr(review_store, "transfer_review_store_col", FakeCol([]))
+    # G447 (H145): an answer starts a background rebuild; these tests drive every step by hand
+    # (one asyncio.run each, rows mutated between steps), so it is switched off here and covered
+    # by test_g447_single_review_pipeline.
+    monkeypatch.setattr(review_store, "refresh_soon", lambda uid: None)
     return txns
 
 

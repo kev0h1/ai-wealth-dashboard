@@ -885,6 +885,18 @@ async def _engine_refresh_on_startup() -> None:
         logger.exception("engine refresh on worker startup failed")
 
 
+async def _review_store_refresh_on_startup() -> None:
+    """G447 (H145): after a deploy, rebuild every stored transfers review whose
+    fingerprint changed (a new pair rule or judge prompt version), so no screen
+    load pays for it. Users still valid cost one fingerprint read each."""
+    try:
+        from app.services import transfer_review_store
+        logger.info("worker startup: transfer review store refreshed for %s users",
+                    await transfer_review_store.refresh_all())
+    except Exception:
+        logger.exception("transfer review store refresh on worker startup failed")
+
+
 async def _dead_consent_sweep_on_startup() -> None:
     """A189: expire accounts on dead Finexer consents at the release restart,
     so production heals without waiting for the next reconcile. Counts only."""
@@ -920,6 +932,7 @@ async def _on_startup(ctx: dict) -> None:
         logger.warning("error type tracking not started: %s", type(exc).__name__)
     ctx["engine_refresh_task"] = asyncio.create_task(_engine_refresh_on_startup())
     ctx["dead_consent_sweep_task"] = asyncio.create_task(_dead_consent_sweep_on_startup())
+    ctx["review_store_refresh_task"] = asyncio.create_task(_review_store_refresh_on_startup())
 
 
 async def task_health_samples(ctx) -> dict:

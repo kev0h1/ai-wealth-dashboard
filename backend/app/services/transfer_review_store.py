@@ -23,9 +23,27 @@ was computed under (`built_epoch`), so a bump that lands mid-compute is never
 overwritten. The fingerprint covers everything else. Neither is touched by a
 generic response-cache wipe.
 
+G447 (H145, compute at change, not on load): the fingerprint also carries the
+model's verdicts and undo overrides, the judge prompt version, the pair-rule
+version (`own_account_transfers.REVIEW_RULES_VERSION`, bumped whenever a pair rule
+changes) and the learned pairs with their source. The rebuild is therefore
+triggered by every change that can alter the list, and never by a screen load
+in the ordinary case:
+
+* a judge run applies verdicts (`own_transfer_judge._after_verdicts`);
+* a confirm, undo, dismiss or separate answer (`refresh_soon` after the answer);
+* the Done flush of a deferred review batch (`derived_caches`);
+* a sync (`account_refresh`, `finexer_sync`);
+* a deploy: the worker refreshes every stored user at startup, and a changed
+  rule or prompt version changes the fingerprint so that refresh rebuilds.
+
+Reads still fall back to an inline recompute if the store is missing or stale
+(a degraded path, not the plan).
+
 Every Mongo touch is defensive: a store failure degrades to an inline
 recompute, never to a 500.
 """
+import asyncio
 import logging
 from datetime import datetime, timedelta, timezone
 
@@ -36,7 +54,7 @@ logger = logging.getLogger(__name__)
 # Safety bound only; correctness comes from epoch + fingerprint.
 MAX_AGE = timedelta(hours=24)
 # Bump when the stored shape changes.
-STORE_SHAPE = 1
+STORE_SHAPE = 2  # G447: 2 = fingerprint carries verdicts, prompt and pair-rule versions
 
 
 async def mark_stale(uid: str) -> None:
@@ -101,3 +119,51 @@ async def refresh(uid: str) -> None:
         await refresh_review_state(uid)
     except Exception:
         logger.exception("transfer_review_store.refresh failed")
+
+
+_inflight: dict[str, "asyncio.Task"] = {}
+_again: set[str] = set()
+
+
+async def _refresh_loop(uid: str) -> None:
+    try:
+        while True:
+            _again.discard(uid)
+            await refresh(uid)
+            if uid not in _again:
+                break
+    finally:
+        _inflight.pop(uid, None)
+
+
+def refresh_soon(uid: str) -> None:
+    """G447 (H145): rebuild the stored candidates in the background right after an
+    answer or a rule change, off the request that caused it, single flight per
+    user (an answer that lands mid-build runs one more build after it). A no-op
+    outside a running event loop. Never raises."""
+    if not uid:
+        return
+    try:
+        running = _inflight.get(uid)
+        if running is not None and not running.done():
+            _again.add(uid)
+            return
+        _inflight[uid] = asyncio.get_running_loop().create_task(_refresh_loop(uid))
+    except RuntimeError:
+        return
+
+
+async def refresh_all() -> int:
+    """Worker startup after a deploy: rebuild every stored user's candidates whose
+    fingerprint no longer matches (a changed rule or prompt version). Sequential,
+    one user at a time; a user already valid costs one fingerprint read."""
+    done = 0
+    try:
+        uids = [d["_id"] async for d in transfer_review_store_col.find({}, {"_id": 1})]
+    except Exception:
+        logger.exception("transfer_review_store.refresh_all failed to list users")
+        return 0
+    for uid in uids:
+        await refresh(uid)
+        done += 1
+    return done

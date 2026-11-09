@@ -32,6 +32,9 @@ from app.core.timeutil import to_user_date
 from app.services.transfer_pruning import pair_pruned_reason
 
 OWN_TRANSFER_MATCH_VERSION = 2
+# G447: bump whenever a pair rule changes (timing, pruning, verdict order, evidence), so the
+# stored transfers review (transfer_review_store) is rebuilt by the worker after the deploy.
+REVIEW_RULES_VERSION = 1
 logger = logging.getLogger(__name__)
 # G443: one history window for everything that reads pairs (reconcile, the model's
 # candidates). It was 90 days, which left a pair imported at the start of history

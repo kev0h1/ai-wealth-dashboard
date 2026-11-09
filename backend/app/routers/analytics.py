@@ -6357,7 +6357,7 @@ async def _review_inputs_fingerprint(uid: str) -> str:
          "dismissed_transfer_pairs": 1, "separate_transfer_pair_reviews": 1},
     ) or {}
     learned = await confirmed_transfer_pairs_col.find(
-        {"user_id": uid}, {"key_a": 1, "key_b": 1},
+        {"user_id": uid}, {"key_a": 1, "key_b": 1, "source": 1},
     ).to_list(None)
     kinds = await get_category_kinds(uid)
     identity = await user_identity(uid)
@@ -6370,14 +6370,19 @@ async def _review_inputs_fingerprint(uid: str) -> str:
     txn_count = await transactions_col.count_documents({"user_id": uid})
     # G442: the model's verdicts (and the user's undo overrides) change what the
     # review asks, so they are part of the stored state's identity.
-    from app.services.own_account_transfers import ai_state_signature
+    from app.services.own_account_transfers import (
+        HISTORY_DAYS, OWN_TRANSFER_MATCH_VERSION, REVIEW_RULES_VERSION, ai_state_signature,
+    )
+    from app.services.own_transfer_judge import PROMPT_VERSION
     material = {
         "ai_verdicts": await ai_state_signature(uid),
+        # G447: a changed rule or prompt rebuilds the stored list (deploy -> worker refresh)
+        "rules": [REVIEW_RULES_VERSION, PROMPT_VERSION, OWN_TRANSFER_MATCH_VERSION, HISTORY_DAYS],
         "dismissed_rows": sorted(str(x) for x in prefs.get("dismissed_miscategorised") or []),
         "dismissed_series": sorted(str(x) for x in prefs.get("dismissed_miscategorised_series") or []),
         "dismissed_pairs": sorted(str(x) for x in prefs.get("dismissed_transfer_pairs") or []),
         "separate": prefs.get("separate_transfer_pair_reviews") or [],
-        "learned": sorted(tuple(sorted((str(d.get("key_a")), str(d.get("key_b"))))) for d in learned),
+        "learned": sorted((*sorted((str(d.get("key_a")), str(d.get("key_b")))), str(d.get("source") or "")) for d in learned),
         "kinds": sorted((str(k), str(v)) for k, v in dict(kinds).items()),
         "name_tokens": sorted(str(x) for x in identity.get("name_tokens") or []),
         "own_ids": sorted(identity.get("own_ids") or []),
@@ -6518,6 +6523,8 @@ async def dismiss_miscategorised(txn_id: str, user: dict = Depends(current_user)
     # A successful decision must be visible to the very next read, including
     # another API process or the shared response cache.
     await response_cache.ainvalidate(uid)
+    from app.services import transfer_review_store as _review_store  # G447 (H145): rebuild the stored list now, off this request
+    _review_store.refresh_soon(uid)
     return {"ok": True}
 
 
@@ -6538,6 +6545,8 @@ async def dismiss_miscategorised_series(body: dict, user: dict = Depends(current
     # A successful decision must be visible to the very next read, including
     # another API process or the shared response cache.
     await response_cache.ainvalidate(uid)
+    from app.services import transfer_review_store as _review_store  # G447 (H145): rebuild the stored list now, off this request
+    _review_store.refresh_soon(uid)
     return {"ok": True}
 
 
@@ -7090,6 +7099,8 @@ async def confirm_transfer_pair(body: dict, user: dict = Depends(current_user)):
     from app.services import transfer_review_store
     await transfer_review_store.mark_stale(uid)
     await response_cache.ainvalidate(uid)
+    from app.services import transfer_review_store as _review_store  # G447 (H145): rebuild the stored list now, off this request
+    _review_store.refresh_soon(uid)
 
     if changed:
         from app.services.derived_caches import defer_transfer_review_recompute, mark_stale
@@ -7140,6 +7151,8 @@ async def undo_ai_transfer(body: dict, user: dict = Depends(current_user)):
     from app.services import transfer_review_store
     await transfer_review_store.mark_stale(uid)
     await response_cache.ainvalidate(uid)
+    from app.services import transfer_review_store as _review_store  # G447 (H145): rebuild the stored list now, off this request
+    _review_store.refresh_soon(uid)
     from app.services.derived_caches import defer_transfer_review_recompute, mark_stale
     if body.get("defer_recompute") is True:
         await defer_transfer_review_recompute(uid)
@@ -7212,4 +7225,6 @@ async def dismiss_transfer_pair(body: dict, user: dict = Depends(current_user)):
     )
     # Await the shared version bump before the UI reloads its review queue.
     await response_cache.ainvalidate(uid)
+    from app.services import transfer_review_store as _review_store  # G447 (H145): rebuild the stored list now, off this request
+    _review_store.refresh_soon(uid)
     return {"ok": True}
