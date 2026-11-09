@@ -38,7 +38,10 @@ for(const state of STATES.map(s=>s.id))for(const hidden of [false,true]){
     const caveat=html.slice(html.indexOf('data-sts-caveat'),html.indexOf('</details>',html.indexOf('data-sts-caveat')));
     assert.match(caveat,/What this estimate counts/);assert.match(plain(caveat),/It doesn't include other accounts, payments still pending, or bills Sorted hasn't spotted yet\./);assert.match(caveat,/It can be wrong/);
     const working=html.slice(html.indexOf('data-g324-calculation'),html.indexOf('</details>',html.indexOf('data-g324-calculation')));
-    if((FORECASTS[state]?.payday_income??0)>0)assert.match(plain(working),/Expected pay.*About £.*due/,'expected pay explicitly labelled inside working');
+    if((FORECASTS[state]?.payday_income??0)>0){
+      assert.match(plain(working),/Expected pay Expected on .+ About \+£/,'expected pay retains its payday scope and signed amount inside working');
+      assert.match(working,/<button[^>]*aria-haspopup="dialog"[^>]*>Expected pay/,'expected pay opens the approved income detail sheet');
+    }
     if(['payments-short','plans-only','no-account'].includes(state))assert.doesNotMatch(hero,/data-spend-from-account=/,'no positive account guidance with no cash to spend');
     if(!hidden&&state==='card-reserve'){assert.doesNotMatch(plain(hero),/held while a card bill/);assert.doesNotMatch(working,/After card hold/);}
   }
