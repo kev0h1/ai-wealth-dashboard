@@ -45,7 +45,7 @@ export type UpcomingRowModel = {
   isSettling?: boolean;
   pending?: boolean;
   daysPastDue?: number;
-  amountBasis?: "balance_estimate" | "statement_unknown" | "user_entered" | null;
+  amountBasis?: "balance_estimate" | "statement_estimate" | "statement_unknown" | "user_entered" | "fixed_payment" | null;
   flagged?: boolean;
   timingRisk?: boolean;
   accountShort?: boolean;

@@ -220,7 +220,7 @@ export type UpcomingBill = {
    * should mark the figure as an estimate (a leading "~"), never treat it
    * as a confirmed amount.
    */
-  amount_basis?: "balance_estimate" | "statement_unknown" | "user_entered" | null;
+  amount_basis?: "balance_estimate" | "statement_estimate" | "statement_unknown" | "user_entered" | "fixed_payment" | null;
   /** Set when Penny (agent mode v1) created this planned payment via a
    * confirmed proposal, rather than the user adding it by hand in Planning.
    * Origin badge only — see Allocation's own `created_via` comment for the
@@ -2954,6 +2954,22 @@ export type CardStatementBill = {
   rule_status?: "matched" | "unmatched" | "unknown";
   /** G441: the amount was typed in by the person, not estimated. */
   user_entered?: boolean;
+  /** G444: how the estimate was made, amounts only. Absent when the card has no balance yet. */
+  working?: CardStatementWorking | null;
+};
+
+/** G444: the components of the closed-statement estimate. */
+export type CardStatementWorking = {
+  /** What the card owed when its balance was read, positive. */
+  balance_owed: number;
+  balance_as_of: string | null;
+  spent_since_close: number;
+  credits_since_close: number;
+  pending_excluded: number;
+  stale_excluded: number;
+  stale_excluded_count: number;
+  /** What the card alone says, even when the person has entered an amount over it. */
+  card_estimate: number | null;
 };
 
 export type CardTermsCard = {
