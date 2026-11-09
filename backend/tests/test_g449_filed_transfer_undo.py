@@ -11,6 +11,7 @@ from motor.motor_asyncio import AsyncIOMotorClient
 import app.routers.card_terms  # noqa: F401; pre-import before collection patches
 import app.services.debt_plan  # noqa: F401
 from app.core.config import MONGO_DB, MONGO_URI
+from app.db.guard import guarded_drop_collection
 from app.services import filed_transfer_undo as undo, own_account_transfers as oat
 from app.services import derived_caches, response_cache, transfer_review_store
 from app.services.categories import BUILTIN_CATEGORY_KINDS
@@ -58,7 +59,7 @@ async def environment(monkeypatch, rows):
         yield cols, calls
     finally:
         for col in cols.values():
-            await col.drop()
+            await guarded_drop_collection(client, MONGO_DB, col.name)
         client.close()
 
 
