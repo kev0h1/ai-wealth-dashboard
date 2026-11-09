@@ -4,7 +4,6 @@ import { useState, type ReactNode } from "react";
 import Link from "next/link";
 import type { SafeToSpend } from "@/lib/api";
 import type { LeftToSpendEvidence } from "@/lib/leftToSpendEvidence";
-import type { CoverMoveEvidence } from "@/lib/coverMoveEvidence";
 import { DisclosureSummary } from "@/components/Disclosure";
 import MoneyText from "@/components/MoneyText";
 import IncomeEvidenceSheet from "@/components/IncomeEvidenceSheet";
@@ -60,7 +59,6 @@ export default function SafeToSpendDisclosures({
   showCardsLink,
   reservationDetails,
   freshnessLabel,
-  earmarkedMoves = [],
 }: {
   disclaimer: string;
   data: SafeToSpendOk;
@@ -73,7 +71,6 @@ export default function SafeToSpendDisclosures({
   showCardsLink: boolean;
   reservationDetails: ReactNode;
   freshnessLabel: string | null;
-  earmarkedMoves?: CoverMoveEvidence[];
 }) {
   const [sheet, setSheet] = useState<"before_payday" | "expected_pay" | null>(null);
   const growth = data.card_growth_total ?? 0;
@@ -104,9 +101,6 @@ export default function SafeToSpendDisclosures({
         </dl>
         {evidence.ledgerNote && <p className={styles.note}><MoneyText text={evidence.ledgerNote} /></p>}
         {reservationDetails}
-        {earmarkedMoves.length > 0 && <div data-g412-earmarks>
-          {earmarkedMoves.map(move => <p key={`${move.sourceId}:${move.destinationId}`}><MoneyText text={`${format(move.amount, true)} moving from ${move.sourceName} to ${move.destinationName} to cover its payments. This does not change the total.`} /></p>)}
-        </div>}
         {(data.pooled_transfers_excluded ?? 0) > 0 && <p>Transfers between your own included accounts do not change the total, so they are left out of this calculation.</p>}
         <dl className={styles.facts}>
           <Fact label="Daily amount">{evidence.dailyAmount === null ? "Not available" : <MoneyText text={`${format(evidence.dailyAmount, true)} a day`} />}</Fact>
