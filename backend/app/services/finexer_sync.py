@@ -2083,7 +2083,7 @@ async def sync_finexer_consent(
                 # used to write 0.0 over the last good balance, and a stale
                 # balance had no timestamp to tell it apart from a fresh one.
                 set_doc["balance"] = balance
-                set_doc["balance_as_of"] = datetime.now(timezone.utc)
+                set_doc["balance_as_of"] = datetime.now(timezone.utc)  # naive-ok: persisted UTC instant, not a calendar day
             if balance_seen and is_card and card_diag.get("entry_type"):
                 set_doc["card_balance_entry_type"] = card_diag["entry_type"]
             if debt_sign is not None:

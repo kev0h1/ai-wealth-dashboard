@@ -401,7 +401,7 @@ async def _sync_connection(connection_id: str, user_id: Optional[str] = None, fr
             except Exception:
                 logger.exception("Sync error for account %s", account_id)
             # Never overwrite a known balance with 0 from a failed fetch
-            balance_fields = {"balance": balance, "available": available, "balance_as_of": datetime.now(timezone.utc)} if balance_ok else {}
+            balance_fields = {"balance": balance, "available": available, "balance_as_of": datetime.now(timezone.utc)} if balance_ok else {}  # naive-ok: persisted UTC instant, not a calendar day
             await accounts_col.update_one({"_id": account_id}, {
                 "$set": {
                     "name":        acc.get("display_name", acc.get("account_type", "Account")),
@@ -455,7 +455,7 @@ async def _sync_connection(connection_id: str, user_id: Optional[str] = None, fr
                     logger.warning("Transaction fetch failed for card %s: HTTP %s", card_id, ctr.status_code)
             except Exception:
                 logger.exception("Sync error for card %s", card_id)
-            balance_fields = {"balance": balance, "available": available, "balance_as_of": datetime.now(timezone.utc)} if balance_ok else {}
+            balance_fields = {"balance": balance, "available": available, "balance_as_of": datetime.now(timezone.utc)} if balance_ok else {}  # naive-ok: persisted UTC instant, not a calendar day
             await accounts_col.update_one({"_id": card_id}, {
                 "$set": {
                     "name":        card.get("display_name", card.get("card_type", "Credit Card")),
