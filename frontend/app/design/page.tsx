@@ -32,6 +32,14 @@ type PreviewRoute = {
 
 const ROUTES: PreviewRoute[] = [
   {
+    slug: "filed-transfers",
+    name: "Transfers Sorted filed · G449",
+    description: "G449 design round, frontend-design then impeccable. A Compact history and B Evidence first use one shared full-height sheet from the Spend amount, Pay periods menu and a persistent review link. Selected-period amounts reconcile, all-time and Sorted-filed scopes remain distinct, newest-first series are paginated, and Undo returns both entries to review. Fictional fixtures and local actions only. Production data, APIs and components are unchanged. Close the sheet to change entry point, theme or scenario.",
+    variants: [{ label: "A · Compact history", value: "a" }, { label: "B · Evidence first", value: "b" }],
+    states: [{ label: "Ready", value: "ready" }, { label: "Hidden figures", value: "hidden" }, { label: "Loading", value: "loading" }, { label: "Empty", value: "empty" }, { label: "Load failure", value: "error" }, { label: "Last known data", value: "stale" }, { label: "Undo failure", value: "undo-error" }, { label: "Refresh failure", value: "refresh-error" }, { label: "Long accounts", value: "long" }],
+    group: "current",
+  },
+  {
     slug: "statements-house-ads",
     name: "Statements house ads · B58",
     description:
