@@ -6629,7 +6629,7 @@ def _has_pair_evidence(c: dict, d: dict, identity: dict, credit_claims_move: boo
     # G443: bank facts rule it out (a card purchase, a business, a third institution),
     # before the model and before the user is asked. A user answer on either leg wins.
     from app.services.transfer_pruning import pair_pruned_reason
-    if pair_pruned_reason(c, d, identity.get("account_meta")) is not None:
+    if pair_pruned_reason(c, d, identity.get("account_meta"), identity, credit_claims_move) is not None:
         return False
     if credit_claims_move:
         return True

@@ -381,32 +381,32 @@ def _equiv_rows():
         rows.append(_t(f"mc{i}", ttype="credit", amount=40.0, date=day(i), account_id=f"cr{i}",
                        desc="OWNER REF SHARED", category="Income"))
         rows.append(_t(f"md{i}", ttype="debit", amount=40.0, date=day(i), account_id=f"db{i}",
-                       desc="OWNER REF SHARED", category="Shopping"))
+                       desc="OWNER REF SHARED", category="Other"))
     # Date ties: one credit, two debits equally close (same day diff), same amount.
     rows.append(_t("tc", ttype="credit", amount=12.34, date=day(10), account_id="cr0",
                    desc="TIE REF", category="Income"))
     rows.append(_t("td1", ttype="debit", amount=12.34, date=day(9), account_id="db0",
-                   desc="TIE REF", category="Shopping"))
+                   desc="TIE REF", category="Other"))
     rows.append(_t("td2", ttype="debit", amount=12.34, date=day(11), account_id="db1",
-                   desc="TIE REF", category="Shopping"))
+                   desc="TIE REF", category="Other"))
     # Cross-currency near miss: same number, different currency; and 0.01 off.
     rows.append(_t("xc", ttype="credit", amount=77.77, date=day(20), account_id="cr0",
                    desc="NEAR REF", category="Income"))
     usd = _t("xd", ttype="debit", amount=77.77, date=day(20), account_id="db0",
-             desc="NEAR REF", category="Shopping")
+             desc="NEAR REF", category="Other")
     usd["currency"] = "USD"
     rows.append(usd)
     rows.append(_t("xe", ttype="debit", amount=77.78, date=day(20), account_id="db1",
-                   desc="NEAR REF", category="Shopping"))
+                   desc="NEAR REF", category="Other"))
     # Same account both legs (never pairs) and a null amount.
     rows.append(_t("sc", ttype="credit", amount=5.5, date=day(30), account_id="cr0",
                    desc="SAME REF", category="Income"))
     rows.append(_t("sd", ttype="debit", amount=5.5, date=day(30), account_id="cr0",
-                   desc="SAME REF", category="Shopping"))
+                   desc="SAME REF", category="Other"))
     rows.append(_t("nc", ttype="credit", amount=None, date=day(31), account_id="cr0",
                    desc="NULL REF", category="Income"))
     rows.append(_t("nd", ttype="debit", amount=None, date=day(31), account_id="db0",
-                   desc="NULL REF", category="Shopping"))
+                   desc="NULL REF", category="Other"))
     return rows
 
 

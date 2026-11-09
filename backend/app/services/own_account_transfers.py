@@ -1141,7 +1141,7 @@ def _confirmed_pairs(
 def _same_amount_pairs(
     rows: list[dict], accounts: dict[str, dict], movement_categories: set[str], *,
     consumed: set[str], exclude_ids: set[str] | frozenset[str], in_window,
-    learned: set[tuple[str, str]] | frozenset = frozenset(),
+    learned: set[tuple[str, str]] | frozenset = frozenset(), name_tokens: list[str] | None = None,
 ):
     """The ONE pair builder (G438/G440, reused by G442): every same-amount,
     opposite-direction pair on two different accounts on file whose legs
@@ -1155,6 +1155,8 @@ def _same_amount_pairs(
         key = _pair_key(debit)
         if key is not None:
             debit_buckets.setdefault(key, []).append(debit)
+    prune_identity = {"name_tokens": name_tokens or [], "own_ids": set(), "own_map": {}, "own_keys": {},
+                      "account_names": {str(i): a.get("name") or a.get("display_name") for i, a in accounts.items()}}
     cards_by_issuer: dict[str, list[str]] = {}
     for account_id, account in accounts.items():
         issuer_key = card_issuer_key(account)
@@ -1180,7 +1182,8 @@ def _same_amount_pairs(
             if not in_window(c_date, d_date):
                 continue
             issuer = card_repayment_issuer(credit, debit, accounts, cards_by_issuer, amount_rows.get(key, []))
-            if (issuer is None and pair_pruned_reason(credit, debit, accounts) is not None
+            if (issuer is None and pair_pruned_reason(credit, debit, accounts, prune_identity,
+                                                      credit.get("category") in movement_categories) is not None
                     and not _user_answered_pair(credit, debit, learned, movement_categories)
                     and not counterparty_matches_account(debit, accounts.get(credit.get("account_id")))
                     and not counterparty_matches_account(credit, accounts.get(debit.get("account_id")))):
@@ -1212,7 +1215,7 @@ def select_unique_pairs_detailed(
     candidates: list[tuple[dict, dict, str | None]] = []
     for credit, debit, issuer in _same_amount_pairs(
             rows, accounts, movement_categories, consumed=consumed, exclude_ids=exclude_ids,
-            in_window=lambda c, d: abs((c.date() - d.date()).days) <= PAIR_DAYS, learned=learned):
+            in_window=lambda c, d: abs((c.date() - d.date()).days) <= PAIR_DAYS, learned=learned, name_tokens=name_tokens):
         if (is_direct_debit(credit) or is_direct_debit(debit)) and not issuer and not _user_answered_pair(
                 credit, debit, learned, movement_categories):
             continue  # A194: a direct debit is never an own transfer by bank evidence
@@ -1240,7 +1243,7 @@ def ai_candidate_pairs(
     leftovers: list[tuple[dict, dict, str | None]] = []
     for credit, debit, issuer in _same_amount_pairs(
             rows, accounts, movement_categories, consumed=consumed, exclude_ids=exclude_ids,
-            in_window=within_ask_window, learned=learned):
+            in_window=within_ask_window, learned=learned, name_tokens=name_tokens):
         if issuer or is_direct_debit(credit) or is_direct_debit(debit):
             continue
         if _user_answered_pair(credit, debit, learned, movement_categories):

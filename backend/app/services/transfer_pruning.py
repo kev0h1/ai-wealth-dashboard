@@ -133,6 +133,27 @@ def is_card_purchase(debit: dict, account: dict | None) -> bool:
     return is_card_purchase_text(_text(debit))
 
 
+def debit_shows_own_account(debit: dict, credit: dict, identity: dict | None) -> bool:
+    """The DEBIT leg's own text says it is the user's money: it carries the user's
+    name in any form, another account's sort code and number, or the name of the
+    credit's account on file ("AURIQ AURIQ TIDE" paid to the Tide business account,
+    "MR K MAINGI RENT"). G438's rule (b): such a payment pairs with an own-account
+    credit even when its category is Business or Bills, so it is never read as a
+    business here. Only the debit's text counts, never the credit's: a credit
+    carrying the user's name pairs with a vendor payment by coincidence."""
+    if not identity:
+        return False
+    from app.services.categorisation import own_transfer_evidence
+    from app.services.own_account_transfers import _compact_owner_name, account_name_in_text
+    text = _text(debit)
+    if own_transfer_evidence(text, identity, own_account_id=debit.get("account_id")) is not None:
+        return True
+    if _compact_owner_name(text, identity.get("name_tokens") or []):
+        return True
+    names = identity.get("account_names") or {}
+    return account_name_in_text(text, {"name": names.get(str(credit.get("account_id")))})
+
+
 def is_business_debit(debit: dict) -> bool:
     """A debit to a business: the bank named a merchant, or the machine category
     is a spending kind. Never on a transfer rail, never with counterparty account
@@ -163,9 +184,15 @@ def _user_answered(*legs: dict) -> bool:
     return any(x.get("linked_offline_account_id") or x.get("linked_goal_id") or x.get("custom_category") for x in legs)
 
 
-def pair_pruned_reason(credit: dict, debit: dict, accounts: dict | None) -> str | None:
+def pair_pruned_reason(credit: dict, debit: dict, accounts: dict | None, identity: dict | None = None,
+                       credit_claims_move: bool = False) -> str | None:
     """Why this pair is ruled out as an own transfer by bank facts, or None.
-    `accounts` maps account id to an account-like dict (provider, name, type)."""
+    `accounts` maps account id to an account-like dict (provider, name, type);
+    `identity` (name tokens, own account keys and names) lets a debit that itself
+    names the user or one of their accounts stay out of the business test, and a
+    credit that already claims a move (a movement-kind category, G438) does too: a
+    payment to the user's own business account carries a merchant name. The card
+    purchase and third institution tests never bend to either."""
     if _user_answered(credit, debit):
         return None
     accounts = accounts or {}
@@ -173,7 +200,8 @@ def pair_pruned_reason(credit: dict, debit: dict, accounts: dict | None) -> str 
     credit_account = accounts.get(credit.get("account_id"))
     if is_card_purchase(debit, debit_account):
         return "card_purchase"
-    if is_business_debit(debit):
+    if (is_business_debit(debit) and not credit_claims_move
+            and not debit_shows_own_account(debit, credit, identity)):
         return "business"
     if names_third_institution(credit, credit_account, debit_account):
         return "third_institution"

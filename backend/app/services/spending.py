@@ -281,7 +281,8 @@ def _scan_own_moves(docs: list[dict], kinds, identity: dict | None = None) -> tu
                     continue
                 if is_direct_debit(cr):
                     continue  # A194: a direct debit is never an own transfer
-                if pair_pruned_reason(cr, d, account_meta) is not None:
+                if pair_pruned_reason(cr, d, account_meta, identity,
+                                      kind_of(kinds, _effective_category(cr)) == MOVEMENT) is not None:
                     continue  # G443: bank facts rule it out, so it stays in Spend and is not asked
                 if ai_pairs and ai_verdict(cr, d) == "not_transfer":
                     continue  # G442: judged not a transfer, so it stays in Spend and is not asked
