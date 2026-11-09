@@ -79,7 +79,7 @@ from app.services.categories import (
 from app.services.categorisation import canonical_merchant_key, own_transfer_evidence, user_identity
 from app.services.transfer_pruning import pair_pruned_reason
 from app.services.own_account_transfers import (
-    account_name_in_text, counterparty_key, is_direct_debit, pair_is_named, pair_timing_ok, within_auto_window,
+    account_name_in_text, counterparty_key, is_direct_debit, pair_is_named, pair_timing_ok, user_set_movement, within_auto_window,
 )
 
 logger = logging.getLogger(__name__)
@@ -288,7 +288,7 @@ def _scan_own_moves(docs: list[dict], kinds, identity: dict | None = None) -> tu
                 if pair_pruned_reason(cr, d, account_meta, identity,
                                       kind_of(kinds, _effective_category(cr)) == MOVEMENT) is not None:
                     continue  # G443: bank facts rule it out, so it stays in Spend and is not asked
-                if ai_pairs and ai_verdict(cr, d) == "not_transfer":
+                if ai_pairs and ai_verdict(cr, d) == "not_transfer" and not (user_set_movement(cr) or user_set_movement(d)):
                     continue  # G442: judged not a transfer, so it stays in Spend and is not asked
                 if not allow_income and kind_of(kinds, _effective_category(cr)) == INCOME:
                     if not (income_with_text and pair_named(d, cr)):

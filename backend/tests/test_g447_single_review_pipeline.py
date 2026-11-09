@@ -387,3 +387,45 @@ def test_the_worker_starts_the_store_refresh_at_startup():
     import inspect
     import app.workers.sync_worker as worker
     assert "_review_store_refresh_on_startup" in inspect.getsource(worker._on_startup)
+
+
+# ── user answers beat a stale verdict; card purchase prune on lone debits ───
+
+def test_a_user_set_transfer_category_beats_a_stale_not_transfer_verdict(monkeypatch):
+    meta = {k: {f: v.get(f) for f in ("provider", "name", "type")} for k, v in BY_ID.items()}
+    ids = frozenset(("c", "d"))
+    ident = {"name_tokens": TOKENS, "own_ids": set(), "own_map": {}, "own_keys": {},
+             "account_names": {k: v["name"] for k, v in BY_ID.items()}, "account_meta": meta,
+             "ai_pairs": {ids: {"verdict": "not_transfer", "reason": "x"}}, "ai_blocked": frozenset({ids})}
+    d = _row("d", "debit", 31.0, "natw", D0, "EE LIMITED", merchant_name="EE Limited", category="Bills")
+    engine = _row("c", "credit", 31.0, "star", D0, "STARLING", category="Transfer")  # the engine's guess
+    assert analytics._has_pair_evidence(engine, d, ident, True) is False
+    user = {**engine, "custom_category": "Transfer"}  # the user then sets it
+    assert analytics._has_pair_evidence(user, d, ident, True) is True
+    # Spend reads the same answer: an "Other" debit pairs with the user's credit despite the verdict,
+    # and whatever leaves Spend is askable
+    other = {**d, "category": "Other"}
+    pending = find_pending_transfer_ids([dict(user), dict(other)], KINDS, ident)
+    own = find_own_move_ids([dict(user), dict(other)], KINDS, ident)
+    assert pending | own, "the user's answer makes it a pair again"
+    if pending:
+        assert analytics._has_pair_evidence(user, other, ident, True)
+
+    async def run():
+        async with mongo_env(monkeypatch, [dict(d), dict(user)], accounts=ACCTS) as cols:
+            await cols["own_transfer_judgements"].insert_one({
+                "_id": f"{UID}::c:d", "user_id": UID, "kind": "pair", "ids": ["c", "d"], "verdict": "not_transfer",
+                "reason": "x", "series_sig": "s", "prompt_version": judge.PROMPT_VERSION})
+            state = await analytics._build_review_state(UID)
+            assert [p["debit"]["id"] for p in state["pairs"]] == ["d"]
+    _arun(run())
+
+
+def test_a_lone_debit_with_owner_text_and_a_card_marker_is_not_asked(monkeypatch):
+    from test_g438_transfer_classification import _review_fakes, IDENTITY
+    from test_transfer_pairs import _t, UID as FAKE_UID
+    plain = _t("d1", ttype="debit", amount=40.0, date=D0, account_id="main", desc="To Jordan Blake", category="Other")
+    card = _t("d2", ttype="debit", amount=41.0, date=D0, account_id="main", desc="To Jordan Blake ON 09 MAY CPM", category="Other")
+    _review_fakes(monkeypatch, [plain, card], IDENTITY)
+    flagged = asyncio.run(analytics._flagged_miscategorised(FAKE_UID))
+    assert [t["_id"] for t in flagged] == ["d1"]  # the control is asked, the card purchase is not

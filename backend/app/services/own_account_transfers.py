@@ -747,6 +747,14 @@ def pair_is_named(credit: dict, debit: dict, identity: dict) -> bool:
             or account_name_in_text(_text(credit), {"name": names.get(str(debit.get("account_id")))}))
 
 
+def user_set_movement(row: dict) -> bool:
+    """G447: the USER chose a movement category on this leg (`custom_category`, never the
+    engine's `category`). It is a user answer and outranks the model's verdicts in the
+    review, Spend and reconcile."""
+    cc = row.get("custom_category")
+    return cc is not None and BUILTIN_CATEGORY_KINDS.get(cc) == MOVEMENT
+
+
 def ai_verdict_for(identity: dict | None, credit: dict, debit: dict) -> str | None:
     """The model's standing verdict (`same_transfer`, `not_transfer`, `unclear`) on
     this exact pair of transaction ids, or None when it has not judged it or the

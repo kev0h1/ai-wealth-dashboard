@@ -6667,7 +6667,11 @@ def _has_pair_evidence(c: dict, d: dict, identity: dict, credit_claims_move: boo
     # categorised as a transfer kept a not_transfer pair in the review). not_transfer
     # drops it and leaves it in Spend; unclear is asked, whatever rule evidence exists,
     # with the model's reason shown. A user link above always wins.
-    from app.services.own_account_transfers import series_signature
+    from app.services.own_account_transfers import series_signature, user_set_movement
+    # G447: a USER-set movement category on either leg is the user's answer and beats a stale
+    # verdict (the engine's own category, `credit_claims_move`, does not: it follows the verdict).
+    if user_set_movement(c) or user_set_movement(d):
+        return True
     verdict = ai_verdict_for(identity, c, d)
     if verdict == "not_transfer":
         return False
