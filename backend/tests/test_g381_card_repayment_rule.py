@@ -265,3 +265,50 @@ def test_the_structural_pass_applies_the_rule_over_history_days(monkeypatch):
     accounts = [{**a, "user_id": PAIR_UID} for a in (CURRENT, CARD1, BARC)]
     _run_apply_rules_bulk(monkeypatch, [row], accounts=accounts)
     assert row["category"] == "Debt" and row["card_repayment_rule"]["card_account_id"] == "ncc1"
+
+
+def test_undoing_the_teaching_sheet_option_stops_the_card_repayment_reading(monkeypatch):
+    from test_g376_movement_destinations import _Events, _Rows, _wire, transactions
+    row = {"_id": "t1", "user_id": "kevin@example.com", "transaction_type": "debit", "amount": 75.53,
+           "date": D0, "account_id": "a1", "merchant_name": "NATW", "description": "NATW CC PYMT",
+           "category": "Other", "custom_category": None}
+    rows = _Rows([row])
+    _wire(monkeypatch, rows, _Events())
+    user = {"email": "kevin@example.com"}
+
+    async def _no_cache(*a, **k):
+        return None
+
+    async def _kinds(uid):
+        return KINDS
+
+    monkeypatch.setattr(transactions, "cache_merchant", _no_cache)
+    monkeypatch.setattr(transactions, "get_category_kinds", _kinds)
+    asyncio.run(transactions.resolve_movement("t1", {"resolution": "mine-card"}, user))
+    assert rows.docs[0]["card_repayment_taught"] is True
+    # the sheet's Undo: the spending resolution with the original category (here none, then a category)
+    asyncio.run(transactions.resolve_movement("t1", {"resolution": "spending", "category": "Other"}, user))
+    saved = dict(rows.docs[0])
+    assert "card_repayment_taught" not in saved and saved["custom_category"] == "Other"
+    later = {**saved, "_id": "t2", "custom_category": None, "category": "Debt"}
+    assert find_card_repayment_ids([saved, later], KINDS, []) == set(), "the payee is no longer taught"
+    ctx = SpendingContext.from_docs([saved, later], KINDS, None, [])
+    assert txn_flow(later, ctx).counts_as_spend
+    # a plain re-file (no category given) clears it too
+    asyncio.run(transactions.resolve_movement("t1", {"resolution": "mine-card"}, user))
+    asyncio.run(transactions.resolve_movement("t1", {"resolution": "spending"}, user))
+    assert "card_repayment_taught" not in rows.docs[0]
+
+
+def test_the_not_a_card_words_guard_stands_on_its_own(monkeypatch):
+    # No guard word is in the filler whitelist today, so the filler test already rejects them...
+    assert not [w for w in ("loan", "mortgage", "fee", "interest", "insurance", "finance", "student")
+                if w in cr._REPAYMENT_FILLER]
+    assert _hits([_debit("d", "NATWEST LOAN")], CURRENT, CARD1) == {}
+    # ...so prove the guard itself: whitelist a loan-like word as filler and the guard still refuses it
+    monkeypatch.setattr(cr, "_REPAYMENT_FILLER", cr._REPAYMENT_FILLER | {"loan", "fee", "mortgage"})
+    assert cr._only_issuer_and_filler("NATWEST LOAN", "natwest") is True
+    for text in ("NATWEST LOAN", "NATWEST FEE", "NATWEST MORTGAGE"):
+        assert _hits([_debit("d", text)], CURRENT, CARD1) == {}, text
+    monkeypatch.setattr(cr, "_NOT_A_CARD_WORDS", __import__("re").compile("(?!)"))
+    assert list(_hits([_debit("d", "NATWEST LOAN")], CURRENT, CARD1)) == ["d"], "without the guard the whitelisted word files"

@@ -344,7 +344,9 @@ _REPAYMENT_FILLER = frozenset({
     "standing", "order", "online", "mobile", "app", "by", "on", "for", "of", "and", "no", "number", "acc",
     "account", "balance", "pay", "paid",
 })
-#: Words that make a narrative a different product from the issuer's card.
+#: Words that make a narrative a different product from the issuer's card. Defence in depth
+#: (G381 review): none of these is in `_REPAYMENT_FILLER`, so `_only_issuer_and_filler` already
+#: rejects them; this guard keeps a loan-like word out even if someone later whitelists it as filler.
 _NOT_A_CARD_WORDS = re.compile(
     r"\b(?:loan|loans|mortgage|fee|fees|charge|charges|interest|overdraft|insurance|isa|savings|saver|"
     r"pension|finance|student|slc|hp|lease|rent|current|account\s+fee|refund|reversal|reversed|returned|unpaid)\b",

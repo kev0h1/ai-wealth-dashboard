@@ -693,13 +693,13 @@ async def update_transaction(transaction_id: str, body: dict, user: dict = Depen
 
     await transactions_col.update_one(
         {"_id": transaction_id, "user_id": user["email"]},
-        {"$set": {"custom_category": category, "custom_category_at": stamp}},
+        {"$set": {"custom_category": category, "custom_category_at": stamp}, "$unset": {"card_repayment_taught": ""}},
     )
     bulk_count = 0
     if additional_ids:
         result = await transactions_col.update_many(
             {"_id": {"$in": additional_ids}, "user_id": user["email"]},
-            {"$set": {"custom_category": category, "custom_category_at": stamp}},
+            {"$set": {"custom_category": category, "custom_category_at": stamp}, "$unset": {"card_repayment_taught": ""}},
         )
         bulk_count = result.modified_count
 
@@ -927,7 +927,7 @@ async def resolve_movement(transaction_id: str, body: dict, user: dict = Depends
         await transactions_col.update_one(
             {"_id": transaction_id, "user_id": uid},
             {"$set": {"custom_category": _MOVEMENT_CATEGORY, "custom_category_at": _correction_stamp()},
-             "$unset": {"linked_goal_id": "", "linked_offline_account_id": ""}},
+             "$unset": {"linked_goal_id": "", "linked_offline_account_id": "", "card_repayment_taught": ""}},
         )
         category_changed = True
         result["custom_category"] = _MOVEMENT_CATEGORY
@@ -999,7 +999,7 @@ async def resolve_movement(transaction_id: str, body: dict, user: dict = Depends
         await transactions_col.update_one(
             {"_id": transaction_id, "user_id": uid},
             {"$set": {"custom_category": category, "custom_category_at": stamp},
-             "$unset": {"linked_goal_id": "", "linked_offline_account_id": ""}},
+             "$unset": {"linked_goal_id": "", "linked_offline_account_id": "", "card_repayment_taught": ""}},
         )
         category_changed = True
         result["custom_category"] = category
@@ -1044,7 +1044,7 @@ async def resolve_movement(transaction_id: str, body: dict, user: dict = Depends
             await transactions_col.update_one(
                 {"_id": transaction_id, "user_id": uid},
                 {"$set": {"custom_category": category, "custom_category_at": stamp},
-                 "$unset": {"linked_goal_id": "", "linked_offline_account_id": ""}},
+                 "$unset": {"linked_goal_id": "", "linked_offline_account_id": "", "card_repayment_taught": ""}},
             )
             if len(merchant_key) >= 3:
                 # A built-in category MAY go global, but only after
@@ -1062,7 +1062,7 @@ async def resolve_movement(transaction_id: str, body: dict, user: dict = Depends
                 await transactions_col.update_one(
                     {"_id": transaction_id, "user_id": uid},
                     {"$set": {"custom_category": None},
-                     "$unset": {"linked_goal_id": "", "linked_offline_account_id": ""}},
+                     "$unset": {"linked_goal_id": "", "linked_offline_account_id": "", "card_repayment_taught": ""}},
                 )
                 category_changed = True
                 result["custom_category"] = None
