@@ -184,7 +184,8 @@ def test_the_prune_is_the_same_in_the_review_gate_and_in_spend():
     meta = {k: {f: v.get(f) for f in ("provider", "name", "type")} for k, v in BY_ID.items()}
     identity = {"name_tokens": TOKENS, "own_ids": set(), "own_map": {}, "account_meta": meta}
     d = _row("d", "debit", 20.0, "natw", D0, "EE LIMITED", merchant_name="EE Limited", category="Mobile")
-    c = _row("c", "credit", 20.0, "barc", D0 + timedelta(days=1), "Jordan Hartley Sent from Revolut BGC")
+    # two days apart and named: on origin/main this is a pending pair the review asks and Spend leaves out
+    c = _row("c", "credit", 20.0, "barc", D0 + timedelta(days=2), "Jordan Hartley Sent from Revolut BGC")
     assert analytics._has_pair_evidence(c, d, identity) is False
     assert find_pending_transfer_ids([c, d], KINDS, identity) == set()
     # the same legs with no bank facts against them are still asked (control)
