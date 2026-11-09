@@ -294,7 +294,7 @@ async def _old_transfer_pair_suggestions(uid: str) -> list[dict]:
             if c.get("account_id") == d.get("account_id"):
                 continue
             date_diff = abs((c_day - _day(d)).days)
-            if date_diff > 5:
+            if date_diff > 0:  # G447: the frozen scan's date window is now the same calendar day (nothing else changed)
                 continue
             # A prior "this is spending" dismissal also answers the same
             # transaction when it later becomes a pair candidate after sync.
@@ -385,9 +385,9 @@ def _equiv_rows():
     # Date ties: one credit, two debits equally close (same day diff), same amount.
     rows.append(_t("tc", ttype="credit", amount=12.34, date=day(10), account_id="cr0",
                    desc="TIE REF", category="Income"))
-    rows.append(_t("td1", ttype="debit", amount=12.34, date=day(9), account_id="db0",
+    rows.append(_t("td1", ttype="debit", amount=12.34, date=day(10), account_id="db0",
                    desc="TIE REF", category="Other"))
-    rows.append(_t("td2", ttype="debit", amount=12.34, date=day(11), account_id="db1",
+    rows.append(_t("td2", ttype="debit", amount=12.34, date=day(10), account_id="db1",
                    desc="TIE REF", category="Other"))
     # Cross-currency near miss: same number, different currency; and 0.01 off.
     rows.append(_t("xc", ttype="credit", amount=77.77, date=day(20), account_id="cr0",

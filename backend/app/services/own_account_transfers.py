@@ -28,6 +28,7 @@ from app.services.card_repayment import (  # noqa: F401  G381: re-exported, one 
 from app.services.card_names import last_four
 from app.services.categorisation import NUMERIC_DATE_RE, _CHANNEL_CODES, _NOT_INITIALS, _text_has_account_pair, canonical_merchant_key, name_matches_owner, own_transfer_evidence, series_key as _base_series_key, word_matches_name_token
 from app.services.categories import BUILTIN_CATEGORY_KINDS, MOVEMENT, get_category_kinds
+from app.core.timeutil import to_user_date
 from app.services.transfer_pruning import pair_pruned_reason
 
 OWN_TRANSFER_MATCH_VERSION = 2
@@ -41,13 +42,13 @@ RECONCILE_DAYS = HISTORY_DAYS
 # G443: what the review shows for a pair the model could not decide and gave no reason for.
 UNCLEAR_FALLBACK_REASON = "Sorted could not decide."
 PAIR_DAYS = 5
-# G440 (Kevin 2026-11-08): a pair that is named (the user's name in any form, or
-# another account's or pot's name) files by itself only when the legs are within
-# AUTO_PAIR_HOURS of each other; up to ASK_PAIR_DAYS apart it is a question for
-# the transfers review; beyond that nothing is offered. The sort code and
-# account number route, learned pairs and card repayments keep their own rules.
-AUTO_PAIR_HOURS = 24
-ASK_PAIR_DAYS = 3
+# G447 (Kevin 2026-11-09), superseding G440's 24-hour automatic and 3-day ask
+# windows: between two current accounts a candidate pair must be on the SAME
+# CALENDAR DAY (Europe/London, see `same_calendar_day`). The only exceptions are
+# a credit card repayment (the G381 routes keep CARD_REPAY_DAYS) and a learned,
+# AI-learned or user-confirmed series (a learned description pair matches on any
+# date, nearest first). One function, `pair_timing_ok`, states this for the
+# matcher, the model's candidates, the transfers review and Spend alike.
 
 # A194: Finexer's bank rail code leads classification. A direct debit is never
 # an own transfer (it is a card repayment only when its issuer matches a card on
@@ -635,13 +636,21 @@ def _learned_pair_keys(rows: Iterable[dict]) -> set[tuple[str, str]]:
     return out
 
 
-def learned_match(learned: set[tuple[str, str]], credit: dict, debit: dict) -> bool:
-    """The pair is a learned one: by the user's plain keys, or by the model's keys."""
-    plain = tuple(sorted((
-        canonical_merchant_key(credit.get("merchant_name") or "", credit.get("description") or ""),
-        canonical_merchant_key(debit.get("merchant_name") or "", debit.get("description") or ""))))
-    ai = tuple(sorted(AI_KEY_PREFIX + k for k in ai_pair_keys(credit, debit)))
-    return plain in learned or ai in learned
+def learned_match(learned: set[tuple[str, str]], credit: dict, debit: dict, cache: dict | None = None) -> bool:
+    """The pair is a learned one: by the user's plain keys, or by the model's keys.
+    `cache` (optional, per call site) memoises each leg's two normalised keys by
+    transaction id, because a wide-date scan asks about many pairs of few rows."""
+    def keys(row: dict) -> tuple[str, str]:
+        rid = row.get("_id")
+        if cache is not None and rid is not None and rid in cache:
+            return cache[rid]
+        out = (canonical_merchant_key(row.get("merchant_name") or "", row.get("description") or ""),
+               AI_KEY_PREFIX + transfer_text_key(row.get("merchant_name"), row.get("description")))
+        if cache is not None and rid is not None:
+            cache[rid] = out
+        return out
+    (cp, ca), (dp, da) = keys(credit), keys(debit)
+    return tuple(sorted((cp, dp))) in learned or tuple(sorted((ca, da))) in learned
 
 
 def _pennies(value) -> Decimal | None:
@@ -665,39 +674,57 @@ def _is_date_only(value: datetime) -> bool:
 
 
 def pair_gap_days(a: datetime, b: datetime) -> int:
-    """Calendar days between two legs."""
-    return abs((a.date() - b.date()).days)
+    """Calendar days between two legs (London calendar days)."""
+    da, db = to_user_date(a), to_user_date(b)
+    return abs((da - db).days)
+
+
+def same_calendar_day(a, b) -> bool:
+    """G447: both legs fall on the same Europe/London calendar day. Booked dates
+    are stored as naive UTC. A date-only row (midnight) keeps the bank's own date
+    in London in both GMT and BST; a timestamped row is converted to its London
+    day, so 23:30 UTC in summer is the next London day. Anything that is not a
+    datetime is never the same day."""
+    if not isinstance(a, datetime) or not isinstance(b, datetime):
+        return False
+    return to_user_date(a) == to_user_date(b)
+
+
+def pair_timing_ok(credit: dict, debit: dict, accounts: dict | None = None, learned=frozenset(),
+                   keys: dict | None = None) -> bool:
+    """G447 (Kevin 2026-11-09): may these two legs be a pair by DATE?
+
+    - same London calendar day: yes (current to current);
+    - either leg on a credit card account: a repayment may span CARD_REPAY_DAYS
+      calendar days (the G381 routes keep their own window);
+    - a learned pair (the user's, the model's, or a confirmed series): any date.
+    `accounts` maps account id to an account-like dict; `learned` is the learned
+    pair-key set; `keys` is an optional per-call cache for learned lookups."""
+    c_date, d_date = credit.get("date"), debit.get("date")
+    if not isinstance(c_date, datetime) or not isinstance(d_date, datetime):
+        return False
+    if same_calendar_day(c_date, d_date):
+        return True
+    from app.services.transfer_pruning import _is_card_account
+    accounts = accounts or {}
+    if (_is_card_account(accounts.get(credit.get("account_id"))) or _is_card_account(accounts.get(debit.get("account_id")))):
+        if pair_gap_days(c_date, d_date) <= CARD_REPAY_DAYS:
+            return True
+    return bool(learned) and learned_match(learned, credit, debit, keys)
 
 
 def within_ask_window(a, b) -> bool:
-    """G440: the legs are close enough for the transfers review to ask: within
-    ASK_PAIR_DAYS days (72 hours) by timestamp. When either leg carries a
-    midnight timestamp (date only) the legs must be under ASK_PAIR_DAYS calendar
-    days apart (2 days asks, 3 or more gets no offer). Beyond it, no offer."""
-    if not isinstance(a, datetime) or not isinstance(b, datetime):
-        return False
-    if _is_date_only(a) or _is_date_only(b):
-        return pair_gap_days(a, b) < ASK_PAIR_DAYS
-    if pair_gap_days(a, b) > ASK_PAIR_DAYS:
-        return False
-    try:
-        return abs(a - b) <= timedelta(days=ASK_PAIR_DAYS)
-    except TypeError:  # one aware and one naive: calendar days only
-        return True
+    """G447: the review's date test between current accounts is the same
+    calendar day. Kept under this name for callers that only have two dates
+    (it supersedes G440's three day window). Card repayments and learned series
+    use `pair_timing_ok`."""
+    return same_calendar_day(a, b)
 
 
 def within_auto_window(a, b) -> bool:
-    """G440: the legs are within 24 hours by timestamp. When either leg carries
-    a midnight timestamp (the bank sent a date only) the same or the next
-    calendar day counts as within 24 hours."""
-    if not isinstance(a, datetime) or not isinstance(b, datetime):
-        return False
-    if _is_date_only(a) or _is_date_only(b):
-        return pair_gap_days(a, b) <= 1
-    try:
-        return abs(a - b) <= timedelta(hours=AUTO_PAIR_HOURS)
-    except TypeError:  # one aware and one naive: fall back to calendar days
-        return pair_gap_days(a, b) <= 1
+    """G447: automatic filing and asking share one window now (the same calendar
+    day), so G440's separate 24-hour test is the same test."""
+    return same_calendar_day(a, b)
 
 
 def pair_is_named(credit: dict, debit: dict, identity: dict) -> bool:
@@ -715,6 +742,14 @@ def pair_is_named(credit: dict, debit: dict, identity: dict) -> bool:
     names = identity.get("account_names") or {}
     return (account_name_in_text(_text(debit), {"name": names.get(str(credit.get("account_id")))})
             or account_name_in_text(_text(credit), {"name": names.get(str(debit.get("account_id")))}))
+
+
+def ai_verdict_for(identity: dict | None, credit: dict, debit: dict) -> str | None:
+    """The model's standing verdict (`same_transfer`, `not_transfer`, `unclear`) on
+    this exact pair of transaction ids, or None when it has not judged it or the
+    user overrode it. The one lookup the review, Spend and the matcher share."""
+    ai = ((identity or {}).get("ai_pairs") or {}).get(pair_ids(credit, debit))
+    return ai.get("verdict") if ai else None
 
 
 def pair_ids(credit: dict, debit: dict) -> frozenset:
@@ -910,30 +945,67 @@ def _confirmed_pairs(
     return confirmed, consumed
 
 
+def identity_from_accounts(accounts: dict[str, dict], name_tokens: list[str] | None) -> dict:
+    """G447: the account-derived part of `categorisation.user_identity` (name
+    tokens, own account numbers and sort codes, account names and facts), built
+    from account documents already in hand. The pair builder prunes with this
+    when the caller has no richer identity, so the matcher, the model's
+    candidates and the transfers review read the same facts and cannot drift."""
+    own_ids: set[str] = set()
+    own_map: dict[str, dict] = {}
+    own_keys: dict[tuple[str, str], set[str]] = {}
+    names: dict[str, str] = {}
+    meta: dict[str, dict] = {}
+    for account_id, a in accounts.items():
+        aid = str(account_id)
+        meta[aid] = {k: a.get(k) for k in ("provider", "name", "display_name", "type", "subtype", "account_type")}
+        nm = a.get("name") or a.get("display_name")
+        if nm:
+            names[aid] = str(nm)
+        key = counterparty_key(a.get("sort_code"), a.get("account_number"))
+        if key is not None:
+            own_keys.setdefault(key, set()).add(aid)
+        for field in ("account_number", "sort_code"):
+            digits = re.sub(r"\D", "", str(a.get(field) or ""))
+            if len(digits) >= 6:
+                own_ids.add(digits)
+                own_map[digits] = {"account_id": account_id, "type": a.get("type"), "subtype": a.get("subtype")}
+    return {"name_tokens": name_tokens or [], "own_ids": own_ids, "own_map": own_map, "own_keys": own_keys,
+            "account_names": names, "account_meta": meta}
+
+
 def _same_amount_pairs(
     rows: list[dict], accounts: dict[str, dict], movement_categories: set[str], *,
-    consumed: set[str], exclude_ids: set[str] | frozenset[str], in_window,
+    consumed: set[str], exclude_ids: set[str] | frozenset[str],
     learned: set[tuple[str, str]] | frozenset = frozenset(), name_tokens: list[str] | None = None,
+    identity: dict | None = None, blocks=None,
 ):
-    """The ONE pair builder (G438/G440, reused by G442): every same-amount,
-    opposite-direction pair on two different accounts on file whose legs
-    satisfy `in_window(credit_date, debit_date)`, with the card issuer key
-    (G403) when the pair is a card repayment, else None. Both the automatic
-    matcher and the model's candidate set read this, so they cannot drift."""
-    credits = [r for r in rows if str(r.get("_id")) not in consumed and str(r.get("_id")) not in exclude_ids and not r.get("is_pending") and r.get("transaction_type") == "credit" and not _custom_blocks_auto(r, movement_categories)]
-    debits = [r for r in rows if str(r.get("_id")) not in consumed and str(r.get("_id")) not in exclude_ids and not r.get("is_pending") and r.get("transaction_type") == "debit" and not _custom_blocks_auto(r, movement_categories)]
+    """The ONE pair builder (G438/G440, reused by G442, the review since G447):
+    every same-amount, opposite-direction pair on two different accounts on file
+    that `pair_timing_ok` allows (G447: the same London calendar day; a card
+    repayment within CARD_REPAY_DAYS; a learned pair on any date), with the card
+    issuer key (G403) when the pair is a card repayment, else None. The G443
+    pruning runs here. The automatic matcher, the model's candidate set and the
+    transfers review all read this, so they cannot drift."""
+    # `blocks(row)`: does the user's own category on this row keep it out of any pair?
+    # The matcher and the model's candidates stop at every non-movement choice; the
+    # review passes a narrower test (only a spending choice stops it, an income
+    # choice can still be asked about, owner device-testing fix 1a).
+    blocks = blocks or (lambda r: _custom_blocks_auto(r, movement_categories))
+    credits = [r for r in rows if str(r.get("_id")) not in consumed and str(r.get("_id")) not in exclude_ids and not r.get("is_pending") and r.get("transaction_type") == "credit" and not blocks(r)]
+    debits = [r for r in rows if str(r.get("_id")) not in consumed and str(r.get("_id")) not in exclude_ids and not r.get("is_pending") and r.get("transaction_type") == "debit" and not blocks(r)]
     debit_buckets: dict[tuple[str, Decimal], list[dict]] = {}
     for debit in debits:
         key = _pair_key(debit)
         if key is not None:
             debit_buckets.setdefault(key, []).append(debit)
-    prune_identity = {"name_tokens": name_tokens or [], "own_ids": set(), "own_map": {}, "own_keys": {},
-                      "account_names": {str(i): a.get("name") or a.get("display_name") for i, a in accounts.items()}}
+    prune_identity = identity or identity_from_accounts(accounts, name_tokens)
     cards_by_issuer: dict[str, list[str]] = {}
     for account_id, account in accounts.items():
         issuer_key = card_issuer_key(account)
         if issuer_key:
             cards_by_issuer.setdefault(issuer_key, []).append(account_id)
+    learned_keys: dict = {}
     amount_rows: dict[tuple[str, Decimal], list[dict]] = {}
     for row in rows:
         key = _pair_key(row)
@@ -951,9 +1023,9 @@ def _same_amount_pairs(
             c_date, d_date = credit.get("date"), debit.get("date")
             if not isinstance(c_date, datetime) or not isinstance(d_date, datetime):
                 continue
-            if not in_window(c_date, d_date):
-                continue
             issuer = card_repayment_issuer(credit, debit, accounts, cards_by_issuer, amount_rows.get(key, []))
+            if issuer is None and not pair_timing_ok(credit, debit, accounts, learned, learned_keys):
+                continue  # G447: current accounts pair on the same calendar day only (a learned pair on any date)
             if (issuer is None and pair_pruned_reason(credit, debit, accounts, prune_identity,
                                                       credit.get("category") in movement_categories) is not None
                     and not _user_answered_pair(credit, debit, learned, movement_categories)
@@ -987,13 +1059,28 @@ def select_unique_pairs_detailed(
     candidates: list[tuple[dict, dict, str | None]] = []
     for credit, debit, issuer in _same_amount_pairs(
             rows, accounts, movement_categories, consumed=consumed, exclude_ids=exclude_ids,
-            in_window=lambda c, d: abs((c.date() - d.date()).days) <= PAIR_DAYS, learned=learned, name_tokens=name_tokens):
+            learned=learned, name_tokens=name_tokens):
         if (is_direct_debit(credit) or is_direct_debit(debit)) and not issuer and not _user_answered_pair(
                 credit, debit, learned, movement_categories):
             continue  # A194: a direct debit is never an own transfer by bank evidence
         if issuer or _strong_evidence(credit, debit, accounts, name_tokens, learned, movement_categories, ai_same, named_blocked):
             candidates.append((credit, debit, issuer))
-    return confirmed + _unique_only(candidates)
+    # G447: a learned pair matches on any date, so a monthly series offers every
+    # month's credit against every month's debit. Resolve ALL learned candidates
+    # (the same day first) nearest first and one to one, then let the uniqueness
+    # rule judge everything else.
+    keys: dict = {}
+    learned_wide = [x for x in candidates if not x[2] and learned and learned_match(learned, x[0], x[1], keys)]
+    wide_ids = {id(x) for x in learned_wide}
+    chosen: list[tuple[dict, dict, str | None]] = []
+    used: set = set()
+    for credit, debit, issuer in sorted(learned_wide, key=lambda x: (abs((x[0]["date"] - x[1]["date"]).total_seconds()), str(x[0]["_id"]), str(x[1]["_id"]))):
+        if credit["_id"] in used or debit["_id"] in used:
+            continue
+        used.update((credit["_id"], debit["_id"]))
+        chosen.append((credit, debit, issuer))
+    rest = [x for x in candidates if id(x) not in wide_ids and x[0]["_id"] not in used and x[1]["_id"] not in used]
+    return confirmed + chosen + _unique_only(rest)
 
 
 def ai_candidate_pairs(
@@ -1002,7 +1089,7 @@ def ai_candidate_pairs(
     exclude_ids: set[str] | frozenset[str] = frozenset(),
 ) -> list[tuple[dict, dict]]:
     """G442: the pairs only the model can settle. Built on the same pair builder
-    as the automatic matcher, over the G440 ask window (three days), then
+    as the automatic matcher, over the G447 timing rule (the same calendar day), then
     stripped of everything a rule already decides: a card repayment, a direct
     debit, a pair the user answered or learned, and any pair automatic evidence
     files (a sort code and account number or counterparty fields). The G440
@@ -1015,7 +1102,7 @@ def ai_candidate_pairs(
     leftovers: list[tuple[dict, dict, str | None]] = []
     for credit, debit, issuer in _same_amount_pairs(
             rows, accounts, movement_categories, consumed=consumed, exclude_ids=exclude_ids,
-            in_window=within_ask_window, learned=learned, name_tokens=name_tokens):
+            learned=learned, name_tokens=name_tokens):
         if issuer or is_direct_debit(credit) or is_direct_debit(debit):
             continue
         if _user_answered_pair(credit, debit, learned, movement_categories):
@@ -1026,7 +1113,7 @@ def ai_candidate_pairs(
     return [(c, d) for c, d, _ in _unique_only(leftovers)]
 
 
-SERIES_SINGLE_MARGIN_DAYS = ASK_PAIR_DAYS
+SERIES_SINGLE_MARGIN_DAYS = 3  # G443 start-of-history margin; unrelated to the G447 pair-day rule
 
 
 def series_evidence(pairs: Iterable[tuple[dict, dict, dict]]) -> list[dict]:

@@ -194,16 +194,15 @@ def test_same_day_pair_is_suggested(monkeypatch):
     assert item["pair_key"] == ":".join(sorted(["c1", "d1"]))
 
 
-def test_one_day_apart_pair_is_suggested(monkeypatch):
+def test_one_day_apart_pair_is_not_suggested(monkeypatch):
+    """G447 (Kevin 2026-11-09): between current accounts only the same calendar day pairs."""
     txns = [
         _t("c1", ttype="credit", amount=50.0, date=D0, account_id="accA",
            merchant="Acme Rail", desc="ACME RAIL TRANSFER IN PAIRREF", category="Income"),
         _t("d1", ttype="debit", amount=50.0, date=D1, account_id="accB",
            merchant=None, desc="BETA PAYMENTS OUT PAIRREF", category="Other"),
     ]
-    items = _run_suggestions(monkeypatch, txns)
-    assert len(items) == 1
-    assert items[0]["date_diff_days"] == 1
+    assert _run_suggestions(monkeypatch, txns) == []
 
 
 def test_two_days_apart_is_rejected(monkeypatch):
@@ -1035,10 +1034,13 @@ def test_g377_explicit_confirmation_replaces_old_income_choice(monkeypatch):
     assert credit["own_transfer_match"]["confirmed"] is True
 
 
-def test_g377_review_includes_weekend_delay_and_rejects_other_currency(monkeypatch):
+def test_g377_review_drops_weekend_delay_keeps_same_day_and_rejects_other_currency(monkeypatch):
     credit = _t("credit-weekend", ttype="credit", amount=150.98, date=D0, account_id="natwest", desc="FROM A/C MAINGI KM VIA MOBILE XFER", category="Income", custom_category="Income")
     debit = _t("debit-weekend", ttype="debit", amount=150.98, date=D2, account_id="hsbc", desc="MAINGI KM FT", category="Other")
     identity = {"name_tokens": ["kevin", "maingi"], "own_ids": set(), "own_map": {}}
+    # G447: a weekend delay is no longer a pair between current accounts (same calendar day only)
+    assert _run_suggestions(monkeypatch, [credit, debit], identity=identity) == []
+    debit["date"] = credit["date"]
     assert len(_run_suggestions(monkeypatch, [credit, debit], identity=identity)) == 1
     debit["currency"] = "EUR"
     assert _run_suggestions(monkeypatch, [credit, debit], identity=identity) == []

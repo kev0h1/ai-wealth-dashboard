@@ -356,9 +356,18 @@ async def user_identity(user_id: str) -> dict:
     from app.services.own_account_transfers import load_ai_blocked, load_ai_verdicts
     ai_pairs = await load_ai_verdicts(user_id)
     ai_blocked = await load_ai_blocked(user_id, ai_pairs)
+    # G447: learned description pairs (the user's, the model's, confirmed series) match on
+    # any date, so Spend and the review read the same set the matcher does.
+    learned_pairs: frozenset = frozenset()
+    try:
+        from app.services.own_account_transfers import _learned_pair_keys
+        learned_pairs = frozenset(_learned_pair_keys(await confirmed_transfer_pairs_col.find(
+            {"user_id": user_id}, {"key_a": 1, "key_b": 1, "source": 1}).to_list(None)))
+    except Exception:
+        learned_pairs = frozenset()
     return {"name_tokens": name_tokens, "own_ids": own_ids, "own_map": own_map, "own_keys": own_keys,
             "account_names": account_names, "account_meta": account_meta,
-            "ai_pairs": ai_pairs, "ai_blocked": ai_blocked}
+            "ai_pairs": ai_pairs, "ai_blocked": ai_blocked, "learned_pairs": learned_pairs}
 
 
 MIN_TRUNCATED_NAME_LETTERS = 4

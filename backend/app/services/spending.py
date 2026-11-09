@@ -78,7 +78,7 @@ from app.services.categories import (
 from app.services.categorisation import canonical_merchant_key, own_transfer_evidence, user_identity
 from app.services.transfer_pruning import pair_pruned_reason
 from app.services.own_account_transfers import (
-    account_name_in_text, counterparty_key, is_direct_debit, pair_is_named, within_ask_window, within_auto_window,
+    account_name_in_text, counterparty_key, is_direct_debit, pair_is_named, pair_timing_ok, within_auto_window,
 )
 
 logger = logging.getLogger(__name__)
@@ -252,6 +252,8 @@ def _scan_own_moves(docs: list[dict], kinds, identity: dict | None = None) -> tu
     ai_pairs = identity.get("ai_pairs") or {}
     ai_blocked = identity.get("ai_blocked") or frozenset()
     account_meta = identity.get("account_meta") or {}
+    learned_pairs = identity.get("learned_pairs") or frozenset()  # G447: a learned pair matches on any date
+    learned_keys: dict = {}
 
     def _series_sig(cr: dict, db: dict) -> str | None:
         from app.services.own_account_transfers import series_signature
@@ -292,7 +294,7 @@ def _scan_own_moves(docs: list[dict], kinds, identity: dict | None = None) -> tu
                         continue
                 if abs(abs(float(cr.get("amount") or 0)) - amt) >= PAIR_AMOUNT_TOLERANCE:
                     continue
-                if not within_ask_window(cr["date"], d["date"]):  # G440: beyond three days nothing is offered
+                if not pair_timing_ok(cr, d, account_meta, learned_pairs, learned_keys):  # G447: same calendar day (card repayments a few days, learned pairs any date)
                     continue
                 gap = abs((cr["date"].date() - d["date"].date()).days)
                 if named_income_only and not (
