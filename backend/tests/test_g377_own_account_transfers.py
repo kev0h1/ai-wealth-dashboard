@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 import asyncio
 
 from app.services.own_account_transfers import (
-    build_match_metadata, reconcile_own_account_transfers,
+    HISTORY_DAYS, build_match_metadata, reconcile_own_account_transfers,
     resolve_transfer_evidence, select_unique_pairs,
 )
 
@@ -214,7 +214,7 @@ def test_reconcile_hydrates_missing_currency_from_accounts_and_skips_pending():
     assert pending["category"] == "Other"
 
 
-def test_recent_history_is_rematched_after_second_account_arrives_but_old_history_is_not():
+def test_recent_history_is_rematched_after_second_account_arrives_but_history_beyond_the_window_is_not():
     now = datetime.utcnow()
     accounts = [{**ACCOUNTS["hsbc"], "user_id": "kevin", "currency": "GBP"}]
     credit = row("credit", "credit", "natwest", text="TO 11-22-33 12345678")
@@ -222,7 +222,7 @@ def test_recent_history_is_rematched_after_second_account_arrives_but_old_histor
     credit["date"] = debit["date"] = now - timedelta(days=30)
     stale_credit = row("stale-credit", "credit", "natwest", text="TO 11-22-33 12345678")
     stale_debit = row("stale-debit", "debit", "hsbc", text="TO 44-55-66 87654321", category="Other")
-    stale_credit["date"] = stale_debit["date"] = now - timedelta(days=91)
+    stale_credit["date"] = stale_debit["date"] = now - timedelta(days=HISTORY_DAYS + 1)
     async def run():
         collections = _service_collections([credit, debit, stale_credit, stale_debit], accounts)
         assert await reconcile_own_account_transfers("kevin", **collections) == 0
@@ -323,14 +323,14 @@ def test_source_signature_excludes_automatic_category_but_keeps_user_choice():
     assert manual["category"] == "Transfer"  # reader never overwrites it
 
 
-def test_reconcile_unsets_stale_marker_but_leaves_outside_ninety_days_alone():
+def test_reconcile_unsets_stale_marker_but_leaves_outside_the_history_window_alone():
     now = datetime.utcnow()
     accounts = [{**value, "user_id": "kevin", "currency": "GBP"} for value in ACCOUNTS.values()]
     credit, debit = _matched_rows()
     credit["date"] = debit["date"] = now
     debit["is_pending"] = True
     old_credit, old_debit = _matched_rows()
-    old_credit["date"] = old_debit["date"] = now - timedelta(days=91)
+    old_credit["date"] = old_debit["date"] = now - timedelta(days=HISTORY_DAYS + 1)
     async def run():
         return await reconcile_own_account_transfers("kevin", **_service_collections([credit, debit, old_credit, old_debit], accounts))
     assert asyncio.run(run()) == 2

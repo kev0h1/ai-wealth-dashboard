@@ -146,7 +146,7 @@ function EventReconcile({ initial }: { initial: OpsFinexerEvents | null }) {
 }
 
 function HealthBlocks({ health }: { health: OpsHealth }) {
-  const { build, memory, disk, load, mongo, sentry, uptime_hours, finexer_webhooks: fxw, finexer_sync: fxs, finexer_consents: fxc, finexer_events: fxe } = health;
+  const { build, memory, disk, load, mongo, sentry, uptime_hours, finexer_webhooks: fxw, finexer_sync: fxs, finexer_consents: fxc, finexer_events: fxe, transfer_judge: tj } = health;
   const loadPerCpu = load ? load.load_5m / load.cpus : null;
   return (
     <>
@@ -230,6 +230,22 @@ function HealthBlocks({ health }: { health: OpsHealth }) {
               <Stat label="Syncs today" value={`${fxw.webhook_syncs_today} webhook, ${fxw.poll_syncs_today} polled, ${fxw.user_syncs_today} user, ${fxw.history_syncs_today} history`} hint={`yesterday ${fxw.user_syncs_yesterday} user, ${fxw.history_syncs_yesterday} history`} />
             </div>
             <EventReconcile initial={fxe ?? null} />
+          </div>
+        </Block>
+      )}
+
+      {tj && tj.ok && (
+        <Block title="Transfer judge">
+          <div className={CARD}>
+            <p className={`text-sm font-semibold ${(tj.skipped_cap ?? 0) + (tj.skipped_attempts ?? 0) + (tj.errors ?? 0) > 0 ? WARN : "text-slate-900 dark:text-slate-100"}`}>
+              {tj.runs ? `Last run ${tj.last_run_at ? tj.last_run_at.slice(0, 16).replace("T", " ") : "unknown"} UTC, ${tj.judged ?? 0} judged of ${tj.candidates ?? 0} candidates` : "No run recorded yet"}
+            </p>
+            <div className="mt-3 grid grid-cols-2 gap-4 sm:grid-cols-4">
+              <Stat label="Skipped by cap" value={`${tj.skipped_cap ?? 0}`} hint={`${tj.capped_users ?? 0} users capped`} />
+              <Stat label="Skipped by attempts" value={`${tj.skipped_attempts ?? 0}`} />
+              <Stat label="Skipped by run limit" value={`${tj.skipped_run_limit ?? 0}`} />
+              <Stat label="Errors" value={`${tj.errors ?? 0}`} hint={`prompt v${tj.prompt_version ?? "?"}, ${tj.stale ?? 0} stale re-judged`} />
+            </div>
           </div>
         </Block>
       )}

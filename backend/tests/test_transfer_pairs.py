@@ -183,7 +183,7 @@ def test_same_day_pair_is_suggested(monkeypatch):
         _t("c1", ttype="credit", amount=100.0, date=D0, account_id="accA",
            merchant="Acme Rail", desc="ACME RAIL TRANSFER IN PAIRREF", category="Income"),
         _t("d1", ttype="debit", amount=100.0, date=D0, account_id="accB",
-           merchant="Beta Payments", desc="BETA PAYMENTS OUT PAIRREF", category="Shopping"),
+           merchant=None, desc="BETA PAYMENTS OUT PAIRREF", category="Other"),
     ]
     items = _run_suggestions(monkeypatch, txns)
     assert len(items) == 1
@@ -199,7 +199,7 @@ def test_one_day_apart_pair_is_suggested(monkeypatch):
         _t("c1", ttype="credit", amount=50.0, date=D0, account_id="accA",
            merchant="Acme Rail", desc="ACME RAIL TRANSFER IN PAIRREF", category="Income"),
         _t("d1", ttype="debit", amount=50.0, date=D1, account_id="accB",
-           merchant="Beta Payments", desc="BETA PAYMENTS OUT PAIRREF", category="Shopping"),
+           merchant=None, desc="BETA PAYMENTS OUT PAIRREF", category="Other"),
     ]
     items = _run_suggestions(monkeypatch, txns)
     assert len(items) == 1
@@ -278,7 +278,7 @@ def test_greedy_best_match_when_one_debit_fits_two_credits(monkeypatch):
         _t("c2", ttype="credit", amount=75.0, date=D1, account_id="accC",
            merchant="Gamma Deposits", desc="GAMMA DEPOSITS IN", category="Income"),
         _t("d1", ttype="debit", amount=75.0, date=D0, account_id="accB",
-           merchant="Beta Payments", desc="BETA PAYMENTS OUT PAIRREF", category="Shopping"),
+           merchant=None, desc="BETA PAYMENTS OUT PAIRREF", category="Other"),
     ]
     items = _run_suggestions(monkeypatch, txns)
     assert len(items) == 1
@@ -448,7 +448,7 @@ def test_pair_with_name_evidence_is_suggested(monkeypatch):
         _t("c1", ttype="credit", amount=80.55, date=D0, account_id="accA",
            merchant=None, desc="FASTER PAYMENT FROM KEVIN MAINGI", category="Income"),
         _t("d1", ttype="debit", amount=80.55, date=D0, account_id="accB",
-           merchant=None, desc="OUTBOUND TRANSFER REQUEST", category="Shopping"),
+           merchant=None, desc="OUTBOUND TRANSFER REQUEST", category="Other"),
     ]
     items = _run_suggestions(monkeypatch, txns, identity=identity)
     assert len(items) == 1
@@ -472,7 +472,7 @@ def test_pair_with_account_number_evidence_is_suggested(monkeypatch):
         _t("c1", ttype="credit", amount=60.25, date=D0, account_id="accA",
            merchant=None, desc="TRANSFER REF 12-34-56 12345678", category="Income"),
         _t("d1", ttype="debit", amount=60.25, date=D0, account_id="accB",
-           merchant=None, desc="PAYMENT OUT REQUEST", category="Shopping"),
+           merchant=None, desc="PAYMENT OUT REQUEST", category="Other"),
     ]
     items = _run_suggestions(monkeypatch, txns, identity=identity)
     assert len(items) == 1
@@ -505,7 +505,7 @@ def test_one_leg_evidence_pence_amount_is_accepted(monkeypatch):
         _t("c1", ttype="credit", amount=20.37, date=D0, account_id="accA",
            merchant=None, desc="Payment from Maingi K M", category="Income"),
         _t("d1", ttype="debit", amount=20.37, date=D0, account_id="accB",
-           merchant=None, desc="GOOGLE*YOUTUBEPREMIUM LONDON", category="Subscriptions"),
+           merchant=None, desc="GOOGLE*YOUTUBEPREMIUM LONDON", category="Other"),
     ]
     items = _run_suggestions(monkeypatch, txns, identity=identity)
     assert len(items) == 1
@@ -523,7 +523,7 @@ def test_both_legs_evidence_round_amount_is_accepted(monkeypatch):
         _t("c1", ttype="credit", amount=100.0, date=D0, account_id="accA",
            merchant=None, desc="MAINGI KM CREDIT BGC", category="Income"),
         _t("d1", ttype="debit", amount=100.0, date=D0, account_id="accB",
-           merchant=None, desc="KEVIN MAINGI CREDIT VIA MOBILE PYMT FP", category="Shopping"),
+           merchant=None, desc="KEVIN MAINGI CREDIT VIA MOBILE PYMT FP", category="Other"),
     ]
     items = _run_suggestions(monkeypatch, txns, identity=identity)
     assert len(items) == 1
@@ -870,9 +870,9 @@ def _setup_pair_and_series(monkeypatch, *, dismissed_pairs=None):
         _t("c1", ttype="credit", amount=965.0, date=D0, account_id="accCredit",
            merchant=None, desc="KEVIN MAINGI CHASE BGC", category="Income"),
         _t("d1", ttype="debit", amount=965.0, date=D0, account_id="accDebit",
-           merchant=None, desc="To Kevin Maingi", category="Shopping"),
+           merchant=None, desc="To Kevin Maingi", category="Other"),
         _t("d2", ttype="debit", amount=50.0, date=D1, account_id="accDebit",
-           merchant=None, desc="To Kevin Maingi", category="Shopping"),
+           merchant=None, desc="To Kevin Maingi", category="Other"),
     ]
     fake_cache = FakeResponseCache()
     monkeypatch.setattr(analytics, "accounts_col", FakeCol([

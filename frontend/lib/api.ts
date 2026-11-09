@@ -2248,6 +2248,22 @@ export type OpsHealth = {
   } | null;
   // A184: the last List events reconcile (counts only); null when it could not be built.
   finexer_events?: OpsFinexerEvents | null;
+  // G443: the own-transfer judge's last run counts, summed over users (aggregate only).
+  transfer_judge?: OpsTransferJudge | null;
+};
+export type OpsTransferJudge = {
+  ok: boolean;
+  prompt_version?: number;
+  runs?: number;
+  last_run_at?: string | null;
+  capped_users?: number;
+  candidates?: number;
+  judged?: number;
+  skipped_cap?: number;
+  skipped_attempts?: number;
+  skipped_run_limit?: number;
+  errors?: number;
+  stale?: number;
 };
 export type OpsFinexerEvents = {
   last_completed_at: string | null;

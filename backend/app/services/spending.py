@@ -76,6 +76,7 @@ from app.services.categories import (
     normalise_name,
 )
 from app.services.categorisation import own_transfer_evidence, user_identity
+from app.services.transfer_pruning import pair_pruned_reason
 from app.services.own_account_transfers import (
     account_name_in_text, counterparty_key, is_direct_debit, pair_is_named, within_ask_window, within_auto_window,
 )
@@ -249,6 +250,7 @@ def _scan_own_moves(docs: list[dict], kinds, identity: dict | None = None) -> tu
     names = identity.get("account_names") or {}
     ai_pairs = identity.get("ai_pairs") or {}
     ai_blocked = identity.get("ai_blocked") or frozenset()
+    account_meta = identity.get("account_meta") or {}
 
     def _series_sig(cr: dict, db: dict) -> str | None:
         from app.services.own_account_transfers import series_signature
@@ -279,6 +281,8 @@ def _scan_own_moves(docs: list[dict], kinds, identity: dict | None = None) -> tu
                     continue
                 if is_direct_debit(cr):
                     continue  # A194: a direct debit is never an own transfer
+                if pair_pruned_reason(cr, d, account_meta) is not None:
+                    continue  # G443: bank facts rule it out, so it stays in Spend and is not asked
                 if ai_pairs and ai_verdict(cr, d) == "not_transfer":
                     continue  # G442: judged not a transfer, so it stays in Spend and is not asked
                 if not allow_income and kind_of(kinds, _effective_category(cr)) == INCOME:
