@@ -90,4 +90,23 @@ assert.doesNotMatch(renderEdit({ initialBill: bill, hiddenOverride: true }), /Ca
 assert.match(renderEdit({ initialBill: { ...bill, user_entered: true } }), /Clear my amount/);
 assert.match(renderEdit({ initialBill: { ...bill, payment_method: "fixed" } }), /not paid in full/);
 assert.match(renderEdit({ initialBill: null }), /could not load this card bill/);
+
+// Save is disabled until the person types, and while balances are hidden; submit is blocked in the same states.
+const tag = (html, re) => (html.match(re) || [""])[0];
+const submit = (html) => tag(html, /<button[^>]*type="submit"[^>]*>/);
+assert.match(submit(upcoming), / disabled=""/, "Upcoming Save is disabled until a value is typed");
+assert.match(submit(renderEdit({ initialBill: bill, hiddenOverride: true })), / disabled=""/, "Upcoming Save is disabled while balances are hidden");
+assert.match(submit(renderEdit({ initialBill: { ...bill, payment_method: "fixed" } })), / disabled=""/, "not enterable, so no save");
+assert.match(submit(renderEdit({ initialBill: null })), / disabled=""/, "no bill, so no save");
+assert.match(submit(renderEdit({})), / disabled=""/, "still loading, so no save");
+assert.match(edit, /const canSave = !hidden && canEnterStatementAmount\(bill\) && Boolean\(typed\?\.trim\(\)\)/);
+assert.match(edit, /if \(!canSave \|\| !bill\) return;/, "submit is blocked in those states");
+assert.match(edit, /parseStatementAmount\(typed \?\? ""\)/, "the prefilled estimate is never what gets saved");
+assert.doesNotMatch(edit, /prefillText/, "the editor never submits the prefill");
+const saveBtn = (html) => tag(html, /<button[^>]*data-save-statement-amount[^>]*>/);
+assert.match(saveBtn(html), / disabled=""/, "Payment sheet Save amount is disabled until a value is typed");
+assert.match(saveBtn(sheet(card, true)), / disabled=""/, "and while balances are hidden");
+const paymentSheet = readFileSync(new URL("../components/card-settings/PaymentSheet.tsx", import.meta.url), "utf8");
+assert.match(paymentSheet, /parseStatementAmount\(typed\?\?""\)/, "the sheet saves only what was typed");
+assert.match(paymentSheet, /if\(hidden\|\|!services\.saveCardStatementAmount\|\|value==null\)/);
 console.log("g444-card-bill-edit: ok");

@@ -49,12 +49,12 @@ export function useEditorRequest() {
   return { busy, error, needsRefresh, setError, run, retryRefresh: () => run(async () => {}) };
 }
 
-export function EditorActions({ formId, busy, needsRefresh = false, onCancel, renderActions }: {
-  formId: string; busy: boolean; needsRefresh?: boolean; onCancel(): void; renderActions?: (actions: ReactNode) => ReactNode;
+export function EditorActions({ formId, busy, needsRefresh = false, saveDisabled = false, onCancel, renderActions }: {
+  formId: string; busy: boolean; needsRefresh?: boolean; saveDisabled?: boolean; onCancel(): void; renderActions?: (actions: ReactNode) => ReactNode;
 }) {
   const actions = <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,2fr)] gap-3">
     <button type="button" disabled={busy} onClick={onCancel} className={editorSecondary + " disabled:opacity-50"}>{needsRefresh ? "Back" : "Cancel"}</button>
-    <button type="submit" form={formId} disabled={busy} className="min-h-11 rounded-xl bg-indigo-600 px-4 py-3 text-sm font-semibold text-white hover:bg-indigo-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 disabled:opacity-60">{busy ? needsRefresh ? "Refreshing…" : "Saving…" : needsRefresh ? "Retry refresh" : "Save changes"}</button>
+    <button type="submit" form={formId} disabled={busy || saveDisabled} className="min-h-11 rounded-xl bg-indigo-600 px-4 py-3 text-sm font-semibold text-white hover:bg-indigo-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 disabled:opacity-60">{busy ? needsRefresh ? "Refreshing…" : "Saving…" : needsRefresh ? "Retry refresh" : "Save changes"}</button>
   </div>;
   return renderActions ? renderActions(actions) : actions;
 }

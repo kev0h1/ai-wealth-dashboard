@@ -201,3 +201,12 @@ def test_the_entered_amount_clears_itself_once_the_next_statement_closes():
     later = estimate_statement(card, _terms(**ENTERED), [], accounts, date(2026, 11, 23), pairs=[])
     assert later["statement_close"] == "2026-11-22" and "user_entered" not in later
     assert later["estimated_bill"] == 2000.0
+
+
+def test_a_genuine_zero_balance_from_the_bank_is_written_and_stamped(monkeypatch, recomputes):
+    accts, _ = _finexer_world(monkeypatch, {"balance": -1992.59, "balance_as_of": BALANCE_READ},
+                              client=_card_client(current=0.0))
+    _call("acc1")
+    d = _doc(accts)
+    assert d["balance"] == 0.0 and d["balance"] != -1992.59
+    assert d["balance_as_of"] != BALANCE_READ and datetime.now(timezone.utc) - d["balance_as_of"].replace(tzinfo=timezone.utc) < timedelta(minutes=5)

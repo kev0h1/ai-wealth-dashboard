@@ -5,7 +5,7 @@ import { api, type CardStatementBill } from "@/lib/api";
 import { usePreferences } from "@/components/PreferencesContext";
 import { BalancesHiddenContext } from "@/lib/balancesHidden";
 import { invalidateVerdictCache } from "@/lib/verdictCache";
-import { StatementAmountEntry, StatementWorking, canEnterStatementAmount, parseStatementAmount, prefillText } from "@/components/card-settings/StatementAmountEntry";
+import { StatementAmountEntry, StatementWorking, canEnterStatementAmount, parseStatementAmount } from "@/components/card-settings/StatementAmountEntry";
 import cardStyles from "@/components/card-settings/CardSettings.module.css";
 import { EditorActions, EditorError, useEditorRequest } from "./editorSupport";
 
@@ -39,11 +39,13 @@ export function CardBillAmountEdit({ cardId, onCancel, onDone, onSaved, services
     return () => { live = false; };
   }, [cardId, services, initialBill]);
   const finish = async () => { invalidateVerdictCache(); await onSaved(); };
+  const canSave = !hidden && canEnterStatementAmount(bill) && Boolean(typed?.trim());
   function save(event: FormEvent) {
     event.preventDefault();
     if (request.needsRefresh) { void request.retryRefresh(); return; }
-    if (!bill) return;
-    const value = parseStatementAmount(typed ?? prefillText(bill));
+    // Only a figure the person typed is saved. The prefilled estimate is shown, never submitted, and nothing is saved while balances are hidden.
+    if (!canSave || !bill) return;
+    const value = parseStatementAmount(typed ?? "");
     if (value == null) { request.setError("Enter an amount above £0 and no more than £100,000."); return; }
     void request.run(() => services.saveCardStatementAmount(cardId, value), onDone ?? onCancel, "The amount could not be saved. It is still here. Try again.", finish);
   }
@@ -62,6 +64,6 @@ export function CardBillAmountEdit({ cardId, onCancel, onDone, onSaved, services
       <StatementWorking bill={bill} hidden={hidden} />
     </div>}
     <EditorError message={request.error} />
-    <EditorActions formId={formId} busy={request.busy} needsRefresh={request.needsRefresh} onCancel={onCancel} renderActions={renderActions} />
+    <EditorActions formId={formId} busy={request.busy} needsRefresh={request.needsRefresh} saveDisabled={!canSave && !request.needsRefresh} onCancel={onCancel} renderActions={renderActions} />
   </form></BalancesHiddenContext.Provider>;
 }
