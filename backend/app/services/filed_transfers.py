@@ -45,6 +45,19 @@ def _money(row: dict) -> float:
         return 0.0
 
 
+def _movement_identity(row: dict) -> tuple:
+    """Join Spend evidence back to source rows without assuming global ids.
+
+    Spend normalises both providers into one list. Its account, date, amount
+    and effective category keep differently shaped duplicate ids distinct;
+    identical records in both feeds remain two contributions, as in Spend.
+    """
+    when = row.get("date")
+    day = when.date() if isinstance(when, datetime) else when
+    return (str(row.get("_id") or row.get("id") or ""), str(row.get("account_id") or ""), day,
+            _money(row), row.get("custom_category") or row.get("category") or "Other")
+
+
 def _account(row: dict, accounts: dict) -> dict | None:
     account_id = str(row.get("account_id") or "")
     if not account_id:
@@ -89,7 +102,7 @@ def _cadence(dates: list[date]) -> str | None:
 
 
 async def _all_rows(uid: str) -> list[dict]:
-    """Two bounded collection reads, rather than one read per series."""
+    """One batched read per provider, rather than a query per series."""
     rows: list[dict] = []
     for collection, source in ((transactions_col, "transactions"), (yapily_transactions_col, "yapily")):
         found = await collection.find({"user_id": uid, "transaction_type": {"$in": ["debit", "credit"]}}, _PROJECTION).to_list(None)
@@ -103,6 +116,8 @@ async def list_filed_transfers(uid: str, *, start: date | None = None, end: date
     rows = await _all_rows(uid)
     account_rows = await accounts_col.find({"user_id": uid}, {"name": 1, "display_name": 1, "provider": 1, "institution": 1, "currency": 1}).to_list(None)
     accounts = {str(row.get("_id")): row for row in account_rows}
+    movement_identities = {(row.get("_filed_source"), str(row.get("_id"))): _movement_identity(row) for row in rows}
+    home_currency_ids = {(row.get("_filed_source"), str(row.get("_id"))) for row in rows if not row.get("currency") or row.get("currency") == "GBP"}
     for row in rows:
         if not row.get("currency"):
             row["currency"] = str((accounts.get(str(row.get("account_id"))) or {}).get("currency") or "").upper()
@@ -115,7 +130,7 @@ async def list_filed_transfers(uid: str, *, start: date | None = None, end: date
             for row in resolve_transfer_evidence([row for row in rows if row.get("_filed_source") == source_name], movement_categories, owned_account_ids=set(accounts))]
     invalid_evidence = bool(stamped_ids - {(row.get("_filed_source"), str(row.get("_id"))) for row in rows if row.get("own_transfer_match")})
     by_id = {(row.get("_filed_source"), str(row.get("_id"))): row for row in rows}
-    moved_ids: set[str] = set()
+    moved_ids: set[tuple] = set()
     evidence_start, evidence_end = start, end
     if evidence_start is None:
         all_dates = [row.get("date").date() if isinstance(row.get("date"), datetime) else row.get("date") for row in rows]
@@ -125,20 +140,21 @@ async def list_filed_transfers(uid: str, *, start: date | None = None, end: date
     if evidence_start is not None and evidence_end is not None:
         period_txns = await _load_period_txns(uid, evidence_start, evidence_end)
         _, moved, _ = bucket_transactions(period_txns, kinds)
-        moved_ids = {txn["id"] for txn in period_txns if txn.get("debit") and classify_flow(
+        moved_evidence = {_movement_identity(txn) for txn in period_txns if txn.get("debit") and classify_flow(
             kinds, txn["category"], True, bool(txn.get("own_move")), bool(txn.get("card_repayment")),
         ).kind == MOVED}
+        moved_ids = {key for key, identity in movement_identities.items() if key in home_currency_ids and identity in moved_evidence}
         scope_total = round(sum(group["amount"] for group in moved.values()), 2) if start is not None else None
     else:
         scope_total = None
     if start is None:
         # Spend's headline is GBP-only. All-time history has no aggregate
         # headline and also includes stored movements in their native money.
-        moved_ids.update(str(row["_id"]) for row in rows if row.get("transaction_type") == "debit" and classify_flow(
+        moved_ids.update((row.get("_filed_source"), str(row["_id"])) for row in rows if row.get("transaction_type") == "debit" and classify_flow(
             kinds, row.get("custom_category") or row.get("category") or "Other", True, False, False,
         ).kind == MOVED)
     groups: dict[str, dict] = {}
-    represented_debit_ids: set[str] = set()
+    represented_debit_ids: set[tuple] = set()
     verdict_rows = await own_transfer_judgements_col.find(
         {"user_id": uid, "kind": "pair"}, {"series_sig": 1, "reason": 1}
     ).to_list(None)
@@ -179,10 +195,10 @@ async def list_filed_transfers(uid: str, *, start: date | None = None, end: date
             "undo_unavailable_reason": None if safe_undo else "This filing cannot be safely undone from stored evidence.",
         })
         occurrence_date = _iso((debit or credit or row).get("date"))
-        entry["occurrences"].append({"date": occurrence_date, "amount": _money(debit) if debit else 0.0,
+        entry["occurrences"].append({"_filed_source": row.get("_filed_source"), "date": occurrence_date, "amount": _money(debit) if debit else 0.0,
             "currency": currency, "debit": _leg(debit, accounts), "credit": _leg(credit, accounts)})
         if debit:
-            represented_debit_ids.add(str(debit.get("_id")))
+            represented_debit_ids.add((debit.get("_filed_source"), str(debit.get("_id"))))
         entry["can_undo"] = bool(entry["can_undo"] and safe_undo and not invalid_evidence)
         if not entry["can_undo"]:
             entry["undo_unavailable_reason"] = "This filing cannot be safely undone from stored evidence."
@@ -192,8 +208,9 @@ async def list_filed_transfers(uid: str, *, start: date | None = None, end: date
     # Stored category movement rows not already represented by a durable stamp.
     # These are evidence-only, never candidates for destructive undo.
     for row in rows:
-        if (row.get("transaction_type") != "debit" or (start is None and row.get("is_pending")) or str(row.get("_id")) not in moved_ids
-                or str(row.get("_id")) in represented_debit_ids):
+        row_key = (row.get("_filed_source"), str(row.get("_id")))
+        if (row.get("transaction_type") != "debit" or (start is None and row.get("is_pending")) or row_key not in moved_ids
+                or row_key in represented_debit_ids):
             continue
         category = row.get("custom_category") or row.get("category") or "Movement"
         merchant = " ".join(str(row.get("merchant_name") or row.get("description") or "Moved money").lower().split())
@@ -201,14 +218,14 @@ async def list_filed_transfers(uid: str, *, start: date | None = None, end: date
         entry = groups.setdefault(key, {"series_key": key, "actor": "unknown", "kind": "other", "debit": _account(row, accounts), "credit": None,
             "description": row.get("merchant_name") or row.get("description") or "Moved money", "reason": category,
             "occurrences": [], "can_undo": False, "undo_unavailable_reason": "This filing has no reversible transfer decision."})
-        entry["occurrences"].append({"date": _iso(row.get("date")), "amount": _money(row), "currency": str(row.get("currency") or "").upper(), "debit": _leg(row, accounts), "credit": None})
+        entry["occurrences"].append({"_filed_source": row.get("_filed_source"), "date": _iso(row.get("date")), "amount": _money(row), "currency": str(row.get("currency") or "").upper(), "debit": _leg(row, accounts), "credit": None})
 
     items = []
     for entry in groups.values():
         all_occurrences = entry.pop("occurrences")
         occurrences = [occurrence for occurrence in all_occurrences if _date_in_scope({"date": occurrence["date"] and date.fromisoformat(occurrence["date"][:10])}, start, end)]
         if start is not None:
-            occurrences = [occurrence for occurrence in occurrences if occurrence.get("debit") and occurrence["debit"]["id"] in moved_ids]
+            occurrences = [occurrence for occurrence in occurrences if occurrence.get("debit") and (occurrence.get("_filed_source"), occurrence["debit"]["id"]) in moved_ids]
         if source != "all" and entry["actor"] != source:
             continue
         if not occurrences:
@@ -222,7 +239,7 @@ async def list_filed_transfers(uid: str, *, start: date | None = None, end: date
             "total_amount": total, "currency": next(iter(currencies)) if len(currencies) == 1 else "",
             "count": len(occurrences), "first_date": min((o["date"] for o in occurrences if o["date"]), default=None),
             "last_date": max((o["date"] for o in occurrences if o["date"]), default=None), "cadence": _cadence(dates),
-            "reason": entry["reason"], "occurrences": occurrences, "can_undo": entry["can_undo"],
+            "reason": entry["reason"], "occurrences": [{key: value for key, value in occurrence.items() if key != "_filed_source"} for occurrence in occurrences], "can_undo": entry["can_undo"],
             "undo_count": len(all_occurrences) if entry["can_undo"] else 0, "history_complete": bool(all_occurrences) and not invalid_evidence,
             "transactions_href": "/transactions", "undo_unavailable_reason": entry["undo_unavailable_reason"]})
     items.sort(key=lambda item: (item["last_date"] or "", item["series_key"]), reverse=True)

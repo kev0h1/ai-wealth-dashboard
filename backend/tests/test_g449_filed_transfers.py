@@ -45,7 +45,7 @@ def fake(monkeypatch):
 async def test_scope_partitions_exact_spend_total_without_credit_double_count(fake):
     data=[row("d","debit",datetime(2026,10,26,23,59),100,"a",mark("c","b")),row("c","credit",datetime(2026,10,27),100,"b",mark("d","a")),row("o","debit",datetime(2026,10,26),25,"a",category="Savings")]
     async def rows(_): return data
-    async def load(*_): return [{"id":"d","debit":True,"category":"Transfer","amount":100,"own_move":False,"card_repayment":False},{"id":"c","debit":False,"category":"Transfer","amount":100,"own_move":False,"card_repayment":False},{"id":"o","debit":True,"category":"Savings","amount":25,"own_move":False,"card_repayment":False}]
+    async def load(*_): return [{"id":"d","account_id":"a","date":date(2026,10,26),"debit":True,"category":"Transfer","amount":100,"own_move":False,"card_repayment":False},{"id":"c","account_id":"b","date":date(2026,10,27),"debit":False,"category":"Transfer","amount":100,"own_move":False,"card_repayment":False},{"id":"o","account_id":"a","date":date(2026,10,26),"debit":True,"category":"Savings","amount":25,"own_move":False,"card_repayment":False}]
     fake.setattr(h,"_all_rows",rows); fake.setattr(h,"_load_period_txns",load)
     out=await h.list_filed_transfers("owner@example.com",start=date(2026,10,26),end=date(2026,10,26))
     assert out["scope_total"] == 125 and sum(x["total_amount"] for x in out["items"]) == 125
@@ -72,7 +72,7 @@ async def test_stale_marker_falls_back_and_get_never_runs_reconcile(fake):
     async def rows(_): return data
     def resolve(rows,*_a,**_k):
         copy=dict(rows[0]); copy.pop("own_transfer_match"); return [copy]
-    async def load(*_): return [{"id":"d","debit":True,"category":"Transfer","amount":30,"own_move":False,"card_repayment":False}]
+    async def load(*_): return [{"id":"d","account_id":"a","date":date(2026,10,26),"debit":True,"category":"Transfer","amount":30,"own_move":False,"card_repayment":False}]
     fake.setattr(h,"_all_rows",rows); fake.setattr(h,"resolve_transfer_evidence",resolve); fake.setattr(h,"_load_period_txns",load)
     fake.setattr(h,"reconcile_own_account_transfers",lambda *_: (_ for _ in ()).throw(AssertionError("GET mutated")),raising=False)
     out=await h.list_filed_transfers("owner@example.com",start=date(2026,10,26),end=date(2026,10,26))
@@ -124,3 +124,20 @@ def test_undo_http_boundary_returns_pending_without_another_dirty_marker(monkeyp
         response = client.post("/transactions/filed-transfers/undo", json={"series_key": "sorted:recorded", "user_id": "someone-else"})
         assert response.status_code == 200 and response.json() == {"ok": True, "undone": 2, "transaction_ids": ["c", "d"], "recomputed": False, "pending": True}
         assert seen[-1] == ("owner@example.com", "sorted:recorded")
+
+
+@run_async
+async def test_provider_id_collision_keeps_each_scoped_movement_once(fake):
+    day = datetime(2026, 10, 26)
+    data = [row("d", "debit", day, 100, "a", mark("c", "b")),
+            row("c", "credit", day, 100, "b", mark("d", "a")),
+            {**row("d", "debit", day, 25, "a", category="Savings"), "_filed_source": "yapily"}]
+    async def rows(_): return data
+    async def load(*_):
+        return [{"id": r["_id"], "account_id": r["account_id"], "date": day.date(),
+                 "category": r["category"], "amount": r["amount"], "debit": r["transaction_type"] == "debit"} for r in data]
+    fake.setattr(h, "_all_rows", rows)
+    fake.setattr(h, "_load_period_txns", load)
+    result = await h.list_filed_transfers("owner@example.com", start=day.date(), end=day.date())
+    assert result["scope_total"] == 125 and sum(item["total_amount"] for item in result["items"]) == 125
+    assert sorted(item["total_amount"] for item in result["items"]) == [25, 100]

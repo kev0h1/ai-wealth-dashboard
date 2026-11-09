@@ -159,7 +159,7 @@ def test_real_recorded_history_has_global_scope_count_reason_and_safe_undo(monke
             monkeypatch.setattr(history, "yapily_transactions_col", cols["user_profiles"])
             async def categories(_): return dict(BUILTIN_CATEGORY_KINDS)
             async def period(_uid, start, end):
-                return [{"id": row["_id"], "date": row["date"].date(), "category": row["category"],
+                return [{"id": row["_id"], "account_id": row["account_id"], "date": row["date"].date(), "category": row["category"],
                          "amount": row["amount"], "debit": row["transaction_type"] == "debit"}
                         for row in rows if start <= row["date"].date() <= end]
             monkeypatch.setattr(history, "get_category_kinds", categories)
