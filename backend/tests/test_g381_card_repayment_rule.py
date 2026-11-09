@@ -259,9 +259,9 @@ def test_the_rematch_fixes_old_rows_and_unwinds_when_they_stop_qualifying(monkey
 
 
 def test_the_structural_pass_applies_the_rule_over_history_days(monkeypatch):
-    from test_transfer_pairs import _run_apply_rules_bulk, _t
+    from test_transfer_pairs import UID as PAIR_UID, _run_apply_rules_bulk, _t
     old = D0 - timedelta(days=200)  # older than the 90 days the pass used to see
     row = _t("r1", ttype="debit", amount=75.53, date=old, account_id="natw", merchant="NATWEST", desc="NATWEST", category="Other")
-    accounts = [{**CURRENT}, {**CARD1}, {**BARC}]
+    accounts = [{**a, "user_id": PAIR_UID} for a in (CURRENT, CARD1, BARC)]
     _run_apply_rules_bulk(monkeypatch, [row], accounts=accounts)
     assert row["category"] == "Debt" and row["card_repayment_rule"]["card_account_id"] == "ncc1"

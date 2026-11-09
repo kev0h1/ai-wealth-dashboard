@@ -1,0 +1,150 @@
+{
+  "name": "Card repayment seen only from the current account (G381): a NATWEST debit with a NatWest card on file is Debt, predicted as an ordinary payment",
+  "today": "2026-10-12",
+  "pay_period_config": {
+    "type": "last_friday"
+  },
+  "confirmed_income_streams": [],
+  "accounts": [
+    {
+      "_id": "acc-bc",
+      "name": "Barclays Current",
+      "provider": "barclays",
+      "type": "BANK",
+      "subtype": "TRANSACTION",
+      "balance": 1500.0,
+      "currency": "GBP",
+      "status": "connected",
+      "include_in_safe_to_spend": true
+    },
+    {
+      "_id": "acc-nw",
+      "name": "NatWest Mastercard",
+      "provider": "natwest",
+      "type": "CREDIT",
+      "subtype": "CREDIT_CARD",
+      "balance": -300.0,
+      "currency": "GBP",
+      "status": "connected",
+      "include_in_safe_to_spend": true
+    }
+  ],
+  "manual_accounts": [],
+  "cashflow_cache": {
+    "recurring_spend": [
+      {
+        "key": "COUNCIL TAX",
+        "avg_amount": 150.0,
+        "avg_interval": 30,
+        "next_date": "2026-10-20",
+        "account_id": "acc-bc",
+        "account_name": "Barclays Current",
+        "account_bank": "barclays",
+        "account_balance": 1500.0,
+        "is_credit_card": false,
+        "category": "Bills"
+      },
+      {
+        "key": "NatWest acc-nw",
+        "avg_amount": 75.53,
+        "avg_interval": 30,
+        "next_date": "2026-10-24",
+        "account_id": "acc-bc",
+        "account_name": "Barclays Current",
+        "account_bank": "barclays",
+        "account_balance": 1500.0,
+        "is_credit_card": false,
+        "category": "Debt",
+        "card_dest_account_id": "acc-nw",
+        "card_dest_account_name": "NatWest Mastercard",
+        "card_dest_account_bank": "natwest"
+      }
+    ],
+    "recurring_income": [
+      {
+        "key": "acme|payroll::acc-bc",
+        "display_name": "Acme Payroll",
+        "avg_amount": 3000.0,
+        "avg_interval": 30,
+        "next_date": "2026-10-30",
+        "account_id": "acc-bc",
+        "account_name": "Barclays Current",
+        "account_bank": "barclays",
+        "account_balance": 1500.0,
+        "category": "Income",
+        "occurrences": 3,
+        "amounts_recent": [
+          3000.0,
+          3000.0,
+          3000.0
+        ]
+      }
+    ],
+    "bnpl_commitments": [],
+    "avg_daily_spend": 0
+  },
+  "transactions": [
+    {
+      "account_id": "acc-nw",
+      "date": "2026-10-02",
+      "amount": 300.0,
+      "transaction_type": "debit",
+      "description": "SUPERMARKET",
+      "merchant_name": "SUPERMARKET",
+      "category": "Groceries"
+    },
+    {
+      "account_id": "acc-bc",
+      "date": "2026-08-24",
+      "amount": 75.53,
+      "transaction_type": "debit",
+      "description": "NATWEST",
+      "merchant_name": "NATWEST",
+      "category": "Debt",
+      "card_repayment_rule": {
+        "issuer": "natwest",
+        "card_account_id": "acc-nw",
+        "previous_category": "Other",
+        "matched_category": "Debt",
+        "version": 1
+      }
+    },
+    {
+      "account_id": "acc-bc",
+      "date": "2026-09-24",
+      "amount": 75.53,
+      "transaction_type": "debit",
+      "description": "NATWEST",
+      "merchant_name": "NATWEST",
+      "category": "Debt",
+      "card_repayment_rule": {
+        "issuer": "natwest",
+        "card_account_id": "acc-nw",
+        "previous_category": "Other",
+        "matched_category": "Debt",
+        "version": 1
+      }
+    }
+  ],
+  "commitments": [],
+  "allocations": [],
+  "card_terms": [],
+  "expected": {
+    "left_to_spend": 1274.47,
+    "accounts": {
+      "acc-bc": {
+        "spend_from": 1274.47,
+        "after_payments": 1274.47,
+        "low_point": 1274.47,
+        "verdict": "covered"
+      }
+    },
+    "cover_plan": {
+      "moves_total": 0,
+      "moves": []
+    },
+    "payday_plan": null,
+    "at_risk_count": 0,
+    "notes": "Today is Mon 12 Oct 2026, pay is the last Friday (30 Oct), so the window is 12 Oct to 29 Oct. Barclays holds 1,500; the NatWest card (balance -300) is not spendable cash. Only the current account side of the card payments is visible: two earlier debits described NATWEST for 75.53 (24 Aug and 24 Sep) leave Barclays and are filed Debt by the G381 repayment rule because the user holds a NatWest card and the narrative is only the issuer name. The series is therefore a learned card repayment (its cached pattern carries card_dest_account_id = acc-nw) of 75.53 monthly, next 24 Oct (a Saturday, so it shows on Mon 26 Oct, inside the window). Since G413 no card growth is reserved. The only other bill in the window is council tax 150 on 20 Oct. Cash walk: 1,500 - 150 council tax (20 Oct) = 1,350, then - 75.53 repayment (26 Oct) = 1,274.47, lowest point 1,274.47. Left to spend 1,274.47. Barclays: after payments 1,274.47, low point 1,274.47, Spend from 1,274.47, equal to the pool so it is not capped. The repayment is covered (1,350 before it), so no cover move and at risk 0. Period day 18 (25 Sep is day 1); a payday plan only shows when the day of the period is 3 or less, so there is none."
+  }
+}
