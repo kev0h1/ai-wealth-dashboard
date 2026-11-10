@@ -17,7 +17,8 @@ assert.equal((root.match(/Paying off one of my cards/g) || []).length, 1);
 const option = root.slice(root.lastIndexOf("<button", root.indexOf("Paying off one of my cards")), root.indexOf("</button>", root.indexOf("Paying off one of my cards")));
 assert.match(option, /min-h-\[56px\] rounded-xl border border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-700\/60/);
 assert.match(option, /disabled=\{busy\}/);
-assert.match(option, /<CreditCard size=\{18\} aria-hidden="true" \/>/);
+assert.match(sheet, /const DebtCategoryIcon = getCategoryIcon\("Debt", iconOverrides\)/, "card payments share the saved Debt category identity");
+assert.match(option, /<DebtCategoryIcon size=\{18\} aria-hidden="true" \/>/);
 // No card picker was invented: the option commits straight away.
 assert.doesNotMatch(option, /setStep\(/);
 assert.doesNotMatch(sheet, /movement-card/);
