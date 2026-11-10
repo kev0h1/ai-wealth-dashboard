@@ -2,8 +2,8 @@
 (app.core.subscription) — replaces the old free/pro/premium/family tiers.
 
 Default tier (no doc, expired doc, or unrecognised stored name) is
-configurable via DEFAULT_TIER and defaults to "plus" so nobody is
-restricted before launch. Legacy stored tier names still map somewhere
+configurable via DEFAULT_TIER and defaults to "statements" (A195: a missing
+variable never gives new sign-ups free Plus). Legacy stored tier names still map somewhere
 sensible for anyone who already has a subscription doc."""
 import asyncio
 
@@ -39,20 +39,20 @@ class _FakeCountCollection:
         return self.count
 
 
-def test_default_tier_is_plus_when_no_subscription_doc(monkeypatch):
+def test_default_tier_is_statements_when_no_subscription_doc(monkeypatch):
     monkeypatch.setattr(collections_module, "subscriptions_col", _FakeFindOneCollection(None))
     sub = asyncio.run(get_subscription("nobody@example.com"))
-    assert sub.tier == Tier.PLUS
-    assert sub.tier_name == "plus"
+    assert sub.tier == Tier.STATEMENTS
+    assert sub.tier_name == "statements"
 
 
-def test_default_tier_is_plus_when_doc_expired(monkeypatch):
+def test_default_tier_is_statements_when_doc_expired(monkeypatch):
     monkeypatch.setattr(
         collections_module, "subscriptions_col",
         _FakeFindOneCollection({"tier": "lite", "status": "expired"}),
     )
     sub = asyncio.run(get_subscription("expired@example.com"))
-    assert sub.tier == Tier.PLUS
+    assert sub.tier == Tier.STATEMENTS
 
 
 def test_legacy_pro_maps_to_standard(monkeypatch):
@@ -80,7 +80,7 @@ def test_legacy_free_maps_to_default_tier(monkeypatch):
         _FakeFindOneCollection({"tier": "free", "status": "active"}),
     )
     sub = asyncio.run(get_subscription("legacy-free@example.com"))
-    assert sub.tier == Tier.PLUS
+    assert sub.tier == Tier.STATEMENTS
 
 
 def test_unknown_tier_name_maps_to_default_tier(monkeypatch):
@@ -89,7 +89,7 @@ def test_unknown_tier_name_maps_to_default_tier(monkeypatch):
         _FakeFindOneCollection({"tier": "gold", "status": "active"}),
     )
     sub = asyncio.run(get_subscription("weird-tier@example.com"))
-    assert sub.tier == Tier.PLUS
+    assert sub.tier == Tier.STATEMENTS
 
 
 def test_new_tier_names_pass_through_unchanged(monkeypatch):
@@ -204,10 +204,10 @@ def test_b53_legacy_max_connect_premium_family_map_to_plus(monkeypatch):
         assert sub.limit("max_accounts") is None
 
 
-def test_b53_default_tier_config_is_plus_and_legacy_env_values_still_resolve(monkeypatch):
+def test_b53_default_tier_config_is_statements_and_legacy_env_values_still_resolve(monkeypatch):
     from app.core import config as config_module
     from app.core.subscription import _default_tier
-    assert config_module.DEFAULT_TIER == "plus"
+    assert config_module.DEFAULT_TIER == "statements"
     for env_value in ("max", "connect", "plus", " Plus "):
         monkeypatch.setattr(config_module, "DEFAULT_TIER", env_value)
         assert _default_tier() == Tier.PLUS
