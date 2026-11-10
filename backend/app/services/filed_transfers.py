@@ -370,7 +370,7 @@ async def refresh_filed_transfers(uid: str, *, start: date | None = None, end: d
             return
         await filed_transfer_store_col.update_one({"_id": key, "generation": generation}, {"$set": {
             "user_id": uid, "scope_key": _scope_key(start, end), "shape": _STORE_SHAPE,
-            "state": built, "stale": False, "built_at": datetime.now(timezone.utc),
+            "state": built, "stale": False, "built_at": datetime.now(timezone.utc),  # naive-ok: aware UTC persisted snapshot-build audit stamp
         }})
     except Exception:
         # Background preparation is best effort.  The saved receipt stays
