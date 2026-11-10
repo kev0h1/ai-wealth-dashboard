@@ -200,3 +200,33 @@ export function planLabel(p: OpsPerson): string {
   if (!p.signed_up || !p.plan) return "None";
   return p.on_trial ? `${p.plan}, on trial` : p.plan;
 }
+
+// A195: wording for the "On the default plan" report.
+export const DEFAULT_TIER_WORDING = {
+  title: "On the default plan",
+  intro: "People whose plan comes only from the default, not from a subscription, trial, store purchase or grant.",
+  show: "Show who",
+  hide: "Hide",
+  empty: "No one is on a plan only because of the default.",
+  loadFailed: "Couldn't load the default plan report.",
+  grantHint: "Open a person below and set their plan to keep them on Plus.",
+} as const;
+
+export function defaultTierSummary(r: {
+  default_only_count: number;
+  would_change_count: number;
+  configured_default: string;
+  code_default: string;
+}): string {
+  const people = r.default_only_count === 1 ? "1 person is" : `${r.default_only_count} people are`;
+  if (r.default_only_count === 0) return DEFAULT_TIER_WORDING.empty;
+  if (r.would_change_count === 0) {
+    return `${people} on the default plan (${r.configured_default}). None would change.`;
+  }
+  const drop = r.would_change_count === 1 ? "1 would move" : `${r.would_change_count} would move`;
+  return `${people} on ${r.configured_default} only by default. ${drop} to ${r.code_default} when the new default applies.`;
+}
+
+export function tierLabel(tier: string): string {
+  return tier ? tier.charAt(0).toUpperCase() + tier.slice(1) : "";
+}

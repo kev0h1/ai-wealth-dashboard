@@ -15,6 +15,7 @@ import { api, ApiError, type OpsAuditEntry, type OpsPerson } from "@/lib/api";
 import ConfirmDialog from "@/components/ConfirmDialog";
 import { useSheetA11y } from "@/lib/useSheetA11y";
 import SubscriptionSection from "./SubscriptionSection";
+import DefaultTierSection from "./DefaultTierSection";
 import {
   ACTION_LABELS,
   accessAction,
@@ -550,6 +551,8 @@ export default function PeoplePage() {
             </button>
           </section>
         )}
+
+        <DefaultTierSection />
 
         <form onSubmit={handleInvite} className="glass-card rounded-2xl p-4">
           <label htmlFor="invite-email" className={LABEL}>

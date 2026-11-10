@@ -2406,6 +2406,28 @@ export type OpsPerson = {
   last_sync: string | null;
   penny_messages_this_month: number | null;
 };
+// A195: who is on their plan only because of DEFAULT_TIER
+// (GET /ops/people/default-tier, owner only, read-only).
+export type OpsDefaultTierPerson = {
+  id: string;
+  email: string;
+  display_name: string | null;
+  has_subscription_doc: boolean;
+  signed_up_at: string | null;
+  invited_at: string | null;
+  last_active_at: string | null;
+  tier_today: "statements" | "lite" | "standard" | "plus";
+  tier_after: "statements" | "lite" | "standard" | "plus";
+  changes: boolean;
+};
+export type OpsDefaultTierReport = {
+  configured_default: string;
+  code_default: string;
+  signed_up_total: number;
+  default_only_count: number;
+  would_change_count: number;
+  people: OpsDefaultTierPerson[];
+};
 // E14: one person's subscription, as the owner sees it
 // (backend/app/routers/ops_people_subscription.py).
 export type OpsSubscription = {
@@ -4751,6 +4773,7 @@ export const api = {
     get<OpsPeopleResponse>(`/ops/people${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ""}`),
   inviteOpsPerson: (email: string) => post<{ ok: boolean }>("/ops/people/invite", { email }),
   allowOpsPerson: (id: string) => post<{ ok: boolean }>(`/ops/people/${encodeURIComponent(id)}/allow`),
+  getOpsDefaultTierReport: () => get<OpsDefaultTierReport>("/ops/people/default-tier"),
   getOpsBackfillPreview: () => get<{ count: number }>("/ops/people/backfill"),
   applyOpsBackfill: (confirm: string) => post<{ ok: boolean; added: number }>("/ops/people/backfill", { confirm }),
   revokeOpsPerson: (id: string) => post<{ ok: boolean }>(`/ops/people/${encodeURIComponent(id)}/revoke`),
