@@ -97,6 +97,14 @@ run summaries. Each invocation holds a non-blocking single-instance lock through
 the whole worker run, so overlapping timer/manual invocations exit without a
 second worker.
 
+An active timer proves that checks are scheduled, not that a worker can start.
+If ticket pickup stops, run `--dry-run` and inspect its `waiting` value before
+changing anything. `unfinished-run-needs-inspection` requires the operator
+recovery below; `another-codex-ticket-is-live` means a recorded session must
+finish first. `--status` shows the saved run history. Neither command invokes
+Codex. Quiet polling deliberately suppresses these waiting messages, so an
+empty service journal does not establish that the queue is healthy.
+
 Local state is ignored by Git under `.codex-board-watcher/`, directory mode 0700,
 with private state/audit/output files. `state.json` contains observations, queued
 events and outcomes. `audit.jsonl` contains event IDs, lifecycle and usage without
