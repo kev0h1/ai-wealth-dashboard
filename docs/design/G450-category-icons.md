@@ -107,8 +107,11 @@ and read/write recovery passed 17 browser interaction checks. All 15 captures
 were read at original detail. The reload sequence also exposed a shared sheet
 history ID collision; a per-module random prefix now prevents old entries
 matching new sheets. Negative totals use the currency minus before the symbol
-so Hide balances masks their absolute value while retaining the sign. Full finish results
-and the final review disposition are recorded on the board.
+so Hide balances masks their absolute value while retaining the sign. A separate real-component keyboard regression validates forward Tab through
+Browse all icons into search, keyboard selection, reverse navigation and
+collapsed results. The summary has explicit focusability so it remains in
+the shared sheet trap; a negative control reproduces the original omission.
+Full finish results and the final review disposition are recorded on the board.
 
 The Impeccable context launcher ran successfully for this fold-in. Dedicated
 skill agent roles are unavailable in this harness; fresh generic reviewer and

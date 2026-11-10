@@ -52,7 +52,7 @@ export default function CategoryIconPicker({ name, kind, value, automaticKey, on
     <h3>Icons for this category</h3>
     <div className={styles.suggestions}>{suggestions.map(key => choice(key, "suggested"))}</div>
     <details className={styles.browse}>
-      <summary>Browse all icons <ChevronRight size={16} aria-hidden="true" /></summary>
+      <summary tabIndex={0}>Browse all icons <ChevronRight size={16} aria-hidden="true" /></summary>
       <div className={styles.browser}>
         <label htmlFor={searchId}>Find an icon</label>
         <div className={styles.search}><Search size={17} aria-hidden="true" /><input id={searchId} name="category-icon-search" type="search" autoComplete="off" disabled={disabled} value={query} placeholder="For example, sport…" onKeyDown={event => { if (event.key === "Enter") event.preventDefault(); }} onChange={event => setQuery(event.target.value)} /></div>
