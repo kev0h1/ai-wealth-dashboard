@@ -32,6 +32,14 @@ type PreviewRoute = {
 
 const ROUTES: PreviewRoute[] = [
   {
+    slug: "category-icons",
+    name: "Phosphor category icons · G450",
+    description: "G450 design round using impeccable and Better Icons. All 22 built-in categories and custom examples share bundled Phosphor regular vectors, current colours and tile sizes. A Suggested icons keeps matching choices in the category sheet; B Browse icons uses a searchable child sheet. Create, rename, choose, cancel, retry and reload use fictional data saved only in this preview on this device. Production categories, APIs and components are unchanged.",
+    variants: [{ label: "A · Suggested icons", value: "a" }, { label: "B · Browse icons", value: "b" }],
+    states: [{ label: "Ready", value: "ready" }, { label: "Hidden figures", value: "hidden" }, { label: "Loading", value: "loading" }, { label: "Load failure", value: "error" }, { label: "Save failure", value: "save-error" }, { label: "No custom categories", value: "empty" }, { label: "Long names", value: "long" }, { label: "Storage unavailable", value: "storage-error" }],
+    group: "current",
+  },
+  {
     slug: "statements-house-ads",
     name: "Statements house ads · B58",
     description:
