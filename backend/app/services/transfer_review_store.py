@@ -67,6 +67,14 @@ async def mark_stale(uid: str) -> None:
         )
     except Exception:
         logger.exception("transfer_review_store.mark_stale failed")
+    # Filing provenance changes with these same decisions, including a
+    # confirmation whose money rebuild is deferred until Done and a model
+    # verdict. Invalidate its durable receipt before acknowledging the edit.
+    try:
+        from app.services.filed_transfers import mark_filed_transfers_stale
+        await mark_filed_transfers_stale(uid)
+    except Exception:
+        logger.exception("transfer_review_store.mark_stale: filed history invalidation failed")
 
 
 async def load(uid: str) -> dict | None:
@@ -117,6 +125,11 @@ async def refresh(uid: str) -> None:
     try:
         from app.routers.analytics import refresh_review_state
         await refresh_review_state(uid)
+        # Sync and deploy also refresh account identities without necessarily
+        # changing a transaction. Keep those names and filing rules in the
+        # persisted history current before its next normal open.
+        from app.services.filed_transfers import mark_filed_transfers_stale
+        await mark_filed_transfers_stale(uid)
     except Exception:
         logger.exception("transfer_review_store.refresh failed")
 

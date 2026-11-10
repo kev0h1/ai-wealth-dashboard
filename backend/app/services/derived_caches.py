@@ -189,6 +189,13 @@ async def mark_stale(uid: str, *, reason: str = "transactions_changed") -> None:
         await response_cache.ainvalidate(uid)
     except Exception:
         logger.exception("mark_stale(%s, %s): response cache invalidation failed", uid, reason)
+    # G451: transaction/account-derived filed history is rebuilt offscreen.
+    # Its reader must never recover by matching or summing on sheet open.
+    try:
+        from app.services.filed_transfers import mark_filed_transfers_stale
+        await mark_filed_transfers_stale(uid)
+    except Exception:
+        logger.exception("mark_stale(%s, %s): filed transfer history refresh failed", uid, reason)
 
 
 async def defer_transfer_review_recompute(uid: str) -> None:

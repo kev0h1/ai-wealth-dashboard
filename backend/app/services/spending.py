@@ -263,6 +263,13 @@ def _scan_own_moves(docs: list[dict], kinds, identity: dict | None = None) -> tu
         except Exception:
             return None
 
+    def _history_sig(cr: dict, db: dict) -> str | None:
+        from app.services.own_account_transfers import history_series_signature
+        try:
+            return history_series_signature(cr, db)
+        except Exception:
+            return None
+
     def ai_verdict(a: dict, b: dict) -> str | None:
         """G442: the model's standing verdict on this exact pair, if any."""
         return (ai_pairs.get(frozenset((_txn_id(a), _txn_id(b)))) or {}).get("verdict")
@@ -396,9 +403,10 @@ def _scan_own_moves(docs: list[dict], kinds, identity: dict | None = None) -> tu
         # calendar day, which is the only day `closest_partner` offers.
         # G442: the model's verdict decides; the G440 named-within-24-hours rule is only
         # the fallback while there is no verdict, and never after the user undid the series.
+        history_undone = bool(ai_blocked and _history_sig(partner, d) in ai_blocked)
         fallback_ok = not (ai_blocked and (frozenset((_txn_id(d), _txn_id(partner))) in ai_blocked
-                                           or _series_sig(partner, d) in ai_blocked))
-        if ai_same or (fallback_ok and pair_named(d, partner) and within_auto_window(d["date"], partner["date"])):
+                                           or _series_sig(partner, d) in ai_blocked or history_undone))
+        if (ai_same and not history_undone) or (fallback_ok and pair_named(d, partner) and within_auto_window(d["date"], partner["date"])):
             own.add(did)
             if kind_of(kinds, _effective_category(partner)) not in (INCOME, MOVEMENT) and not partner.get("custom_category"):
                 own.add(_txn_id(partner))

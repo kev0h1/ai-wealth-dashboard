@@ -133,7 +133,7 @@ export default function MiscategorisedReviewSheet({ onClose, onChanged, accounts
     if (initialAutoFiled !== undefined) { setFiledCount(initialAutoFiled.length); return; }
     setFiledCount(null);
     api.getFiledTransfers({ source: "sorted", page_size: 1 }).then(result => {
-      if (!cancelled) setFiledCount(result.total_series);
+      if (!cancelled) setFiledCount(result.status === "preparing" ? null : result.total_series);
     }).catch(() => { if (!cancelled) setFiledCountError(true); });
     return () => { cancelled = true; };
   }, [revision, initialAutoFiled]);

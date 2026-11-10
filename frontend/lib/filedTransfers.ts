@@ -1,4 +1,6 @@
 import { currencySymbol, formatCurrency, MINUS } from "./currency";
+import { displayAccountName } from "./accountName";
+import { tidyAccountText } from "./accountDisplay";
 
 /** Durable filing evidence returned by the G449 history endpoint. */
 export type FilingSource = "all" | "sorted" | "user";
@@ -42,6 +44,7 @@ export interface FiledTransferItem {
   first_date: string | null;
   last_date: string | null;
   cadence: string | null;
+  amount_pattern?: string | null;
   reason: string | null;
   occurrences: FiledTransferOccurrence[];
   can_undo: boolean;
@@ -61,16 +64,17 @@ export interface FiledTransfersQuery {
 
 export interface FiledTransfersResponse {
   items: FiledTransferItem[];
-  total_series: number;
+  total_series: number | null;
   page: number;
   page_size: number;
-  pages: number;
+  pages: number | null;
   scope: { start: string; end: string } | null;
   scope_total: number | null;
   scope_currency: string | null;
   source: FilingSource;
   updated_at: string | null;
   complete: boolean;
+  status?: "ready" | "preparing" | "stale";
 }
 
 export interface FiledTransfersUndoResult {
@@ -79,6 +83,24 @@ export interface FiledTransfersUndoResult {
   transaction_ids: string[];
   recomputed?: boolean;
   pending?: boolean;
+}
+
+/** The route names the accounts, so two pots at the same bank stay distinct. */
+export function filedTransferRoute(item: Pick<FiledTransferItem, "from_account" | "to_account" | "description">): string {
+  const from = displayAccountName(item.from_account?.name);
+  const to = displayAccountName(item.to_account?.name);
+  return from && to ? `${from} to ${to}` : item.description || "Moved money";
+}
+
+export function filedTransferAccountLabel(account: Pick<FiledTransferAccount, "name" | "bank">): string {
+  return [tidyAccountText(account.bank), displayAccountName(account.name)].filter(Boolean).join(" · ");
+}
+
+export function filingDateRange(first: string | null, last: string | null): string | null {
+  const start = shortFilingDate(first);
+  const end = shortFilingDate(last);
+  if (!start || !end) return start || end;
+  return first?.slice(0, 10) === last?.slice(0, 10) ? end : `${start} to ${end}`;
 }
 
 export function movementMoney(value: number, currency: string | null | undefined, sign?: "debit" | "credit", hidden = false): string {

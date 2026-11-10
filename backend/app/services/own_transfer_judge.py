@@ -48,7 +48,7 @@ from app.db.collections import (
 from app.services.categories import MOVEMENT, get_category_kinds
 from app.services.own_account_transfers import (
     HISTORY_DAYS, UNCLEAR_FALLBACK_REASON, _learned_pair_keys, _pair_key, ai_pair_keys, active_separate_review_ids, ai_candidate_pairs, pair_doc_id,
-    reconcile_own_account_transfers, series_key as _txn_series_key, series_signature, too_generic_to_learn,
+    reconcile_own_account_transfers, series_key as _txn_series_key, series_signature, history_series_signature, too_generic_to_learn,
 )
 from app.services.recurring_judge import _MODEL as HAIKU_MODEL, model_calls_allowed
 
@@ -338,11 +338,12 @@ async def _stored_state(uid: str) -> tuple[dict[str, dict], set[str], dict[str, 
     {pair doc id: attempt doc} for pairs whose reply could not be used)."""
     docs = await own_transfer_judgements_col.find(
         {"user_id": uid, "kind": {"$in": ["pair", "undo", "attempt"]}},
-        {"kind": 1, "signature": 1, "series_sig": 1, "attempts": 1, "pair_id": 1,
+        {"kind": 1, "signature": 1, "series_sig": 1, "history_series_sig": 1, "attempts": 1, "pair_id": 1,
          "prompt_version": 1, "verdict": 1, "user_override": 1},
     ).to_list(None)
     pairs = {d["_id"]: d for d in docs if d.get("kind") == "pair"}
     undone = {d.get("series_sig") for d in docs if d.get("kind") == "undo" and d.get("series_sig")}
+    undone.update(d["history_series_sig"] for d in docs if d.get("kind") == "undo" and d.get("history_series_sig"))
     attempts = {d.get("pair_id"): d for d in docs if d.get("kind") == "attempt"}
     return pairs, undone, attempts
 
@@ -437,7 +438,7 @@ async def _candidates(uid: str, stats: dict | None = None) -> tuple[list[tuple[d
         if _txn_series_key(debit) in dismissed_series:
             stats["answered"] += 1
             continue
-        if series_signature(credit, debit) in undone:
+        if series_signature(credit, debit) in undone or history_series_signature(credit, debit) in undone:
             stats["answered"] += 1
             continue  # the user undid this series; the model does not get another go
         cached = stored.get(pair_doc_id(uid, ids))

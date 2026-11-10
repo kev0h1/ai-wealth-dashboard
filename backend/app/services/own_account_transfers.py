@@ -34,7 +34,7 @@ from app.services.transfer_pruning import pair_pruned_reason
 OWN_TRANSFER_MATCH_VERSION = 2
 # G447: bump whenever a pair rule changes (timing, pruning, verdict order, evidence), so the
 # stored transfers review (transfer_review_store) is rebuilt by the worker after the deploy.
-REVIEW_RULES_VERSION = 1
+REVIEW_RULES_VERSION = 2  # G451: a whole-history Undo also covers later variable amounts.
 logger = logging.getLogger(__name__)
 # G443: one history window for everything that reads pairs (reconcile, the model's
 # candidates). It was 90 days, which left a pair imported at the start of history
@@ -574,13 +574,15 @@ async def load_ai_blocked(user_id: str, verdicts: dict | None = None, *, collect
     try:
         docs = await collection.find(
             {"user_id": user_id, "$or": [{"kind": "undo"}, {"kind": "pair", "user_override": True}]},
-            {"kind": 1, "ids": 1, "series_sig": 1},
+            {"kind": 1, "ids": 1, "series_sig": 1, "history_series_sig": 1},
         ).to_list(None)
     except Exception:
         return frozenset(out)
     for d in docs:
         if d.get("kind") == "undo" and d.get("series_sig"):
             out.add(d["series_sig"])
+            if d.get("history_series_sig"):
+                out.add(d["history_series_sig"])
         elif d.get("ids"):
             out.add(frozenset(str(i) for i in d["ids"]))
     return frozenset(out)
@@ -792,6 +794,22 @@ def series_signature(credit: dict, debit: dict) -> str:
     return hashlib.sha1("|".join(material).encode()).hexdigest()[:16]
 
 
+def history_series_signature(credit: dict, debit: dict) -> str:
+    """G451 receipt key: route and normalised text, deliberately no amount.
+
+    This belongs beside the amount-sensitive matcher key so history and Undo
+    use one byte-identical representation without changing matching rules.
+    """
+    material = [
+        str(debit.get("_filed_source") or credit.get("_filed_source") or "transactions"),
+        str(debit.get("account_id") or ""), str(credit.get("account_id") or ""),
+        str(debit.get("currency") or "").upper(),
+        transfer_text_key(debit.get("merchant_name"), debit.get("description")),
+        transfer_text_key(credit.get("merchant_name"), credit.get("description")),
+    ]
+    return hashlib.sha1("|".join(material).encode()).hexdigest()[:16]
+
+
 def _strong_evidence(credit: dict, debit: dict, accounts: dict[str, dict], name_tokens: list[str], learned: set[tuple[str, str]], movement_categories: set[str],
                      ai_same: frozenset = frozenset(), named_blocked: frozenset = frozenset(),
                      skip_named_auto: bool = False) -> bool:
@@ -802,7 +820,8 @@ def _strong_evidence(credit: dict, debit: dict, accounts: dict[str, dict], name_
     repayment (checked by the caller). A pair with no name, a name with no pair
     and a bare account number are only reasons to ASK, which the transfers
     review does (`has_pair_evidence` in the analytics router)."""
-    if ai_same and pair_ids(credit, debit) in ai_same:
+    history_undone = bool(named_blocked and history_series_signature(credit, debit) in named_blocked)
+    if ai_same and not history_undone and pair_ids(credit, debit) in ai_same:
         return True  # G442: the model judged this pair to be one transfer (an undone verdict is never in the set)
     c_text, d_text = _text(credit), _text(debit)
     # G438 (b), Kevin's refined rule: a matched pair (the caller has already
@@ -818,7 +837,7 @@ def _strong_evidence(credit: dict, debit: dict, accounts: dict[str, dict], name_
     # unclear verdict, or the user's undo of the series, switches it off; and the
     # model's own candidate set never counts it as already decided.
     named_ok = not skip_named_auto and not (
-        named_blocked and (pair_ids(credit, debit) in named_blocked or series_signature(credit, debit) in named_blocked))
+        named_blocked and (pair_ids(credit, debit) in named_blocked or series_signature(credit, debit) in named_blocked or history_undone))
     if named_ok and within_auto_window(credit.get("date"), debit.get("date")):
         if _compact_owner_name(c_text, name_tokens) or _compact_owner_name(d_text, name_tokens):
             return True
@@ -836,7 +855,7 @@ def _strong_evidence(credit: dict, debit: dict, accounts: dict[str, dict], name_
     if (counterparty_matches_account(credit, accounts.get(debit["account_id"]))
             or counterparty_matches_account(debit, accounts.get(credit["account_id"]))):
         return True
-    if learned_match(learned, credit, debit):
+    if learned_match(learned, credit, debit) and (not history_undone or _user_answered_pair(credit, debit, learned, movement_categories)):
         return True
     # An explicit movement resolution is a private user fact and can anchor
     # the counterpart, but not a coincident salary or purchase.  The other
@@ -1381,12 +1400,18 @@ async def reconcile_own_account_transfers(
     ai_verdicts = {} if confirmed_only else await load_ai_verdicts(user_id, collection=judgement_collection)
     ai_same = frozenset(k for k, v in ai_verdicts.items() if v.get("verdict") == "same_transfer")
     named_blocked = frozenset() if confirmed_only else await load_ai_blocked(user_id, ai_verdicts, collection=judgement_collection)
-    ai_learned = {k for k in _learned_pair_keys(learned_rows) if k[0].startswith(AI_KEY_PREFIX)}
+    learned_pairs = _learned_pair_keys(learned_rows)
+    ai_learned = {k for k in learned_pairs if k[0].startswith(AI_KEY_PREFIX)}
+    # An unmarked confirmed_transfer_pairs record is the user's durable answer
+    # (the confirm endpoint deliberately removes an old `source: ai`).  Keep
+    # that provenance when it matches later occurrences, without treating any
+    # ordinary deterministic evidence as a user confirmation.
+    user_learned = {k for k in learned_pairs if not k[0].startswith(AI_KEY_PREFIX)}
     queued_ids = await active_separate_review_ids(
         user_id, rows, accounts, preference_collection=preference_collection, movement_categories=movement_categories,
     )
     detailed = (
-        select_unique_pairs_detailed(rows, accounts, profile.get("name_tokens") or [], _learned_pair_keys(learned_rows),
+        select_unique_pairs_detailed(rows, accounts, profile.get("name_tokens") or [], learned_pairs,
                                      movement_categories=movement_categories, exclude_ids=queued_ids, ai_same=ai_same, named_blocked=named_blocked)
         if len(accounts) >= 2 else []
     )
@@ -1432,7 +1457,13 @@ async def reconcile_own_account_transfers(
         issuer = issuers.get((str(credit["_id"]), str(debit["_id"])))
         link = {"issuer": issuer, "card_account_id": str(credit["account_id"])} if issuer else None
         pair_keys = tuple(sorted(AI_KEY_PREFIX + k for k in ai_pair_keys(credit, debit)))
-        source = "ai" if (not issuer and (pair_ids(credit, debit) in ai_same or pair_keys in ai_learned)) else None
+        plain_keys = tuple(sorted((
+            canonical_merchant_key(credit.get("merchant_name") or "", credit.get("description") or ""),
+            canonical_merchant_key(debit.get("merchant_name") or "", debit.get("description") or ""),
+        )))
+        source = "user" if not issuer and plain_keys in user_learned else (
+            "ai" if (not issuer and (pair_ids(credit, debit) in ai_same or pair_keys in ai_learned)) else None
+        )
         if issuer:
             # G403: the bank debit is Debt against the card, the card credit stays Transfer.
             classifications = ((credit, "Transfer", debit),
