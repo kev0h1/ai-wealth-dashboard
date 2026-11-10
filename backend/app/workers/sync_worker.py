@@ -897,6 +897,15 @@ async def _review_store_refresh_on_startup() -> None:
         logger.exception("transfer review store refresh on worker startup failed")
 
 
+async def _filed_transfer_store_refresh_on_startup() -> None:
+    try:
+        from app.services.filed_transfers import refresh_all_filed_transfers
+        logger.info("worker startup: filed transfer store refreshed for %s scopes",
+                    await refresh_all_filed_transfers())
+    except Exception:
+        logger.exception("filed transfer store refresh on worker startup failed")
+
+
 async def _dead_consent_sweep_on_startup() -> None:
     """A189: expire accounts on dead Finexer consents at the release restart,
     so production heals without waiting for the next reconcile. Counts only."""
@@ -933,6 +942,7 @@ async def _on_startup(ctx: dict) -> None:
     ctx["engine_refresh_task"] = asyncio.create_task(_engine_refresh_on_startup())
     ctx["dead_consent_sweep_task"] = asyncio.create_task(_dead_consent_sweep_on_startup())
     ctx["review_store_refresh_task"] = asyncio.create_task(_review_store_refresh_on_startup())
+    ctx["filed_transfer_store_refresh_task"] = asyncio.create_task(_filed_transfer_store_refresh_on_startup())
 
 
 async def task_health_samples(ctx) -> dict:

@@ -69,8 +69,9 @@ def test_complete_series_restores_exact_prior_categories_and_queues_both_legs(mo
         rows = pair(0, actor=actor, source=source) + pair(1, actor=actor, source=source)
         signature = oat.series_signature(rows[0], rows[1])
         async with environment(monkeypatch, rows) as (cols, calls):
-            # An existing human learned rule is not owned by this confirmation.
+            # Preserve unrelated human rules; Undo unlearns its exact series.
             await cols["confirmed_transfer_pairs"].insert_one({"_id": "human-rule", "user_id": UID, "key_a": "received own transfer", "key_b": "sent own transfer"})
+            await cols["confirmed_transfer_pairs"].insert_one({"_id": "unrelated", "user_id": UID, "key_a": "other incoming", "key_b": "other outgoing"})
             aa, ab = oat.ai_pair_keys(rows[0], rows[1])
             await cols["confirmed_transfer_pairs"].insert_one({"_id": "ai-rule", "user_id": UID, "key_a": aa, "key_b": ab, "source": "ai"})
             out = await undo.undo_filed_series(UID, f"{actor}:{signature}")
@@ -83,8 +84,9 @@ def test_complete_series_restores_exact_prior_categories_and_queues_both_legs(mo
             assert len(prefs["separate_transfer_pair_reviews"]) == 2 and "dismissed_transfer_pairs" not in prefs
             queued = await oat.active_separate_review_ids(UID, saved, {a["_id"]: a for a in ACCOUNTS}, preference_collection=cols["preferences"], movement_categories=MOVEMENTS)
             assert queued == {"c0", "d0", "c1", "d1"}
-            assert await cols["confirmed_transfer_pairs"].find_one({"_id": "human-rule"})
+            assert bool(await cols["confirmed_transfer_pairs"].find_one({"_id": "human-rule"})) == (actor != "user")
             assert await cols["confirmed_transfer_pairs"].find_one({"_id": "ai-rule"}) is None
+            assert await cols["confirmed_transfer_pairs"].find_one({"_id": "unrelated"})
             assert await cols["own_transfer_judgements"].count_documents({"kind": "undo", "series_sig": signature}) == 1
             assert calls.count(("defer", UID)) == 1
             # Retrying the old series cannot silently mutate anything again.
@@ -103,6 +105,28 @@ def test_later_custom_choice_and_cross_user_ids_cannot_be_undone(monkeypatch):
             with pytest.raises(ValueError): await undo.undo_filed_series("other@example.com", f"sorted:{signature}")
             assert (await cols["transactions"].find_one({"_id": "d0"}))["custom_category"] == "Groceries"
             assert await cols["own_transfer_judgements"].count_documents({}) == 0 and calls == []
+    asyncio.run(run())
+
+
+def test_g451_history_key_undoes_changing_amounts_and_blocks_each_engine_series(monkeypatch):
+    async def run():
+        rows = pair(0) + pair(1)
+        # A daily saving challenge changes by four pence but remains one
+        # history route.  Engine signatures remain distinct by design.
+        for row_item in rows[2:]:
+            row_item["amount"] = 80.29
+        for row_item in rows[2:]:
+            other = rows[3] if row_item["_id"] == "c1" else rows[2]
+            row_item["own_transfer_match"] = oat.build_match_metadata(row_item, other, "Transfer")
+        from app.services.filed_transfers import history_series_signature
+        history_key = history_series_signature(rows[0], rows[1])
+        assert history_key == history_series_signature(rows[2], rows[3])
+        assert oat.series_signature(rows[0], rows[1]) != oat.series_signature(rows[2], rows[3])
+        async with environment(monkeypatch, rows) as (cols, _):
+            output = await undo.undo_filed_series(UID, f"sorted:{history_key}")
+            assert output["undone"] == 2
+            blocked = await cols["own_transfer_judgements"].count_documents({"kind": "undo"})
+            assert blocked == 2
     asyncio.run(run())
 
 
@@ -155,7 +179,7 @@ def test_real_recorded_history_has_global_scope_count_reason_and_safe_undo(monke
         rows = pair() + pair(1)
         signature = oat.series_signature(*rows[:2])
         async with environment(monkeypatch, rows) as (cols, _):
-            for name in ("transactions", "accounts", "own_transfer_judgements"):
+            for name in ("transactions", "accounts", "own_transfer_judgements", "confirmed_transfer_pairs"):
                 monkeypatch.setattr(history, f"{name}_col", cols[name])
             monkeypatch.setattr(history, "yapily_transactions_col", cols["user_profiles"])
             async def categories(_): return dict(BUILTIN_CATEGORY_KINDS)
@@ -166,7 +190,7 @@ def test_real_recorded_history_has_global_scope_count_reason_and_safe_undo(monke
             monkeypatch.setattr(history, "get_category_kinds", categories)
             monkeypatch.setattr(history, "_load_period_txns", period)
             await cols["own_transfer_judgements"].insert_one({"user_id": UID, "kind": "pair", "series_sig": signature, "reason": "Both entries name the same accounts."})
-            out = await history.list_filed_transfers(UID, start=datetime(2026, 10, 26).date(), end=datetime(2026, 10, 26).date())
+            out = await history._build_filed_transfers(UID, start=datetime(2026, 10, 26).date(), end=datetime(2026, 10, 26).date())
             assert out["total_series"] == 1 and out["scope_total"] == 80.25
             assert out["items"][0]["total_amount"] == 80.25 and out["items"][0]["count"] == 1
             assert out["items"][0]["undo_count"] == 2 and out["items"][0]["can_undo"]
@@ -174,6 +198,62 @@ def test_real_recorded_history_has_global_scope_count_reason_and_safe_undo(monke
             # A stale older member must not leave a whole-series action on
             # the still-current visible period.
             await cols["transactions"].update_one({"_id": "d1"}, {"$set": {"description": "Bank amended this record"}})
-            out = await history.list_filed_transfers(UID, start=datetime(2026, 10, 26).date(), end=datetime(2026, 10, 26).date())
+            out = await history._build_filed_transfers(UID, start=datetime(2026, 10, 26).date(), end=datetime(2026, 10, 26).date())
             assert not out["complete"] and not out["items"][0]["can_undo"]
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("old_source", [None, "ai"])
+def test_g451_saved_user_rule_backfills_provenance_and_whole_series_undo(monkeypatch, old_source):
+    from app.services import filed_transfers as history
+    from app.services.categorisation import canonical_merchant_key
+    async def run():
+        rows = pair(source=old_source) + pair(1, source=old_source)
+        async with environment(monkeypatch, rows) as (cols, _):
+            for name in ("transactions", "accounts", "own_transfer_judgements", "confirmed_transfer_pairs"):
+                monkeypatch.setattr(history, f"{name}_col", cols[name])
+            monkeypatch.setattr(history, "yapily_transactions_col", cols["user_profiles"])
+            monkeypatch.setattr(history, "get_category_kinds", undo.get_category_kinds)
+            async def period(*_args): return []
+            monkeypatch.setattr(history, "_load_period_txns", period)
+            keys = sorted(canonical_merchant_key(row.get("merchant_name"), row["description"]) for row in rows[:2])
+            await cols["confirmed_transfer_pairs"].insert_one({"_id": "user-rule", "user_id": UID, "key_a": keys[0], "key_b": keys[1]})
+            aa, ab = oat.ai_pair_keys(*rows[:2])
+            await cols["confirmed_transfer_pairs"].insert_one({"_id": "ai-rule", "user_id": UID, "key_a": aa, "key_b": ab, "source": "ai"})
+            await cols["confirmed_transfer_pairs"].insert_one({"_id": "unrelated", "user_id": UID, "key_a": "another incoming", "key_b": "another outgoing"})
+            result = await history._build_filed_transfers(UID)
+            assert len(result["items"]) == 1
+            item = result["items"][0]
+            assert item["actor"] == "user" and item["can_undo"] and item["undo_count"] == 2
+            saved = await cols["transactions"].find({"user_id": UID}).to_list(None)
+            assert all(row["own_transfer_match"].get("source") == "user" for row in saved)
+            output = await undo.undo_filed_series(UID, item["series_key"])
+            assert output["undone"] == 2
+            assert await cols["confirmed_transfer_pairs"].count_documents({"_id": {"$in": ["ai-rule", "user-rule"]}}) == 0
+            assert await cols["confirmed_transfer_pairs"].find_one({"_id": "unrelated"})
+    asyncio.run(run())
+
+
+def test_g451_newer_confirmation_survives_undo_unlearning_race(monkeypatch):
+    from app.services.categorisation import canonical_merchant_key
+    async def run():
+        rows = pair(actor="user")
+        async with environment(monkeypatch, rows) as (cols, _):
+            old, new = datetime(2026, 11, 1), datetime(2026, 11, 10)
+            keys = sorted(canonical_merchant_key(row.get("merchant_name"), row["description"]) for row in rows)
+            real = cols["confirmed_transfer_pairs"]
+            await real.insert_one({"_id": "user-rule", "user_id": UID, "key_a": keys[0], "key_b": keys[1], "updated_at": old})
+            class NewerConfirmation:
+                def find(self, *args, **kwargs): return real.find(*args, **kwargs)
+                async def delete_one(self, guard):
+                    await real.update_one({"_id": "user-rule"}, {"$set": {"updated_at": new}})
+                    return await real.delete_one(guard)
+                async def update_one(self, *args, **kwargs): return await real.update_one(*args, **kwargs)
+            monkeypatch.setattr(undo, "confirmed_transfer_pairs_col", NewerConfirmation())
+            with pytest.raises(ValueError, match="Reload history"):
+                await undo.undo_filed_series(UID, f"user:{oat.history_series_signature(*rows)}")
+            assert (await real.find_one({"_id": "user-rule"}))["updated_at"] == new
+            actual = await cols["transactions"].find({"user_id": UID}).to_list(None)
+            assert all(row["category"] == "Transfer" and row["own_transfer_match"]["confirmed"] for row in actual)
+            assert await cols["own_transfer_judgements"].count_documents({"kind": {"$in": ["pair", "undo"]}}) == 0
     asyncio.run(run())

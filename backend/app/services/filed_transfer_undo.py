@@ -15,9 +15,10 @@ from app.db.collections import (
     preferences_col, transactions_col,
 )
 from app.services.categories import MOVEMENT, get_category_kinds
+from app.services.categorisation import canonical_merchant_key
 from app.services.own_account_transfers import (
     OWN_TRANSFER_MATCH_VERSION, _pair_key, ai_pair_keys, pair_doc_id,
-    resolve_transfer_evidence, series_signature, transfer_source_signature,
+    resolve_transfer_evidence, series_signature, history_series_signature, transfer_source_signature,
 )
 
 logger = logging.getLogger(__name__)
@@ -27,6 +28,10 @@ def filing_actor(marker: dict) -> str:
     if marker.get("version") != OWN_TRANSFER_MATCH_VERSION:
         return "unknown"
     if marker.get("confirmed") is True:
+        return "user"
+    # A later occurrence matched only because of the user's saved pair rule.
+    # It is not an automatic filing merely because it was applied at sync.
+    if marker.get("source") == "user":
         return "user"
     return "sorted" if marker.get("source") in (None, "ai", "series", "rule") else "unknown"
 
@@ -89,13 +94,31 @@ async def undo_filed_series(uid: str, series_key: str) -> dict:
             continue
         marker = credit.get("own_transfer_match") or {}
         debit = by_id.get(str(marker.get("counterpart_id")))
-        if not debit or filing_actor(marker) != actor or series_signature(credit, debit) != signature:
+        if not debit or filing_actor(marker) != actor:
+            continue
+        # Continue to accept the amount-sensitive G449 keys that may still be
+        # open in another browser tab.  Fresh G451 rows use the history key.
+        if signature not in {history_series_signature(credit, debit), series_signature(credit, debit)}:
             continue
         if not reversible_pair(credit, debit, accounts, movements):
             raise ValueError("This series has changed. Reload its history before undoing it")
         pairs.append((credit, debit))
     if not pairs:
         raise ValueError("That transfer series is no longer available to undo")
+
+    # Snapshot the precise rules before the first write. A later confirmation
+    # revises updated_at; guarded deletion must preserve that newer answer.
+    learned_candidates: dict[str, dict] = {}
+    for credit, debit in pairs:
+        ai_a, ai_b = ai_pair_keys(credit, debit)
+        queries = [{"user_id": uid, "key_a": ai_a, "key_b": ai_b, "source": "ai"}]
+        if actor == "user":
+            keys = sorted((canonical_merchant_key(credit.get("merchant_name") or "", credit.get("description") or ""),
+                           canonical_merchant_key(debit.get("merchant_name") or "", debit.get("description") or "")))
+            queries.append({"user_id": uid, "key_a": keys[0], "key_b": keys[1], "source": None})
+        for query in queries:
+            for saved in await confirmed_transfer_pairs_col.find(query).to_list(None):
+                learned_candidates[str(saved["_id"])] = saved
 
     # Persist the H145 dirty marker before writes, including a partially
     # interrupted request. Every subsequent close/revisit can drain it.
@@ -134,24 +157,29 @@ async def undo_filed_series(uid: str, series_key: str) -> dict:
         # Delay permanent overrides and unlearning until all guarded category
         # writes succeed. Retain the old audit state for compensation on this
         # standalone Mongo, which cannot promise a multi-document transaction.
-        audit_updates = [(f"{uid}::undo::{signature}", {
-            "user_id": uid, "kind": "undo", "series_sig": signature, "at": now,
-        })] + [(pair_doc_id(uid, [c["_id"], d["_id"]]), {
+        # The history key joins variable amounts.  The matcher still consumes
+        # amount-sensitive signatures, so block every underlying signature or
+        # a subsequent sync could learn just one amount again after Undo.
+        engine_signatures = {series_signature(c, d) for c, d in pairs}
+        audit_updates = [(f"{uid}::undo::{engine_signature}", {
+            "user_id": uid, "kind": "undo", "series_sig": engine_signature, "history_series_sig": signature, "at": now,
+        }) for engine_signature in engine_signatures] + [(pair_doc_id(uid, [c["_id"], d["_id"]]), {
             "user_id": uid, "kind": "pair", "ids": sorted((str(c["_id"]), str(d["_id"]))),
-            "series_sig": signature, "user_override": True,
+            "series_sig": series_signature(c, d), "history_series_sig": signature, "user_override": True,
         }) for c, d in pairs]
         for key, values in audit_updates:
             audit_before[key] = await own_transfer_judgements_col.find_one({"_id": key, "user_id": uid})
             await own_transfer_judgements_col.update_one({"_id": key, "user_id": uid}, {
                 "$set": {**values, "g449_undo_id": operation_id},
             }, upsert=True)
-        for credit, debit in pairs:
-            ai_a, ai_b = ai_pair_keys(credit, debit)
-            query = {"user_id": uid, "key_a": ai_a, "key_b": ai_b, "source": "ai"}
-            learned_before.extend(await confirmed_transfer_pairs_col.find(query).to_list(None))
-            await confirmed_transfer_pairs_col.delete_many(query)
-        # Generic learned user facts may predate this exact confirmation.
-        # Retain them: the fingerprinted queue reverses only these decisions.
+        for saved in learned_candidates.values():
+            guard = {**saved, "source": saved.get("source"), "updated_at": saved.get("updated_at")}
+            deleted = await confirmed_transfer_pairs_col.delete_one(guard)
+            if deleted.deleted_count != 1:
+                raise ValueError("A newer transfer confirmation replaced this learned rule")
+            learned_before.append(saved)
+        # Other learned rules remain intact; only this series' exact keys
+        # have been unlearned, and snapshots support guarded compensation.
         await own_transfer_judgements_col.update_one({"_id": operation_key}, {"$set": {"state": "complete"}})
     except Exception as exc:
         rollback_complete = True

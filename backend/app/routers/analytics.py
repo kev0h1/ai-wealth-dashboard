@@ -7084,6 +7084,7 @@ async def confirm_transfer_pair(body: dict, user: dict = Depends(current_user)):
         await confirmed_transfer_pairs_col.update_one(
             {"user_id": uid, "key_a": ka, "key_b": kb},
             {"$setOnInsert": {"user_id": uid, "key_a": ka, "key_b": kb, "created_at": datetime.utcnow()},  # naive-ok: persisted audit stamp, as before
+             "$set": {"updated_at": datetime.utcnow()},  # naive-ok: revision stamp for guarded whole-series unlearning
              "$unset": {"source": ""}},  # G442: the user's answer outranks a pair the model learned
             upsert=True,
         )

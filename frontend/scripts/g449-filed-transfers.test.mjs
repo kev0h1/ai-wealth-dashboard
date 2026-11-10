@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { isSafeFiledTransfersHref, shortFilingDate, movementMoney, maskFilingCopy } from "../lib/filedTransfers.ts";
+import { filedTransferAccountLabel, filedTransferRoute, filingDateRange, isSafeFiledTransfersHref, shortFilingDate, movementMoney, maskFilingCopy } from "../lib/filedTransfers.ts";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import FilingSourceIcon from "../components/FilingSourceIcon.tsx";
@@ -27,6 +27,12 @@ assert.equal(movementMoney(15.25, "KES", "debit", true), "−KSh ••••");
 assert.equal(movementMoney(15.25, "", undefined), "Currency unavailable");
 assert.equal(movementMoney(NaN, "GBP"), "Amount unavailable");
 assert.equal(maskFilingCopy("Moved £80, $20, €3 and KSh 140.25", true), "Moved £••••, $••••, €•••• and KSh ••••");
+assert.equal(filedTransferRoute({ from_account: { id: "current", name: "MONZO CURRENT", bank: "MONZO" }, to_account: { id: "pot", name: "Saving Challenge pot", bank: "MONZO" }, description: "Transfer" }), "Monzo Current to Saving Challenge pot");
+assert.equal(filedTransferRoute({ from_account: null, to_account: null, description: "Savings" }), "Savings");
+assert.equal(filedTransferAccountLabel({ bank: "MONZO", name: "SAVING CHALLENGE POT" }), "Monzo · Saving Challenge Pot");
+assert.equal(filingDateRange(`${currentYear}-01-01`, `${currentYear}-11-09`), "1 Jan to 9 Nov");
+assert.equal(filingDateRange(`${currentYear}-11-09`, `${currentYear}-11-09`), "9 Nov");
+assert.equal(filingDateRange(null, null), null);
 for (const [actor, glyph] of [["sorted", "robot"], ["user", "finn-the-human"]]) {
   const icon = renderToStaticMarkup(React.createElement(FilingSourceIcon, { actor }));
   assert.match(icon, new RegExp(`data-phosphor-icon="${glyph}"`));

@@ -30,6 +30,7 @@ import app.services.own_account_transfers as oat
 import app.services.own_transfer_judge as judge
 import app.services.recurring_judge as recurring_judge
 import app.services.transfer_review_store as review_store
+import app.services.filed_transfers as filed_history
 from app.core.config import MONGO_DB, MONGO_URI
 from app.services.categories import BUILTIN_CATEGORY_KINDS, CategoryKinds
 from app.services.spending import SpendingContext, find_own_move_ids, find_pending_transfer_ids, is_spending
@@ -164,6 +165,7 @@ async def mongo_env(monkeypatch, rows, *, learned=None, accounts=None):
             return None
 
         monkeypatch.setattr(review_store, "refresh", _noop)
+        monkeypatch.setattr(filed_history, "mark_filed_transfers_stale", _noop)
         import app.services.derived_caches as derived_caches
         monkeypatch.setattr(derived_caches, "mark_stale", _noop)
         monkeypatch.setattr(judge, "OPENROUTER_API_KEY", "test-key-not-real")
@@ -937,6 +939,6 @@ def test_a_user_confirmation_of_an_ai_filed_fp_series_leaves_the_auto_filed_list
             assert len(judge._call_model.calls) == calls
             await oat.reconcile_own_account_transfers(UID)
             marker = (await cols["transactions"].find_one({"_id": "n-fp-d2"}))["own_transfer_match"]
-            assert "source" not in marker and marker["confirmed"] is False
+            assert marker["source"] == "user" and marker["confirmed"] is False
             assert await judge.list_auto_filed(UID) == [], "not shown as filed by the model"
     _arun(run())
