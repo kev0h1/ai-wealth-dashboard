@@ -32,6 +32,14 @@ type PreviewRoute = {
 
 const ROUTES: PreviewRoute[] = [
   {
+    slug: "correction-scope",
+    name: "Correction scope · G453",
+    description: "Two interactive correction flows: A dedicated scope step and B inline review. Choose this payment, this and earlier payments, or matching history plus a future rule. Fictional counts, protected choices, immediate confirmation, Undo and removable rules. Includes all correction destinations, count/save/refresh recovery, hidden figures and long payees. Preview only; production corrections are unchanged.",
+    variants: [{ label: "A · Separate scope step", value: "a" }, { label: "B · Inline review", value: "b" }],
+    states: [{ label: "Choose classification", value: "start" }, { label: "Savings", value: "savings" }, { label: "Protected choices", value: "protected" }, { label: "No earlier matches", value: "empty" }, { label: "Count failure", value: "count-error" }, { label: "Save failure", value: "save-error" }, { label: "Refresh failure", value: "refresh-error" }, { label: "Hidden figures", value: "hidden" }, { label: "Long payee", value: "long" }, { label: "Older payment", value: "older" }],
+    group: "current",
+  },
+  {
     slug: "statements-house-ads",
     name: "Statements house ads · B58",
     description:
