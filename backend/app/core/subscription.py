@@ -393,6 +393,25 @@ def pick_subscription_doc(docs: list[dict], default_tier: Tier | None = None) ->
     return max(scored, key=ended_rank)
 
 
+def default_tier_exposure(docs: list[dict], today_default: Tier, after_default: Tier) -> dict:
+    """A195: the pure core of the /ops/people default-tier report. Resolves
+    one user's documents twice through the REAL resolver (pick_subscription_doc),
+    once with the default configured today and once with the default after the
+    change, so the report can never drift from what get_subscription does.
+    `via_default` is the resolver's own flag: True only when the user's tier
+    came from the default (no document, a free or unrecognised tier, or an
+    ended document that was not store/Stripe-backed). A live Stripe, Apple,
+    Google, trial or manual-grant document is never via_default."""
+    _, now = pick_subscription_doc(docs, today_default)
+    _, after = pick_subscription_doc(docs, after_default)
+    return {
+        "via_default": bool(now.via_default),
+        "tier_today": now.tier_name,
+        "tier_after": after.tier_name,
+        "changes": now.tier != after.tier,
+    }
+
+
 async def get_subscription_doc(email: str) -> tuple[dict | None, Subscription]:
     """Every provider's document for `email`, resolved by
     pick_subscription_doc. get_subscription and GET /billing/status both
@@ -819,8 +838,8 @@ async def check_connection_limit(email: str) -> None:
 
     `max_banks` counts completed TrueLayer connections, connected Finexer
     consents, and Yapily consents. `max_accounts` counts `accounts_col`
-    docs for the user. Either cap being None means unlimited. With the
-    default tier at plus (unlimited accounts), this is a no-op today."""
+    docs for the user. Either cap being None means unlimited. With a
+    default tier of plus (unlimited accounts), this is a no-op."""
     from app.db.collections import (
         accounts_col, connections_col, finexer_consents_col, yapily_consents_col,
     )

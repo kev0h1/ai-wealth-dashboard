@@ -212,7 +212,7 @@ async def resolve_audience(audience: dict) -> list[str]:
     fixtures and stray single-document identities were resolving into
     every audience, including "everyone"). The "tier" branch additionally
     requires a STORED subscriptions_col document before matching a tier at
-    all: `get_subscription`'s DEFAULT_TIER fallback (today "plus") is a
+    all: `get_subscription`'s DEFAULT_TIER fallback (configured per environment) is a
     real in-app entitlement decision for a genuine user with no
     subscription doc yet ("nobody restricted before launch", see
     app.core.subscription's own module docstring), not a tier assertion

@@ -287,6 +287,60 @@ async def list_people(cursor: str | None = None, user: dict = Depends(current_us
     }
 
 
+@router.get("/default-tier")
+async def default_tier_report(user: dict = Depends(current_user)):
+    """A195: read-only. Who is on their plan only because of DEFAULT_TIER, and
+    what each would resolve to once the code default is Statements. Owner
+    session only, like every route here. Writes nothing."""
+    _require_owner_session(user)
+    from app.core.config import CODE_DEFAULT_TIER
+    from app.core.subscription import TIER_BY_NAME, TIER_NAMES, _default_tier, default_tier_exposure
+
+    today_default = _default_tier()
+    after_default = TIER_BY_NAME[CODE_DEFAULT_TIER]
+    owner = _owner_key()
+    allow = {d["key"]: d async for d in cols.allowed_signups_col.find({}, {"key": 1, "created_at": 1}) if d.get("key")}
+    profiles = [d async for d in cols.user_profiles_col.find({}, {"full_name": 1, "last_active_at": 1})]
+    people = [d for d in profiles if isinstance(d.get("_id"), str) and _EMAIL_RE.match(d["_id"])]
+    docs_by_user: dict[str, list[dict]] = {}
+    async for d in cols.subscriptions_col.find({}):
+        docs_by_user.setdefault(d.get("user_id"), []).append(d)
+
+    rows: list[dict] = []
+    total = 0
+    for p in people:
+        uid = p["_id"]
+        if _key_of(uid) == owner:
+            continue
+        total += 1
+        exposure = default_tier_exposure(docs_by_user.get(uid, []), today_default, after_default)
+        if not exposure["via_default"]:
+            continue
+        rows.append({
+            "id": _pid(uid),
+            "email": uid,
+            "display_name": (p.get("full_name") or "").strip() or None,
+            "has_subscription_doc": bool(docs_by_user.get(uid)),
+            # Profiles carry no created_at (see module docstring): the invite
+            # date and last activity are the closest stored facts.
+            "signed_up_at": None,
+            "invited_at": _iso((allow.get(_key_of(uid)) or {}).get("created_at")),
+            "last_active_at": _iso(p.get("last_active_at")),
+            "tier_today": exposure["tier_today"],
+            "tier_after": exposure["tier_after"],
+            "changes": exposure["changes"],
+        })
+    rows.sort(key=lambda r: (not r["changes"], r["email"]))
+    return {
+        "configured_default": TIER_NAMES[today_default],
+        "code_default": CODE_DEFAULT_TIER,
+        "signed_up_total": total,
+        "default_only_count": len(rows),
+        "would_change_count": sum(1 for r in rows if r["changes"]),
+        "people": rows,
+    }
+
+
 @router.post("/invite")
 async def invite(body: InviteBody, user: dict = Depends(current_user)):
     actor = _require_owner_session(user)

@@ -208,7 +208,7 @@ async def select_free_tier(user: dict = Depends(current_user)):
 
     D12: refused while NO payment channel is live (C37: Stripe web, Apple or
     Google Play, see services.billing_channels). With none live every user
-    sits on the DEFAULT_TIER fallback (plus); writing a Statements document
+    sits on the DEFAULT_TIER fallback; writing a Statements document
     here would silently override that fallback and remove Add bank, so even a
     stale client cannot do it.
     """

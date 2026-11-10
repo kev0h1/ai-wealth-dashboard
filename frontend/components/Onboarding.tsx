@@ -154,7 +154,7 @@ export default function Onboarding({ defaultName = "", onComplete }: OnboardingP
   // with any channel live, Continue with Statements (and this skip) writes
   // the free Statements plan through POST /subscription/select-free; with no
   // channel live (or unknown, because the plan info did not load) nothing is
-  // written and they stay on the server default tier (Plus today).
+  // written and they stay on the server default tier (DEFAULT_TIER).
   // The channel-off jump above never writes anything (a web user with only
   // Google live stays on the server default). Only this explicit skip, with
   // any channel live, writes Statements.

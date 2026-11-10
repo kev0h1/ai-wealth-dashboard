@@ -119,8 +119,8 @@ export const TUTORIAL_FLOWS: TutorialFlow[] = [
         // tier-aware tutorial that drops the step entirely is a bigger
         // change than this item warrants (the flow's step indices live in
         // TutorialContext's provider, so filtering means teaching the
-        // app-wide provider about subscriptions); today every user is on
-        // DEFAULT_TIER=plus, so nobody sees this yet.
+        // app-wide provider about subscriptions); DEFAULT_TIER decides who is on
+        // Plus, so this step may be seen by Statements users.
         fallbackTarget: "tutorial-add-account",
         tooltipSide: "below",
         iconName: "Accounts",
