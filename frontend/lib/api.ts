@@ -3571,7 +3571,7 @@ export const api = {
   // `from`/`to` (ISO dates) scope to a pay period as a removable chip on the
   // hub — mirrors backend/app/routers/transactions.py's `from`/`to` query
   // params field-for-field. Both optional; omitted means all history.
-  transactionsSearch: (params: { q?: string; page?: number; page_size?: number; category?: string; categories?: string[]; transaction_id?: string[]; merchants?: string; days?: number; from?: string; to?: string; txn_type?: "debit" | "credit"; activity_order?: boolean; pending_page?: number } = {}) => {
+  transactionsSearch: (params: { q?: string; page?: number; page_size?: number; category?: string; categories?: string[]; transaction_id?: string[]; filed_series?: string; merchants?: string; days?: number; from?: string; to?: string; txn_type?: "debit" | "credit"; activity_order?: boolean; pending_page?: number } = {}) => {
     const p = new URLSearchParams();
     if (params.q) p.set("q", params.q);
     if (params.page) p.set("page", String(params.page));
@@ -3592,6 +3592,10 @@ export const api = {
     if (params.transaction_id && params.transaction_id.length > 0) {
       for (const id of params.transaction_id) p.append("transaction_id", id);
     }
+    // An opaque filed-series key is resolved by the server against the
+    // authenticated user's saved transfer evidence. It is deliberately one
+    // scalar, never reconstructed from labels, accounts or merchant text.
+    if (params.filed_series !== undefined) p.set("filed_series", params.filed_series);
     if (params.merchants) p.set("merchants", params.merchants);
     if (params.days) p.set("days", String(params.days));
     if (params.from) p.set("from", params.from);

@@ -10,6 +10,7 @@ from datetime import date, datetime, timezone
 import asyncio
 import logging
 from math import ceil
+from urllib.parse import quote
 
 from app.db.collections import accounts_col, confirmed_transfer_pairs_col, filed_transfer_store_col, own_transfer_judgements_col, transactions_col, yapily_transactions_col
 from app.services.categories import MOVEMENT, get_category_kinds
@@ -312,15 +313,32 @@ async def _build_filed_transfers(uid: str, *, start: date | None = None, end: da
         dates = [date.fromisoformat(o["date"][:10]) for o in occurrences if o.get("date")]
         currencies = {o["currency"] for o in occurrences if o.get("currency")}
         total = round(sum(o["amount"] for o in occurrences), 2)
+        # Keep every durable occurrence in the store, but hand a bounded
+        # receipt to the sheet.  The full provider-qualified membership is
+        # deliberately private: the transactions hub resolves it server-side
+        # and must never infer a series from names, accounts or dates.
+        membership = []
+        seen_members = set()
+        for occurrence in all_occurrences:
+            source_name = occurrence.get("_filed_source")
+            for leg_name in ("debit", "credit"):
+                leg = occurrence.get(leg_name)
+                member_id = str((leg or {}).get("id") or "")
+                member = (source_name, member_id)
+                if source_name in {"transactions", "yapily"} and member_id and member not in seen_members:
+                    seen_members.add(member)
+                    membership.append({"source": source_name, "id": member_id})
         items.append({"series_key": entry["series_key"], "actor": entry["actor"], "kind": entry["kind"],
             "from_account": entry["debit"], "to_account": entry["credit"], "description": entry["description"],
             "total_amount": total, "currency": next(iter(currencies)) if len(currencies) == 1 else "",
             "count": len(occurrences), "first_date": min((o["date"] for o in occurrences if o["date"]), default=None),
             "last_date": max((o["date"] for o in occurrences if o["date"]), default=None), "cadence": _cadence(dates),
             "reason": entry["reason"], "amount_pattern": _amount_pattern(occurrences, next(iter(currencies)) if len(currencies) == 1 else ""),
-            "occurrences": [{key: value for key, value in occurrence.items() if key != "_filed_source"} for occurrence in occurrences], "can_undo": entry["can_undo"],
+            "occurrences": [{key: value for key, value in occurrence.items() if key != "_filed_source"} for occurrence in occurrences],
+            "all_time_count": len(all_occurrences), "_series_membership": membership,
+            "can_undo": entry["can_undo"],
             "undo_count": len(all_occurrences) if entry["can_undo"] else 0, "history_complete": bool(all_occurrences) and not invalid_evidence,
-            "transactions_href": "/transactions", "undo_unavailable_reason": entry["undo_unavailable_reason"]})
+            "transactions_href": f"/transactions?filed_series={quote(entry['series_key'], safe='')}", "undo_unavailable_reason": entry["undo_unavailable_reason"]})
     items.sort(key=lambda item: (item["last_date"] or "", item["series_key"]), reverse=True)
     total = len(items)
     offset = (page - 1) * page_size
@@ -334,7 +352,7 @@ async def _build_filed_transfers(uid: str, *, start: date | None = None, end: da
             "status": "ready"}
 
 
-_STORE_SHAPE = 1  # Bump when the persisted receipt shape or interpretation changes.
+_STORE_SHAPE = 2  # G452 adds private provider-qualified series membership.
 _refreshing: set[str] = set()
 _again: set[str] = set()
 
@@ -449,8 +467,78 @@ async def list_filed_transfers(uid: str, *, start: date | None = None, end: date
     stale = bool(saved.get("stale"))
     if stale:
         refresh_filed_transfers_soon(uid, start=start, end=end)
-    shown = [{**item, "can_undo": False} if stale else item for item in items[offset:offset + page_size]]
+    def public_item(item: dict) -> dict:
+        # One opened series is a compact receipt, not its entire history.
+        # Keep the stored full receipt and private membership for Undo and the
+        # exact hub drill-in while returning no more than ten recent payments.
+        public = {key: value for key, value in item.items() if key != "_series_membership"}
+        public["occurrences"] = list(item.get("occurrences") or [])[:10]
+        if stale:
+            public["can_undo"] = False
+        return public
+    shown = [public_item(item) for item in items[offset:offset + page_size]]
     return {**state, "items": shown, "total_series": total, "page": page, "page_size": page_size,
             "pages": ceil(total / page_size) if total else 0, "source": source,
             "updated_at": _iso(saved.get("built_at")) or state.get("updated_at"),
             "status": "stale" if stale else "ready"}
+
+
+async def filed_series_membership(uid: str, series_key: str) -> dict[str, list[str]]:
+    """Return exact, saved all-time source membership for one series.
+
+    This is intentionally a receipt lookup only.  It never asks a matcher to
+    recreate a historical series, so a stale, deleted or malformed receipt
+    cannot broaden a hub link into unrelated customer transactions.
+    """
+    if (not isinstance(series_key, str) or not series_key.strip() or len(series_key) > 500
+            or any(ord(char) < 32 or ord(char) == 127 for char in series_key)):
+        raise ValueError("filed_series is invalid")
+    base_query = {"user_id": uid, "shape": _STORE_SHAPE,
+                  "state.items.series_key": series_key}
+    fresh_query = {**base_query, "stale": {"$ne": True}, "state.complete": True}
+    # The all-time receipt is canonical when it is fresh and complete. A
+    # fresh period receipt is equally safe when it is the only one available:
+    # every scope saves complete, source-qualified all-time membership.
+    #
+    # A stale or incomplete receipt still has exact historic row IDs and is
+    # safe for this read-only drill-in. It is only unsuitable for Undo. Fall
+    # back to it after fresh evidence, never attempting to recreate a series.
+    saved = await filed_transfer_store_col.find_one({
+        **fresh_query, "_id": _store_id(uid, None, None),
+    })
+    if saved is None:
+        saved = await filed_transfer_store_col.find(fresh_query).sort("built_at", -1).limit(1).to_list(1)
+        saved = saved[0] if saved else None
+    if saved is None:
+        saved = await filed_transfer_store_col.find_one({
+            **base_query, "_id": _store_id(uid, None, None),
+        })
+    if saved is None:
+        saved = await filed_transfer_store_col.find(base_query).sort("built_at", -1).limit(1).to_list(1)
+        saved = saved[0] if saved else None
+    state = (saved or {}).get("state")
+    if not isinstance(state, dict):
+        raise LookupError("Filed transfer history is not ready")
+    item = next((candidate for candidate in state.get("items", [])
+                 if isinstance(candidate, dict) and candidate.get("series_key") == series_key), None)
+    if not item:
+        raise LookupError("Filed transfer series is unavailable")
+    raw_members = item.get("_series_membership")
+    if not isinstance(raw_members, list) or not raw_members:
+        raise LookupError("Filed transfer series has no complete receipt")
+    members: dict[str, list[str]] = {"transactions": [], "yapily": []}
+    seen: set[tuple[str, str]] = set()
+    for member in raw_members:
+        if not isinstance(member, dict):
+            raise LookupError("Filed transfer series has an invalid receipt")
+        source_name, transaction_id = member.get("source"), member.get("id")
+        if (source_name not in members or not isinstance(transaction_id, str) or not transaction_id
+                or len(transaction_id) > 200 or any(ord(char) < 32 or ord(char) == 127 for char in transaction_id)):
+            raise LookupError("Filed transfer series has an invalid receipt")
+        key = (source_name, transaction_id)
+        if key not in seen:
+            seen.add(key)
+            members[source_name].append(transaction_id)
+    if not any(members.values()):
+        raise LookupError("Filed transfer series has no complete receipt")
+    return members

@@ -38,6 +38,12 @@ export default function TransactionsPage() {
   const searchParams = useSearchParams();
   const { showTips } = usePreferences();
   const initialRoute = readTransactionSearchRoute(searchParams);
+  // This exact, opaque scope is supplied by the filed-transfer history sheet.
+  // Read it from the current route during render so a client-side deep link or
+  // Back/Forward navigation never starts one unscoped request before the
+  // route-reseeding effect below has a chance to run.
+  const routeKey = searchParams.toString();
+  const routeFiledSeries = searchParams.get("filed_series");
   const lastRouteKeyRef = useRef<string | null>(null);
   const draftTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const skipUrlWriteRef = useRef(false);
@@ -72,6 +78,21 @@ export default function TransactionsPage() {
   const [sourceLabel, setSourceLabel] = useState<string | null>(() => (
     searchParams.getAll("transaction_id").length > 0 ? searchParams.get("label") : null
   ));
+  // A local removal only shadows the exact address it began from. A later
+  // Back/Forward or in-app route change therefore reads its new scope during
+  // render, before the URL-reseeding effect runs, rather than retaining a
+  // previous route's local choice for one request.
+  const [clearedFiledSeriesRouteKey, setClearedFiledSeriesRouteKey] = useState<string | null>(null);
+  const filedSeries = clearedFiledSeriesRouteKey === routeKey ? null : routeFiledSeries;
+  // An empty query value is deliberately still a scope. It must reach the
+  // server and fail closed as malformed, never silently widen to all history.
+  const hasFiledSeries = filedSeries !== null;
+  // Retire the transient clear when its replacement URL arrives. This
+  // guarded render-time adjustment settles before effects run, so returning
+  // to the same series cannot reuse an old clear or issue a global request.
+  if (clearedFiledSeriesRouteKey !== null && routeKey !== clearedFiledSeriesRouteKey) {
+    setClearedFiledSeriesRouteKey(null);
+  }
   // Debit/credit scope from a deep-link (e.g. "money you moved" rows are
   // always debit) — cleared together with categoryFilter/categoryLabel
   // since it's the same filter unit, not an independently removable chip.
@@ -213,7 +234,6 @@ export default function TransactionsPage() {
   // "Between your accounts" landed on the stale "Between your accounts"
   // results, not a real routing/id mismatch).
   useEffect(() => {
-    const routeKey = searchParams.toString();
     if (lastRouteKeyRef.current === routeKey) return;
     lastRouteKeyRef.current = routeKey;
     // A real deep link or history navigation wins over local typing.
@@ -241,7 +261,7 @@ export default function TransactionsPage() {
     // address rather than briefly showing the previous result for a debounce.
     setDebouncedQuery(route.query);
     setPage(route.page);
-  }, [searchParams]);
+  }, [searchParams, routeKey]);
 
   // Clear the provisional group as soon as its context changes. This avoids
   // one filter's pending payments briefly appearing under another filter
@@ -254,7 +274,7 @@ export default function TransactionsPage() {
     setPendingPages(1);
     setPendingError(null);
     setLoadingPendingMore(false);
-  }, [debouncedQuery, categoryFilter, categoriesFilter, merchantsFilter, periodFrom, periodTo, txnType, sourceTransactionIds]);
+  }, [debouncedQuery, categoryFilter, categoriesFilter, merchantsFilter, periodFrom, periodTo, txnType, sourceTransactionIds, filedSeries]);
 
   useEffect(() => {
     let cancelled = false;
@@ -281,6 +301,7 @@ export default function TransactionsPage() {
       categories: categoriesFilter && categoriesFilter.length > 0 ? categoriesFilter : undefined,
       category: (!categoriesFilter || categoriesFilter.length === 0) ? (categoryFilter || undefined) : undefined,
       transaction_id: sourceTransactionIds && sourceTransactionIds.length > 0 ? sourceTransactionIds : undefined,
+      filed_series: filedSeries ?? undefined,
       merchants: merchantsFilter && merchantsFilter.length > 0 ? merchantsFilter.join(",") : undefined,
       from: periodFrom || undefined,
       to: periodTo || undefined,
@@ -318,12 +339,13 @@ export default function TransactionsPage() {
     // Page two and later omit pending rows by contract. Re-read pending page
     // one whenever those booked pages refresh, so a bank handover cannot
     // leave a now-booked payment in this separate group.
-    if (page > 1 && !sourceTransactionIds?.length) {
+    if (page > 1 && !sourceTransactionIds?.length && filedSeries === null) {
       api.transactionsSearch({
         q: debouncedQuery || undefined,
         categories: categoriesFilter && categoriesFilter.length > 0 ? categoriesFilter : undefined,
         category: (!categoriesFilter || categoriesFilter.length === 0) ? (categoryFilter || undefined) : undefined,
         transaction_id: sourceTransactionIds && sourceTransactionIds.length > 0 ? sourceTransactionIds : undefined,
+        filed_series: filedSeries ?? undefined,
         merchants: merchantsFilter && merchantsFilter.length > 0 ? merchantsFilter.join(",") : undefined,
         from: periodFrom || undefined,
         to: periodTo || undefined,
@@ -346,13 +368,14 @@ export default function TransactionsPage() {
       });
     }
     return () => { cancelled = true; pendingGeneration.current += 1; };
-  }, [debouncedQuery, categoryFilter, categoriesFilter, merchantsFilter, periodFrom, periodTo, txnType, sourceTransactionIds, page, reloadKey]);
+  }, [debouncedQuery, categoryFilter, categoriesFilter, merchantsFilter, periodFrom, periodTo, txnType, sourceTransactionIds, filedSeries, page, reloadKey]);
 
   const pendingRequest = useCallback((nextPendingPage: number) => api.transactionsSearch({
     q: debouncedQuery || undefined,
     categories: categoriesFilter && categoriesFilter.length > 0 ? categoriesFilter : undefined,
     category: (!categoriesFilter || categoriesFilter.length === 0) ? (categoryFilter || undefined) : undefined,
     transaction_id: sourceTransactionIds && sourceTransactionIds.length > 0 ? sourceTransactionIds : undefined,
+    filed_series: filedSeries ?? undefined,
     merchants: merchantsFilter && merchantsFilter.length > 0 ? merchantsFilter.join(",") : undefined,
     from: periodFrom || undefined,
     to: periodTo || undefined,
@@ -361,10 +384,10 @@ export default function TransactionsPage() {
     page_size: PAGE_SIZE,
     pending_page: nextPendingPage,
     activity_order: true,
-  }), [debouncedQuery, categoryFilter, categoriesFilter, merchantsFilter, periodFrom, periodTo, txnType, sourceTransactionIds]);
+  }), [debouncedQuery, categoryFilter, categoriesFilter, merchantsFilter, periodFrom, periodTo, txnType, sourceTransactionIds, filedSeries]);
 
   const loadMorePending = useCallback(async () => {
-    if (loadingPendingMore || pendingPage >= pendingPages) return;
+    if (hasFiledSeries || sourceTransactionIds?.length || loadingPendingMore || pendingPage >= pendingPages) return;
     const generation = pendingGeneration.current;
     setLoadingPendingMore(true);
     try {
@@ -385,7 +408,7 @@ export default function TransactionsPage() {
     } finally {
       if (generation === pendingGeneration.current) setLoadingPendingMore(false);
     }
-  }, [loadingPendingMore, pendingPage, pendingPages, pendingRequest, pendingTotal]);
+  }, [hasFiledSeries, sourceTransactionIds, loadingPendingMore, pendingPage, pendingPages, pendingRequest, pendingTotal]);
 
   // Rebuilds the URL from whichever filters remain after one is cleared —
   // every clear*Filter below keeps the others (an insight deep-link, or a
@@ -399,6 +422,7 @@ export default function TransactionsPage() {
     label?: string | null;
     sourceTransactionIds?: string[] | null;
     sourceLabel?: string | null;
+    filedSeries?: string | null;
     txnType?: "debit" | "credit" | null;
     query?: string | null;
     page?: number;
@@ -411,6 +435,7 @@ export default function TransactionsPage() {
     const label = overrides.label !== undefined ? overrides.label : categoryLabel;
     const sourceIds = overrides.sourceTransactionIds !== undefined ? overrides.sourceTransactionIds : sourceTransactionIds;
     const historicalLabel = overrides.sourceLabel !== undefined ? overrides.sourceLabel : sourceLabel;
+    const series = overrides.filedSeries !== undefined ? overrides.filedSeries : filedSeries;
     const tt = overrides.txnType !== undefined ? overrides.txnType : txnType;
     const query = overrides.query !== undefined ? overrides.query : committedQuery;
     const nextPage = overrides.page !== undefined ? overrides.page : page;
@@ -429,6 +454,7 @@ export default function TransactionsPage() {
       for (const id of sourceIds) params.append("transaction_id", id);
       if (historicalLabel) params.set("label", historicalLabel);
     } else if (label) params.set("label", label);
+    if (series !== null) params.set("filed_series", series);
     if (tt) params.set("txn_type", tt);
     if (tipParam) params.set("tip", tipParam);
     const routeParams = writeTransactionSearchRoute(params, { query: query ?? "", page: nextPage });
@@ -454,7 +480,7 @@ export default function TransactionsPage() {
       const href = `${window.location.pathname}${nextKey ? `?${nextKey}` : ""}${window.location.hash}`;
       window.history.replaceState(null, "", href);
     }
-  }, [committedQuery, page, categoryFilter, categoriesFilter, merchantsFilter, periodFrom, periodTo, categoryLabel, txnType, tipParam, sourceTransactionIds, sourceLabel, searchParams]);
+  }, [committedQuery, page, categoryFilter, categoriesFilter, merchantsFilter, periodFrom, periodTo, categoryLabel, txnType, tipParam, sourceTransactionIds, sourceLabel, filedSeries, searchParams]);
 
   // Category, label and txn_type are one filter unit ONLY when categoryLabel
   // is set — a deep link like "Money you moved" (or the overspent-only
@@ -489,6 +515,11 @@ export default function TransactionsPage() {
     setPage(1);
   }
 
+  function clearFiledSeriesFilter() {
+    setClearedFiledSeriesRouteKey(routeKey);
+    setPage(1);
+  }
+
   // The scope-transparency fix: widening to all history is always one tap,
   // and the result count updates visibly the moment the filter clears (the
   // fetch effect above already re-runs on periodFrom/periodTo).
@@ -520,6 +551,7 @@ export default function TransactionsPage() {
     setMerchantsFilter(null);
     setSourceTransactionIds(null);
     setSourceLabel(null);
+    setClearedFiledSeriesRouteKey(routeKey);
     setPeriodFrom(null);
     setPeriodTo(null);
     setPage(1);
@@ -577,9 +609,9 @@ export default function TransactionsPage() {
   const hasPeriodFilter = Boolean(periodFrom || periodTo);
   // With a period chip applied the line must not claim "all time" — the chip
   // itself states the exact range, this only states the account scope.
-  const scopeLine = hasPeriodFilter
-    ? "Searching all accounts"
-    : "Searching everything · all accounts, all time";
+  const scopeLine = hasFiledSeries
+    ? (hasPeriodFilter ? "Searching this transfer series" : "Searching this transfer series · all dates")
+    : hasPeriodFilter ? "Searching all accounts" : "Searching everything · all accounts, all time";
 
   // G119: the same SearchFilters shape FilterChips/FilterSheet/FilterTrigger
   // share with the design round's own preview — built fresh each render
@@ -597,9 +629,13 @@ export default function TransactionsPage() {
   const filtersActive = Boolean(
     categoryFilter || (categoriesFilter && categoriesFilter.length > 0) ||
     (merchantsFilter && merchantsFilter.length > 0) || periodFrom || periodTo || txnType ||
-    (sourceTransactionIds && sourceTransactionIds.length > 0),
+    (sourceTransactionIds && sourceTransactionIds.length > 0) || hasFiledSeries,
   );
-  const hasSourceHistoryFilter = Boolean(sourceTransactionIds && sourceTransactionIds.length > 0);
+  const hasSourceHistoryFilter = Boolean(sourceTransactionIds && sourceTransactionIds.length > 0) || hasFiledSeries;
+  // Historical evidence scopes are booked-only. Hide any rows retained from
+  // the previous unscoped render until the clearing effect above has run, so
+  // a Back/Forward deep link can never flash pending activity from elsewhere.
+  const hidesPendingActivity = hasSourceHistoryFilter;
 
   // The collapsed tips line's own data — computed here (not inline in the
   // JSX) so `!loading` and a `key={tipsLineCategory}` remount can both gate
@@ -780,6 +816,20 @@ export default function TransactionsPage() {
             <p className="text-xs text-slate-600 dark:text-slate-400">Historical credits behind predicted income</p>
           </div>
         )}
+        {hasFiledSeries && (
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={clearFiledSeriesFilter}
+              aria-label="Clear filed transfer series filter"
+              className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-indigo-500 bg-indigo-50 px-3 text-sm font-semibold text-indigo-700 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:border-indigo-400 dark:bg-indigo-900/30 dark:text-indigo-300"
+            >
+              <span>Filed transfer series</span>
+              <X size={16} aria-hidden="true" />
+            </button>
+            <p className="text-xs text-slate-600 dark:text-slate-400">Recorded payments in this transfer series</p>
+          </div>
+        )}
 
         {/* Mounted only once `tips` is non-empty AND the list itself has
             settled (`!loading`) — never inserted above a payments list that
@@ -818,7 +868,7 @@ export default function TransactionsPage() {
       <div className="px-4 pt-2 space-y-2">
             {/* Parent `space-y-2` supplies 8px; this adds 16px for the
                 approved 24px separation before booked activity. */}
-            {!loading && (pendingItems.length > 0 || (pendingError && !bookedError)) && (
+            {!hidesPendingActivity && !loading && (pendingItems.length > 0 || (pendingError && !bookedError)) && (
               <div className="pb-4">
                 <PendingPaymentsGroup
                   items={pendingItems}
@@ -873,15 +923,15 @@ export default function TransactionsPage() {
               {items.length === 0 ? (
                 <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm overflow-hidden py-8 text-center">
                   <p className="text-sm text-slate-600 dark:text-slate-400">
-                    {pendingItems.length > 0
+                    {!hidesPendingActivity && pendingItems.length > 0
                       ? "No booked payments yet"
                       : searchQuery || categoryFilter || (categoriesFilter && categoriesFilter.length > 0) || merchantsFilter || hasSourceHistoryFilter
-                      ? `No payments matching ${searchQuery ? `"${searchQuery}"` : (categoryLabel ?? categoryFilter ?? (categoriesFilter && categoriesFilter.length > 0 ? categoriesFilter.join(", ") : merchantsFilter?.join(", ") ?? sourceLabel ?? "Source credits"))}`
+                      ? `No payments matching ${searchQuery ? `"${searchQuery}"` : (categoryLabel ?? categoryFilter ?? (categoriesFilter && categoriesFilter.length > 0 ? categoriesFilter.join(", ") : merchantsFilter?.join(", ") ?? sourceLabel ?? (hasFiledSeries ? "this transfer series" : "Source credits")))}`
                       : hasPeriodFilter
                         ? "No payments in this period"
                         : "No payments yet"}
                   </p>
-                  {hasPeriodFilter && pendingItems.length === 0 && (
+                  {hasPeriodFilter && (hidesPendingActivity || pendingItems.length === 0) && (
                     <button
                       type="button"
                       onClick={clearPeriodFilter}

@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useEffect, useRef, useState, type MouseEvent } from "react";
+import { useEffect, useRef, useState, type MouseEvent } from "react";
 import { ChevronDown, ChevronLeft, ChevronRight, RotateCcw } from "lucide-react";
 import { useRouter } from "next/navigation";
 import MoneyText from "@/components/MoneyText";
@@ -10,7 +10,7 @@ import { usePreferences } from "@/components/PreferencesContext";
 import { api } from "@/lib/api";
 import { invalidateAfterTransactionCorrection, notifyTransactionsChanged } from "@/lib/cacheInvalidation";
 import {
-  filedTransferAccountLabel, filedTransferRoute, filingDateRange, isSafeFiledTransfersHref, shortFilingDate, movementMoney, maskFilingCopy, type FiledTransferItem,
+  filedTransferAccountLabel, filedTransferRoute, filingDateRange, filedSeriesHistoryHref, recentFiledTransfers, shortFilingDate, movementMoney, maskFilingCopy, type FiledTransferItem,
   type FiledTransfersQuery, type FiledTransfersResponse, type FilingSource,
 } from "@/lib/filedTransfers";
 import styles from "./FiledTransfersSheet.module.css";
@@ -44,14 +44,17 @@ function periodQuery(period: Period | undefined, source: FilingSource, page: num
   return { ...(period ? { from: period.start, to: period.end } : {}), source, page, page_size: PAGE_SIZE };
 }
 
-function Row({ item, hidden, undoDisabled, onAskUndo, onOpenTransactions }: {
-  item: FiledTransferItem; hidden: boolean; undoDisabled: boolean; onAskUndo: (item: FiledTransferItem) => void; onOpenTransactions: (href: string, event: MouseEvent<HTMLAnchorElement>) => void;
+function Row({ item, hidden, undoDisabled, historyStale, onAskUndo, onOpenTransactions }: {
+  item: FiledTransferItem; hidden: boolean; undoDisabled: boolean; historyStale: boolean; onAskUndo: (item: FiledTransferItem) => void; onOpenTransactions: (href: string, event: MouseEvent<HTMLAnchorElement>) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const actor = sourceLabel(item.actor);
   const dates = filingDateRange(item.first_date, item.last_date);
   const header = maskFilingCopy(filedTransferRoute(item), hidden);
   const accountText = account(item);
+  const occurrences = recentFiledTransfers(item.occurrences);
+  const transactionsHref = filedSeriesHistoryHref(item);
+  const allCount = item.all_time_count ?? item.count;
   return <details className={styles.row} data-filed-row onToggle={event => setExpanded(event.currentTarget.open)}>
     <summary tabIndex={0}>
       <span className={styles.route}>{header}<small>{item.kind === "own_transfer" ? "Own-account transfer" : "Other movement"}</small></span>
@@ -66,22 +69,30 @@ function Row({ item, hidden, undoDisabled, onAskUndo, onOpenTransactions }: {
     {expanded ? <div className={styles.detail}>
       {accountText ? <p>{maskFilingCopy(accountText, hidden)}</p> : null}
       {item.reason ? <p className={styles.reason}><MoneyText text={hidden ? "Filing reason hidden while balances are hidden." : item.reason} /></p> : null}
-      <table className={styles.receiptTable} data-filed-receipt>
-        <caption className="sr-only">Receipt for {header}</caption>
-        <thead><tr><th scope="col">Date</th><th scope="col">Entry</th><th scope="col">Amount</th></tr></thead>
-        <tbody>{item.occurrences.map((occurrence, index) => <Fragment key={`${occurrence.date}:${index}`}>
-          {[occurrence.debit, occurrence.credit].map(leg => leg ? <tr key={`${leg.transaction_type}:${leg.id}`}>
-            <td><time dateTime={leg.date}>{shortFilingDate(leg.date) ?? "Date unavailable"}</time></td>
-            <td>{leg.transaction_type === "debit" ? "Out" : "In"}<small>{maskFilingCopy(filedTransferAccountLabel({ bank: leg.account_bank, name: leg.account_name }), hidden)}</small></td>
-            <td><span className="money" aria-label={hidden ? `${leg.transaction_type === "debit" ? "Outgoing" : "Incoming"} amount hidden` : undefined}><MoneyText text={movementMoney(leg.amount, leg.currency, leg.transaction_type, hidden)} /></span></td>
-          </tr> : null)}
-          {!occurrence.debit || !occurrence.credit ? <tr><td colSpan={3} className={styles.disabled}>{!occurrence.debit ? "Outgoing entry unavailable." : "Incoming entry unavailable."}</td></tr> : null}
-        </Fragment>)}</tbody>
-      </table>
+      {occurrences.length ? <>
+        <p className={styles.receiptNote}>Showing {occurrences.length} of {item.count} {item.count === 1 ? "transfer" : "transfers"}{item.count > occurrences.length ? ", most recent first" : ""}.</p>
+        <table className={styles.receiptTable} data-filed-receipt>
+          <caption className="sr-only">Recent transfers for {header}</caption>
+          <thead><tr><th scope="col">Date</th><th scope="col">From and to</th><th scope="col">Amount</th></tr></thead>
+          <tbody>{occurrences.map((occurrence, index) => {
+            const { debit, credit } = occurrence;
+            const leg = debit ?? credit;
+            const from = debit ? filedTransferAccountLabel({ bank: debit.account_bank, name: debit.account_name }) : "Source not recorded";
+            const to = credit ? filedTransferAccountLabel({ bank: credit.account_bank, name: credit.account_name }) : "Destination not recorded";
+            const differentCredit = debit && credit && (debit.currency !== credit.currency || debit.amount !== credit.amount);
+            const receivedDate = debit && credit && debit.date.slice(0, 10) !== credit.date.slice(0, 10) ? shortFilingDate(credit.date) : null;
+            return <tr key={`${occurrence.date}:${debit?.id ?? credit?.id ?? index}`} data-filed-transfer>
+              <td><time dateTime={leg?.date ?? occurrence.date}>{shortFilingDate(leg?.date ?? occurrence.date) ?? "Date unavailable"}</time></td>
+              <td><span className={styles.transferRoute}>{maskFilingCopy(from, hidden)}<span>to {maskFilingCopy(to, hidden)}</span></span>{receivedDate ? <small>Received {receivedDate}</small> : null}</td>
+              <td><span className="money" aria-label={hidden && leg ? `${leg.transaction_type === "debit" ? "Outgoing" : "Incoming"} amount hidden` : undefined}><MoneyText text={leg ? movementMoney(leg.amount, leg.currency, leg.transaction_type, hidden) : "Amount unavailable"} /></span>{differentCredit ? <small className={styles.receivedAmount}>Received <MoneyText text={movementMoney(credit.amount, credit.currency, "credit", hidden)} /></small> : null}</td>
+            </tr>;
+          })}</tbody>
+        </table>
+      </> : <p className={styles.disabled}>Recent transfer details are unavailable.</p>}
       {!item.history_complete ? <p className={styles.disabled}>Some older receipt evidence is unavailable.</p> : null}
       <div className={styles.actions}>
-        {item.can_undo ? <button type="button" className={styles.linkButton} disabled={undoDisabled} onClick={() => onAskUndo(item)}><RotateCcw size={15} aria-hidden="true" />Undo this series</button> : <span className={styles.disabled}>{item.undo_unavailable_reason || "This filing cannot be safely undone from the stored history."}</span>}
-        {!undoDisabled && isSafeFiledTransfersHref(item.transactions_href) ? <a className={styles.transactionLink} href={item.transactions_href} onClick={event => onOpenTransactions(item.transactions_href!, event)}>Open transaction history</a> : null}
+        {item.can_undo ? <button type="button" className={styles.linkButton} disabled={undoDisabled} onClick={() => onAskUndo(item)}><RotateCcw size={15} aria-hidden="true" />Undo this series</button> : null}
+        {transactionsHref ? <a className={styles.transactionLink} href={transactionsHref} onClick={event => onOpenTransactions(transactionsHref, event)}>{historyStale || !item.history_complete ? "See recorded transfers in transactions" : `See all ${allCount.toLocaleString("en-GB")} in transactions`}</a> : null}
       </div>
     </div> : null}
   </details>;
@@ -213,7 +224,7 @@ export default function FiledTransfersSheet({ onClose, onChanged, onOpenReview, 
       {closeStatus ? <p className={styles.alert} role="status">{closeStatus}</p> : null}
       {flushPending ? <p className={styles.alert} role="status">{flushPending.count ? "Series undone. Totals have not refreshed yet." : "The Undo outcome still needs checking. Reload history after totals refresh."} <button type="button" className={styles.linkButton} disabled={undoing} onClick={retryFlush}>Refresh totals</button></p> : null}
       <div className={styles.listArea} aria-busy={loading || preparing} data-filed-list-area>
-        {hasHistory ? visibleData.items.length ? <div className={styles.list}>{visibleData.items.map(item => <Row key={item.series_key} item={item} hidden={hidden} undoDisabled={historyBlocked} onAskUndo={setPending} onOpenTransactions={(href, event) => openTransactions(href, event, closeThen)} />)}</div> : <div className={styles.empty}><h3>{displayedSource === "all" ? (period ? "No filed transfers in this pay period" : "No filed transfers yet") : "No series match this filter"}</h3><p>{displayedSource === "all" ? "Filed transfers stay here after transfer review is clear." : "Choose All to see the other filing sources."}</p>{displayedSource !== "all" ? <button type="button" className={styles.linkButton} onClick={() => chooseSource("all")}>Show all filing sources</button> : null}</div> : error ? <div className={styles.empty}><h3>Transfers could not be loaded</h3><p>Your filed transfers have not changed.</p><button type="button" className={styles.linkButton} onClick={() => load()}>Try again</button></div> : <div className={styles.skeleton} data-filed-skeleton aria-hidden="true">{[0, 1, 2].map(index => <div key={index}><span /><span /><span /></div>)}</div>}
+        {hasHistory ? visibleData.items.length ? <div className={styles.list}>{visibleData.items.map(item => <Row key={item.series_key} item={item} hidden={hidden} undoDisabled={historyBlocked} historyStale={stale} onAskUndo={setPending} onOpenTransactions={(href, event) => openTransactions(href, event, closeThen)} />)}</div> : <div className={styles.empty}><h3>{displayedSource === "all" ? (period ? "No filed transfers in this pay period" : "No filed transfers yet") : "No series match this filter"}</h3><p>{displayedSource === "all" ? "Filed transfers stay here after transfer review is clear." : "Choose All to see the other filing sources."}</p>{displayedSource !== "all" ? <button type="button" className={styles.linkButton} onClick={() => chooseSource("all")}>Show all filing sources</button> : null}</div> : error ? <div className={styles.empty}><h3>Transfers could not be loaded</h3><p>Your filed transfers have not changed.</p><button type="button" className={styles.linkButton} onClick={() => load()}>Try again</button></div> : <div className={styles.skeleton} data-filed-skeleton aria-hidden="true">{[0, 1, 2].map(index => <div key={index}><span /><span /><span /></div>)}</div>}
       </div>
       {onOpenReview ? <button type="button" className={styles.linkButton} disabled={!!flushPending} onClick={() => closeThen(onOpenReview)}>Review transfers</button> : null}
     </div>}
