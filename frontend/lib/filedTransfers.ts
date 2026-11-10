@@ -41,6 +41,7 @@ export interface FiledTransferItem {
   total_amount: number;
   currency: string;
   count: number;
+  all_time_count?: number;
   first_date: string | null;
   last_date: string | null;
   cadence: string | null;
@@ -130,4 +131,18 @@ export function isSafeFiledTransfersHref(value: string | null): value is string 
     return value.startsWith("/") && !value.startsWith("//") && url.origin === "https://sorted.local" && url.pathname === "/transactions" && !url.username && !url.password && !url.hash;
   }
   catch { return false; }
+}
+
+/** A receipt link must retain its exact series and open all its dates. */
+export function filedSeriesHistoryHref(item: Pick<FiledTransferItem, "series_key" | "transactions_href">): string | null {
+  const href = item.transactions_href;
+  if (!item.series_key || !isSafeFiledTransfersHref(href)) return null;
+  const params = new URL(href, "https://sorted.local").searchParams;
+  return params.getAll("filed_series").length === 1 && params.get("filed_series") === item.series_key
+    && [...params.keys()].every(key => key === "filed_series") ? href : null;
+}
+
+/** Bound older saved payloads too, without mutating their complete evidence. */
+export function recentFiledTransfers(occurrences: FiledTransferOccurrence[]): FiledTransferOccurrence[] {
+  return [...occurrences].sort((left, right) => (right.date || "").localeCompare(left.date || "")).slice(0, 10);
 }

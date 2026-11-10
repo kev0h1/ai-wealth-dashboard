@@ -32,6 +32,10 @@
 .receiptTable td:first-child { width: 70px; }
 .receiptTable th:last-child, .receiptTable td:last-child:not([colspan]) { text-align: right; white-space: nowrap; }
 .receiptTable small { display: block; overflow-wrap: anywhere; }
+.receiptNote { margin-top: 12px; }
+.transferRoute { display: block; overflow-wrap: anywhere; }
+.transferRoute > span { display: block; }
+.receivedAmount { white-space: normal; }
 :global(.dark) .receiptTable { color: #cbd5e1; }
 :global(.dark) .receiptTable th { border-color: #334155; color: #cbd5e1; }
 .receiptHead, .receipt { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1.1fr) minmax(0,1.1fr); gap: 8px; align-items: baseline; }

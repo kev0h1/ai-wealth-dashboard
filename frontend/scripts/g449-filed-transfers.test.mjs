@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { filedTransferAccountLabel, filedTransferRoute, filingDateRange, isSafeFiledTransfersHref, shortFilingDate, movementMoney, maskFilingCopy } from "../lib/filedTransfers.ts";
+import { filedTransferAccountLabel, filedTransferRoute, filingDateRange, filedSeriesHistoryHref, recentFiledTransfers, isSafeFiledTransfersHref, shortFilingDate, movementMoney, maskFilingCopy } from "../lib/filedTransfers.ts";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import FilingSourceIcon from "../components/FilingSourceIcon.tsx";
@@ -12,6 +12,22 @@ for (const href of [
   "/transactions-evil", "//example.test/transactions", "https://example.test/transactions",
   "/transactions#fragment", "/transactions\\outside", "/transactions\n", "/transactions@evil",
 ]) assert.equal(isSafeFiledTransfersHref(href), false, href);
+
+// A filed receipt opens only its own series across all dates, never a broad
+// list or an inherited period/category scope.
+const series = "sorted:payments & savings";
+const exactHref = `/transactions?filed_series=${encodeURIComponent(series)}`;
+assert.equal(filedSeriesHistoryHref({ series_key: series, transactions_href: exactHref }), exactHref);
+for (const href of ["/transactions", "/transactions?filed_series=other", `${exactHref}&from=2026-11-01`, `${exactHref}&filed_series=other`, "//example.test/transactions"]) {
+  assert.equal(filedSeriesHistoryHref({ series_key: series, transactions_href: href }), null, href);
+}
+const completeHistory = Array.from({ length: 170 }, (_, index) => ({ date: new Date(Date.UTC(2026, 4, 24 + index)).toISOString(), amount: 10, currency: "GBP", debit: null, credit: null }));
+assert.equal(recentFiledTransfers(completeHistory).length, 10);
+assert.equal(recentFiledTransfers(completeHistory)[0].date, completeHistory[169].date);
+assert.equal(recentFiledTransfers(completeHistory).at(-1).date, completeHistory[160].date);
+assert.equal(completeHistory[0].date, "2026-05-24T00:00:00.000Z");
+assert.equal(completeHistory.length, 170);
+assert.deepEqual(recentFiledTransfers([]), []);
 
 // Dates must not drift with the device timezone, and older evidence needs a
 // year so a receipt can be placed accurately.

@@ -165,6 +165,35 @@ def _source_transaction_id_values(transaction_ids: Optional[List[str]]) -> Optio
     return values
 
 
+def _and_query(base: dict, extra: dict) -> dict:
+    """Add a source-specific exact scope without weakening any user filter."""
+    return {"$and": [base, extra]}
+
+
+def _filed_series_id_values(ids: list[str]) -> list:
+    """Expand exact receipt IDs for one provider without the public 100-ID cap.
+
+    A stored series may legitimately contain hundreds of payments.  Each ID
+    still uses the public historical-ID validator so legacy ObjectId/string
+    storage stays exact and malformed persisted evidence fails closed.
+    """
+    values: list = []
+    seen: set[tuple[str, str]] = set()
+    for transaction_id in ids:
+        try:
+            expanded = _source_transaction_id_values([transaction_id]) or []
+        except HTTPException as exc:
+            raise HTTPException(status_code=404, detail="Filed transfer series is unavailable") from exc
+        for value in expanded:
+            key = (type(value).__name__, str(value))
+            if key not in seen:
+                seen.add(key)
+                values.append(value)
+    if not values:
+        raise HTTPException(status_code=404, detail="Filed transfer series is unavailable")
+    return values
+
+
 def _category_clause(cat: str) -> dict:
     """Match on the effective category (custom_category overrides category)."""
     no_custom = {"custom_category": {"$in": [None, ""]}}
@@ -586,6 +615,7 @@ async def search_transactions(
     category: Optional[str] = None,
     categories: Optional[List[str]] = Query(None),
     transaction_id: Optional[List[str]] = Query(None),
+    filed_series: Optional[str] = None,
     merchants: Optional[str] = None,
     days: Optional[int] = None,
     date_from: Optional[str] = Query(None, alias="from"),
@@ -620,6 +650,11 @@ async def search_transactions(
     evidence. It is bounded and validated before querying, matches string and
     ObjectId legacy storage forms, and deliberately returns booked rows only.
 
+    `filed_series` is an opaque, saved Transfers Sorted receipt key. It is
+    resolved only against this user's fresh all-time receipt and applies a
+    provider-qualified exact-ID scope. It never rebuilds or heuristically
+    matches a series during this read.
+
     Read-only: no writes, no categorisation side effects."""
     # Direct function callers do not receive FastAPI's Query(None) coercion.
     # Treat only untouched FastAPI defaults as absent; a caller-supplied
@@ -629,6 +664,8 @@ async def search_transactions(
         categories = None
     if isinstance(transaction_id, Param):
         transaction_id = None
+    if isinstance(filed_series, Param):
+        filed_series = None
     if isinstance(date_from, Param):
         date_from = None
     if isinstance(date_to, Param):
@@ -642,12 +679,32 @@ async def search_transactions(
         uid, q, category, days, merchants, date_from, date_to, txn_type, categories,
         filter_by_date=not activity_order, transaction_ids=transaction_id,
     )
-    cols  = (transactions_col, yapily_transactions_col, statement_transactions_col)
+    sources = ((transactions_col, "transactions"), (yapily_transactions_col, "yapily"),
+               (statement_transactions_col, "statement"))
+    queries: list[tuple[object, dict]] = [(collection, query) for collection, _source in sources]
+    if filed_series is not None:
+        from app.services.filed_transfers import filed_series_membership
+        try:
+            membership = await filed_series_membership(uid, filed_series)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        except LookupError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        queries = []
+        for collection, source_name in sources:
+            ids = membership.get(source_name, [])
+            # An absent provider is explicitly an empty scope, never a query
+            # without the receipt filter.  This prevents same-ID or unrelated
+            # source rows leaking into a series drill-in.
+            values = _filed_series_id_values(ids) if ids else []
+            queries.append((collection, _and_query(query, {
+                "_id": {"$in": values}, "is_pending": {"$ne": True},
+            })))
 
     if activity_order:
         counts_and_legs = await asyncio.gather(*(
-            _activity_page(c, query, page=1, page_size=fetch_n, days=days, date_from=date_from, date_to=date_to)
-            for c in cols
+            _activity_page(collection, collection_query, page=1, page_size=fetch_n, days=days, date_from=date_from, date_to=date_to)
+            for collection, collection_query in queries
         ))
         total = sum(total for total, _ in counts_and_legs)
         # The global top-K cannot draw more than K rows from one source.
@@ -656,9 +713,10 @@ async def search_transactions(
         items = merged[(page - 1) * page_size:page * page_size]
     else:
         counts, per_collection = await asyncio.gather(
-            asyncio.gather(*(c.count_documents(query) for c in cols)),
+            asyncio.gather(*(collection.count_documents(collection_query) for collection, collection_query in queries)),
             asyncio.gather(*(
-                c.find(query).sort("date", -1).limit(fetch_n).to_list(fetch_n) for c in cols
+                collection.find(collection_query).sort("date", -1).limit(fetch_n).to_list(fetch_n)
+                for collection, collection_query in queries
             )),
         )
         total = sum(counts)
@@ -674,7 +732,7 @@ async def search_transactions(
         # An exact source drill-in is historical booked evidence. Pending rows
         # cannot be one of those confirmed IDs and must never be shown beside
         # it, even when the selected source has no category filter.
-        pending, pending_total = ([], 0) if transaction_id is not None else await _live_pending_items(
+        pending, pending_total = ([], 0) if transaction_id is not None or filed_series is not None else await _live_pending_items(
             query, uid, activity_order=activity_order, days=days,
             date_from=date_from, date_to=date_to, category_filtered=bool(category or categories), pending_page=pending_page,
         )
