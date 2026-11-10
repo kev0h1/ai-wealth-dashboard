@@ -687,9 +687,9 @@ async def search_transactions(
         try:
             membership = await filed_series_membership(uid, filed_series)
         except ValueError as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
+            raise HTTPException(status_code=422, detail="The transfer series link is invalid.") from exc
         except LookupError as exc:
-            raise HTTPException(status_code=404, detail=str(exc)) from exc
+            raise HTTPException(status_code=404, detail="Recorded transfers are unavailable. Open filed transfers and try again.") from exc
         queries = []
         for collection, source_name in sources:
             ids = membership.get(source_name, [])
