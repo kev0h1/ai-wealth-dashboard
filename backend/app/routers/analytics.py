@@ -6667,7 +6667,7 @@ def _has_pair_evidence(c: dict, d: dict, identity: dict, credit_claims_move: boo
     # categorised as a transfer kept a not_transfer pair in the review). not_transfer
     # drops it and leaves it in Spend; unclear is asked, whatever rule evidence exists,
     # with the model's reason shown. A user link above always wins.
-    from app.services.own_account_transfers import series_signature, user_set_movement
+    from app.services.own_account_transfers import series_signature, history_series_signature, user_set_movement
     # G447: a USER-set movement category on either leg is the user's answer and beats a stale
     # verdict (the engine's own category, `credit_claims_move`, does not: it follows the verdict).
     if user_set_movement(c) or user_set_movement(d):
@@ -6676,7 +6676,7 @@ def _has_pair_evidence(c: dict, d: dict, identity: dict, credit_claims_move: boo
     if verdict == "not_transfer":
         return False
     blocked = identity.get("ai_blocked") or frozenset()
-    if blocked and (frozenset((str(c.get("_id")), str(d.get("_id")))) in blocked or series_signature(c, d) in blocked):
+    if blocked and (frozenset((str(c.get("_id")), str(d.get("_id")))) in blocked or series_signature(c, d) in blocked or history_series_signature(c, d) in blocked):
         return True  # the user undid this series (or the model said unclear): asked, never decided by the G440 fallback
     if verdict == "unclear":
         return True
@@ -6783,7 +6783,7 @@ async def _transfer_pair_suggestions(uid: str) -> list[dict]:
     learned_docs = await confirmed_transfer_pairs_col.find(
         {"user_id": uid}, {"key_a": 1, "key_b": 1, "source": 1}
     ).to_list(None)
-    from app.services.own_account_transfers import _learned_pair_keys, learned_match
+    from app.services.own_account_transfers import _learned_pair_keys, learned_match, history_series_signature, _user_answered_pair
     learned_pair_keys = _learned_pair_keys(learned_docs)  # G442: AI-learned pairs held under their own normaliser
 
     owned_accounts = {a["_id"]: a async for a in accounts_col.find(
@@ -6880,7 +6880,8 @@ async def _transfer_pair_suggestions(uid: str) -> list[dict]:
                 continue
         # A learned description-pair auto-matches at the next sync — no
         # need to ask again.
-        if learned_match(learned_pair_keys, c, d):
+        history_undone = history_series_signature(c, d) in (identity.get("ai_blocked") or frozenset())
+        if learned_match(learned_pair_keys, c, d) and (not history_undone or _user_answered_pair(c, d, learned_pair_keys, movement_names)):
             continue
         candidates.append((date_diff, c.get("amount") or 0, c, d, pair_key))
 

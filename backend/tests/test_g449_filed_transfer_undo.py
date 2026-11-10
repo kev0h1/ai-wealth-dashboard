@@ -88,6 +88,8 @@ def test_complete_series_restores_exact_prior_categories_and_queues_both_legs(mo
             assert await cols["confirmed_transfer_pairs"].find_one({"_id": "ai-rule"}) is None
             assert await cols["confirmed_transfer_pairs"].find_one({"_id": "unrelated"})
             assert await cols["own_transfer_judgements"].count_documents({"kind": "undo", "series_sig": signature}) == 1
+            audit = await cols["own_transfer_judgements"].find_one({"kind": "undo", "series_sig": signature})
+            assert audit["history_series_sig"] == oat.history_series_signature(*rows[:2])
             assert calls.count(("defer", UID)) == 1
             # Retrying the old series cannot silently mutate anything again.
             with pytest.raises(ValueError):

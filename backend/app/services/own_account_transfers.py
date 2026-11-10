@@ -34,7 +34,7 @@ from app.services.transfer_pruning import pair_pruned_reason
 OWN_TRANSFER_MATCH_VERSION = 2
 # G447: bump whenever a pair rule changes (timing, pruning, verdict order, evidence), so the
 # stored transfers review (transfer_review_store) is rebuilt by the worker after the deploy.
-REVIEW_RULES_VERSION = 1
+REVIEW_RULES_VERSION = 2  # G451: a whole-history Undo also covers later variable amounts.
 logger = logging.getLogger(__name__)
 # G443: one history window for everything that reads pairs (reconcile, the model's
 # candidates). It was 90 days, which left a pair imported at the start of history
@@ -574,13 +574,15 @@ async def load_ai_blocked(user_id: str, verdicts: dict | None = None, *, collect
     try:
         docs = await collection.find(
             {"user_id": user_id, "$or": [{"kind": "undo"}, {"kind": "pair", "user_override": True}]},
-            {"kind": 1, "ids": 1, "series_sig": 1},
+            {"kind": 1, "ids": 1, "series_sig": 1, "history_series_sig": 1},
         ).to_list(None)
     except Exception:
         return frozenset(out)
     for d in docs:
         if d.get("kind") == "undo" and d.get("series_sig"):
             out.add(d["series_sig"])
+            if d.get("history_series_sig"):
+                out.add(d["history_series_sig"])
         elif d.get("ids"):
             out.add(frozenset(str(i) for i in d["ids"]))
     return frozenset(out)
@@ -818,7 +820,8 @@ def _strong_evidence(credit: dict, debit: dict, accounts: dict[str, dict], name_
     repayment (checked by the caller). A pair with no name, a name with no pair
     and a bare account number are only reasons to ASK, which the transfers
     review does (`has_pair_evidence` in the analytics router)."""
-    if ai_same and pair_ids(credit, debit) in ai_same:
+    history_undone = bool(named_blocked and history_series_signature(credit, debit) in named_blocked)
+    if ai_same and not history_undone and pair_ids(credit, debit) in ai_same:
         return True  # G442: the model judged this pair to be one transfer (an undone verdict is never in the set)
     c_text, d_text = _text(credit), _text(debit)
     # G438 (b), Kevin's refined rule: a matched pair (the caller has already
@@ -834,7 +837,7 @@ def _strong_evidence(credit: dict, debit: dict, accounts: dict[str, dict], name_
     # unclear verdict, or the user's undo of the series, switches it off; and the
     # model's own candidate set never counts it as already decided.
     named_ok = not skip_named_auto and not (
-        named_blocked and (pair_ids(credit, debit) in named_blocked or series_signature(credit, debit) in named_blocked))
+        named_blocked and (pair_ids(credit, debit) in named_blocked or series_signature(credit, debit) in named_blocked or history_undone))
     if named_ok and within_auto_window(credit.get("date"), debit.get("date")):
         if _compact_owner_name(c_text, name_tokens) or _compact_owner_name(d_text, name_tokens):
             return True
@@ -852,7 +855,7 @@ def _strong_evidence(credit: dict, debit: dict, accounts: dict[str, dict], name_
     if (counterparty_matches_account(credit, accounts.get(debit["account_id"]))
             or counterparty_matches_account(debit, accounts.get(credit["account_id"]))):
         return True
-    if learned_match(learned, credit, debit):
+    if learned_match(learned, credit, debit) and (not history_undone or _user_answered_pair(credit, debit, learned, movement_categories)):
         return True
     # An explicit movement resolution is a private user fact and can anchor
     # the counterpart, but not a coincident salary or purchase.  The other

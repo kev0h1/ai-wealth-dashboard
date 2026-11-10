@@ -31,9 +31,10 @@ import app.services.own_transfer_judge as judge
 import app.services.recurring_judge as recurring_judge
 import app.services.transfer_review_store as review_store
 import app.services.filed_transfers as filed_history
+import app.services.filed_transfer_undo as filed_undo
 from app.core.config import MONGO_DB, MONGO_URI
 from app.services.categories import BUILTIN_CATEGORY_KINDS, CategoryKinds
-from app.services.spending import SpendingContext, find_own_move_ids, find_pending_transfer_ids, is_spending
+from app.services.spending import SpendingContext, find_own_move_ids, find_pending_transfer_ids, is_spending, classify_flow, MOVED
 from app.workers import queue
 from test_transfer_pairs import FakeCol, _fake_get_category_kinds, _fake_user_identity
 
@@ -880,6 +881,63 @@ def test_an_undone_series_is_asked_not_refiled_by_the_g440_fallback(monkeypatch)
             docs = [r async for r in cols["transactions"].find({})]
             assert find_own_move_ids(docs, KINDS, identity) == set()
             assert "y-d" in find_pending_transfer_ids(docs, KINDS, identity)
+    _arun(run())
+
+
+@pytest.mark.parametrize("late_model_result", [False, True])
+def test_g451_whole_history_undo_keeps_a_new_amount_in_review(monkeypatch, late_model_result):
+    """A different amount cannot evade a route/text Undo or revive AI learning."""
+    mock = ModelMock("rule")
+    monkeypatch.setattr(judge, "_call_model", mock)
+    def occurrence(tag, amount, days):
+        return [dict(row, amount=amount, date=row["date"] + timedelta(days=days)) for row in _close_pair_rows(tag)]
+    old = occurrence("variable-one", 70, 0) + occurrence("variable-two", 80, 1)
+    async def run():
+        async with mongo_env(monkeypatch, old) as cols:
+            for name in ("accounts", "transactions", "preferences", "confirmed_transfer_pairs", "own_transfer_judgements"):
+                monkeypatch.setattr(filed_undo, f"{name}_col", cols[name])
+            monkeypatch.setattr(filed_undo, "get_category_kinds", _fake_get_category_kinds)
+            from app.services import derived_caches
+            async def noop(_uid): pass
+            monkeypatch.setattr(derived_caches, "defer_transfer_review_recompute", noop)
+            await judge.judge_user(UID)
+            assert len(await _stamped(cols)) == 4
+            debit, credit = old[:2]
+            history = oat.history_series_signature(credit, debit)
+            undone = await filed_undo.undo_filed_series(UID, f"sorted:{history}")
+            assert undone["undone"] == 2
+            future = occurrence("variable-next", 140, 2)
+            debit, credit = future
+            assert oat.history_series_signature(credit, debit) == history
+            await cols["transactions"].insert_many(future)
+            if late_model_result:
+                # A reply already in flight when Undo happened can still
+                # arrive. Its verdict and AI rule must not revive the series.
+                await judge._store_verdict(UID, credit, debit, judge.pair_signature(credit, debit, {account["_id"]: account for account in ACCOUNTS}), oat.series_signature(credit, debit),
+                                           "same_transfer", "Same route and descriptions.", False)
+                await judge.learn_pair(UID, credit, debit)
+            calls = len(mock.calls)
+            await judge.judge_user(UID)
+            assert len(mock.calls) == calls
+            await oat.reconcile_own_account_transfers(UID)
+            assert await _stamped(cols) == {}
+            items = await _ask_list(monkeypatch)
+            assert any(item["credit"]["id"] == "variable-next-c" and item["debit"]["id"] == "variable-next-d" for item in items)
+            identity = await categorisation.user_identity(UID)
+            docs = await cols["transactions"].find({}).to_list(None)
+            assert "variable-next-d" in find_pending_transfer_ids(docs, KINDS, identity)
+            # A fresh explicit user answer can deliberately supersede Undo.
+            await analytics.confirm_transfer_pair({"credit_id": "variable-next-c", "debit_id": "variable-next-d", "defer_recompute": True}, {"email": UID})
+            later = occurrence("variable-reconfirmed", 160, 3)
+            await cols["transactions"].insert_many(later)
+            await oat.reconcile_own_account_transfers(UID)
+            marker = (await cols["transactions"].find_one({"_id": "variable-reconfirmed-d"}))["own_transfer_match"]
+            assert marker["source"] == "user"
+            identity = await categorisation.user_identity(UID)
+            docs = await cols["transactions"].find({}).to_list(None)
+            saved = next(row for row in docs if row["_id"] == "variable-reconfirmed-d")
+            assert classify_flow(KINDS, saved.get("custom_category") or saved["category"], True, False, False).kind == MOVED
+            assert "variable-reconfirmed-d" not in find_pending_transfer_ids(docs, KINDS, identity)
     _arun(run())
 
 

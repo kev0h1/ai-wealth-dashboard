@@ -160,12 +160,12 @@ async def undo_filed_series(uid: str, series_key: str) -> dict:
         # The history key joins variable amounts.  The matcher still consumes
         # amount-sensitive signatures, so block every underlying signature or
         # a subsequent sync could learn just one amount again after Undo.
-        engine_signatures = {series_signature(c, d) for c, d in pairs}
+        engine_signatures = {series_signature(c, d): history_series_signature(c, d) for c, d in pairs}
         audit_updates = [(f"{uid}::undo::{engine_signature}", {
-            "user_id": uid, "kind": "undo", "series_sig": engine_signature, "history_series_sig": signature, "at": now,
+            "user_id": uid, "kind": "undo", "series_sig": engine_signature, "history_series_sig": engine_signatures[engine_signature], "at": now,
         }) for engine_signature in engine_signatures] + [(pair_doc_id(uid, [c["_id"], d["_id"]]), {
             "user_id": uid, "kind": "pair", "ids": sorted((str(c["_id"]), str(d["_id"]))),
-            "series_sig": series_signature(c, d), "history_series_sig": signature, "user_override": True,
+            "series_sig": series_signature(c, d), "history_series_sig": history_series_signature(c, d), "user_override": True,
         }) for c, d in pairs]
         for key, values in audit_updates:
             audit_before[key] = await own_transfer_judgements_col.find_one({"_id": key, "user_id": uid})
