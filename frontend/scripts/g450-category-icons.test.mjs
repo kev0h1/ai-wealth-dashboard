@@ -4,6 +4,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { api } from "../lib/api.ts";
 import { onEndpointsInvalidated } from "../lib/endpointCache.ts";
+import { insightCategoryIcon } from "../lib/insightIcons.ts";
 import { CATEGORY_ICONS, getCategoryIcon, ICON_CATALOG, ICON_LIBRARY, normaliseIconKey, suggestIcon } from "../lib/categoryIcons.ts";
 
 const backend = readFileSync(new URL("../../backend/app/services/categories.py", import.meta.url), "utf8");
@@ -39,6 +40,9 @@ assert.equal(suggestIcon("Padel"), "racquet");
 assert.equal(suggestIcon("Café"), "coffee");
 assert.equal(suggestIcon("Holiday fund", "movement"), "piggy-bank");
 assert.equal(suggestIcon("Zorbital"), "tag");
+assert.equal(insightCategoryIcon("constructor"), ICON_LIBRARY.tag);
+assert.equal(insightCategoryIcon("__proto__"), ICON_LIBRARY.tag);
+assert.equal(insightCategoryIcon("energy", { Energy: "racquet" }), ICON_LIBRARY.racquet);
 
 const requests = [];
 // Two fresh module lifetimes model a page reload with retained browser history.

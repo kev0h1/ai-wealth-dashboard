@@ -25,5 +25,6 @@ const INSIGHT_CATEGORY_NAMES: Record<string, string> = {
 };
 
 export function insightCategoryIcon(category: string, overrides?: Record<string, string>): LucideIcon {
-  return getCategoryIcon(INSIGHT_CATEGORY_NAMES[category] ?? category.replaceAll("_", " "), overrides);
+  const name = Object.hasOwn(INSIGHT_CATEGORY_NAMES, category) ? INSIGHT_CATEGORY_NAMES[category] : category.replaceAll("_", " ");
+  return getCategoryIcon(name, overrides);
 }
