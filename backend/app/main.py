@@ -706,7 +706,7 @@ async def _migrate():
         upsert=False,
     )
     asyncio.create_task(_encrypt_plaintext_tokens())
-    asyncio.create_task(_migrate_category_kinds())
+    asyncio.create_task(_migrate_category_kinds_and_icons())
     asyncio.create_task(_migrate_mortgage_car_finance_categories())
     asyncio.create_task(_fix_all_users_categories())
     asyncio.create_task(_seed_subscriptions())
@@ -773,6 +773,20 @@ async def _migrate_category_kinds():
     stats = await migrate_category_kinds()
     if stats["upgraded"]:
         print(f"[startup] category kinds migrated: {stats}")
+
+
+async def _migrate_category_icons():
+    """G450: fill missing custom category icon metadata once kinds are stable."""
+    from app.services.categories import migrate_category_icons
+    stats = await migrate_category_icons()
+    if stats["upgraded"]:
+        print(f"[startup] category icons backfilled: {stats}")
+
+
+async def _migrate_category_kinds_and_icons():
+    """Keep both array migrations ordered, so they never race one document."""
+    await _migrate_category_kinds()
+    await _migrate_category_icons()
 
 
 async def _migrate_mortgage_car_finance_categories():

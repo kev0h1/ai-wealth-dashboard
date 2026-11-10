@@ -4,7 +4,7 @@ Retrieved on 9 November 2026 through the Better Icons CLI 1.0.4, using
 `better-icons get ph:<name> --json`. These are Phosphor regular-weight
 vectors, matching the idle G423 navigation icons. The original 256px viewBox,
 path `d` attributes and opacities are retained in `iconGeometry.ts`.
-No icon is drawn, traced or altered for this preview. The React renderer
+No icon is drawn, traced or altered for G450. The React renderer
 scales the original paths to the requested size and inherits `currentColor`.
 
 Source: [Phosphor Icons](https://phosphoricons.com/), distributed through

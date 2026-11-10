@@ -26,8 +26,8 @@
 // that reverts the categorisation (and the rule, if one was saved).
 
 import { displayAccountName } from "@/lib/accountName";
-import { useState, useEffect, useRef, type MutableRefObject } from "react";
-import { Check, Undo2, ChevronRight, ChevronLeft, CreditCard, Home, Landmark, PiggyBank, ReceiptText, Target } from "lucide-react";
+import { useState, useEffect, useRef, useId, type MutableRefObject } from "react";
+import { Check, Undo2, ChevronRight, ChevronLeft, Home, Landmark, ReceiptText, Target } from "lucide-react";
 import { Transaction, Commitment, Account, api, ApiError } from "@/lib/api";
 import { SheetFrame } from "@/components/SheetFrame";
 import { getCategoryColour, inferCategoryKind, type CategoryKind } from "@/lib/categories";
@@ -37,6 +37,7 @@ import { BalancesHiddenContext } from "@/lib/balancesHidden";
 import { useCategories } from "@/components/CategoriesContext";
 import { getCategoryIcon } from "@/lib/categoryIcons";
 import { useCategoryIcons } from "@/components/IconProvider";
+import CategoryIconPicker from "@/components/CategoryIconPicker";
 import { formatDate } from "@/lib/payPeriod";
 import { formatCurrency } from "@/lib/currency";
 import { accountBrand, BankBadge } from "@/components/AccountMiniCard";
@@ -109,6 +110,9 @@ export default function TeachingSheet({ transaction, onClose, onUpdated, account
   const { colours } = useColours();
   const { hideNetWorth, preferencesReady } = usePreferences();
   const { icons: iconOverrides } = useCategoryIcons();
+  const SavingsCategoryIcon = getCategoryIcon("Savings", iconOverrides);
+  const InvestmentCategoryIcon = getCategoryIcon("Investment", iconOverrides);
+  const DebtCategoryIcon = getCategoryIcon("Debt", iconOverrides);
   const { allCategories, customCategories, kinds, addCategory } = useCategories();
 
   const originalCategory = transaction.category || "Other";
@@ -150,6 +154,8 @@ export default function TeachingSheet({ transaction, onClose, onUpdated, account
   const [destinationName, setDestinationName] = useState("");
 
   const [namingText, setNamingText] = useState("");
+  const namingId = useId();
+  const [namingIcon, setNamingIcon] = useState<string | null>(null);
   const [namingKind, setNamingKind] = useState<CategoryKind>("discretionary");
   useEffect(() => {
     if (step !== "spend-naming") return;
@@ -285,10 +291,10 @@ export default function TeachingSheet({ transaction, onClose, onUpdated, account
     setBusy(true);
     setError(null);
     try {
-      await addCategory(trimmed, namingKind);
+      await addCategory(trimmed, namingKind, namingIcon ?? undefined);
       await commitSpend(trimmed);
-    } catch {
-      setError("Couldn't save that name, try a different one.");
+    } catch (cause) {
+      setError(saveErrorMessage(cause));
       setBusy(false);
     }
   }
@@ -601,14 +607,14 @@ export default function TeachingSheet({ transaction, onClose, onUpdated, account
                   onClick={() => commitMovement("mine-card", {}, "Filed as a card payment.")}
                   className="w-full min-h-[56px] rounded-xl border border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-700/60 px-3 py-2.5 text-left active:scale-[0.99] transition disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
                 >
-                  <span className="flex items-center gap-3"><span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-indigo-100 bg-indigo-50 text-indigo-600 dark:border-transparent dark:bg-indigo-400/15 dark:text-indigo-300"><CreditCard size={18} aria-hidden="true" /></span><span className="min-w-0 flex-1 text-[13px] font-semibold text-slate-800 dark:text-slate-100">Paying off one of my cards</span><ChevronRight size={17} className="shrink-0 text-slate-400" aria-hidden="true" /></span>
+                  <span className="flex items-center gap-3"><span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-indigo-100 bg-indigo-50 text-indigo-600 dark:border-transparent dark:bg-indigo-400/15 dark:text-indigo-300"><DebtCategoryIcon size={18} aria-hidden="true" /></span><span className="min-w-0 flex-1 text-[13px] font-semibold text-slate-800 dark:text-slate-100">Paying off one of my cards</span><ChevronRight size={17} className="shrink-0 text-slate-400" aria-hidden="true" /></span>
                 </button>
                 <button
                   type="button"
                   onClick={() => setStep("movement-kind")}
                   className="w-full min-h-[64px] rounded-xl border border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-700/60 px-3 py-2.5 text-left active:scale-[0.99] transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
                 >
-                  <span className="flex items-center gap-3"><span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-indigo-100 bg-indigo-50 text-indigo-600 dark:border-transparent dark:bg-indigo-400/15 dark:text-indigo-300"><PiggyBank size={18} aria-hidden="true" /></span><span className="min-w-0 flex-1"><span className="block text-[13px] font-semibold text-slate-800 dark:text-slate-100">Savings or investments</span><span className="mt-0.5 block text-[11px] font-normal text-slate-600 dark:text-slate-400">For money put aside outside Sorted</span></span><ChevronRight size={17} className="shrink-0 text-slate-400" aria-hidden="true" /></span>
+                  <span className="flex items-center gap-3"><span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-indigo-100 bg-indigo-50 text-indigo-600 dark:border-transparent dark:bg-indigo-400/15 dark:text-indigo-300"><SavingsCategoryIcon size={18} aria-hidden="true" /></span><span className="min-w-0 flex-1"><span className="block text-[13px] font-semibold text-slate-800 dark:text-slate-100">Savings or investments</span><span className="mt-0.5 block text-[11px] font-normal text-slate-600 dark:text-slate-400">For money put aside outside Sorted</span></span><ChevronRight size={17} className="shrink-0 text-slate-400" aria-hidden="true" /></span>
                 </button>
                 <button
                   type="button"
@@ -661,10 +667,10 @@ export default function TeachingSheet({ transaction, onClose, onUpdated, account
               <p className="mt-1 text-[13px] text-slate-500 dark:text-slate-400">Choose the broad type. Name the place next.</p>
               <div className="mt-3 space-y-2">
                 <button type="button" onClick={() => { setMovementKind("Savings"); setStep("movement-destination"); }} className="w-full min-h-[64px] rounded-xl border border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-700/60 px-3 py-2.5 text-left active:scale-[0.99] transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500">
-                  <span className="flex items-center gap-3"><span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-indigo-100 bg-indigo-50 text-indigo-600 dark:border-transparent dark:bg-indigo-400/15 dark:text-indigo-300"><PiggyBank size={18} aria-hidden="true" /></span><span className="min-w-0 flex-1"><span className="block text-[13px] font-semibold text-slate-800 dark:text-slate-100">Savings</span><span className="mt-0.5 block text-[11px] font-normal text-slate-600 dark:text-slate-400">Cash you&apos;re putting aside</span></span><ChevronRight size={17} className="shrink-0 text-slate-400" aria-hidden="true" /></span>
+                  <span className="flex items-center gap-3"><span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-indigo-100 bg-indigo-50 text-indigo-600 dark:border-transparent dark:bg-indigo-400/15 dark:text-indigo-300"><SavingsCategoryIcon size={18} aria-hidden="true" /></span><span className="min-w-0 flex-1"><span className="block text-[13px] font-semibold text-slate-800 dark:text-slate-100">Savings</span><span className="mt-0.5 block text-[11px] font-normal text-slate-600 dark:text-slate-400">Cash you&apos;re putting aside</span></span><ChevronRight size={17} className="shrink-0 text-slate-400" aria-hidden="true" /></span>
                 </button>
                 <button type="button" onClick={() => { setMovementKind("Investment"); setStep("movement-destination"); }} className="w-full min-h-[64px] rounded-xl border border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-700/60 px-3 py-2.5 text-left active:scale-[0.99] transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500">
-                  <span className="flex items-center gap-3"><span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-indigo-100 bg-indigo-50 text-indigo-600 dark:border-transparent dark:bg-indigo-400/15 dark:text-indigo-300"><Landmark size={18} aria-hidden="true" /></span><span className="min-w-0 flex-1"><span className="block text-[13px] font-semibold text-slate-800 dark:text-slate-100">Investment</span><span className="mt-0.5 block text-[11px] font-normal text-slate-600 dark:text-slate-400">Funds, shares, crypto or a pension</span></span><ChevronRight size={17} className="shrink-0 text-slate-400" aria-hidden="true" /></span>
+                  <span className="flex items-center gap-3"><span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-indigo-100 bg-indigo-50 text-indigo-600 dark:border-transparent dark:bg-indigo-400/15 dark:text-indigo-300"><InvestmentCategoryIcon size={18} aria-hidden="true" /></span><span className="min-w-0 flex-1"><span className="block text-[13px] font-semibold text-slate-800 dark:text-slate-100">Investment</span><span className="mt-0.5 block text-[11px] font-normal text-slate-600 dark:text-slate-400">Funds, shares, crypto or a pension</span></span><ChevronRight size={17} className="shrink-0 text-slate-400" aria-hidden="true" /></span>
                 </button>
               </div>
             </>
@@ -844,6 +850,7 @@ export default function TeachingSheet({ transaction, onClose, onUpdated, account
               <div className="mt-3 flex flex-wrap gap-2">
                 {orderedSpend.map((c) => {
                   const active = c === originalCategory;
+                  const ChoiceIcon = getCategoryIcon(c, iconOverrides);
                   return (
                     <button
                       key={c}
@@ -856,6 +863,7 @@ export default function TeachingSheet({ transaction, onClose, onUpdated, account
                           : "bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200"
                       }`}
                     >
+                      <ChoiceIcon size={14} className="mr-1.5 shrink-0" style={{ color: active ? "#ffffff" : getCategoryColour(c, colours) }} />
                       {c}
                     </button>
                   );
@@ -882,14 +890,18 @@ export default function TeachingSheet({ transaction, onClose, onUpdated, account
           {step === "spend-naming" && (
             <>
               <div className="mt-4 rounded-2xl bg-indigo-50 dark:bg-indigo-500/10 ring-1 ring-indigo-100 dark:ring-indigo-500/20 p-3">
-                <p className="text-[10px] font-bold uppercase tracking-widest text-indigo-500 dark:text-indigo-300">
+                <label htmlFor={namingId} className="text-[10px] font-bold uppercase tracking-widest text-indigo-500 dark:text-indigo-300">
                   New category
-                </p>
+                </label>
                 <input
+                  id={namingId}
+                  name="new-category-name"
+                  autoComplete="off"
                   autoFocus
+                  disabled={busy}
                   value={namingText}
                   onChange={(e) => setNamingText(e.target.value)}
-                  placeholder="What should I call this?"
+                  placeholder="For example, Golf…"
                   maxLength={40}
                   className="mt-1.5 w-full h-11 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 px-3 text-[14px] font-semibold text-slate-900 dark:text-slate-100 outline-none focus:ring-2 focus:ring-indigo-500"
                 />
@@ -897,6 +909,7 @@ export default function TeachingSheet({ transaction, onClose, onUpdated, account
                   <button
                     type="button"
                     aria-pressed={namingKind === "discretionary"}
+                    disabled={busy}
                     onClick={() => setNamingKind("discretionary")}
                     className={`min-h-[36px] px-3 rounded-full text-[12px] font-semibold transition-colors ${
                       namingKind === "discretionary"
@@ -909,6 +922,7 @@ export default function TeachingSheet({ transaction, onClose, onUpdated, account
                   <button
                     type="button"
                     aria-pressed={namingKind === "commitment"}
+                    disabled={busy}
                     onClick={() => setNamingKind("commitment")}
                     className={`min-h-[36px] px-3 rounded-full text-[12px] font-semibold transition-colors ${
                       namingKind === "commitment"
@@ -920,6 +934,7 @@ export default function TeachingSheet({ transaction, onClose, onUpdated, account
                   </button>
                 </div>
               </div>
+              <div className="mt-5"><CategoryIconPicker name={namingText} kind={namingKind} value={namingIcon} onChange={setNamingIcon} disabled={busy} /></div>
               <div className="mt-3 flex items-center gap-2">
                 <button
                   type="button"
@@ -931,7 +946,8 @@ export default function TeachingSheet({ transaction, onClose, onUpdated, account
                 </button>
                 <button
                   type="button"
-                  onClick={() => setStep("spend-root")}
+                  onClick={() => { setNamingText(""); setNamingIcon(null); setNamingKind("discretionary"); setStep("spend-root"); }}
+                  disabled={busy}
                   className="inline-flex items-center gap-0.5 text-[12px] font-semibold text-slate-500 dark:text-slate-400 active:opacity-70 transition-opacity"
                 >
                   <ChevronLeft size={13} className="flex-shrink-0" aria-hidden="true" />

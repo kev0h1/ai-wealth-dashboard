@@ -39,9 +39,14 @@ category — that shape invites a database read per transaction.
 
 from __future__ import annotations
 
+import asyncio
 import re
+import time
 
 from app.db.collections import user_categories_col
+from app.services.category_icons import (
+    backfill_icon, choose_automatic_icon, normalise_icon_source, normalise_stored_icon,
+)
 
 # ── Kinds ────────────────────────────────────────────────────────────────────
 DISCRETIONARY = "discretionary"
@@ -251,7 +256,7 @@ def parse_stored_categories(doc: dict | None) -> list[dict]:
             name, kind = entry, DEFAULT_KIND
         elif isinstance(entry, dict):
             name = entry.get("name")
-            kind = coerce_kind(entry.get("kind"), allow_internal=True) or DEFAULT_KIND
+            kind = coerce_kind(entry.get("kind") if isinstance(entry.get("kind"), str) else None, allow_internal=True) or DEFAULT_KIND
         else:
             continue
         if not isinstance(name, str):
@@ -264,8 +269,13 @@ def parse_stored_categories(doc: dict | None) -> list[dict]:
             continue
         seen.add(norm)
         parsed = {"name": name, "kind": kind}
-        if isinstance(entry, dict) and (original := coerce_kind(entry.get("default_kind"), allow_internal=True)):
+        if isinstance(entry, dict) and isinstance(entry.get("default_kind"), str) and (original := coerce_kind(entry["default_kind"], allow_internal=True)):
             parsed["default_kind"] = original
+        if isinstance(entry, dict) and (icon_key := normalise_stored_icon(entry.get("icon_key"))):
+            parsed["icon_key"] = icon_key
+            # A valid key with an absent/invalid source is legacy automatic
+            # data, never an implicit user decision.
+            parsed["icon_source"] = normalise_icon_source(entry.get("icon_source")) or "auto"
         out.append(parsed)
     return out
 
@@ -398,18 +408,104 @@ async def migrate_category_kinds() -> dict:
     """
     scanned = upgraded = entries = 0
     cursor = user_categories_col.find({"categories": {"$elemMatch": {"$type": "string"}}})
-    async for doc in cursor:
-        scanned += 1
-        parsed = parse_stored_categories(doc)
-        new_list = []
-        for entry in parsed:
-            builtin = builtin_conflict(entry["name"])
-            kind = BUILTIN_CATEGORY_KINDS[builtin] if builtin else entry["kind"]
-            new_list.append({"name": entry["name"], "kind": kind})
-        result = await user_categories_col.update_one(
-            {"_id": doc["_id"]}, {"$set": {"categories": new_list}}
-        )
-        if result.modified_count:
-            upgraded += 1
-            entries += len(new_list)
+    async for initial in cursor:
+        doc = initial
+        for _ in range(5):
+            raw = doc.get("categories")
+            if not isinstance(raw, list) or not any(isinstance(entry, str) for entry in raw):
+                break
+            parsed = parse_stored_categories(doc)
+            raw_objects = {
+                normalise_name(clean_name(entry.get("name", ""))): dict(entry)
+                for entry in raw if isinstance(entry, dict) and isinstance(entry.get("name"), str)
+            }
+            new_list = []
+            for entry in parsed:
+                builtin = builtin_conflict(entry["name"])
+                kind = BUILTIN_CATEGORY_KINDS[builtin] if builtin else entry["kind"]
+                item = dict(raw_objects.get(normalise_name(entry["name"]), {}))
+                item.update({"name": entry["name"], "kind": kind})
+                item.pop("icon_key", None)
+                item.pop("icon_source", None)
+                if entry.get("default_kind"):
+                    item["default_kind"] = entry["default_kind"]
+                if entry.get("icon_key"):
+                    item["icon_key"] = entry["icon_key"]
+                    item["icon_source"] = entry.get("icon_source") or "auto"
+                new_list.append(item)
+            scanned += 1
+            result = await user_categories_col.update_one(
+                {"_id": doc["_id"], "categories": raw}, {"$set": {"categories": new_list}}
+            )
+            if result.modified_count:
+                upgraded += 1
+                entries += len(new_list)
+                break
+            doc = await user_categories_col.find_one({"_id": doc["_id"]})
+            if doc is None:
+                break
     return {"scanned": scanned, "upgraded": upgraded, "entries_converted": entries}
+
+
+async def migrate_category_icons() -> dict:
+    """Backfill icon fields with a bounded selector and raw-array CAS.
+
+    Preserve each original array entry and every unrelated field, including
+    names, kinds, duplicates and malformed legacy data. GET remains read-only.
+    Historic unmatched names share six seconds of serial model selection per
+    run. Every remaining unmatched record receives the neutral bundled tag.
+    """
+    scanned = upgraded = entries = 0
+    selection_deadline = time.monotonic() + 6.0
+    cursor = user_categories_col.find({"categories": {"$exists": True}})
+    async for initial in cursor:
+        doc = initial
+        for _ in range(5):
+            raw = doc.get("categories")
+            if not isinstance(raw, list):
+                break
+            stored = []
+            backfilled = 0
+            for original in raw:
+                # The legacy kind migration runs first at startup. If called
+                # separately, keep this an appearance-only migration.
+                if not isinstance(original, dict):
+                    stored.append(original)
+                    continue
+                parsed = parse_stored_categories({"categories": [original]})
+                if not parsed or builtin_conflict(parsed[0]["name"]):
+                    stored.append(original)
+                    continue
+                category = parsed[0]
+                item = dict(original)
+                key = normalise_stored_icon(original.get("icon_key"))
+                if key is None:
+                    key = backfill_icon(category["name"], category["kind"])
+                    remaining = selection_deadline - time.monotonic()
+                    uid = doc.get("user_id")
+                    if key == backfill_icon("", None) and remaining > 0 and isinstance(uid, str) and uid:
+                        try:
+                            key = await asyncio.wait_for(
+                                choose_automatic_icon(category["name"], category["kind"], uid),
+                                timeout=remaining,
+                            )
+                        except Exception:
+                            key = backfill_icon("", None)
+                    backfilled += 1
+                item["icon_key"] = key
+                item["icon_source"] = normalise_icon_source(original.get("icon_source")) or "auto"
+                stored.append(item)
+            if raw == stored:
+                break
+            scanned += 1
+            result = await user_categories_col.update_one(
+                {"_id": doc["_id"], "categories": raw}, {"$set": {"categories": stored}}
+            )
+            if result.modified_count:
+                upgraded += 1
+                entries += backfilled
+                break
+            doc = await user_categories_col.find_one({"_id": doc["_id"]})
+            if doc is None:
+                break
+    return {"scanned": scanned, "upgraded": upgraded, "entries_backfilled": entries}

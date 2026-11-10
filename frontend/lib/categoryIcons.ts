@@ -1,111 +1,67 @@
-import {
-  ShoppingCart, Utensils, Bus, Film, ShoppingBag, Receipt, Repeat,
-  HeartPulse, Flower2, Plane, Laptop, PiggyBank, CreditCard,
-  ArrowLeftRight, Banknote, Coins, HandHeart, Tag,
-  Coffee, Gift, Home, Car, Fuel, Smartphone, Wifi, Shield, GraduationCap,
-  BookOpen, Music, Gamepad2, Shirt, Dumbbell, PawPrint, Baby, Briefcase,
-  Landmark, TrendingUp, Wrench, Scissors, Camera, Bike, TrainFront,
-  Wallet, Palette, Sparkles, Wine, Umbrella, KeyRound,
-  type LucideIcon,
-} from "lucide-react";
+import { createElement, forwardRef } from "react";
+import type { LucideIcon, LucideProps } from "lucide-react";
+import manifest from "../../shared/category-icons.json" with { type: "json" };
+import { ICON_GEOMETRY } from "./category-icons/iconGeometry";
 
-// Every icon a category can use. Keys are stable names persisted in the
-// per-user icon overrides, so never rename one — add instead.
-export const ICON_LIBRARY: Record<string, LucideIcon> = {
-  Tag, ShoppingCart, Utensils, Coffee, Wine, ShoppingBag, Gift, Shirt,
-  Home, Receipt, Wifi, Smartphone, Shield, Wrench,
-  Bus, TrainFront, Car, Fuel, Bike, Plane, Umbrella,
-  Film, Music, Gamepad2, Camera, Palette, Sparkles, BookOpen, GraduationCap,
-  HeartPulse, Dumbbell, Flower2, Scissors, PawPrint, Baby,
-  Briefcase, Laptop, Repeat, PiggyBank, CreditCard, Banknote, Coins,
-  Wallet, Landmark, TrendingUp, ArrowLeftRight, HandHeart, KeyRound,
-};
+export type CategoryIconKey = keyof typeof ICON_GEOMETRY;
+export const ICON_CATALOG = manifest.icons;
+export const CATEGORY_ICONS: Record<string, string> = manifest.categories;
+export const RELATED_ICON_KEYS: Record<string, readonly string[]> = manifest.related;
 
-// Default icon (by library key) per built-in category.
-export const CATEGORY_ICONS: Record<string, string> = {
-  Groceries:        "ShoppingCart",
-  "Eating Out":     "Utensils",
-  Transport:        "Bus",
-  Entertainment:    "Film",
-  Shopping:         "ShoppingBag",
-  Bills:            "Receipt",
-  Mortgage:         "Home",
-  Rent:             "KeyRound",
-  "Car finance":    "Car",
-  Subscriptions:    "Repeat",
-  Health:           "HeartPulse",
-  Beauty:           "Flower2",
-  Travel:           "Plane",
-  Software:         "Laptop",
-  Savings:          "PiggyBank",
-  Debt:             "CreditCard",
-  Transfer:         "ArrowLeftRight",
-  "Transfer (in)":  "ArrowLeftRight",
-  "Transfer (out)": "ArrowLeftRight",
-  Income:           "Banknote",
-  Cash:             "Coins",
-  Charity:          "HandHeart",
-  Other:            "Tag",
-};
+const iconKeys = new Set<string>(manifest.icons.map(icon => icon.key));
+const normalisedCategories = new Map(Object.entries(CATEGORY_ICONS).map(([name, key]) => [normaliseName(name), key]));
+const keywords = manifest.keywords.map(({ pattern, key, kind }) => ({ pattern: new RegExp(pattern, "i"), key, kind }));
 
-// Guess an icon from a custom category's name ("Pet food" → paw print).
-// First match wins, so more specific words come before generic ones.
-const KEYWORD_ICONS: [RegExp, string][] = [
-  [/coffee|cafe|caffe/i,                 "Coffee"],
-  [/pub|beer|wine|drink|alcohol|bar\b/i, "Wine"],
-  [/grocer|food shop|supermarket/i,      "ShoppingCart"],
-  [/restaurant|takeaway|take-away|lunch|dinner|food/i, "Utensils"],
-  [/gift|present|birthday|christmas/i,   "Gift"],
-  [/cloth|fashion|shoe|wardrobe/i,       "Shirt"],
-  [/rent|mortgage|home|house|garden|diy/i, "Home"],
-  [/phone|mobile/i,                      "Smartphone"],
-  [/internet|wifi|broadband/i,           "Wifi"],
-  [/insurance|protect/i,                 "Shield"],
-  [/repair|maintenance|tool/i,           "Wrench"],
-  [/fuel|petrol|diesel/i,                "Fuel"],
-  [/car|motor|garage/i,                  "Car"],
-  [/train|rail|commute/i,                "TrainFront"],
-  [/bike|cycle/i,                        "Bike"],
-  [/holiday|vacation|flight|trip/i,      "Plane"],
-  [/film|movie|cinema|tv|stream/i,       "Film"],
-  [/music|concert|spotify|gig/i,         "Music"],
-  [/game|gaming|xbox|playstation|steam/i, "Gamepad2"],
-  [/photo|camera/i,                      "Camera"],
-  [/art|craft|hobby/i,                   "Palette"],
-  [/book|read/i,                         "BookOpen"],
-  [/school|education|course|tuition|uni/i, "GraduationCap"],
-  [/gym|fitness|sport|run|yoga/i,        "Dumbbell"],
-  [/doctor|dental|pharmacy|medic|therapy/i, "HeartPulse"],
-  [/beauty|hair|salon|barber|nail/i,     "Scissors"],
-  [/pet|dog|cat|vet/i,                   "PawPrint"],
-  [/kid|child|baby|nursery/i,            "Baby"],
-  [/work|business|office/i,              "Briefcase"],
-  [/tech|software|computer|app/i,        "Laptop"],
-  [/subscri|member/i,                    "Repeat"],
-  [/sav|emergency fund/i,                "PiggyBank"],
-  [/debt|loan|credit/i,                  "CreditCard"],
-  [/salary|wage|income|payslip/i,        "Banknote"],
-  [/cash|atm/i,                          "Coins"],
-  [/tax|hmrc|government/i,               "Landmark"],
-  [/invest|stock|share|pension/i,        "TrendingUp"],
-  [/charity|donat/i,                     "HandHeart"],
-  [/wellness|spa|selfcare|self-care/i,   "Sparkles"],
-  [/weather|rainy/i,                     "Umbrella"],
-];
-
-export function suggestIcon(name: string): string {
-  for (const [re, key] of KEYWORD_ICONS) {
-    if (re.test(name)) return key;
-  }
-  return "Tag";
+function normaliseName(value: string): string {
+  return value.trim().replace(/\s+/g, " ").toLocaleLowerCase("en-GB");
 }
 
-// Resolution order: user override → built-in default → name inference → Tag.
-export function getCategoryIcon(
-  category?: string,
-  overrides?: Record<string, string>,
-): LucideIcon {
-  if (!category) return Tag;
-  const key = overrides?.[category] ?? CATEGORY_ICONS[category] ?? suggestIcon(category);
-  return ICON_LIBRARY[key] ?? Tag;
+/** Resolves an old device-local Lucide key to its durable Phosphor key. */
+export function normaliseIconKey(key?: string | null): string | null {
+  if (!key || typeof key !== "string") return null;
+  return iconKeys.has(key) ? key : Object.hasOwn(manifest.legacyKeys, key) ? manifest.legacyKeys[key as keyof typeof manifest.legacyKeys] : null;
+}
+
+export function getIconLabel(key?: string | null): string {
+  const normalised = normaliseIconKey(key);
+  return manifest.icons.find(icon => icon.key === normalised)?.label ?? "Tag";
+}
+
+/** Deterministic local first pass. Rendering never fetches an icon. */
+export function suggestIcon(name: string, kind?: string): string {
+  const source = (name ?? "").normalize("NFKD").replace(/[\u0300-\u036f]/g, "");
+  for (const rule of keywords) if ((!rule.kind || rule.kind === kind) && rule.pattern.test(source)) return rule.key;
+  return kind === "income" ? "money" : manifest.fallback;
+}
+
+function makeIcon(key: CategoryIconKey): LucideIcon {
+  const CategoryIcon = forwardRef<SVGSVGElement, LucideProps>(function CategoryIcon({ size = 24, color, className, style, ...props }, ref) {
+    // Original regular Phosphor vectors are filled contours. Existing callers
+    // can pass Lucide stroke controls without visually changing that geometry.
+    const svgProps = { ...props };
+    delete svgProps.strokeWidth;
+    delete svgProps.absoluteStrokeWidth;
+    const paths: readonly { d: string; opacity?: number }[] = ICON_GEOMETRY[key];
+    return createElement("svg", { ...svgProps, ref, width: size, height: size, viewBox: "0 0 256 256", fill: "currentColor", "aria-hidden": svgProps["aria-label"] ? undefined : true, focusable: false, className, style: { color, ...style }, "data-phosphor-icon": key, "data-phosphor-weight": "regular" },
+      paths.map((path, index) => createElement("path", { key: index, d: path.d, opacity: path.opacity })),
+    );
+  });
+  CategoryIcon.displayName = `CategoryIcon(${key})`;
+  return CategoryIcon;
+}
+
+export const ICON_LIBRARY: Record<string, LucideIcon> = Object.fromEntries(
+  manifest.icons.map(icon => [icon.key, makeIcon(icon.key as CategoryIconKey)]),
+);
+
+const fallbackIcon = ICON_LIBRARY[manifest.fallback];
+
+/** One canonical resolution path for every category surface. */
+export function getCategoryIcon(category?: string, overrides?: Record<string, string>): LucideIcon {
+  if (!category) return fallbackIcon;
+  const directOverride = overrides?.[category];
+  const folded = normaliseName(category);
+  const matchingOverride = directOverride ?? Object.entries(overrides ?? {}).find(([name]) => normaliseName(name) === folded)?.[1];
+  const key = normaliseIconKey(matchingOverride) ?? normalisedCategories.get(folded) ?? suggestIcon(category);
+  return ICON_LIBRARY[key] ?? fallbackIcon;
 }

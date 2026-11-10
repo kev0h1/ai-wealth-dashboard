@@ -1,33 +1,29 @@
-import {
-  Car, MonitorPlay, Zap, ShoppingBasket, Smartphone, Home, Dumbbell,
-  Wifi, UtensilsCrossed, Shield, Droplets, PiggyBank, HeartPulse, Landmark, Tv,
-  type LucideIcon,
-} from "lucide-react";
+import type { LucideIcon } from "lucide-react";
+import { getCategoryIcon } from "./categoryIcons";
 
-// Ways-to-save insight category → lucide icon. The backend still sends an
-// emoji `icon` string for legacy clients; the web app renders these instead
-// so insight chips match the rest of the app's icon language.
-const INSIGHT_CATEGORY_ICONS: Record<string, LucideIcon> = {
-  car_finance:   Car,
-  car_insurance: Shield,
-  subscriptions: MonitorPlay,
-  energy:        Zap,
-  groceries:     ShoppingBasket,
-  mobile:        Smartphone,
-  mortgage:      Home,
-  gym:           Dumbbell,
-  broadband:     Wifi,
-  eating_out:    UtensilsCrossed,
-  insurance:     Shield,
-  water:         Droplets,
-  // Bill-labelling picker keys (backend LABEL_OPTIONS) not covered above
-  home_insurance: Shield,
-  life_insurance: HeartPulse,
-  council_tax:    Landmark,
-  tv_licence:     Tv,
-  pension:        Landmark,
+// Insight keys are server contracts rather than user-facing category names.
+// Resolve them through the same Phosphor map so chips do not become a second
+// icon system, while keeping their existing insight-specific meaning.
+const INSIGHT_CATEGORY_NAMES: Record<string, string> = {
+  car_finance: "Car finance",
+  car_insurance: "Insurance",
+  subscriptions: "Subscriptions",
+  energy: "Energy",
+  groceries: "Groceries",
+  mobile: "Mobile",
+  mortgage: "Mortgage",
+  gym: "Gym",
+  broadband: "Broadband",
+  eating_out: "Eating Out",
+  insurance: "Insurance",
+  water: "Water",
+  home_insurance: "Insurance",
+  life_insurance: "Health",
+  council_tax: "Bills",
+  tv_licence: "Subscriptions",
+  pension: "Investment",
 };
 
-export function insightCategoryIcon(category: string): LucideIcon {
-  return INSIGHT_CATEGORY_ICONS[category] ?? PiggyBank;
+export function insightCategoryIcon(category: string, overrides?: Record<string, string>): LucideIcon {
+  return getCategoryIcon(INSIGHT_CATEGORY_NAMES[category] ?? category.replaceAll("_", " "), overrides);
 }

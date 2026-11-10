@@ -4,6 +4,7 @@ import {
 } from "lucide-react";
 import PhosphorNavIcon from "@/components/navigation/PhosphorNavIcon";
 import PennyAppearanceIcon from "@/components/PennyAppearanceIcon";
+import { getCategoryIcon } from "@/lib/categoryIcons";
 import type { PennyAppearance } from "@/lib/pennyAppearance";
 
 const NAV_TABS = { Home: "home", Spend: "spend", Upcoming: "upcoming", Planning: "planning" } as const;
@@ -40,6 +41,9 @@ export default function TutorialIcon({ iconName, appearance, resolved, className
     glyph = resolved ? <PennyAppearanceIcon appearance={appearance} size={24} /> : null;
   } else if (nav) {
     glyph = <PhosphorNavIcon tab={NAV_TABS[iconName as keyof typeof NAV_TABS]} selected appearance={resolved ? appearance : "pending"} />;
+  } else if (iconName === "Category" || iconName === "Investment" || iconName === "Transfers") {
+    const CategoryIcon = getCategoryIcon(iconName === "Category" ? "Other" : iconName === "Investment" ? "Investment" : "Transfer");
+    glyph = <CategoryIcon size={24} aria-hidden="true" />;
   } else {
     const Icon = SECTION_ICONS[iconName as keyof typeof SECTION_ICONS];
     glyph = <Icon size={24} strokeWidth={1.8} aria-hidden="true" />;

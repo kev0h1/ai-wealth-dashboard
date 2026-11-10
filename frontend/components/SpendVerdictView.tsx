@@ -21,10 +21,10 @@
 
 import { unresolvedHeading, unresolvedWorthAsking } from "@/lib/spendUnresolved";
 import { useEffect, useState } from "react";
-import type { LucideIcon } from "lucide-react";
-import { ChevronDown, ChevronUp, ChevronRight, PiggyBank, CreditCard, TrendingUp, ReceiptText, ShieldCheck, ArrowLeftRight, Target, RotateCcw, CircleHelp } from "lucide-react";
+import { ChevronDown, ChevronUp, ChevronRight, TrendingUp, ReceiptText, ShieldCheck, Target, RotateCcw, CircleHelp } from "lucide-react";
 import { getCategoryColour } from "@/lib/categories";
 import { getCategoryIcon } from "@/lib/categoryIcons";
+import { useCategoryIcons } from "@/components/IconProvider";
 import { api } from "@/lib/api";
 import { invalidateVerdictCache } from "@/lib/verdictCache";
 import type {
@@ -51,14 +51,14 @@ import MirrorRouteLink from "@/components/MirrorRouteLink";
 
 const fmtRaw = (n: number) => `£${Math.round(n).toLocaleString("en-GB")}`;
 
-const MOVED_ICON: Record<SpendVerdictMoved["kind"], LucideIcon> = {
-  pots: PiggyBank,
-  credit_cards: CreditCard,
-  investments: TrendingUp,
+const MOVED_ICON: Record<SpendVerdictMoved["kind"], ReturnType<typeof getCategoryIcon>> = {
+  pots: getCategoryIcon("Savings"),
+  credit_cards: getCategoryIcon("Debt"),
+  investments: getCategoryIcon("Investment"),
   // Plain account-to-account shuffling (backend's "own_accounts" bucket) —
   // deliberately NOT the piggy bank or any other genuine-destination icon;
   // an exchange glyph reads as "moved between", not "put somewhere".
-  own_accounts: ArrowLeftRight,
+  own_accounts: getCategoryIcon("Transfer"),
 };
 
 // Point 9 (variant B) — amber is reserved for genuine pace concern
@@ -112,8 +112,9 @@ function IconChip({
   iconOverrides?: Record<string, string>;
   size?: number;
 }) {
+  const { icons: savedIcons } = useCategoryIcons();
   const colour = getCategoryColour(name, colours);
-  const Icon = getCategoryIcon(name, iconOverrides);
+  const Icon = getCategoryIcon(name, iconOverrides ?? savedIcons);
   return (
     <span
       className="rounded-xl flex items-center justify-center flex-shrink-0"

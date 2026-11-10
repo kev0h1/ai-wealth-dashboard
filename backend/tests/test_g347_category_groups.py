@@ -152,10 +152,18 @@ def test_add_and_delete_preserve_original_metadata_via_cas(monkeypatch):
     async def invalidate(_uid):
         return None
 
+    async def custom(_uid):
+        return stored
+
+    async def choose(*_args):
+        return "tag"
+
     monkeypatch.setattr(categories, "_cas_update", cas)
     monkeypatch.setattr(categories, "_invalidate_kind_caches", invalidate)
+    monkeypatch.setattr(categories, "_custom_for", custom)
+    monkeypatch.setattr(categories, "choose_automatic_icon", choose)
     asyncio.run(categories.add_category({"name": "Studio", "kind": "discretionary"}, {"email": "one@example.test"}))
-    assert stored[0] == {"name": "Studio", "kind": "discretionary", "default_kind": "commitment"}
+    assert stored[0] == {"name": "Studio", "kind": "discretionary", "default_kind": "commitment", "icon_key": "tag", "icon_source": "auto"}
     asyncio.run(categories.delete_category("Studio", {"email": "one@example.test"}))
     assert stored == []
 

@@ -5,6 +5,7 @@ import { RotateCcw, ShieldCheck } from "lucide-react";
 import MoneyText from "@/components/MoneyText";
 import { AimRing } from "@/components/AimProgress";
 import { useColours } from "@/components/ColourProvider";
+import { useCategoryIcons } from "@/components/IconProvider";
 import { getCategoryColour } from "@/lib/categories";
 import { getCategoryIcon } from "@/lib/categoryIcons";
 import { mirrorMoney, mirrorText, periodLabel } from "@/lib/mirrorFeedback";
@@ -49,6 +50,7 @@ export default function MirrorFeedbackCard({
   onRetry(): void;
 }) {
   const { colours } = useColours();
+  const { icons } = useCategoryIcons();
   const categoryName = category ?? trait.ref_category ?? null;
   const categoryColour = getCategoryColour(categoryName ?? undefined, colours);
   const statusId = useId();
@@ -98,7 +100,7 @@ export default function MirrorFeedbackCard({
         <div className={styles.titleRow}>
           {categoryName && (
             <span className={styles.category} style={{ backgroundColor: `${categoryColour}26`, color: categoryColour }} aria-hidden="true">
-              {createElement(getCategoryIcon(categoryName ?? undefined), { size: 18, strokeWidth: 2 })}
+              {createElement(getCategoryIcon(categoryName ?? undefined, icons), { size: 18 })}
             </span>
           )}
           <h2 id={`${statusId}-title`} className={styles.title}><MoneyText text={mirrorText(trait.title, masked)} /></h2>

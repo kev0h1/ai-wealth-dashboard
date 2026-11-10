@@ -24,8 +24,9 @@ import { invalidateMoneyShapeCache } from "@/lib/moneyShape";
 export async function addCategoryAndInvalidate(
   name: string,
   kind?: CategoryKind,
+  iconKey?: string,
 ): Promise<CategoriesResponse> {
-  const result = await api.addCategory(name, kind);
+  const result = await api.addCategory(name, kind, iconKey);
   invalidateMoneyShapeCache();
   invalidateVerdictCache();
   return result;

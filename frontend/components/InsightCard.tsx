@@ -21,6 +21,7 @@ import {
 } from "lucide-react";
 import { api, SavingsInsight, WorkflowDef, WorkflowStep } from "@/lib/api";
 import { insightCategoryIcon } from "@/lib/insightIcons";
+import { useCategoryIcons } from "@/components/IconProvider";
 import PennyMark from "@/components/PennyMark";
 import { SheetFrame } from "@/components/SheetFrame";
 import MoneyText from "@/components/MoneyText";
@@ -71,7 +72,8 @@ const APP_ROUTE_LABELS: Record<string, string> = {
 
 // Standard category chip: small rounded tile, subtle tint, lucide icon
 function CategoryChip({ category, label }: { category: string; label: string }) {
-  const Icon = insightCategoryIcon(category);
+  const { icons } = useCategoryIcons();
+  const Icon = insightCategoryIcon(category, icons);
   return (
     <span className="inline-flex items-center gap-1.5">
       <span className="w-6 h-6 rounded-lg bg-indigo-50 dark:bg-indigo-500/15 flex items-center justify-center flex-shrink-0">
@@ -148,7 +150,8 @@ export function CompactInsightRow({
   onExpand: () => void;
 }) {
   const hidden = useBalancesHidden();
-  const Icon = insightCategoryIcon(insight.category);
+  const { icons } = useCategoryIcons();
+  const Icon = insightCategoryIcon(insight.category, icons);
   const total = insight.triggered_by.reduce((sum, t) => sum + (t.monthly_amount || 0), 0);
   const placeCount = insight.triggered_by.length;
 
