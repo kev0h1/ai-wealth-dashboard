@@ -83,9 +83,12 @@ PRIMARY_EMAIL       = (os.getenv("PRIMARY_EMAIL") or "kevin.maingi12@gmail.com")
 SESSION_MAX_AGE     = 7 * 24 * 3600
 
 # Subscription tier a user gets when they have no subscription doc (or an
-# expired/unrecognised one) — see app.core.subscription. Nobody should be
-# restricted before launch, so this defaults to the top tier.
-DEFAULT_TIER        = os.getenv("DEFAULT_TIER", "plus")
+# expired/unrecognised one) — see app.core.subscription. A195: the code
+# default is the free Statements plan, so a missing variable never gives a new
+# sign-up free Plus. An environment can still set DEFAULT_TIER (UAT sets plus);
+# it stays out of the E10 runtime settings on purpose.
+CODE_DEFAULT_TIER   = "statements"
+DEFAULT_TIER        = os.getenv("DEFAULT_TIER", CODE_DEFAULT_TIER)
 
 _GMAIL_DOMAINS = {"gmail.com", "googlemail.com"}
 

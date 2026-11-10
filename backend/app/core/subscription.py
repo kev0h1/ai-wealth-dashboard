@@ -8,7 +8,7 @@ Tiers: Statements (free, statement upload only) < Lite < Standard < Plus
 connected-account cap and Penny messages a month. Nobody should be
 restricted before launch — the tier a user gets when they have no
 subscription doc (or an expired/unrecognised one) is DEFAULT_TIER
-(app.core.config), which defaults to "plus"."""
+(app.core.config), which defaults to "statements" (A195)."""
 import logging
 from datetime import date, datetime, timedelta, timezone
 from enum import IntEnum
@@ -156,8 +156,8 @@ PENNY_TOPUP = {"messages": PENNY_TOPUP_PACKS[1]["messages"], "price_gbp": PENNY_
 # (`_settle_packs`/`mcp_allowance` below share the implementation with
 # `settle_topups`/`penny_allowance`). Every paid tier has the same
 # `mcp_tool_calls_per_month` (5000, B53); the connector itself is gated
-# separately by MCP_CONNECTOR_ENABLED. Plus is the DEFAULT_TIER today (see
-# module docstring) so nobody needs the pack yet.
+# separately by MCP_CONNECTOR_ENABLED. An environment whose DEFAULT_TIER is
+# plus (UAT) has nobody needing the pack.
 MCP_CALL_PACKS = [
     {"id": "mcp_1000", "calls": 1000, "price_gbp": 2.99, "badge": None},
 ]
@@ -244,7 +244,13 @@ class Subscription:
         has_paid_subscription: bool = False,
         grace_until: datetime | None = None,
         provider: str | None = None,
+        via_default: bool = False,
     ):
+        # A195: True when this tier was reached only through the configured
+        # default (no document, or a free/unrecognised/lapsed-unpaid one). The
+        # /ops/people default-tier report reads it, so the report and the real
+        # resolver can never disagree about who is "on the default".
+        self.via_default = via_default
         self.grace_until = grace_until
         self.provider = provider
         self.tier = tier
@@ -265,9 +271,11 @@ class Subscription:
 
 
 def _default_tier() -> Tier:
-    from app.core.config import DEFAULT_TIER
+    from app.core.config import CODE_DEFAULT_TIER, DEFAULT_TIER
     name = DEFAULT_TIER.strip().lower()
-    return TIER_BY_NAME.get(name) or _LEGACY_TIER_MAP.get(name, Tier.PLUS)
+    # A195: an unrecognised configured value falls back to the code default,
+    # never to a hardcoded paid tier.
+    return TIER_BY_NAME.get(name) or _LEGACY_TIER_MAP.get(name) or TIER_BY_NAME[CODE_DEFAULT_TIER]
 
 
 # C21/C24: every payment provider that may own a subscriptions_col document.
@@ -308,8 +316,10 @@ def _subscription_from_doc(doc: dict, default_tier: Tier) -> Subscription:
     # is restricted" default); someone who cancelled, lapsed, failed to pay
     # or let a trial end has no claim on it.
     landing_tier = Tier.STATEMENTS if paid_backed else default_tier
+    landing_via_default = not paid_backed
     if doc.get("status") == "expired":
-        return Subscription(landing_tier, "expired", has_paid_subscription=paid_backed, provider=provider)
+        return Subscription(landing_tier, "expired", has_paid_subscription=paid_backed, provider=provider,
+                            via_default=landing_via_default)
 
     now = datetime.now(timezone.utc)  # naive-ok: aware instant compared with as_utc stamps
     expires_at = as_utc(doc.get("expires_at"))
@@ -319,11 +329,14 @@ def _subscription_from_doc(doc: dict, default_tier: Tier) -> Subscription:
         # that just ended, so the usual expires_at check would cut access the
         # moment a renewal fails. Access runs to the grace deadline instead.
         if grace_until <= now:
-            return Subscription(landing_tier, "expired", has_paid_subscription=paid_backed, provider=provider)
+            return Subscription(landing_tier, "expired", has_paid_subscription=paid_backed, provider=provider,
+                                via_default=landing_via_default)
     elif expires_at and expires_at < now:
-        return Subscription(landing_tier, "expired", has_paid_subscription=paid_backed, provider=provider)
+        return Subscription(landing_tier, "expired", has_paid_subscription=paid_backed, provider=provider,
+                            via_default=landing_via_default)
 
     stored_name = (doc.get("tier") or "").strip().lower()
+    via_default = False
     if stored_name in TIER_BY_NAME:
         tier = TIER_BY_NAME[stored_name]
     elif stored_name in _LEGACY_TIER_MAP:
@@ -331,6 +344,7 @@ def _subscription_from_doc(doc: dict, default_tier: Tier) -> Subscription:
         logger.info("subscription: legacy tier '%s' mapped to '%s' for user", stored_name, TIER_NAMES[tier])
     else:
         tier = default_tier
+        via_default = True
         if stored_name == "free":
             logger.info("subscription: legacy tier 'free' mapped to default tier '%s' for user", TIER_NAMES[tier])
         elif stored_name:
@@ -345,6 +359,7 @@ def _subscription_from_doc(doc: dict, default_tier: Tier) -> Subscription:
         has_paid_subscription=paid_backed,
         grace_until=grace_until,
         provider=provider,
+        via_default=via_default,
     )
 
 
@@ -359,7 +374,7 @@ def pick_subscription_doc(docs: list[dict], default_tier: Tier | None = None) ->
     chosen document alongside the Subscription it yields."""
     default_tier = default_tier if default_tier is not None else _default_tier()
     if not docs:
-        return None, Subscription(default_tier)
+        return None, Subscription(default_tier, via_default=True)
     scored = [(doc, _subscription_from_doc(doc, default_tier)) for doc in docs]
     live = [(d, s) for d, s in scored if s.status != "expired"]
     epoch = datetime.min.replace(tzinfo=timezone.utc)
