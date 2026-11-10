@@ -56,6 +56,7 @@ const SpendTrends = dynamic(() => import("@/components/SpendTrends"), {
 const CategorySheet = dynamic(() => import("@/components/CategorySheet"));
 const TeachingSheet = dynamic(() => import("@/components/TeachingSheet"));
 const MiscategorisedReviewSheet = dynamic(() => import("@/components/MiscategorisedReviewSheet"));
+const FiledTransfersSheet = dynamic(() => import("@/components/FiledTransfersSheet"));
 const CategorisationRulesSheet = dynamic(() => import("@/components/CategorisationRulesSheet"));
 const IntentConsentSheet = dynamic(() => import("@/components/IntentConsentSheet"));
 
@@ -557,10 +558,12 @@ export default function SpendPage() {
     focusJourneySection(document.getElementById("spend-majority-section") ? "spend-majority-section" : "spend-journey-changes");
   }
 
-  // "Moved" tap's Show Your Working destination — scroll to the "Money you
-  // moved" block, which now carries id="spend-money-moved" (SpendVerdictView).
+  // G449: the same server-defined pay period as the visible moved figure.
   function handleMovedTap() {
-    focusJourneySection("spend-money-moved", "center");
+    setFiledScope({
+      start: isoDate(periodStart), end: isoDate(periodEnd),
+      label: verdict ? periodLabelFromVerdict(verdict, formatPeriodLocal(periodStart, periodEnd)) : formatPeriodLocal(periodStart, periodEnd),
+    });
   }
 
   // OUT-pill footnote tap's Show Your Working destination — the ask/whisper
@@ -677,7 +680,15 @@ export default function SpendPage() {
   // miscategorisedCount + pairCount below.
   const [reviewTotal, setReviewTotal] = useState<number | undefined>(undefined);
   const [reviewOpen, setReviewOpen] = useState(false);
+  const [filedScope, setFiledScope] = useState<null | "all" | { start: string; end: string; label: string }>(null);
   const [rulesOpen, setRulesOpen] = useState(false);
+
+  function refreshAfterTransferChange() {
+    void refreshAllTransactions(true);
+    fetchMiscategorisedCount(periodOffset, true);
+    fetchVerdict(periodOffset);
+    refetchSignals();
+  }
 
   // Banner count is period-scoped server-side now (a series counts only if
   // it has a transaction inside the requested period) — refetch whenever
@@ -1181,6 +1192,7 @@ export default function SpendPage() {
         swipeHandlers={periodSwipe}
         onOpenSettings={() => setSettingsOpen(true)}
         onOpenRules={() => setRulesOpen(true)}
+        onOpenFiledTransfers={() => setFiledScope("all")}
         incomeTxns={incomeTxns}
         onIncomeOpen={() => setTransactionsRequested(true)}
         onTransactionClick={(tx) => { setAskHandoffTxId(null); setSelectedTx(tx); }}
@@ -1380,14 +1392,7 @@ export default function SpendPage() {
       {reviewOpen && (
         <MiscategorisedReviewSheet
           onClose={() => setReviewOpen(false)}
-          onChanged={() => {
-            void refreshAllTransactions(true);
-            fetchMiscategorisedCount(periodOffset, true);
-            // The review has saved and recomputed the whole batch. Refresh
-            // this mounted page once, after its sheet closes.
-            fetchVerdict(periodOffset);
-            refetchSignals();
-          }}
+          onChanged={refreshAfterTransferChange}
           accounts={accounts}
           // The sheet lists every flagged series all-time, but the banner
           // that opens it is period-scoped — passing periodStart lets the
@@ -1396,6 +1401,14 @@ export default function SpendPage() {
           periodStart={periodStart}
         />
       )}
+
+      {filedScope && <FiledTransfersSheet
+        onClose={() => setFiledScope(null)}
+        period={filedScope === "all" ? undefined : filedScope}
+        expectedTotal={filedScope === "all" ? undefined : verdict?.moved_total}
+        onChanged={refreshAfterTransferChange}
+        onOpenReview={() => setReviewOpen(true)}
+      />}
 
       {/* Categorisation rules sheet — explains the money-to-self rules */}
       {rulesOpen && (

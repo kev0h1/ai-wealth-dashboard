@@ -38,6 +38,7 @@ import type { SpendVerdict, Transaction } from "@/lib/api";
 import { unresolvedWorthAsking } from "@/lib/spendUnresolved";
 import { dateToUTCDay } from "@/lib/payPeriod";
 import { periodDayCaption } from "@/lib/spendPeriod";
+import FilingSourceIcon from "@/components/FilingSourceIcon";
 
 // Tiny negative floats (rounding noise) must never render as a phantom
 // minus — same <£1 zero-safe convention as SafeToSpendCard.tsx's
@@ -73,6 +74,7 @@ export interface SpendHeaderProps {
   swipeHandlers?: { onTouchStart: (e: React.TouchEvent) => void; onTouchEnd: (e: React.TouchEvent) => void };
   onOpenSettings: () => void;
   onOpenRules: () => void;
+  onOpenFiledTransfers?: () => void;
   /** Income transactions for the "In" drill-down — same list production
    *  already builds from live transactions; the preview passes a small
    *  fixture list so the interaction is demonstrable without a login. */
@@ -176,12 +178,14 @@ function PeriodSheet({
   onSelectOffset,
   onOpenSettings,
   onOpenRules,
+  onOpenFiledTransfers,
   onClose,
 }: {
   recentPeriods: RecentPeriodOption[];
   onSelectOffset: (offset: number) => void;
   onOpenSettings: () => void;
   onOpenRules: () => void;
+  onOpenFiledTransfers?: () => void;
   onClose: () => void;
 }) {
   const router = useRouter();
@@ -229,6 +233,14 @@ function PeriodSheet({
             <Info size={15} className="text-slate-500 dark:text-slate-400 flex-shrink-0" />
             <span className="text-sm font-medium text-slate-800 dark:text-slate-100">How we categorise your money</span>
           </button>
+          {onOpenFiledTransfers && <button
+            type="button"
+            onClick={() => closeThen(onOpenFiledTransfers)}
+            className="flex min-h-11 w-full items-center gap-2.5 rounded-xl px-3 text-left text-sm font-medium text-slate-800 transition-colors hover:bg-slate-50 active:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500 dark:text-slate-100 dark:hover:bg-slate-700/20 dark:active:bg-slate-700/40"
+          >
+            <FilingSourceIcon actor="sorted" size={15} className="shrink-0 text-slate-500 dark:text-slate-400" />
+            Transfers Sorted filed
+          </button>}
         </div>
       </>}
     </SheetFrame>
@@ -278,7 +290,7 @@ export function SpendHeroSkeleton() {
 export function SpendPeriodBar(props: SpendHeaderProps) {
   const {
     verdict, periodLabel, isCurrentPeriod, canGoPrev, onPrev, onNext,
-    onOpenSettings, onOpenRules, recentPeriods = [], onSelectOffset,
+    onOpenSettings, onOpenRules, onOpenFiledTransfers, recentPeriods = [], onSelectOffset,
   } = props;
   const [sheetOpen, setSheetOpen] = useState(false);
 
@@ -370,6 +382,7 @@ export function SpendPeriodBar(props: SpendHeaderProps) {
           onSelectOffset={(offset) => onSelectOffset?.(offset)}
           onOpenSettings={onOpenSettings}
           onOpenRules={onOpenRules}
+          onOpenFiledTransfers={onOpenFiledTransfers}
           onClose={() => setSheetOpen(false)}
         />
       )}
