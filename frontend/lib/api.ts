@@ -56,6 +56,9 @@ export interface CategoriesResponse {
   all: string[];
   /** Kind for every category, built-in and custom — one source of truth. */
   kinds: Record<string, CategoryKind>;
+  /** Account-saved Phosphor keys; optional for older cached responses. */
+  icons?: Record<string, string>;
+  icon_sources?: Record<string, "auto" | "user">;
 }
 
 export interface CategoryGroupRow {
@@ -2138,11 +2141,11 @@ function fetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> 
 // data version: any successful write drops the money endpoints, so a dismissal,
 // edit, set-aside or sync can never be followed by a cached pre-write payload.
 // Excluded: reads, preferences (PreferencesContext invalidates only for the
-// money fields, matching the server), Penny chat turns and chips, auth and
+// money fields, matching the server), category icon appearance, Penny chat turns and chips, auth and
 // push registration, and the read-only POSTs (can-i, the cashflow, commitment,
 // schedule and spend-intent previews, card payment-match preview, receipt
 // scan), none of which move a cached figure.
-const ENDPOINT_CACHE_WRITE_EXEMPT = /\/(?:preferences|penny\/(?:chat|stream|history|chip)|auth|push|telemetry|analytics\/event|can-i|cashflow\/preview-rule|commitments\/(?:schedule-)?preview|spend\/intent-preview|card-terms\/[^/?]+\/payment-match-preview|baskets\/scan-receipt)(?:[/?]|$)/;
+const ENDPOINT_CACHE_WRITE_EXEMPT = /\/(?:preferences|categories\/icon|penny\/(?:chat|stream|history|chip)|auth|push|telemetry|analytics\/event|can-i|cashflow\/preview-rule|commitments\/(?:schedule-)?preview|spend\/intent-preview|card-terms\/[^/?]+\/payment-match-preview|baskets\/scan-receipt)(?:[/?]|$)/;
 function isEndpointCacheWrite(input: RequestInfo | URL, init?: RequestInit): boolean {
   const method = (init?.method ?? (typeof Request !== "undefined" && input instanceof Request ? input.method : "GET")).toUpperCase();
   if (method === "GET" || method === "HEAD" || method === "OPTIONS") return false;
@@ -4082,8 +4085,10 @@ export const api = {
   getCategoryGroups: () => get<CategoryGroupsResponse>("/categories/groups"),
   saveCategoryGroup: (name: string, kind: CategoryKind, revision: string) => patch<{ saved: true }>("/categories/group", { name, kind, revision }),
   resetCategoryGroups: (revision: string) => post<{ saved: true }>("/categories/groups/reset", { revision }),
-  addCategory: (name: string, kind: CategoryKind = "discretionary") =>
-    post<CategoriesResponse>("/categories", { name, kind }),
+  addCategory: (name: string, kind: CategoryKind = "discretionary", iconKey?: string) =>
+    post<CategoriesResponse>("/categories", { name, kind, ...(iconKey ? { icon_key: iconKey } : {}) }),
+  saveCategoryIcon: (name: string, iconKey: string | null) =>
+    patch<CategoriesResponse>("/categories/icon", { name, icon_key: iconKey }),
   deleteCategory: (name: string) =>
     fetch(`${API_BASE}/categories/${encodeURIComponent(name)}`, {
       method: "DELETE",

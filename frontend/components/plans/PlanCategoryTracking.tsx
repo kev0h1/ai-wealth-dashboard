@@ -4,6 +4,8 @@ import { useEffect, useId, useState } from "react";
 import { getCategoryIcon } from "@/lib/categoryIcons";
 import { getCategoryColour } from "@/lib/categories";
 import { useCategories } from "@/components/CategoriesContext";
+import { useCategoryIcons } from "@/components/IconProvider";
+import { useColours } from "@/components/ColourProvider";
 import MoneyText from "@/components/MoneyText";
 import { api, type PlanCategoryActivity, type PlanCategoryTracking as Tracking } from "@/lib/api";
 
@@ -25,6 +27,8 @@ export function PlanCategoryTracking({ kind, sourceAccountId, destinationAccount
   readOnly?: boolean;
 }) {
   const { allCategories } = useCategories();
+  const { icons } = useCategoryIcons();
+  const { colours } = useColours();
   const name = useId();
   const [retry, setRetry] = useState(0);
   const [result, setResult] = useState<{ key: string; activity?: PlanCategoryActivity; failed?: boolean } | null>(null);
@@ -48,7 +52,7 @@ export function PlanCategoryTracking({ kind, sourceAccountId, destinationAccount
     {!readOnly && <>
       <div className="flex items-center justify-between gap-3"><h4 className="text-sm font-semibold">Category</h4><button type="button" onClick={() => onChange(null)} className="min-h-11 rounded px-1 text-sm font-semibold text-indigo-700 focus-visible:outline-2 focus-visible:outline-indigo-500 dark:text-indigo-300">Use a payment instead</button></div>
       <fieldset className="min-w-0"><legend className="sr-only">Tracking category</legend><div className="max-h-64 overflow-y-auto overscroll-contain rounded-xl border border-slate-200 dark:border-slate-600">{allCategories.map(categoryName => {
-        const Icon = getCategoryIcon(categoryName), colour = getCategoryColour(categoryName);
+        const Icon = getCategoryIcon(categoryName, icons), colour = getCategoryColour(categoryName, colours);
         return <label key={categoryName} className="flex min-h-14 cursor-pointer items-center gap-3 border-t border-slate-200 px-3 py-2 first:border-t-0 hover:bg-slate-50 focus-within:ring-2 focus-within:ring-inset focus-within:ring-indigo-500 dark:border-slate-600 dark:hover:bg-slate-800"><span aria-hidden="true" className="flex size-8 shrink-0 items-center justify-center rounded-lg" style={{ color: colour, backgroundColor: `${colour}26` }}><Icon size={16} /></span><span className="min-w-0 flex-1 text-sm font-semibold">{categoryName}</span><input type="radio" name={name} checked={categoryName === category} onChange={() => pick(categoryName)} className="size-4 shrink-0 accent-indigo-600" /></label>;
       })}</div></fieldset>
     </>}

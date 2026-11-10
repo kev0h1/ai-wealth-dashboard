@@ -20,6 +20,9 @@ from app.db.collections import (
 )
 from app.services import data_version, response_cache
 from app.services.category_groups import EDITABLE_KINDS, response_for, revision_for
+from app.services.category_icons import (
+    backfill_icon, builtin_icon_key, choose_automatic_icon, fallback_icon_key, valid_icon_key,
+)
 from app.services.categorisation import apply_rules_bulk, apply_single_rule
 from app.services.money_shape import get_money_shape_cached
 from app.services.categories import (
@@ -59,11 +62,15 @@ def _payload(custom: list[dict]) -> dict:
     truth instead of its own copy of the taxonomy.
     """
     names = [c["name"] for c in custom]
+    icons = {name: builtin_icon_key(name) for name in BUILTIN_CATEGORIES}
+    icons.update({c["name"]: c.get("icon_key") or backfill_icon(c["name"], c["kind"]) for c in custom})
     return {
         "builtin": BUILTIN_CATEGORIES,
         "custom": names,
         "all": BUILTIN_CATEGORIES + names,
         "kinds": {**BUILTIN_CATEGORY_KINDS, **{c["name"]: c["kind"] for c in custom}},
+        "icons": icons,
+        "icon_sources": {c["name"]: c.get("icon_source") or "auto" for c in custom},
     }
 
 
@@ -158,7 +165,10 @@ async def reset_category_groups(body: Any = Body(...), user: dict = Depends(curr
 @router.post("/categories")
 async def add_category(body: dict, user: dict = Depends(current_user)):
     uid  = user["email"]
-    name = clean_name(body.get("name", ""))
+    raw_name = body.get("name", "")
+    if not isinstance(raw_name, str):
+        raise HTTPException(400, "Invalid category name")
+    name = clean_name(raw_name)
     if not name or len(name) > 40:
         raise HTTPException(400, "Invalid category name")
 
@@ -183,6 +193,16 @@ async def add_category(body: dict, user: dict = Depends(current_user)):
         raise HTTPException(400, f"'{ghost}' is a reserved name, please pick a different one")
 
     norm = normalise_name(name)
+    requested_icon = body.get("icon_key")
+    if requested_icon is not None and (not isinstance(requested_icon, str) or not valid_icon_key(requested_icon)):
+        raise HTTPException(400, "Invalid category icon")
+    # Selecting happens before CAS so retries never repeat a model call. An
+    # idempotent re-add retains its existing metadata and does not pay for a
+    # second automatic selection.
+    existing = next((c for c in await _custom_for(uid) if normalise_name(c["name"]) == norm), None)
+    automatic_icon = None
+    if requested_icon is None and (existing is None or not valid_icon_key(existing.get("icon_key"))):
+        automatic_icon = await choose_automatic_icon(name, kind, uid)
 
     def _mutate(custom: list[dict]) -> list[dict]:
         for c in custom:
@@ -190,13 +210,74 @@ async def add_category(body: dict, user: dict = Depends(current_user)):
                 # Idempotent, matching the old $addToSet: re-adding updates the kind.
                 c["default_kind"] = c.get("default_kind") or c["kind"]
                 c["kind"] = kind
+                if requested_icon is not None:
+                    c["icon_key"] = requested_icon
+                    c["icon_source"] = "user"
+                elif not valid_icon_key(c.get("icon_key")):
+                    c["icon_key"] = automatic_icon or fallback_icon_key()
+                    c["icon_source"] = "auto"
                 return custom
-        custom.append({"name": name, "kind": kind, "default_kind": kind})
+        custom.append({
+            "name": name, "kind": kind, "default_kind": kind,
+            "icon_key": requested_icon or automatic_icon or fallback_icon_key(),
+            "icon_source": "user" if requested_icon is not None else "auto",
+        })
         return custom
 
     custom = await _cas_update(uid, _mutate)
     await _invalidate_kind_caches(uid)
     return _payload(custom)
+
+
+@router.patch("/categories/icon")
+async def update_category_icon(body: Any = Body(...), user: dict = Depends(current_user)):
+    """Save one custom category's icon; null returns it to automatic selection."""
+    if not isinstance(body, dict):
+        raise HTTPException(400, "Invalid request body")
+    name, requested_icon = body.get("name"), body.get("icon_key")
+    if "icon_key" not in body:
+        raise HTTPException(400, "icon_key is required")
+    if not isinstance(name, str) or not normalise_name(name):
+        raise HTTPException(400, "Invalid category name")
+    if requested_icon is not None and (not isinstance(requested_icon, str) or not valid_icon_key(requested_icon)):
+        raise HTTPException(400, "Invalid category icon")
+    if builtin_conflict(name):
+        raise HTTPException(400, "Built-in category icons cannot be changed")
+    wanted = normalise_name(name)
+    uid = user["email"]
+    selected_auto = None
+    automatic_snapshot = None
+
+    def icon_snapshot(category: dict) -> tuple:
+        return (category["name"], category["kind"], category.get("icon_key"), category.get("icon_source"))
+
+    async def automatic_for_current() -> str:
+        # Restore can use the model exactly once for this deliberate user
+        # action. It remains outside the synchronous CAS mutator.
+        nonlocal automatic_snapshot
+        current = await _custom_for(uid)
+        for category in current:
+            if normalise_name(category["name"]) == wanted:
+                automatic_snapshot = icon_snapshot(category)
+                if category.get("icon_source") == "auto" and valid_icon_key(category.get("icon_key")):
+                    return category["icon_key"]
+                return await choose_automatic_icon(category["name"], category["kind"], uid)
+        raise HTTPException(404, "Unknown custom category")
+
+    if requested_icon is None:
+        selected_auto = await automatic_for_current()
+
+    def _mutate(custom: list[dict]) -> list[dict]:
+        for category in custom:
+            if normalise_name(category["name"]) == wanted:
+                if requested_icon is None and icon_snapshot(category) != automatic_snapshot:
+                    raise HTTPException(409, "This category changed while its icon was being chosen. Open it again and try again.")
+                category["icon_key"] = selected_auto if requested_icon is None else requested_icon
+                category["icon_source"] = "auto" if requested_icon is None else "user"
+                return custom
+        raise HTTPException(404, "Unknown custom category")
+
+    return _payload(await _cas_update(uid, _mutate, icon_only=True))
 
 
 @router.delete("/categories/{name}")
@@ -263,7 +344,7 @@ async def _invalidate_kind_caches(uid: str) -> None:
 _CAS_RETRIES = 5
 
 
-async def _cas_update(uid: str, mutate) -> list[dict]:
+async def _cas_update(uid: str, mutate, *, icon_only: bool = False) -> list[dict]:
     """Read-modify-write this user's custom-category list, atomically.
 
     HEAD used ``$addToSet``/``$pull``, which Mongo applies atomically
@@ -289,21 +370,40 @@ async def _cas_update(uid: str, mutate) -> list[dict]:
 
     ``mutate(custom: list[dict]) -> list[dict]`` computes the new custom list
     from the current one (already filtered to exclude built-in collisions —
-    e.g. a legacy "Charity" entry is dropped on any write, matching the prior
-    ``_store`` behaviour exactly; see module-level note on that).
+    e.g. a legacy "Charity" entry is dropped on a taxonomy write, matching the
+    prior ``_store`` behaviour exactly). Icon-only writes preserve raw records
+    and update only changed icon fields.
 
     Returns the new custom list on success; raises 409 if every retry raced.
     """
     for _ in range(_CAS_RETRIES):
         doc = await user_categories_col.find_one({"user_id": uid})
         raw_before = doc.get("categories") if doc else None
-        new_custom = mutate(custom_categories(doc))
+        current = custom_categories(doc)
+        previous_icons = {normalise_name(c["name"]): (c.get("icon_key"), c.get("icon_source")) for c in current}
+        new_custom = mutate(current)
         new_stored = [
             {"name": c["name"], "kind": c["kind"], **(
                 {"default_kind": c["default_kind"]} if c.get("default_kind") else {}
-            )}
+            ), **({"icon_key": c["icon_key"], "icon_source": c.get("icon_source") or "auto"}
+                  if c.get("icon_key") else {})}
             for c in new_custom
         ]
+        if icon_only:
+            # An appearance change must not reserialise names, kinds or any
+            # unrelated/malformed historical records. Change only icon fields
+            # on the first matching stored entry, under the same raw-array CAS.
+            changed = {normalise_name(c["name"]): c for c in new_custom
+                       if previous_icons.get(normalise_name(c["name"])) != (c.get("icon_key"), c.get("icon_source"))}
+            new_stored = []
+            for entry in raw_before if isinstance(raw_before, list) else []:
+                raw_name = entry.get("name") if isinstance(entry, dict) else entry
+                key = normalise_name(raw_name) if isinstance(raw_name, str) else None
+                category = changed.pop(key, None)
+                if category is not None:
+                    entry = dict(entry) if isinstance(entry, dict) else {"name": raw_name, "kind": category["kind"]}
+                    entry.update(icon_key=category["icon_key"], icon_source=category["icon_source"])
+                new_stored.append(entry)
         try:
             result = await user_categories_col.update_one(
                 {"user_id": uid, "categories": raw_before},

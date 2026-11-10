@@ -10,11 +10,14 @@ import { useColours } from "@/components/ColourProvider";
 import { getCategoryColour } from "@/lib/categories";
 import { getCategoryIcon } from "@/lib/categoryIcons";
 import { useCategoryIcons } from "@/components/IconProvider";
+import { useCategories } from "@/components/CategoriesContext";
+import CategoryIconSheet from "@/components/CategoryIconSheet";
 import TransactionRow from "@/components/TransactionRow";
 import { SheetFrame } from "@/components/SheetFrame";
 import { fmtWhole, daysLabel } from "@/lib/aimFormat";
 import MoneyText from "@/components/MoneyText";
 import { useBalancesHidden, maskMoneyText } from "@/lib/balancesHidden";
+import { MINUS } from "@/lib/currency";
 
 interface DoorProps {
   category: string;
@@ -236,9 +239,11 @@ function DoorBlock({ door }: { door: DoorProps }) {
 export default function CategorySheet({ name, title, total, count, transactions, onClose, onTransactionClick, sym = "£", isPro, door, highlightMerchants }: Props) {
   const { colours } = useColours();
   const { icons: iconOverrides } = useCategoryIcons();
+  const { isCustom } = useCategories();
   const hidden = useBalancesHidden();
   const colour = getCategoryColour(name, colours);
   const [toolOpen, setToolOpen] = useState(false);
+  const [iconOpen, setIconOpen] = useState(false);
 
   // ── Merchant-scoped deep-link (insight CTA) ──────────────────────────────
   // Default view: every transaction, matching rows highlighted + scrolled to.
@@ -277,7 +282,7 @@ export default function CategorySheet({ name, title, total, count, transactions,
     (el as HTMLElement).scrollIntoView({ behavior: reducedMotion ? "auto" : "smooth", block: "center" });
   }, [merchantMode]);
 
-  return (
+  return <>
     <SheetFrame title={title ?? name} onClose={onClose}>
       {({ closeThen }) => <>
         <div className="flex items-center gap-3 pb-4">
@@ -301,9 +306,11 @@ export default function CategorySheet({ name, title, total, count, transactions,
             </p>
           </div>
           <p className="text-xl font-bold text-slate-800 dark:text-slate-100 flex-shrink-0 font-mono tabular-nums">
-            {maskMoneyText(`${sym}${total.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, hidden)}
+            {maskMoneyText(`${total < 0 ? MINUS : ""}${sym}${Math.abs(total).toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, hidden)}
           </p>
         </div>
+
+        {isCustom(name) && <button type="button" data-change-category-icon onClick={() => setIconOpen(true)} className="mb-3 flex min-h-11 w-full items-center justify-between gap-3 border-y border-slate-100 py-2 text-left text-[13px] font-semibold text-slate-700 hover:bg-slate-50 active:opacity-75 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"><span>Change icon</span><ChevronRight size={16} aria-hidden="true" /></button>}
 
         {/* Fuel/receipts hints — live in the header area, not as per-row
             ad-chips (approved spec: "NO ad-chips on rows"). Collapsed by
@@ -389,5 +396,6 @@ export default function CategorySheet({ name, title, total, count, transactions,
         </div>
       </>}
     </SheetFrame>
-  );
+    {iconOpen && <CategoryIconSheet key={name} name={name} nested onClose={() => setIconOpen(false)} />}
+  </>;
 }

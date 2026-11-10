@@ -6,6 +6,7 @@ import { X, ChevronRight, RotateCcw } from "lucide-react";
 import { api, SavingsInsight } from "@/lib/api";
 import { cachedEndpoint, ENDPOINT, peekEndpoint } from "@/lib/endpointCache";
 import { insightCategoryIcon } from "@/lib/insightIcons";
+import { useCategoryIcons } from "@/components/IconProvider";
 import PennyMark from "@/components/PennyMark";
 import MoneyText from "@/components/MoneyText";
 import { usePreferences } from "@/components/PreferencesContext";
@@ -53,6 +54,7 @@ interface HomeInsightSpotlightProps {
 
 export default function HomeInsightSpotlight({ onReady, previewInsight }: HomeInsightSpotlightProps = {}) {
   const router = useRouter();
+  const { icons } = useCategoryIcons();
   const { showTips } = usePreferences();
   // G425: seeded from the endpoint cache so a remount shows the card, no skeleton.
   const cachedInsight = previewInsight ? undefined : peekEndpoint<SavingsInsight | null>(ENDPOINT.spotlight.key);
@@ -150,7 +152,7 @@ export default function HomeInsightSpotlight({ onReady, previewInsight }: HomeIn
             <span className="inline-flex items-center gap-1.5">
               <span className="flex size-4 shrink-0 items-center justify-center text-indigo-500 dark:text-indigo-400">
                 {(() => {
-                  const ChipIcon = insightCategoryIcon(insight.category);
+                  const ChipIcon = insightCategoryIcon(insight.category, icons);
                   return <ChipIcon size={16} />;
                 })()}
               </span>

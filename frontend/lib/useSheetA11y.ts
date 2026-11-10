@@ -1,5 +1,6 @@
 "use client";
 import { beginTeardownPop, openSheetCount } from "@/lib/sheetTeardownPops";
+import { createSheetHistoryId } from "@/lib/sheetHistoryId";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 
 // Modal contract for bottom sheets: Escape closes, focus moves in on open,
@@ -134,7 +135,6 @@ interface SheetA11yHandle<T extends HTMLElement> {
   close: () => void;
 }
 
-let sheetHistoryIdSeq = 0;
 // Ids of currently-open sheets that pushed a history entry, in push order
 // (last = innermost/topmost). Module-level so every hook instance shares
 // one stack, the same convention lib/useSheetOpen.ts already uses for its
@@ -315,7 +315,7 @@ export function useSheetA11y<T extends HTMLElement>(
     // regardless, and nothing ever reads it in the meantime since no
     // listener is registered for it. There was no dangling-entry case for
     // it to actually prevent.)
-    const id = `sheet-${++sheetHistoryIdSeq}`;
+    const id = createSheetHistoryId();
     const entryUrl = window.location.href;
     sheetHistoryStack.push(id);
     history.pushState({ ...(history.state ?? {}), __sheetA11yId: id }, "");

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { createElement as h } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { Coffee } from "lucide-react";
+import { ICON_LIBRARY } from "../lib/categoryIcons.ts";
 import UpcomingAccountDetails from "../components/upcoming/UpcomingAccountDetails.tsx";
 import UpcomingRow from "../components/upcoming/UpcomingRow.tsx";
 import { upcomingCategoryAppearance } from "../components/upcoming/UpcomingCategoryIcon.tsx";
@@ -18,8 +18,8 @@ const cases = [
   ["Shopping", "Shopping", "shopping-bag"],
   ["Energy", "Bills", "receipt"],
   ["Software", "Software", "laptop"],
-  ["Eating out", "Eating Out", "utensils"],
-  ["Own account transfer", "Transfer", "arrow-left-right", "movement"],
+  ["Eating out", "Eating Out", "fork-knife"],
+  ["Own account transfer", "Transfer", "arrows-left-right", "movement"],
   ["Custom pet category", "Pets", "paw-print"],
   ["Unknown category", "Unrecognised", "tag"],
 ];
@@ -51,7 +51,7 @@ for (const [name, category, glyph] of cases) {
   assert.equal(event.source, bills.find(item => item.name === name), `${name}: source identity survives`);
   assert.equal(event.category ?? null, category, `${name}: category survives`);
   const row = activityRow(sheet, event.id);
-  assert.match(row, new RegExp(`lucide-${glyph}`), `${name}: category glyph replaces the generic receipt`);
+  assert.match(row, new RegExp(`data-phosphor-icon="${glyph}"`), `${name}: category glyph replaces the generic receipt`);
   assert.match(row, /−£12\.34/, `${name}: signed exact payment survives`);
   const appearance = upcomingCategoryAppearance(category, "bill", {}, {});
   const main = renderToStaticMarkup(h(UpcomingRow, {
@@ -61,14 +61,14 @@ for (const [name, category, glyph] of cases) {
   assert.ok(tile(row), `${name}: sheet has a category tile`);
   assert.equal(tile(row), tile(main), `${name}: sheet and dated list have identical tiles`);
 }
-assert.match(activityRow(sheet, account.events.find(event => event.name === "Salary").id), /lucide-banknote[\s\S]*?\+£12\.34/, "uncategorised income uses Income identity and its positive sign");
-assert.match(activityRow(sheet, account.events.find(event => event.name === "Possible freelance income").id), /lucide-laptop[\s\S]*?Not counted until it is confirmed/, "uncredited income keeps its category and caveat");
-assert.match(activityRow(sheet, account.events.find(event => event.kind === "inflow").id), /lucide-arrow-left-right[\s\S]*?\+£5\.00/, "own-account inflow stays a transfer");
+assert.match(activityRow(sheet, account.events.find(event => event.name === "Salary").id), /data-phosphor-icon="money"[\s\S]*?\+£12\.34/, "uncategorised income uses Income identity and its positive sign");
+assert.match(activityRow(sheet, account.events.find(event => event.name === "Possible freelance income").id), /data-phosphor-icon="laptop"[\s\S]*?Not counted until it is confirmed/, "uncredited income keeps its category and caveat");
+assert.match(activityRow(sheet, account.events.find(event => event.kind === "inflow").id), /data-phosphor-icon="arrows-left-right"[\s\S]*?\+£5\.00/, "own-account inflow stays a transfer");
 const uncategorisedMove = { ...account.events[0], id: "legacy-move", kind: "movement", category: undefined };
-assert.match(activityRow(renderSheet({ ...account, events: [uncategorisedMove] }), uncategorisedMove.id), /lucide-arrow-left-right/, "an older movement without category keeps its transfer identity");
+assert.match(activityRow(renderSheet({ ...account, events: [uncategorisedMove] }), uncategorisedMove.id), /data-phosphor-icon="arrows-left-right"/, "an older movement without category keeps its transfer identity");
 
 const customised = upcomingCategoryAppearance("Subscriptions", "bill", { Subscriptions: "#336699" }, { Subscriptions: "Coffee" });
-assert.equal(customised.Icon, Coffee, "saved icon override wins");
+assert.equal(customised.Icon, ICON_LIBRARY.coffee, "saved icon override wins");
 assert.equal(customised.colour, "#336699", "saved colour override wins");
 
 const suggested = renderSheet({ ...account, position: {

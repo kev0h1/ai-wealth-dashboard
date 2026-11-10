@@ -1,116 +1,119 @@
 # G450 category icons
 
-Status: design round for Kevin's choice. The production replacement and
-account-saved icon choices follow approval. Mode: Operate. Skills: impeccable
-extract, Better Icons, web-design-guidelines. The Impeccable context launcher
-was not executable, so PRODUCT.md and DESIGN.md were read directly.
-
-The brief fixes the icon family, regular weight, existing tile dimensions and
-colours. This round resolves how a person changes a custom category's icon.
-Both proposals use the same 53 original Phosphor vectors, 22 built-in mappings
-and shared preview renderer. Energy, Mobile and Business are custom examples,
-not new built-in categories. Golf and Padel receive specific sporting icons.
+Kevin approved A Suggested icons in chat on 2026-11-10. This production fold-in
+uses impeccable extract, Better Icons and web-design-guidelines in Operate mode.
+The original preview round is recorded in the board and git history. The
+approved preview is retired under H113 after integration into production code.
 
 ## Direction contract
 
 THESIS: a category has one recognisable identity wherever it appears. An
 automatic icon needs no work; changing it remains a small optional task.
 
-OWN-WORLD: inherit the Calm Cockpit, existing category tints and sizes, neutral
-ink, Figtree, mono money and the shared solid SheetFrame. Category colour
-communicates identity. There is no new visual world or Penny gradient.
+OWN-WORLD: inherit the Calm Cockpit, existing category tints and contextual
+glyph/tile sizes, neutral ink, Figtree, mono money and the shared solid
+SheetFrame. Category colour communicates identity. The Penny gradient and
+navigation appearance remain their own systems.
 
-STORY: recognise a category, open it, see its suggested or chosen icon, change
-it if needed, then explicitly save. Cancelling discards the draft. A chosen
-icon survives rename; an automatic one follows the new name.
+STORY: recognise a category, open Change icon, see its suggested or chosen
+icon, change it if needed, then explicitly save. Cancel, Escape and Back
+discard the draft. Creating a category uses the same picker. Editing its draft
+name updates an automatic suggestion and preserves a manual choice.
 
-FIRST VIEWPORT: a plain review toolbar precedes a compact category directory.
-Custom categories lead with an Add category action; the full built-in set and
-context examples remain available below. Desktop uses columns with a bounded
-reading width. Sheets keep their title and actions fixed while content scrolls.
+FIRST VIEWPORT: the category evidence keeps its existing header and figures.
+A custom category adds one Change icon action. Its editor leads with the
+current icon and relevant choices, with Save icon and Cancel in the fixed
+footer. The body scrolls independently on phones and desktop.
 
-FORM: A Suggested icons offers matching choices within the category editor;
-B Browse icons has a separate searchable icon sheet and a cancellable draft.
-This is a local extension of the existing interface, so no visual-world seed
-applies. Preview URLs accept variant, mode and state.
+FORM: approved A keeps suggestions and searchable browsing in one editor.
+There is no separate icon-browser sheet. This extends the existing interface,
+so no replacement visual world, seed roll or raster comp applies.
 
-FINISH: unreviewed and undocumented is unfinished; this build ends with the
-finish review, the verdict, DESIGN.md, and every shipping raster carrying its
-provenance. DESIGN.md remains the existing authority; this round ships vectors
-and makes no production design-system change.
+FINISH: production source, captured production-component fixtures, independent
+review, DESIGN.md, original vector provenance and the repository finish gates
+are the delivery evidence. A preview capture is never evidence of production.
 
-## Preview boundary
+## Shared identity
 
-`/design/category-icons` uses fictional records and an isolated, versioned
-preview storage key. A local save demonstrates retention on this device only.
-It does not claim to save to a user account. No category API, model, production
-preference or live financial data is called or changed. Source provenance and
-the complete MIT notice live beside the bundled vectors.
+`shared/category-icons.json` is the frontend/backend contract: 53 finite keys,
+all 22 built-in categories, semantic aliases, keyword rules, related choices
+and explicit legacy-key translations. Energy, Mobile and Business are semantic
+examples, not additional built-ins. Golf uses golf; Padel uses racquet.
 
-The examples demonstrate intended shared identity across Spend, Biggest
-impact, Upcoming, its account sheet, transactions/search, category selection,
-teaching, Penny, tutorial category references and Planning. They are evidence
-of the proposal, not of a completed production migration.
+`frontend/lib/categoryIcons.ts` renders original Phosphor regular contours
+through the existing component API. Original vectors, hashes, source URLs and
+the MIT notice live in `frontend/lib/category-icons/`. Geometry is bundled,
+with no runtime icon dependency or fetch. All shared category consumers inherit
+the replacement; separate insight, tutorial, teaching and movement references
+use the same resolver. Operational icons and account-type identities retain
+their existing meaning.
 
-## Production fold-in contract
+## Saved choices and assignment
 
-- Replace `frontend/lib/categoryIcons.ts` with the approved shared Phosphor
-  regular catalogue. Preserve or translate legacy local icon keys explicitly.
-  Keep category tints and existing contextual glyph/tile sizes. Audit every
-  consumer, including separate insight and tutorial mappings, hardcoded
-  category glyphs, and financial event identities in Upcoming.
-- Keep built-in taxonomy and financial kinds unchanged. Icon assignment never
-  changes whether money is spending, movement, income or not counted.
-- Add `icon_key` and `icon_source: auto | user` to each custom category record.
-  Extend both `parse_stored_categories` and the router's `_cas_update`
-  serialiser, which otherwise discard new fields during any category write.
-  Group edits, resets, repeated creates and unrelated deletes preserve them.
-- Extend `/categories` additively with saved icon metadata; keep its existing
-  name arrays and kind map compatible. Authenticate and allowlist icon writes
-  per user. User-selected icons take precedence over automatic choices.
-- Match deterministic keywords first. Only an unmatched name/kind can invoke
-  the existing low-cost model gateway with a finite bundled-key allowlist and
-  a bounded timeout. Reject unknown results; persist the neutral tag on
-  unavailable, invalid or failed inference. Never fetch icons at runtime.
-- Backfill legacy custom records idempotently with an explicit migration and
-  raw-array CAS, preserving concurrent changes. GET must remain read-only.
-  Do not run migrations from an unmerged worktree against live data.
-- There is no category rename endpoint today. Add an explicit supported rename
-  path with ownership, collision validation and propagation to existing
-  category references. Preserve a user-chosen icon; recompute an automatic
-  one. Do not simulate rename as create-and-delete or relabel only metadata.
-- Keep icon-only changes out of the category-group revision, whose job is to
-  guard kind changes. Reconcile account metadata with existing device-local
-  `cat_icons` choices without allowing stale local values to mask saved data.
-- Cover every built-in mapping, custom Golf/Padel creation and saved reuse,
-  user-choice retention on rename, malformed model/client keys, legacy
-  backfill, concurrent icon/group updates and user isolation with tests.
+Each custom record stores `icon_key` and `icon_source: auto | user`.
+`GET /categories` adds `icons` and `icon_sources` while retaining the original
+name arrays and kind map. POST optionally accepts a manual bundled key.
+Authenticated PATCH `/categories/icon` requires an explicit key or null to
+restore automatic selection. Built-ins and another user's categories cannot
+be edited through this endpoint. Invalid keys are rejected.
 
-## Delivery checks
+Automatic assignment matches deterministic keywords first. Only an unmatched
+creation or explicit automatic reset can call the existing low-cost gateway,
+with the finite key allowlist, a four-second HTTP timeout and a 4.5-second
+overall deadline. Missing configuration, invalid output, failure or timeout
+persists a neutral tag. Rendering and GET never call the model.
 
-Before submission: inspect captures at 390px and desktop in both themes,
-exercise create/rename/manual choice/cancel/reload and recovery, verify every
-built-in and bundled source, run an independent review against DESIGN.md and
-the Web Interface Guidelines, and complete the repository finish gates with
-`--uat-review`. The coordinator publishes the preview to UAT for Kevin's
-choice. Production component integration occurs on a fresh approved session.
+The startup kind migration precedes icon backfill. Backfill preserves raw
+records and unrelated metadata, translates valid legacy keys, uses raw-array
+CAS retries and keeps concurrent manual choices. Historical unmatched names
+share one six-second model budget for the whole backfill; later names receive
+the neutral tag. It is idempotent. Worktree verification never runs it on UAT.
 
-Verified in this round: every backend built-in maps to a bundled key; all 53
-vector path sets and source hashes match the original Better Icons payloads.
-The phone and desktop matrix covers both variants and themes, with an extra
-320px long-name case. All 16 captures were inspected at original detail by
-the root and independent reviewer. Behaviour checks cover automatic and manual
-choices, return to suggestion, rename, reload, cancellation, child-sheet
-drafts, Tab containment, browser Back and focus return, collisions, recovery
-from failed reads/writes, explicit reset confirmation, hidden money and
-unavailable lists. No live API or external requests or page errors occurred.
+The category serializer retains icon metadata through kind edits, reset,
+repeated creation and unrelated deletion. Icon-only writes leave financial
+cache invalidation and the category-group revision unchanged. A slow automatic
+reset returns 409 if the target kind or icon changed meanwhile, preserving
+the newer choice. An explicit manual choice remains authoritative.
 
-The independent finish review's final disposition is ship, including the
-extra save-failure and 320px captures. Its initial dark-button observation was
-withdrawn after the same original images were re-opened; no product change was
-made for that capture-reading error. A separate documentation check preserves
-the incumbent DESIGN.md. Fresh [Web Interface Guidelines](https://raw.githubusercontent.com/vercel-labs/web-interface-guidelines/main/command.md)
-review, TypeScript, scoped ESLint, design index/stale checks and one Impeccable
-detector run pass. Dedicated skill agent roles were unavailable, so fresh
-generic reviewer and documenter agents used their supplied role contracts.
-The full repository finish gate remains the delivery requirement.
+The client serialises category writes, rejects stale reads, isolates provider
+state by signed-in account and prevents queued writes after account unmount.
+Server-saved custom metadata wins over the old unscoped device-local store.
+Valid built-in device choices are translated and retained; unattributable
+custom device values are neither uploaded nor applied to another account.
+
+## Scope
+
+The app has no existing used-category rename feature. G450 implements icon
+customisation and the name-edit behaviour of an unsaved creation draft.
+General renaming would require a separate supported migration of transaction,
+plan and other references; this change does not simulate it with create/delete
+or introduce a partial rename endpoint. This scope was raised in chat and
+recorded on the board while proceeding with the approved icon work.
+
+## Verification
+
+Focused backend coverage checks all built-ins, keyword and model choices,
+malformed metadata, authenticated API validation and isolation, persistence,
+kind-edit retention, idempotent raw-record backfill, CAS races and both delayed
+automatic-reset conflict cases. The frontend gate renders all 53 regular
+vectors, checks canonical and legacy resolution, saved overrides and explicit
+manual/reset API payloads.
+
+Production-component browser checks use a temporary auth-exempt route with
+fictional fixtures and intercepted API responses. The route is removed before
+submission. Phone and desktop, both themes, 320px long names, signed masking,
+search, keyboard focus, cancel/save/reload, name edits, unavailable categories
+and read/write recovery passed 17 browser interaction checks. All 15 captures
+were read at original detail. The reload sequence also exposed a shared sheet
+history ID collision; a per-module random prefix now prevents old entries
+matching new sheets. Negative totals use the currency minus before the symbol
+so Hide balances masks their absolute value while retaining the sign. A separate real-component keyboard regression validates forward Tab through
+Browse all icons into search, keyboard selection, reverse navigation and
+collapsed results. The summary has explicit focusability so it remains in
+the shared sheet trap; a negative control reproduces the original omission.
+Full finish results and the final review disposition are recorded on the board.
+
+The Impeccable context launcher ran successfully for this fold-in. Dedicated
+skill agent roles are unavailable in this harness; fresh generic reviewer and
+documenter agents receive their supplied contracts. The coordinator owns main
+integration and UAT deployment.
