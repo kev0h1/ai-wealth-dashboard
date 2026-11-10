@@ -8,6 +8,7 @@ Other. Moved: Savings, Investment, Debt, Transfer. Income stays income.
 Pure tests: no network, no real database.
 """
 import asyncio
+import json
 from datetime import date
 from pathlib import Path
 
@@ -204,7 +205,10 @@ def test_frontend_builtin_lists_include_rent():
     cats = (root / "categories.ts").read_text()
     icons = (root / "categoryIcons.ts").read_text()
     assert '  "Rent",' in cats and "Rent:          \"#" in cats
-    assert 'Rent:             "KeyRound"' in icons and "KeyRound," in icons
+    manifest = json.loads((root.parents[1] / "shared" / "category-icons.json").read_text())
+    assert 'import manifest from "../../shared/category-icons.json"' in icons
+    assert manifest["categories"]["Rent"] == "key"
+    assert any(icon["key"] == "key" for icon in manifest["icons"])
     assert "#49be37" in cats and cats.count("#d4a373") == 1  # distinct from Mortgage green
 
 
