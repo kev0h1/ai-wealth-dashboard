@@ -59,6 +59,12 @@ function providerMeta(p: ReconnectProvider): BankMeta {
 // a Google favicon fallback CSP blocks and privacy rules against).
 const providerLogoSrc = bankLogoSrc;
 
+/** G457: the name the strip shows for a provider, so other Home surfaces
+ * (Penny's brief line) name the bank exactly as the banner does. */
+export function reconnectProviderLabel(p: ReconnectProvider): string {
+  return providerMeta(p).label;
+}
+
 export default function ReconnectStrip({ providers, onReconnect }: ReconnectStripProps) {
   const n = providers.length;
   const accountCount = providers.reduce((sum, provider) => sum + (provider.account_count ?? 1), 0);

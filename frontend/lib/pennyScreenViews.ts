@@ -22,6 +22,27 @@ export function zeroSafe(value: number): number {
   return Math.abs(value) < 1 ? 0 : value;
 }
 
+/**
+ * Cashflow inputs are already penny-denominated. Normalise only after the
+ * client-side walk has combined them, so binary floating-point residue cannot
+ * turn an exactly-covered forecast into a microscopic red shortage. Non-finite
+ * values remain untouched for the existing neutral availability guard.
+ * (Lives here, re-exported by cashForecastStatus.ts, so every "is this £0"
+ * test in the app shares one rounding.)
+ */
+export function forecastPence(value: number): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) return value;
+  const rounded = Math.round(value * 100) / 100;
+  return rounded === 0 ? 0 : rounded;
+}
+
+/** G457: the single "no headroom" test. A figure that rounds to exactly 0p
+ * has nothing left to spend. A real penny gap (-£0.40) or sliver (+£0.40)
+ * does not, so it can never be snapped to £0. */
+export function isNoHeadroom(value: number): boolean {
+  return typeof value === "number" && Number.isFinite(value) && forecastPence(value) === 0;
+}
+
 /** £ format matching SafeToSpendCard.tsx's own `fmt` (no decimals, en-GB
  * grouping) — duplicated rather than imported so this module has zero
  * dependency on any component file (see the module doc comment above on
@@ -107,9 +128,69 @@ export function homeForecastPresentation(data: SafeToSpendOk, headline: SafeToSp
     : null;
   if (headline.plansOnly || (finite(end) && end < 0)) return { status: { tone: "watch", label: "Plans gap" }, eyebrow: "Short after plans", signed };
   if (cash < 0) return { status: { tone: "watch", label: "Below buffer" }, eyebrow: "Below your buffer", caption: "below your safety buffer", signed };
-  if (headline.state === "tight" || end === 0) return { status: { tone: "watch", label: end === 0 ? "No headroom" : "Tight" }, eyebrow: "Estimated left to spend", signed };
+  const noHeadroom = (finite(end) && isNoHeadroom(end)) || (headline.state !== "short" && isNoHeadroom(headline.heroAmount));
+  if (headline.state === "tight" || noHeadroom) return { status: { tone: "watch", label: noHeadroom ? "No headroom" : "Tight" }, eyebrow: "Estimated left to spend", signed };
   if (headline.state === "comfortable" && finite(end) && end > 0) return { status: { tone: "good", label: "Looks on track" }, eyebrow: "Estimated left to spend", signed };
   return neutral;
+}
+
+export type LeftToSpendBand = "no_headroom" | "short" | "tight" | "comfortable";
+
+/** G457: ONE classification of the Left to spend figure, read by the card's
+ * chip (via homeForecastPresentation), Penny's Home line and Penny's screen
+ * view. A figure that rounds to £0 is "no_headroom"; any real shortfall,
+ * including a penny one, is "short" (G330: never snapped to £0). */
+export function classifyLeftToSpend(data: SafeToSpendOk): { band: LeftToSpendBand; billsCovered: boolean } {
+  const headline = deriveSafeToSpendHeadline(data);
+  const label = homeForecastPresentation(data, headline).status.label;
+  const low = data.lowest_projected_balance;
+  const billsCovered = data.calculation_status === "complete" && finite(low) && low >= 0;
+  const band: LeftToSpendBand = headline.state === "short" || label === "Short" ? "short"
+    : label === "No headroom" || isNoHeadroom(headline.heroAmount) ? "no_headroom"
+    : headline.state === "tight" || label === "Tight" || label === "Below buffer" || label === "Plans gap" ? "tight"
+    : "comfortable";
+  return { band, billsCovered };
+}
+
+/** Penny's Home line when she has no items. Pure so the copy can be tested
+ * against the card's chip for the same payload. */
+export function homeBriefFallbackText(data: SafeToSpend | null, reconnectNames: string[] = []): string {
+  if (data && data.status === "ok" && data.calculation_status === "syncing") {
+    // G210: no verdict while a first sync runs, so no headroom claim.
+    return "Your first sync is still running. I will have a read on your money once it lands.";
+  }
+  // G457: an expired connection is excluded from the estimate (A192,
+  // counted_accounts.connection_ended), so "isn't counting it yet" is true.
+  // It outranks every verdict branch and insufficient_data, but not a first
+  // sync still running (above) nor a not-yet-loaded estimate.
+  if (data && reconnectNames.length > 0) {
+    return reconnectNames.length === 1
+      ? `${reconnectNames[0]} needs reconnecting, so your estimate isn't counting it yet.`
+      : `${reconnectNames.length} banks need reconnecting, so your estimate isn't counting them yet.`;
+  }
+  if (!data || data.status === "insufficient_data") {
+    return "Your estimated left to spend isn't ready yet. I'm still checking the bills, so check back later.";
+  }
+  const { band, billsCovered } = classifyLeftToSpend(data);
+  if (band === "short") {
+    // The "thing worth a look" is the Left to spend card rendered directly
+    // below, so the copy names it instead of sending the user hunting.
+    return isPlansOnlyShort(data)
+      ? "Nothing new needs you. The bills Sorted knows about are covered so far, you're only short after the plans and set-asides you chose, shown in the left to spend card below."
+      : "Nothing new needs you. You're short this pay period, the gap is shown in the left to spend card below.";
+  }
+  if (band === "no_headroom") {
+    return billsCovered
+      ? "Nothing needs you today. There's nothing left to spend before payday, but the bills Sorted knows about are covered so far."
+      : "Nothing needs you today. There's nothing left to spend before payday. I'll flag anything that needs you.";
+  }
+  if (band === "tight" && data.days_until_payday <= 3) {
+    return "Nothing needs you today. Your pay period ends in a couple of days. The bills Sorted knows about are covered so far.";
+  }
+  if (band === "tight") {
+    return "Nothing needs you today. Cash is tight for the rest of this pay period, but the bills Sorted knows about are covered so far. I'll flag anything that needs you.";
+  }
+  return "Nothing needs you today. Your estimate has headroom, and I am keeping an eye on the bills I know about.";
 }
 
 /** Home's published `PennyScreenView` for the Safe-to-Spend card. `hidden`
