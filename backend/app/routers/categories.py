@@ -421,11 +421,13 @@ async def _cas_update(uid: str, mutate, *, icon_only: bool = False) -> list[dict
 @router.get("/rules")
 async def get_rules(user: dict = Depends(current_user)):
     uid  = user["email"]
-    docs = await user_rules_col.find({"uid": uid}).sort("created_at", -1).to_list(None)
+    docs = await user_rules_col.find({"uid": uid, "removed_at": {"$exists": False}}).sort("created_at", -1).to_list(None)
     return {"rules": [
         {"id": str(d["_id"]), "description": d["description"],
          "pattern": d["pattern"], "category": d["category"],
-         "created_at": d["created_at"].isoformat()}
+         "created_at": d["created_at"].isoformat(),
+         **({"kind": d["kind"], "identity": d.get("identity")}
+            if d.get("kind") == "scoped-correction" else {})}
         for d in docs
     ]}
 
@@ -523,7 +525,21 @@ async def add_rule(body: dict, user: dict = Depends(current_user)):
 
 @router.delete("/rules/{rule_id}")
 async def delete_rule(rule_id: str, user: dict = Depends(current_user)):
-    result = await user_rules_col.delete_one({"_id": rule_id, "uid": user["email"]})
-    if result.deleted_count == 0:
-        raise HTTPException(404, "Rule not found")
+    from app.services.scoped_correction_rules import TYPED_RULE_KIND
+    from app.services.scoped_corrections import correction_lock
+
+    uid = user["email"]
+    async with correction_lock(uid):
+        # A typed rule keeps an inactive revision so an interrupted save
+        # cannot recreate it after the user removes it.
+        result = await user_rules_col.update_one(
+            {"_id": rule_id, "uid": uid, "kind": TYPED_RULE_KIND, "removed_at": {"$exists": False}},
+            {"$set": {"removed_at": datetime.utcnow(), "operation_id": str(uuid_lib.uuid4())}},
+        )
+        if not result.modified_count:
+            deleted = await user_rules_col.delete_one({
+                "_id": rule_id, "uid": uid, "kind": {"$ne": TYPED_RULE_KIND},
+            })
+            if not deleted.deleted_count:
+                raise HTTPException(404, "Rule not found")
     return {"deleted": rule_id}

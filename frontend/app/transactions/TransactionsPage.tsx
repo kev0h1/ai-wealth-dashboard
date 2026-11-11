@@ -591,7 +591,7 @@ export default function TransactionsPage() {
     setReloadKey((k) => k + 1);
   }, [items, total, categoriesFilter, categoryFilter]);
 
-  function handleTxUpdated(updated: Transaction, additionalIds?: string[]) {
+  function handleTxUpdated(updated: Pick<Transaction, "id" | "category">, additionalIds?: string[]) {
     if (!updated.category) { setReloadKey((k) => k + 1); return; }
     applyChange([updated.id, ...(additionalIds ?? [])], updated.category);
   }

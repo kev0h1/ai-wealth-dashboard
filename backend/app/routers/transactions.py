@@ -5,11 +5,13 @@ import re
 import json
 import uuid as uuid_lib
 from datetime import datetime, timedelta
-from typing import List, Optional
+from typing import List, Literal, Optional
+from uuid import UUID
 from bson import ObjectId
 from bson.errors import InvalidId
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.params import Param
+from pydantic import BaseModel, ConfigDict, Field
 import httpx
 
 from app.core.auth import current_user
@@ -21,6 +23,7 @@ from app.db.collections import (
     statement_transactions_col,
     commitments_col, manual_accounts_col, teaching_events_col,
     pending_transactions_col,
+    scoped_correction_operations_col,
 )
 from app.services.pending_transactions import PENDING_TXN_MAX_AGE_DAYS
 from app.services import transfer_review_store as _transfer_review_store
@@ -33,6 +36,9 @@ from app.services.categorisation import (
 )
 from app.services.categories import get_category_kinds, is_non_spend, GENERIC_MANUAL_CATEGORIES
 from app.services.categorisation import user_identity
+from app.services.scoped_corrections import (
+    apply_scoped_correction, operation_key, scope_summary, undo_scoped_correction,
+)
 from app.services.spending import SpendingContext, load_card_accounts, txn_flow
 from app.services import response_cache
 
@@ -810,6 +816,106 @@ async def similar_transactions(transaction_id: str, scope: str = "all", user: di
 def _correction_stamp() -> datetime:
     """G190: when the user made a category correction (orders conflicting corrections)."""
     return datetime.utcnow()  # naive-ok: UTC instant compared only against other stamps
+
+
+class CorrectionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    operation_id: UUID
+    scope: Literal["one", "history", "history-future"]
+    resolution: Literal[
+        "category", "spending", "mine-here", "mine-card",
+        "mine-savings", "mine-investment", "mine-goal", "mine-offline",
+    ]
+    category: str | None = Field(default=None, max_length=80)
+    goal_id: str | None = Field(default=None, max_length=200)
+    offline_pot_name: str | None = Field(default=None, max_length=60)
+    expected_count: int = Field(strict=True, ge=1)
+    defer_recompute: bool = False
+
+
+class CorrectionUndoRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    operation_id: UUID
+    defer_recompute: bool = False
+
+
+async def _finish_scoped_refresh(
+    uid: str, operation_id: str, result: dict, *, defer_recompute: bool, undone: bool = False,
+) -> dict:
+    """Keep the correction receipt available even when figures cannot refresh."""
+    if not result["refresh_pending"]:
+        return result
+    from app.services.derived_caches import defer_transfer_review_recompute, finish_transfer_review_recompute
+
+    try:
+        await _transfer_review_store.mark_stale(uid)
+        await defer_transfer_review_recompute(uid)
+        if defer_recompute:
+            return {**result, "refresh_deferred": True}
+        refreshed = await finish_transfer_review_recompute(uid)
+        if refreshed.get("failed") or refreshed.get("pending"):
+            return result
+        field = "undo_result" if undone else "result"
+        await scoped_correction_operations_col.update_one(
+            {"_id": operation_key(uid, operation_id), "status": "undone" if undone else "applied"},
+            {"$set": {f"{field}.refresh_pending": False}},
+        )
+        return {**result, "refresh_pending": False}
+    except Exception:
+        logger.exception("G453 correction saved but figures could not refresh")
+        return result
+
+
+@router.get("/transactions/{transaction_id}/correction-scope")
+async def get_correction_scope(transaction_id: str, user: dict = Depends(current_user)):
+    """Count an exact, protected correction scope without changing anything."""
+    return await scope_summary(user["email"], transaction_id)
+
+
+@router.post("/transactions/{transaction_id}/correction-scope")
+async def apply_correction_scope(
+    transaction_id: str, body: CorrectionRequest, user: dict = Depends(current_user),
+):
+    """Apply one explicit scope and return the committed count."""
+    uid = user["email"]
+    result = await apply_scoped_correction(uid, transaction_id, body.model_dump(mode="json"))
+    return await _finish_scoped_refresh(
+        uid, str(body.operation_id), result, defer_recompute=body.defer_recompute,
+    )
+
+
+@router.post("/transactions/{transaction_id}/correction-scope/undo")
+async def undo_correction_scope(
+    transaction_id: str, body: CorrectionUndoRequest, user: dict = Depends(current_user),
+):
+    """Restore the fields still owned by this operation."""
+    uid = user["email"]
+    operation_id = str(body.operation_id)
+    result = await undo_scoped_correction(uid, transaction_id, operation_id)
+    return await _finish_scoped_refresh(
+        uid, operation_id, result, defer_recompute=body.defer_recompute, undone=True,
+    )
+
+
+@router.post("/transactions/{transaction_id}/correction-scope/refresh")
+async def refresh_correction_scope(
+    transaction_id: str, body: CorrectionUndoRequest, user: dict = Depends(current_user),
+):
+    """Retry refreshing figures for a saved receipt without writing payments."""
+    uid = user["email"]
+    operation_id = str(body.operation_id)
+    operation = await scoped_correction_operations_col.find_one({
+        "_id": operation_key(uid, operation_id), "user_id": uid,
+        "transaction_id": transaction_id, "status": {"$in": ["applied", "undone"]},
+    })
+    if operation is None:
+        raise HTTPException(404, "Saved correction not found")
+    undone = operation["status"] == "undone"
+    result = await _finish_scoped_refresh(
+        uid, operation_id, operation["undo_result" if undone else "result"],
+        defer_recompute=False, undone=undone,
+    )
+    return {"refresh_pending": result["refresh_pending"]}
 
 
 @router.patch("/transactions/{transaction_id}")

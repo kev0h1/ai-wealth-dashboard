@@ -258,7 +258,7 @@ async def category_activity(body: dict, uid: str) -> dict:
     lo = datetime.combine(start - timedelta(days=5), time.min)
     hi = datetime.combine(end + timedelta(days=5), time.max)
     query = {"user_id": uid, "date": {"$gte": lo, "$lte": hi}, "account_id": {"$in": list(accounts)}}
-    projection = {key: 1 for key in ("amount", "date", "category", "custom_category", "transaction_type", "description", "merchant_name", "account_id", "linked_offline_account_id", "linked_goal_id", "currency", "card_repayment_rule", "card_repayment_taught")}
+    projection = {key: 1 for key in ("amount", "date", "category", "custom_category", "transaction_type", "description", "merchant_name", "account_id", "linked_offline_account_id", "linked_goal_id", "currency", "card_repayment_rule", "card_repayment_taught", "correction_scope")}
     rows = []
     for col in (transactions_col, yapily_transactions_col):
         part = await col.find(query, projection).to_list(MAX_ROWS + 1)

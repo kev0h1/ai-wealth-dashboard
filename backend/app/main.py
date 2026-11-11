@@ -30,7 +30,7 @@ from app.db.collections import (
     finexer_consents_col, yapily_consents_col, yapily_accounts_col, yapily_transactions_col,
     cashflow_cache_col, webhook_events_col,
     checkpoints_col, category_intent_col, commitments_col,
-    teaching_events_col, allocations_col, penny_proposals_col, penny_conversations_col,
+    teaching_events_col, scoped_correction_operations_col, allocations_col, penny_proposals_col, penny_conversations_col,
     response_cache_col, mcp_calls_col, mcp_call_counters_col,
     oauth_codes_col, oauth_tokens_col,
     allowed_signups_col,
@@ -522,6 +522,9 @@ async def _create_indexes():
     # Append-only event log with no consumer/rollup yet — TTL bounds growth
     # (365d retention) rather than letting it accumulate forever.
     await _ensure_index(teaching_events_col, [("created_at", 1)], expireAfterSeconds=31536000)
+    # G453 keeps retry and Undo receipts for a week. The payment categories
+    # and any active future rule have their own durable records.
+    await _ensure_index(scoped_correction_operations_col, "created_at", expireAfterSeconds=7 * 86400)
     # Response cache (app/services/response_cache.py) — one entry per
     # (user_id, name); TTL is the 6h safety bound described there.
     # user_data_version_col needs no explicit index: `_id` (uid) already has

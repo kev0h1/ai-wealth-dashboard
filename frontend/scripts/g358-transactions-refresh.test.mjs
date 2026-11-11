@@ -50,27 +50,22 @@ ok("rows not in the list and untouched rows are left alone", () => {
   assert.equal(r.total, 4);
 });
 
-ok("handleAlways passes affected ids to onUpdated on the success path", () => {
+ok("scoped correction notifies every server-confirmed category after a successful write", () => {
   const src = read("components/TeachingSheet.tsx");
-  // The Undo success callback contains its own nested try/catch. Slicing at
-  // the first textual catch incorrectly treats subsequent successful sibling
-  // restores as part of the rule-save error handler (G387).
   const tree = ts.createSourceFile("TeachingSheet.tsx", src, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
-  let handler;
+  let notifier;
   function visit(node) {
-    if (ts.isFunctionDeclaration(node) && node.name?.text === "handleAlways") handler = node;
+    if (ts.isFunctionDeclaration(node) && node.name?.text === "notifyUpdated") notifier = node;
     ts.forEachChild(node, visit);
   }
   visit(tree);
-  const attempt = handler?.body?.statements.find(ts.isTryStatement);
-  assert.ok(attempt?.catchClause, "the rule save has an explicit failure handler");
-  const after = attempt.tryBlock.getText(tree);
-  assert.match(after, /onUpdated\(/);
-  assert.match(after, /saved\.affected_ids/);
-  assert.match(after, /invalidateAfterTransactionCorrection\(/);
-  const catchBlock = attempt.catchClause.block.getText(tree);
-  assert.doesNotMatch(catchBlock, /onUpdated\(|invalidateAfterTransactionCorrection\(/);
-  assert.match(src, /res\.affected_ids/);
+  assert.ok(notifier, "the shared success notifier remains present");
+  const body = notifier.body.getText(tree);
+  assert.match(body, /onUpdated\(\{ id, category \}, siblings, reverted\)/);
+  assert.match(src, /await api\.applyCorrection\(/);
+  assert.match(src, /saved\.affected_ids/);
+  assert.match(src, /await api\.undoCorrection\(/);
+  assert.match(src, /restored\.restored_categories/);
 });
 
 ok("TransactionsPage listens to the event and reloads via a key in the fetch deps", () => {

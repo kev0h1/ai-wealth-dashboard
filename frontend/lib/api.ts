@@ -592,11 +592,7 @@ export type CategorySignals = {
 // `assemble_verdict` return shape exactly (field-for-field). Every notable/
 // majority/moved figure here is server-computed (Show Your Working Rule —
 // "the model narrates; Python counts"); the frontend only formats. ─────────
-// ── PATCH /transactions/{id} + POST /transactions/{id}/resolve-movement —
-// mirrors backend/app/routers/transactions.py field-for-field. The teaching
-// sheet's propagation offer ("Always file X as Y? Matches N past payments")
-// reads matches_past/rule_suggestion straight off the PATCH response — no
-// second round-trip. ───────────────────────────────────────────────────────
+// Legacy transaction editing and movement resolution responses.
 export type PatchTransactionResult = {
   updated: string;
   custom_category: string;
@@ -618,6 +614,47 @@ export type ResolveMovementResult = {
   linked_offline_account_id?: string;
   offline_pot_name?: string;
   destination_name?: string;
+};
+
+export type CorrectionScope = "one" | "history" | "history-future";
+
+export type CorrectionChoice = {
+  resolution: "category" | "spending" | "mine-here" | "mine-card" | "mine-savings" | "mine-investment" | "mine-goal" | "mine-offline";
+  category?: string;
+  goal_id?: string;
+  offline_pot_name?: string;
+};
+
+export type CorrectionScopeCounts = {
+  one_count: number;
+  earlier_count: number;
+  history_count: number;
+  all_count: number;
+  protected_count: number;
+  can_save_rule: boolean;
+  selected_protected: boolean;
+};
+
+export type CorrectionRequest = CorrectionChoice & {
+  operation_id: string;
+  scope: CorrectionScope;
+  expected_count: number;
+  defer_recompute?: boolean;
+};
+
+export type CorrectionResult = {
+  category: string;
+  affected_ids: string[];
+  updated_count: number;
+  protected_count: number;
+  rule_id?: string | null;
+  rule_conflict?: boolean;
+  refresh_pending: boolean;
+  refresh_deferred?: boolean;
+};
+
+export type CorrectionUndoResult = Pick<CorrectionResult, "affected_ids" | "updated_count" | "refresh_pending" | "refresh_deferred"> & {
+  restored_categories: Record<string, string>;
 };
 
 export type SpendVerdictState = "normal" | "nothing" | "everything" | "nobaseline" | "early";
@@ -3606,9 +3643,17 @@ export const api = {
     const qs = p.toString();
     return get<PagedTransactions>(`/transactions/search${qs ? `?${qs}` : ""}`);
   },
-  // The movement fork of the teaching sheet (ENGINE.md Destination Rule) —
-  // POST /transactions/{id}/resolve-movement. See backend/app/routers/
-  // transactions.py:resolve_movement for the full resolution contract.
+  correctionScope: (id: string) =>
+    get<CorrectionScopeCounts>(`/transactions/${encodeURIComponent(id)}/correction-scope`),
+  applyCorrection: (id: string, body: CorrectionRequest) =>
+    post<CorrectionResult>(`/transactions/${encodeURIComponent(id)}/correction-scope`, body),
+  undoCorrection: (id: string, operationId: string, deferRecompute: boolean) =>
+    post<CorrectionUndoResult>(`/transactions/${encodeURIComponent(id)}/correction-scope/undo`, {
+      operation_id: operationId, defer_recompute: deferRecompute,
+    }),
+  refreshCorrection: (id: string, operationId: string) =>
+    post<{ refresh_pending: boolean }>(`/transactions/${encodeURIComponent(id)}/correction-scope/refresh`, { operation_id: operationId }),
+  // Legacy movement resolution remains available to existing callers.
   resolveMovement: (id: string, body: {
     defer_recompute?: boolean;
     resolution: "mine-here" | "mine-goal" | "mine-offline" | "mine-savings" | "mine-investment" | "mine-card" | "someone-else" | "spending";

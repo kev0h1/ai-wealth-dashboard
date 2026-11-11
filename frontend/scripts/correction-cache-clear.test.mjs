@@ -340,47 +340,17 @@ check(
 );
 
 // Every commit/undo function's try block calls notifyUpdated on its success
-// path at least once (commitSpend has two MUTUALLY EXCLUSIVE branches, one
-// ending in an early `return` before the other can run, so 2 occurrences in
-// its body is "exactly once per execution", not a double-invalidate).
-const FUNCTIONS_CALLING_NOTIFY_ONCE = [
-  ["commitMovement", /async function commitMovement\([^)]*\)\s*/],
-  ["undoMovement", /async function undoMovement\(\)\s*/],
-  ["commitCreditMovement", /async function commitCreditMovement\(category: "Transfer" \| "Income"\)\s*/],
-  ["undoCreditMovement", /async function undoCreditMovement\(\)\s*/],
-  ["undoToSpend", /async function undoToSpend\(_appliedCategory: string\)\s*/],
-];
-for (const [fnName, sig] of FUNCTIONS_CALLING_NOTIFY_ONCE) {
-  const body = extractBody(teachingSheetSrc, sig);
-  check(`${fnName} extracted (regex still matches the real source)`, body !== null, true);
-  check(`${fnName} calls notifyUpdated exactly once on its success path`, countOccurrences(body, "notifyUpdated("), 1);
-}
-{
-  const body = extractBody(teachingSheetSrc, /async function commitSpend\(category: string\)\s*/);
-  check("commitSpend extracted (regex still matches the real source)", body !== null, true);
-  check(
-    "commitSpend calls notifyUpdated exactly twice in source, once per MUTUALLY EXCLUSIVE branch (movement branch returns before the plain-PATCH branch can run)",
-    countOccurrences(body, "notifyUpdated("),
-    2,
-  );
-  check("commitSpend's movement branch returns before falling through to the PATCH branch", /notifyUpdated\([^)]*\);\s*finish\([^;]*;\s*return;/.test(body), true);
-}
-
-const handleAlwaysBody = extractBody(teachingSheetSrc, /async function handleAlways\(\)\s*/);
-check("handleAlways extracted (regex still matches the real source)", handleAlwaysBody !== null, true);
-// G392 adds a deferred Undo callback inside this function. It is a separate
-// successful write wave, not a second invalidation during the original save.
-const siblingUndoBody = extractBody(handleAlwaysBody ?? "", /run: async \(\) =>\s*/);
-check("the sibling Undo callback is present", siblingUndoBody !== null, true);
-check("each successful sibling Undo clears its correction caches once", countOccurrences(siblingUndoBody, "invalidateAfterTransactionCorrection("), 1);
-check("sibling Undo invalidation follows the acknowledged PATCH", (siblingUndoBody?.indexOf("await api.patchTransaction(") ?? -1) >= 0 && siblingUndoBody.indexOf("await api.patchTransaction(") < siblingUndoBody.indexOf("invalidateAfterTransactionCorrection("), true);
-check("deferred sibling Undo returns before clearing batch caches", /if \(deferRecompute\)\s*\{[^}]*onUpdated\([\s\S]*?return;\s*\}\s*invalidateAfterTransactionCorrection\(/.test(siblingUndoBody ?? ""), true);
-check(
-  "handleAlways has one original-save invalidation outside the later sibling Undo callback",
-  countOccurrences(handleAlwaysBody, "invalidateAfterTransactionCorrection(") - countOccurrences(siblingUndoBody, "invalidateAfterTransactionCorrection("),
-  1,
-);
-check("the original-save invalidation follows the acknowledged addRule", (handleAlwaysBody?.indexOf("await api.addRule(") ?? -1) >= 0 && handleAlwaysBody.indexOf("await api.addRule(") < handleAlwaysBody.indexOf("invalidateAfterTransactionCorrection("), true);
+const saveCorrectionBody = extractBody(teachingSheetSrc, /async function saveCorrection\(\)\s*/);
+const undoCorrectionBody = extractBody(teachingSheetSrc, /async function undoCorrection\(\)\s*/);
+check("saveCorrection extracted", saveCorrectionBody !== null, true);
+check("saveCorrection awaits the scoped executor", /await api\.applyCorrection\(/.test(saveCorrectionBody), true);
+check("saveCorrection notifies after a confirmed write", saveCorrectionBody.indexOf("await api.applyCorrection(") < saveCorrectionBody.indexOf("notifyUpdated("), true);
+check("save retry keeps its original operation", /const request = pendingRequest \?\?/.test(saveCorrectionBody), true);
+check("undoCorrection extracted", undoCorrectionBody !== null, true);
+check("undoCorrection awaits the server snapshot restore", /await api\.undoCorrection\(/.test(undoCorrectionBody), true);
+check("undo uses the server-restored category map", /restored\.restored_categories/.test(undoCorrectionBody), true);
+check("the deprecated automatic propagation prompt is absent", !teachingSheetSrc.includes("propose-rule"), true);
+check("savings and investments no longer use a destination-name step", !teachingSheetSrc.includes("movement-destination"), true);
 
 // ── MiscategorisedReviewSheet.tsx ────────────────────────────────────────
 

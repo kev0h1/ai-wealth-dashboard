@@ -13,7 +13,8 @@ from app.core.llm import openrouter_chat
 from app.db.collections import (
     transactions_col, accounts_col, user_rules_col, user_profiles_col,
     merchant_categories_col, confirmed_transfer_pairs_col, preferences_col,
-    statement_transactions_col, teaching_events_col,
+    statement_transactions_col, teaching_events_col, commitments_col,
+    manual_accounts_col,
 )
 from app.services.card_issuers import CARD_ISSUERS
 from app.services.categories import get_category_kinds, kind_of, MOVEMENT, BUILTIN_CATEGORY_KINDS, NON_SPEND_KINDS, GENERIC_MANUAL_CATEGORIES
@@ -1200,9 +1201,157 @@ async def teaching_decision_times(user_id: str) -> dict:
     return decision_time
 
 
+async def apply_scoped_correction_rules(
+    user_id: str,
+    rules: list[dict],
+    *,
+    learned_pair_ids: set | None = None,
+) -> int:
+    """Materialise exact typed future rules without teaching merchant passes.
+
+    A scoped rule owns one canonical merchant identity, direction and
+    currency.  It applies only to still-automatic, booked rows.  Rows that
+    already have a user category stay protected, including a previous G453
+    correction whose marker prevents it becoming an input to Pass 2.5/4.
+    """
+    from app.services.scoped_correction_rules import TYPED_RULE_KIND, correction_identity, is_booked_payment
+
+    if not any(rule.get("kind") == TYPED_RULE_KIND and not rule.get("removed_at") for rule in rules):
+        return 0
+    # Re-read active rules so a removal or replacement since the initial
+    # categorisation read does not reach the payment update loop.
+    fresh_rules = await user_rules_col.find(
+        {"uid": user_id, "kind": TYPED_RULE_KIND, "removed_at": {"$exists": False}},
+    ).to_list(None)
+    typed_rules = [
+        rule for rule in fresh_rules
+        if isinstance(rule.get("operation_id"), str) and rule["operation_id"]
+    ]
+    if not typed_rules:
+        return 0
+    by_identity = {
+        (str(rule.get("identity", {}).get("merchant_key") or ""),
+         str(rule.get("identity", {}).get("transaction_type") or ""),
+         str(rule.get("identity", {}).get("currency") or "").upper()): rule
+        for rule in typed_rules
+    }
+    by_identity = {identity: rule for identity, rule in by_identity.items() if all(identity)}
+    if not by_identity:
+        return 0
+
+    # Linked destinations are user-owned at creation time too, but may be
+    # removed before this later sync. Validate each referenced target in two
+    # collection reads, never in the per-row loop below.
+    goal_ids = {
+        str((rule.get("correction_set") or {}).get("linked_goal_id"))
+        for rule in by_identity.values()
+        if (rule.get("correction_set") or {}).get("linked_goal_id")
+    }
+    offline_ids = {
+        str((rule.get("correction_set") or {}).get("linked_offline_account_id"))
+        for rule in by_identity.values()
+        if (rule.get("correction_set") or {}).get("linked_offline_account_id")
+    }
+    def _stored_id_values(ids: set[str]) -> list:
+        """Match both legacy string ids and Mongo ObjectIds stored by APIs."""
+        values: list = list(ids)
+        try:
+            from bson import ObjectId
+            values.extend(ObjectId(value) for value in ids if ObjectId.is_valid(value))
+        except Exception:
+            pass
+        return values
+
+    owned_goals = set()
+    if goal_ids:
+        owned_goals = {
+            str(doc["_id"])
+            for doc in await commitments_col.find(
+                {"user_id": user_id, "_id": {"$in": _stored_id_values(goal_ids)}, "status": {"$in": [None, "active"]}}, {"_id": 1},
+            ).to_list(None)
+        }
+    owned_offline = set()
+    if offline_ids:
+        owned_offline = {
+            str(doc["_id"])
+            for doc in await manual_accounts_col.find(
+                {"user_id": user_id, "_id": {"$in": _stored_id_values(offline_ids)}}, {"_id": 1},
+            ).to_list(None)
+        }
+    by_identity = {
+        identity: rule for identity, rule in by_identity.items()
+        if (
+            not (rule.get("correction_set") or {}).get("linked_goal_id")
+            or str((rule.get("correction_set") or {})["linked_goal_id"]) in owned_goals
+        ) and (
+            not (rule.get("correction_set") or {}).get("linked_offline_account_id")
+            or str((rule.get("correction_set") or {})["linked_offline_account_id"]) in owned_offline
+        )
+    }
+    if not by_identity:
+        return 0
+
+    allowed = VALID_CATEGORIES
+    if any(rule["category"] not in VALID_CATEGORIES for rule in by_identity.values()):
+        allowed = set(await user_allowed_categories(user_id))
+    candidates = await transactions_col.find(
+        {
+            "user_id": user_id, "custom_category": None,
+            "merchant_key": {"$in": [None, "", *{identity[0] for identity in by_identity}]},
+            "transaction_type": {"$in": list({identity[1] for identity in by_identity})},
+            "own_transfer_match.confirmed": {"$ne": True},
+        },
+        {"merchant_key": 1, "merchant_name": 1, "description": 1,
+         "transaction_type": 1, "currency": 1, "is_pending": 1,
+         "pending": 1, "planned": 1, "status": 1, "own_transfer_match": 1},
+    ).to_list(None)
+    updated = 0
+    learned_pair_ids = learned_pair_ids or set()
+    for row in candidates:
+        if (
+            row["_id"] in learned_pair_ids or not is_booked_payment(row)
+            or (row.get("own_transfer_match") or {}).get("confirmed") is True
+        ):
+            continue
+        rule = by_identity.get(correction_identity(row))
+        if not rule:
+            continue
+        values = dict(rule.get("correction_set") or {})
+        category = values.get("custom_category")
+        if not isinstance(category, str) or category not in allowed:
+            continue
+        values["custom_category_at"] = datetime.utcnow()
+        values["correction_scope"] = "rule"
+        unset_fields = dict(rule.get("correction_unset") or {})
+        # Guard the identity we observed as well as automatic/booking state;
+        # a row changed by import processing between read and write must not
+        # receive a rule intended for its previous payee, direction or currency.
+        write_filter = {
+            "_id": row["_id"], "user_id": user_id, "custom_category": None,
+            "own_transfer_match.confirmed": {"$ne": True},
+            **{field: row.get(field) for field in (
+                "merchant_key", "merchant_name", "description", "transaction_type", "currency", "status",
+            )},
+            "is_pending": {"$ne": True}, "pending": {"$ne": True},
+            "planned": {"$ne": True},
+        }
+        result = await transactions_col.update_one(
+            write_filter,
+            {"$set": values, "$unset": unset_fields},
+        )
+        # Production Motor returns UpdateResult. Small in-memory collection
+        # doubles used by source-level categorisation tests return None after
+        # mutating their backing row, so count that successful test-double
+        # write too.
+        updated += getattr(result, "modified_count", 1)
+    return updated
+
+
 async def apply_rules_bulk(user_id: str, structural: bool = False) -> int:
     """Apply merchant rules + structural passes to categorise transactions.
     Returns count of updated docs."""
+    from app.services.scoped_correction_rules import SCOPED_CORRECTION_KINDS, TYPED_RULE_KIND
+
     updated = 0
     # _ids the structural learned-pair pass marks Transfer (populated below,
     # only when structural=True) — Pass 2.5 AND Pass 4 (both key-level
@@ -1310,8 +1459,10 @@ async def apply_rules_bulk(user_id: str, structural: bool = False) -> int:
         # all) so a correction on one dated statement line propagates to every
         # other row for the same merchant, not just byte-identical repeats.
         custom_txns = await transactions_col.find(
-            {"user_id": user_id, "custom_category": {"$ne": None}},
-            {"merchant_name": 1, "description": 1, "transaction_type": 1, "custom_category": 1},
+            {"user_id": user_id, "custom_category": {"$ne": None},
+             "correction_scope": {"$nin": list(SCOPED_CORRECTION_KINDS)}},
+            {"merchant_name": 1, "description": 1, "transaction_type": 1,
+             "custom_category": 1, "correction_scope": 1},
         ).to_list(None)
 
         override_map: dict = defaultdict(Counter)
@@ -1536,14 +1687,15 @@ async def apply_rules_bulk(user_id: str, structural: bool = False) -> int:
     # Pass 3.5: explicit user-defined rules, not machine suggestions. These
     # retain the user's chosen category, including an Income reversal rule.
     user_rules = await user_rules_col.find({"uid": user_id}).to_list(None)
-    if user_rules:
+    generic_rules = [rule for rule in user_rules if rule.get("kind") != TYPED_RULE_KIND]
+    if generic_rules:
         no_custom = await transactions_col.find(
             {"user_id": user_id, "custom_category": None},
             {"_id": 1, "merchant_name": 1, "description": 1, "category": 1},
         ).to_list(None)
         for t in no_custom:
             text = " ".join(filter(None, [t.get("merchant_name"), t.get("description")])).lower()
-            for rule in user_rules:
+            for rule in generic_rules:
                 try:
                     if re.search(rule["pattern"], text, re.IGNORECASE):
                         if t.get("category") != rule["category"]:
@@ -1554,6 +1706,13 @@ async def apply_rules_bulk(user_id: str, structural: bool = False) -> int:
                         break
                 except re.error:
                     continue
+
+    # Typed future correction rules use exact stored identity, direction and
+    # currency. They run after legacy regex rules and stamp custom_category,
+    # which preserves their precedence through the rest of this pass.
+    updated += await apply_scoped_correction_rules(
+        user_id, user_rules, learned_pair_ids=learned_pair_ids,
+    )
 
     # Pass 4: propagate custom_category to auto-categorised transactions. Keyed
     # on canonical_merchant_key (not the raw lowercased field — no date/
@@ -1591,8 +1750,11 @@ async def apply_rules_bulk(user_id: str, structural: bool = False) -> int:
     # identically to the fail-soft path `teaching_decision_times` already
     # returns on error — every lookup below just falls through to `date`.
     user_overrides = await transactions_col.find(
-        {"user_id": user_id, "custom_category": {"$ne": None}},
-        {"merchant_name": 1, "description": 1, "custom_category": 1, "custom_category_at": 1, "transaction_type": 1, "date": 1},
+        {"user_id": user_id, "custom_category": {"$ne": None},
+         "correction_scope": {"$nin": list(SCOPED_CORRECTION_KINDS)}},
+        {"merchant_name": 1, "description": 1, "custom_category": 1,
+         "custom_category_at": 1, "transaction_type": 1, "date": 1,
+         "correction_scope": 1},
     ).to_list(None)
     _decision_time = await teaching_decision_times(user_id) if user_overrides else {}
     user_overrides.sort(
