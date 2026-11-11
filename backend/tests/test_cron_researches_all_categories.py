@@ -11,6 +11,7 @@ category-membership skip), and the result is stamped with
 `content_valid_until` via `_compute_content_valid_until` exactly like every
 other category — no separate code path any more.
 """
+import pytest
 import asyncio
 from datetime import datetime, timedelta
 
@@ -174,3 +175,11 @@ def test_per_user_cap_defers_the_rest_to_the_next_pass_untouched(monkeypatch):
     assert untouched, "cap must actually bind for this fixture"
     for cat in untouched:
         assert cat not in col.docs, "a capped category with no prior doc must not be half-written"
+
+
+@pytest.fixture(autouse=True)
+def _tips_flag_on(monkeypatch):
+    """G455: these tests exercise tip behaviour, which is off unless
+    TIPS_ENABLED is on (it defaults to false)."""
+    from app.core import config as _tips_cfg
+    monkeypatch.setattr(_tips_cfg, "TIPS_ENABLED", True)

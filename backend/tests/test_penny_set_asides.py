@@ -69,12 +69,13 @@ def test_get_set_asides_is_in_the_catalogue_and_the_connector():
 
 def test_every_propose_tool_is_named_in_the_rendered_prompt():
     prompt = penny_agent_module._SYSTEM_PROMPT + penny_agent_module._WRITE_TOOLS_ADDENDUM
-    # G455: the tip tools are left out of the catalogue while TIPS_ENABLED is
-    # off (the default); the prompt is rendered once at import.
-    from app.services.penny_tools import TIP_TOOL_NAMES, tips_tools_enabled
-    expected = [n for n in PROPOSE_TOOL_NAMES if tips_tools_enabled() or n not in TIP_TOOL_NAMES]
-    missing = [n for n in expected if n not in prompt]
+    # G455: the prompt is rendered once at import, so the tip tools are in it
+    # only when TIPS_ENABLED was on then (off by default). All or none.
+    from app.services.penny_tools import TIP_TOOL_NAMES
+    missing = [n for n in PROPOSE_TOOL_NAMES if n not in TIP_TOOL_NAMES and n not in prompt]
     assert not missing, missing
+    tip_in_prompt = {n for n in TIP_TOOL_NAMES if n.startswith("propose_") and n in prompt}
+    assert tip_in_prompt in (set(), {n for n in TIP_TOOL_NAMES if n.startswith("propose_")})
     assert "other:" not in penny_agent_module._propose_tool_catalogue(), "an ungrouped propose tool needs a group"
 
 
