@@ -1497,18 +1497,18 @@ async def apply_rules_bulk(user_id: str, structural: bool = False) -> int:
                     )
                     updated += 1
 
-        # Pass 2.6: refine own-transfers into Savings/Debt by placing the
-        # intent on the CURRENT-account leg, in BOTH directions. For a
-        # matched own-transfer pair, whichever leg sits on the SAVINGS/ISA
-        # or CREDIT-CARD account always stays "Transfer"; the OTHER leg (the
-        # current account) carries the intent:
+        # Pass 2.6 (G456, Kevin 2026-11-11): refine own-transfers by the two
+        # ACCOUNT TYPES, through the one shared function
+        # (account_kinds.own_transfer_leg_categories):
         #
-        #   direction            | current leg      | savings/card leg
-        #   ----------------------|-------------------|------------------
-        #   current -> savings   | debit  -> Savings | credit -> Transfer
-        #   savings -> current   | credit -> Savings | debit  -> Transfer
-        #   current -> card      | debit  -> Debt    | credit -> Transfer
-        #   card -> current      | credit -> Debt    | debit  -> Transfer
+        #   direction            | paying (debit) leg | receiving (credit) leg
+        #   ----------------------|--------------------|-----------------------
+        #   current -> savings   | Savings            | Transfer
+        #   current -> card      | Debt               | Transfer
+        #   savings -> current   | Transfer           | Transfer
+        #   card -> current      | Transfer           | Transfer
+        #   current -> current   | Transfer           | Transfer
+        #   savings -> savings   | Transfer           | Transfer
         #
         # This is never "Income" — both legs are internal movements of the
         # user's own money. Savings/Debt are not in RAW_TRUELAYER_CATEGORIES,
@@ -1516,36 +1516,26 @@ async def apply_rules_bulk(user_id: str, structural: bool = False) -> int:
         acct_lookup = {
             str(acc["_id"]): acc
             async for acc in accounts_col.find(
-                {"user_id": user_id}, {"type": 1, "subtype": 1}
+                {"user_id": user_id}, {"type": 1, "subtype": 1, "account_type": 1}
             )
         }
-
-        def _refine_target(account_id) -> Optional[str]:
-            acc = acct_lookup.get(str(account_id)) if account_id else None
-            return refine_transfer_target(acc)
+        from app.services.account_kinds import own_transfer_leg_categories
 
         refine_targets: dict = {}  # _id -> target category
 
         # 2.6a: transfer pairs matched in Pass 2 (c=credit leg, d=debit leg).
-        # Figure out which leg (if either) sits on a savings/card account;
-        # the OTHER leg is the current-account side and gets the intent.
         # These pairs were just set to "Transfer" by Pass 2 in the DB; the
         # in-memory `c`/`d` dicts still hold their pre-Pass-2 category, so we
         # must NOT gate on category here (that stale read skips fresh pairs
         # on their first sync). The update_many below filters on the DB's
         # current category == "Transfer", which is the real guard.
         for c, d in transfer_pairs:
-            c_target = _refine_target(c.get("account_id"))
-            d_target = _refine_target(d.get("account_id"))
-            if c_target and not d_target:
-                # credit leg is on savings/card (money arriving there from
-                # current) -> the debit (current) leg carries the intent.
-                refine_targets[d["_id"]] = c_target
-            elif d_target and not c_target:
-                # debit leg is on savings/card (money leaving there into
-                # current) -> the credit (current) leg carries the intent.
-                refine_targets[c["_id"]] = d_target
-            # if both legs are savings/card, or neither is, leave both as Transfer
+            debit_cat, credit_cat = own_transfer_leg_categories(
+                acct_lookup.get(str(d.get("account_id"))), acct_lookup.get(str(c.get("account_id"))))
+            if debit_cat != "Transfer":
+                refine_targets[d["_id"]] = debit_cat
+            if credit_cat != "Transfer":
+                refine_targets[c["_id"]] = credit_cat
 
         # 2.6b: classify_ft own-account digit hits — resolve the matched
         # digit string back to the specific counterparty account via
@@ -1558,17 +1548,17 @@ async def apply_rules_bulk(user_id: str, structural: bool = False) -> int:
             transfer_txns = await transactions_col.find(
                 {"user_id": user_id, "custom_category": None,
                  "category": "Transfer"},
-                {"description": 1, "account_id": 1},
+                {"description": 1, "account_id": 1, "transaction_type": 1},
             ).to_list(None)
             for t in transfer_txns:
-                if _refine_target(t.get("account_id")) is not None:
-                    # this txn is itself on the savings/card account leg
-                    continue
                 ev = own_transfer_evidence(t.get("description") or "", identity, own_account_id=t.get("account_id"))
                 if ev is None or ev["kind"] != "account":
                     continue  # G438: only a full sort code and number pair
-                target = _refine_target(ev.get("account_id"))
-                if target:
+                if t.get("transaction_type") != "debit":
+                    continue  # G456: only a paying leg is ever more than Transfer
+                target = own_transfer_leg_categories(
+                    acct_lookup.get(str(t.get("account_id"))), acct_lookup.get(str(ev.get("account_id"))))[0]
+                if target != "Transfer":
                     refine_targets.setdefault(t["_id"], target)
 
         if refine_targets:
