@@ -1251,6 +1251,8 @@ async def _tavily_search(
     the failure in tips_research_health, and counts every request actually sent
     (B48 cost counter, `pipeline` names the caller in /admin/llm-usage). Never
     receives or sends user data: `query_text` is category and provider only."""
+    if not tips_flag_on():
+        return None  # G455: TIPS_ENABLED off, no Tavily call for tips
     web_snippets: list[str] = []
     urls: list[str] = []
     # Observability (owner phone report 2026-08-28: a live "Find me
@@ -1675,6 +1677,9 @@ async def _fetch_market_findings(key: tip_research.TipKey) -> tip_research.Fetch
     Runs once per shared key per TTL (see tip_research.ensure_research). The
     query and prompt carry only the category, the curated provider name and
     the coarse price band: no user id, amount, transaction or name."""
+    if not tips_flag_on():
+        # G455: TIPS_ENABLED off, no Tavily or OpenRouter call for tips.
+        return tip_research.FetchOutcome(failure="error")
     cfg = INSIGHT_CATEGORIES[key.category]
     outcome: dict = {}
     if tip_facts.is_regulated_category(key.category, cfg.get("label")):
@@ -3275,11 +3280,31 @@ async def _tips_enabled(uid: str) -> bool:
     opted-out user is served no tips and costs no research calls. Fails open
     (True) if the preference cannot be read, so a lookup error never hides
     tips the user wants."""
+    if not tips_flag_on():
+        # G455: the deployment-level TIPS_ENABLED flag wins over the per-user
+        # preference, which stays stored but is ignored while the flag is off.
+        return False
     try:
         prefs = await preferences_col.find_one({"user_id": uid}) or {}
     except Exception:
         return True
     return bool(prefs.get("show_tips", True))
+
+
+def tips_flag_on() -> bool:
+    """G455: read live from app.core.config so tests can force it."""
+    from app.core import config as _config
+    return bool(_config.TIPS_ENABLED)
+
+
+async def require_tips_flag() -> None:
+    """G455: route dependency for every tip route that is not a plain read the
+    previous app builds still make. With TIPS_ENABLED off the route answers
+    404. (The three reads old binaries do call, the list, the spotlight and
+    the new-count badge, answer an empty 200 via `_tips_enabled` instead, so
+    an installed app never sees an error.)"""
+    if not tips_flag_on():
+        raise HTTPException(404, "Not found")
 
 
 @router.get("/savings-insights")
@@ -3364,7 +3389,7 @@ async def get_spotlight_insight(user: dict = Depends(current_user)):
     return _serialize_insight(top, kinds=kinds)
 
 
-@router.post("/savings-insights/{insight_id}/opened")
+@router.post("/savings-insights/{insight_id}/opened", dependencies=[Depends(require_tips_flag)])
 async def mark_insight_opened(insight_id: str, user: dict = Depends(current_user)):
     """Engagement signal (Insights honesty review, Package A #1): the
     frontend fires this the first time a card's evidence footer or workflow
@@ -3412,7 +3437,7 @@ async def mark_insight_opened(insight_id: str, user: dict = Depends(current_user
 # alongside it.
 
 
-@router.post("/savings-insights/{insight_id}/dismiss")
+@router.post("/savings-insights/{insight_id}/dismiss", dependencies=[Depends(require_tips_flag)])
 async def dismiss_spotlight_insight(insight_id: str, user: dict = Depends(current_user)):
     """Dismiss an insight from the home spotlight.
 
@@ -3448,7 +3473,7 @@ async def new_insight_count(user: dict = Depends(current_user)):
     return {"count": n}
 
 
-@router.post("/savings-insights/mark-viewed")
+@router.post("/savings-insights/mark-viewed", dependencies=[Depends(require_tips_flag)])
 async def mark_insights_viewed(user: dict = Depends(current_user)):
     """The user opened the insights list — everything current counts as seen."""
     await savings_insights_col.update_many(
@@ -3458,12 +3483,12 @@ async def mark_insights_viewed(user: dict = Depends(current_user)):
     return {"ok": True}
 
 
-@router.get("/savings-insights/workflows")
+@router.get("/savings-insights/workflows", dependencies=[Depends(require_tips_flag)])
 async def get_workflows(_user: dict = Depends(current_user)):
     return CATEGORY_WORKFLOWS
 
 
-@router.post("/savings-insights/{insight_id}/context")
+@router.post("/savings-insights/{insight_id}/context", dependencies=[Depends(require_tips_flag)])
 async def save_insight_context(
     insight_id: str,
     body: dict,
@@ -3483,7 +3508,7 @@ async def save_insight_context(
     return {"message": "Saved, regenerating insight"}
 
 
-@router.patch("/savings-insights/{insight_id}/pin")
+@router.patch("/savings-insights/{insight_id}/pin", dependencies=[Depends(require_tips_flag)])
 async def toggle_pin_insight(insight_id: str, user: dict = Depends(current_user)):
     uid = user["email"]
     doc = await savings_insights_col.find_one({"user_id": uid, "insight_id": insight_id})
@@ -3496,7 +3521,7 @@ async def toggle_pin_insight(insight_id: str, user: dict = Depends(current_user)
     return {"pinned": new_pinned}
 
 
-@router.post("/savings-insights/refresh")
+@router.post("/savings-insights/refresh", dependencies=[Depends(require_tips_flag)])
 async def trigger_refresh_insights(background_tasks: BackgroundTasks, user: dict = Depends(current_user)):
     uid = user["email"]
     background_tasks.add_task(_refresh_savings_insights_for_user, uid)

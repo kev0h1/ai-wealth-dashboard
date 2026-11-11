@@ -228,6 +228,15 @@ def _parse_flag(value: str | None) -> bool:
 
 MCP_CONNECTOR_ENABLED = _parse_flag(os.getenv("MCP_CONNECTOR_ENABLED"))
 
+# G455: tips (savings insights, the Spend/Home/Transactions tip surfaces, the
+# tip research and notification jobs, Penny's tip tools) are off unless this
+# is explicitly turned on. UAT sets it in backend/.env; production leaves it
+# unset, so tips ship entirely dark there. Existing tip data is never touched,
+# turning the flag on restores tips. The per-user `show_tips` preference stays
+# stored but is ignored while this is off. Clients read the effective value as
+# `tips_enabled` on GET /preferences, so no app rebuild is needed.
+TIPS_ENABLED = _parse_flag(os.getenv("TIPS_ENABLED"))
+
 # B48: optional LLM phrasing of a composed savings tip. Off by default: the
 # tip is composed deterministically from the shared research plus the user's
 # own figures. When on, one OpenRouter call per tip rewords that text (no

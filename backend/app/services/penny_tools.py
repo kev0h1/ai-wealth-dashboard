@@ -8800,3 +8800,41 @@ async def _update_commitment_entry(uid: str, args: dict) -> dict:
     return await _exec_propose_update_commitment(
         uid, args.get("commitment_ref"), args.get("name"), args.get("amount"), args.get("target_date"),
     )
+
+
+# G455: tips behind the TIPS_ENABLED flag. With the flag off Penny is offered
+# no tip tool and the dispatcher refuses one by name, so a stale tool call can
+# never read or change a tip. Kept at the very end of the module (the
+# no-raw-exception-leak allowlist is line-numbered), and the dispatcher is
+# wrapped rather than edited for the same reason.
+TIP_TOOL_NAMES = frozenset({
+    "get_insights",
+    "propose_mark_insight_opened",
+    "propose_save_insight_context",
+    "propose_dismiss_insight",
+    "propose_pin_insight",
+})
+
+
+def tips_tools_enabled() -> bool:
+    from app.core import config as _config
+    return bool(_config.TIPS_ENABLED)
+
+
+def visible_tool_schemas(schemas: list) -> list:
+    """`schemas` minus the tip tools unless TIPS_ENABLED is on. Order kept, so
+    the model's tool list (and its prompt-cache prefix) is stable per deploy."""
+    if tips_tools_enabled():
+        return list(schemas)
+    return [t for t in schemas if t["function"]["name"] not in TIP_TOOL_NAMES]
+
+
+_execute_tool_unguarded = execute_tool
+
+
+async def execute_tool(uid: str, name: str, args: dict) -> dict:  # noqa: F811
+    """`_execute_tool_unguarded` plus the G455 refusal of a tip tool by name
+    while TIPS_ENABLED is off."""
+    if name in TIP_TOOL_NAMES and not tips_tools_enabled():
+        return {"error": "That isn't available."}
+    return await _execute_tool_unguarded(uid, name, args)

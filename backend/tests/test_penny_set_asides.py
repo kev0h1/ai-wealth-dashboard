@@ -1,4 +1,5 @@
 """B59 step 4: the set-asides read tool and the complete write-tools prompt."""
+import pytest
 import asyncio
 from datetime import date
 from types import SimpleNamespace
@@ -68,7 +69,11 @@ def test_get_set_asides_is_in_the_catalogue_and_the_connector():
 
 def test_every_propose_tool_is_named_in_the_rendered_prompt():
     prompt = penny_agent_module._SYSTEM_PROMPT + penny_agent_module._WRITE_TOOLS_ADDENDUM
-    missing = [n for n in PROPOSE_TOOL_NAMES if n not in prompt]
+    # G455: the tip tools are left out of the catalogue while TIPS_ENABLED is
+    # off (the default); the prompt is rendered once at import.
+    from app.services.penny_tools import TIP_TOOL_NAMES, tips_tools_enabled
+    expected = [n for n in PROPOSE_TOOL_NAMES if tips_tools_enabled() or n not in TIP_TOOL_NAMES]
+    missing = [n for n in expected if n not in prompt]
     assert not missing, missing
     assert "other:" not in penny_agent_module._propose_tool_catalogue(), "an ungrouped propose tool needs a group"
 
@@ -81,3 +86,11 @@ def test_prompt_states_nothing_is_out_of_reach():
         assert needle in add
     new_rules = add[add.index("20. Amounts"):]
     assert "—" not in new_rules and "!" not in new_rules
+
+
+@pytest.fixture(autouse=True)
+def _tips_flag_on(monkeypatch):
+    """G455: these tests exercise tip behaviour, which is off unless
+    TIPS_ENABLED is on (it defaults to false)."""
+    from app.core import config as _tips_cfg
+    monkeypatch.setattr(_tips_cfg, "TIPS_ENABLED", True)

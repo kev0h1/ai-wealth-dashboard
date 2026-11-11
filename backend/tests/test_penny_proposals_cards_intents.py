@@ -1125,3 +1125,11 @@ def test_execute_dismiss_insight_rejects_without_consent(monkeypatch):
     with pytest.raises(HTTPException) as exc:
         asyncio.run(can_i_module.execute_proposal("p-test", user={"email": UID}))
     assert exc.value.status_code == 403
+
+
+@pytest.fixture(autouse=True)
+def _tips_flag_on(monkeypatch):
+    """G455: these tests exercise tip behaviour, which is off unless
+    TIPS_ENABLED is on (it defaults to false)."""
+    from app.core import config as _tips_cfg
+    monkeypatch.setattr(_tips_cfg, "TIPS_ENABLED", True)

@@ -87,7 +87,7 @@ from app.services import penny_chart, penny_focus, penny_move_plan, penny_period
 from app.db.collections import preferences_col
 from app.services.penny_tools import (
     PROPOSE_TOOL_NAMES, PROPOSE_TOOL_SCHEMAS, TOOL_SCHEMAS, execute_tool,
-    revoke_agent_consent,
+    revoke_agent_consent, visible_tool_schemas,
 )
 
 logger = logging.getLogger(__name__)
@@ -592,7 +592,7 @@ _PROPOSE_GROUPS = (
 def _propose_tool_catalogue() -> str:
     groups: dict[str, list[str]] = {label: [] for label, _ in _PROPOSE_GROUPS}
     groups["other"] = []
-    for schema in PROPOSE_TOOL_SCHEMAS:
+    for schema in visible_tool_schemas(PROPOSE_TOOL_SCHEMAS):  # G455
         name = schema["function"]["name"]
         label = next((g for g, keys in _PROPOSE_GROUPS if any(k in name for k in keys)), "other")
         groups[label].append(name)
@@ -1062,7 +1062,7 @@ async def run_penny_agent(
     # to actually hit (Anthropic caches the prefix up to the breakpoint in
     # the order tools -> system -> messages, so a reordered tool list would
     # silently invalidate the cache every request).
-    tools = TOOL_SCHEMAS + PROPOSE_TOOL_SCHEMAS
+    tools = visible_tool_schemas(TOOL_SCHEMAS) + visible_tool_schemas(PROPOSE_TOOL_SCHEMAS)  # G455
     today = timeutil.user_today()
     date_grounding = _DATE_GROUNDING_TEMPLATE.format(today=today.isoformat(), weekday=today.strftime("%A"))
     date_grounding += await _category_context_block(uid)

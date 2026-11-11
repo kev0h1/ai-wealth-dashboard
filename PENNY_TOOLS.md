@@ -530,6 +530,10 @@ returns `{"proposal": {...}}`. `app.routers.can_i`'s `/can-i` response gains
 a `proposal`/`consent_required` branch, both additive on the wire (it was
 parallel to a `scenario` branch, removed by G246).
 
+## G455 (2026-11-11): tips behind TIPS_ENABLED
+
+With `TIPS_ENABLED` off (the default, and production) Penny has no tip tools: `get_insights`, `propose_mark_insight_opened`, `propose_save_insight_context`, `propose_dismiss_insight` and `propose_pin_insight` are dropped from the tool list offered to the model (`penny_tools.visible_tool_schemas`), from the propose-tool catalogue in the system prompt, and from the MCP connector's `tools/list` and `tools/call`. `execute_tool` also refuses them by name, so a stale call returns an error rather than reading or changing a tip. The merchant-label tools (`propose_label_merchant`, `propose_remove_merchant_label`) are bill labelling, not tips, and stay. Turning the flag on restores all five with no data change.
+
 ## G241 (2026-10-08): Penny could not do basic arithmetic
 
 Kevin reported Penny failing simple arithmetic. The audit

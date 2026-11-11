@@ -27,6 +27,7 @@ and the collaborators `_refresh_savings_insights_for_user` fans out to
 with async stubs — the same monkeypatch-the-module-level-name pattern
 already established in test_verified_saving.py / test_savings_insight_triggers.py.
 """
+import pytest
 import asyncio
 from datetime import datetime, timedelta
 
@@ -313,3 +314,11 @@ def test_generation_failure_with_no_existing_doc_inserts_nothing(monkeypatch):
     assert calls["content"] == 1
     assert "mobile" not in col.docs
     assert col.inserts == []
+
+
+@pytest.fixture(autouse=True)
+def _tips_flag_on(monkeypatch):
+    """G455: these tests exercise tip behaviour, which is off unless
+    TIPS_ENABLED is on (it defaults to false)."""
+    from app.core import config as _tips_cfg
+    monkeypatch.setattr(_tips_cfg, "TIPS_ENABLED", True)
