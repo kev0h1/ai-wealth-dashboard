@@ -402,6 +402,11 @@ echo "[7/9] wealthdash:// deep-link intent-filter placement done (see above)."
 bash "${SCRIPT_DIR}/setup-android-privacy.sh"
 echo "[8/9] A122 PrivacyScreen plugin installed."
 
+# G409: state/settings bridge only. It does not prompt for permission or
+# register push, so the Board flavour remains free of notification setup.
+bash "${SCRIPT_DIR}/setup-android-notifications.sh"
+echo "[G409] SortedNotifications plugin installed."
+
 # --- 9. A129: disable Android backup / device transfer ---
 bash "${SCRIPT_DIR}/setup-android-backup.sh"
 echo "[9/9] A129 backup disabled and exclusion rules installed."

@@ -30,6 +30,7 @@ import { cachedEndpoint, ENDPOINT, peekEndpoint } from "@/lib/endpointCache";
 import HomeBrief, { HomeBriefClearedRow } from "@/components/HomeBrief";
 import HomeGreetingHeader from "@/components/HomeGreetingHeader";
 import HomeTransfersCheck from "@/components/HomeTransfersCheck";
+import { HomeNotificationPermission } from "@/components/notifications/NotificationPermissionProvider";
 import ReconnectStrip from "@/components/ReconnectStrip";
 import ReconfirmPrompt from "@/components/ReconfirmPrompt";
 import { invalidateAllAccountData } from "@/lib/accountMutations";
@@ -1107,13 +1108,14 @@ export default function HomePage() {
               hasAccounts={hasAccountsForBrief}
               onClearedChange={setClearedAdvice}
               onCoverMoveVisibleChange={onCoverMoveVisibleChange}
-              banner={<div className="space-y-4">
+              banner={<div className="space-y-3">
                 {reauthBanner}
                 <ReconfirmPrompt
                   connections={bankConnections}
                   bankNameFor={(c) => accounts.find((a) => a.connection_id === c.connection_id)?.provider}
                 />
                 <HomeTransfersCheck refreshKey={bulkNonce} enabled={!hasNoAccounts} onReady={onTransfersReady} onReview={openTransferReview} />
+                <HomeNotificationPermission />
               </div>}
             />
           </div>

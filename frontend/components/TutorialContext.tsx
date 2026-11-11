@@ -2,6 +2,7 @@
 
 import type { TutorialIconName } from "./TutorialIcon";
 import { createContext, useContext, useState, useCallback, useRef, useEffect, useMemo } from "react";
+import { useNotificationPermission } from "@/components/notifications/NotificationPermissionProvider";
 
 export interface TutorialStep {
   id: string;
@@ -342,6 +343,7 @@ function persistSeen(flowId: string) {
 }
 
 export function TutorialProvider({ children }: { children: React.ReactNode }) {
+  const { blocking: notificationIntroduction } = useNotificationPermission();
   const [activeFlowId, setActiveFlowId] = useState<string | null>(null);
   const [isActive, setIsActive] = useState(false);
   const [currentStep, setCurrentStep] = useState(0);
@@ -445,6 +447,7 @@ export function TutorialProvider({ children }: { children: React.ReactNode }) {
 
   // Auto-start the tour when the user just finished onboarding.
   useEffect(() => {
+    if (notificationIntroduction) return;
     try {
       if (localStorage.getItem("wealth_tutorial_pending") === "1") {
         localStorage.removeItem("wealth_tutorial_pending");
@@ -457,7 +460,7 @@ export function TutorialProvider({ children }: { children: React.ReactNode }) {
       }
     } catch {}
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [notificationIntroduction]);
 
   const total = flow ? flow.steps.length : 0;
 

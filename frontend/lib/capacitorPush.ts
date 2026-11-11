@@ -7,6 +7,10 @@ import { invalidateAllEndpoints } from "./endpointCache";
 // Last APNs/FCM token we registered with the backend, so `unregisterCapacitorPush`
 // can tell the server which token to drop without re-reading it from the OS.
 const TOKEN_STORAGE_KEY = "wd_push_token";
+export const PUSH_REGISTRATION_EVENT = "wd:push-registration";
+let registrationSession: string | null = null;
+let pushLifecycle = 0;
+let pushInitInFlight: Promise<PushInitResult> | null = null;
 
 // Guards `pushNotificationActionPerformed` registration so calling
 // `initCapacitorPush()` more than once (e.g. re-toggling the Settings switch)
@@ -221,24 +225,29 @@ function reportPushDiagnostic(stage: string, detail: unknown, plat: string): voi
 let cancelPendingTokenPost: (() => void) | null = null;
 
 // A138: the most recent token upload started by the registration listener, so
-// a caller that has just awaited initCapacitorPush() (Settings "Register this
-// device") can wait for the server to hold the token before sending a test.
+// a caller that has just awaited initCapacitorPush() can confirm the upload
+// before reporting that notification setup is complete.
 let lastTokenPost: Promise<void> = Promise.resolve();
 export function awaitPushTokenPost(): Promise<void> {
   return lastTokenPost.catch(() => {});
 }
 
-export function postPushToken(token: string, plat: string): Promise<void> {
+export function postPushToken(token: string, plat: string, session?: string | null): Promise<void> {
+  if (session !== undefined && (!session || getToken() !== session)) return Promise.resolve();
   const registration =
     plat === "android" ? api.registerFcmToken(token, plat) : api.registerApnsToken(token, plat);
   return Promise.resolve(registration).then(
-    () => {},
+    () => {
+      if (typeof window !== "undefined" && (session === undefined || getToken() === session)) {
+        window.dispatchEvent(new Event(PUSH_REGISTRATION_EVENT));
+      }
+    },
     (e) => {
       if (isAppLockedError(e)) {
         cancelPendingTokenPost?.();
         cancelPendingTokenPost = runWhenUnlocked(() => {
           cancelPendingTokenPost = null;
-          void postPushToken(token, plat);
+          void postPushToken(token, plat, session);
         });
         return;
       }
@@ -254,31 +263,44 @@ let cancelPendingResync: (() => void) | null = null;
 
 /**
  * Registers this device for native push notifications (APNs on iOS, FCM on
- * Android) via Capacitor. No-op off native platforms.
+ * Android) via Capacitor. Prompt-free by default, including launch/resume.
  *
  * Guarded + dynamically imported so the web build / static export never
  * touches @capacitor/push-notifications (it isn't proven SSR-safe).
  */
-export async function initCapacitorPush(): Promise<PushInitResult> {
+export function initCapacitorPush(options: { requestPermission?: boolean } = {}): Promise<PushInitResult> {
+  if (pushInitInFlight) return pushInitInFlight;
+  const task = registerCapacitorPush(options, pushLifecycle);
+  pushInitInFlight = task;
+  void task.finally(() => { if (pushInitInFlight === task) pushInitInFlight = null; });
+  return task;
+}
+
+async function registerCapacitorPush(options: { requestPermission?: boolean }, lifecycle: number): Promise<PushInitResult> {
   if (!isNative()) return "unavailable";
   try {
+    const session = getToken();
+    if (!session || isAppLocked()) return "unavailable";
     const { PushNotifications } = await import("@capacitor/push-notifications");
 
     let status = await PushNotifications.checkPermissions();
-    if (status.receive === "prompt" || status.receive === "prompt-with-rationale") {
+    if ((status.receive === "prompt" || status.receive === "prompt-with-rationale") && options.requestPermission === true) {
       status = await PushNotifications.requestPermissions();
     }
     if (status.receive !== "granted") return "denied";
+    if (lifecycle !== pushLifecycle || getToken() !== session || isAppLocked()) return "unavailable";
+    registrationSession = session;
 
     if (!registrationListenerRegistered) {
       registrationListenerRegistered = true;
       await PushNotifications.addListener("registration", (token) => {
+        if (!registrationSession || getToken() !== registrationSession) return;
         try {
           localStorage.setItem(TOKEN_STORAGE_KEY, token.value);
         } catch {
           /* ignore */
         }
-        lastTokenPost = postPushToken(token.value, platform());
+        lastTokenPost = postPushToken(token.value, platform(), registrationSession);
         for (const resolve of pendingTokenResolvers) resolve(token.value);
         pendingTokenResolvers.clear();
       });
@@ -365,8 +387,10 @@ export async function initCapacitorPush(): Promise<PushInitResult> {
       setTimeout(() => onResolve(null), 10000);
     });
 
+    if (lifecycle !== pushLifecycle || getToken() !== session || isAppLocked()) return "unavailable";
     await PushNotifications.register();
     const token = await tokenPromise;
+    if (lifecycle !== pushLifecycle || getToken() !== session) return "unavailable";
     if (!token) {
       const plat = platform();
       reportPushDiagnostic(
@@ -396,6 +420,11 @@ export async function initCapacitorPush(): Promise<PushInitResult> {
  */
 export async function unregisterCapacitorPush(opts: { remote?: boolean } = {}): Promise<void> {
   if (!isNative()) return;
+  pushLifecycle += 1;
+  pushInitInFlight = null;
+  registrationSession = null;
+  for (const resolve of pendingTokenResolvers) resolve(null);
+  pendingTokenResolvers.clear();
   const remote = opts.remote !== false;
   resyncController.reset();
   // A140: a sign-out must not leave an unlock-deferred upload or resync
@@ -433,6 +462,17 @@ export async function unregisterCapacitorPush(opts: { remote?: boolean } = {}): 
 }
 
 export type CapacitorPushPermission = "granted" | "prompt" | "denied";
+
+/** Registration evidence for the permission UI, without treating a failed
+ * server read as proof that a locally cached token has been uploaded. */
+export async function getCapacitorPushRegistration(): Promise<"ready" | "needed" | "unknown"> {
+  if (!isNative() || isAppLocked()) return "unknown";
+  let token: string | null = null;
+  try { token = localStorage.getItem(TOKEN_STORAGE_KEY); } catch {}
+  if (!token) return "needed";
+  try { return (await api.getNativePushStatus(token)).registered ? "ready" : "needed"; }
+  catch { return "unknown"; }
+}
 
 /**
  * Reads OS push permission without prompting or registering anything, a
@@ -535,7 +575,7 @@ async function attemptResyncOnce(): Promise<PushInitResult | "skipped"> {
     const { PushNotifications } = await import("@capacitor/push-notifications");
     const status = await PushNotifications.checkPermissions();
     // Never trigger the OS permission prompt from a background resync; that
-    // must stay a deliberate tap on the Settings toggle.
+    // belongs to the first-launch introduction's deliberate Continue action.
     if (status.receive !== "granted") return "skipped";
     return await initCapacitorPush();
   } catch {

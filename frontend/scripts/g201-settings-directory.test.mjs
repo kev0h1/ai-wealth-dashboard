@@ -81,9 +81,11 @@ assert.match(page, /Could not confirm deletion\. Try again\./, "a failed respons
 assert.match(page, /clearOnboarded\(localStorage, user\?\.email\)/);
 assert.match(page, /<PayPeriodSettingsSheet[\s\S]*?current=\{payPeriodConfig\}[\s\S]*?setPayPeriodConfig/, "pay period uses the real shared preference saver");
 assert.match(page, /activeSection === "rules" && <div[^>]*><CategoryRulesPanel \/>/, "category rules show the shared actionable panel in Settings");
-for (const handler of ["saveProfile", "handleLinkApple", "handleUnlinkApple", "toggleBiometrics", "handleSyncHistory", "toggleCoverAccount", "toggleNotifPref", "handleRegisterDevice", "handleTestPush", "handleIncomeBlur", "handlePensionBlur", "handleChildBenefitToggle"]) {
+for (const handler of ["saveProfile", "handleLinkApple", "handleUnlinkApple", "toggleBiometrics", "handleSyncHistory", "toggleCoverAccount", "toggleNotifPref", "handleIncomeBlur", "handlePensionBlur", "handleChildBenefitToggle"]) {
   assert.ok(page.includes(handler), `${handler} retained`);
 }
+assert.match(page, /<DeviceNotificationSettings\s*\/>/, "G409 uses the shared notification-permission flow");
+assert.doesNotMatch(page, /handleRegisterDevice|handleTestPush/, "G409 retires the test-only handlers");
 assert.match(page, /<PennyPermissionSettings ready=\{preferencesReady\} snapshot=\{rawPrefs\} refresh=\{refreshPreferences\}/, "inline consent uses the shared authoritative preference state");
 assert.ok(!page.includes("app/design"), "production has no preview dependency");
 assert.ok(!existsSync(new URL("../app/design/settings-overhaul", import.meta.url)), "approved preview removed under H113");

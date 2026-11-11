@@ -33,8 +33,8 @@ from app.services.sync_freshness import first_sync_state
 
 log = logging.getLogger(__name__)
 
-# Per-type defaults when the user hasn't set a preference. Transactions default
-# off (noisiest); the rest are high-signal and default on.
+# Per-type defaults when the user hasn't set a preference. Every category
+# defaults on; users can still explicitly opt out of any individual category.
 #
 # "bill_alerts" also gates the merged money-movement push (bill shortfall +
 # move recommendation and the G305 per-account plan shortfall, see
@@ -45,7 +45,7 @@ log = logging.getLogger(__name__)
 PLAN_SHORTFALL_MIN_GBP = float(os.environ.get("PLAN_SHORTFALL_MIN_GBP", "5.0"))
 
 NOTIF_DEFAULTS = {
-    "transactions":             False,
+    "transactions":             True,
     "goal_milestones":          True,
     "insights":                 True,
     "period_digest":            True,

@@ -3,6 +3,8 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "check:g409-notification-adapter": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g409-notification-adapter.test.mjs",
+    "check:g409-notifications": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g409-notifications.test.mjs",
     "check:g450-category-icons": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g450-category-icons.test.mjs",
     "check:g381-card-payment-option": "node scripts/g381-card-payment-option.test.mjs",
     "check:g432-nav-and-income-scroll": "node scripts/g432-nav-and-income-scroll.test.mjs",

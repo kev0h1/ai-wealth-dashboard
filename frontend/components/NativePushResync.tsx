@@ -2,9 +2,9 @@
 
 import { useEffect } from "react";
 import { useAuth } from "@/components/AuthProvider";
-import { api } from "@/lib/api";
 import { resyncCapacitorPush } from "@/lib/capacitorPush";
 import { hydrateToken } from "@/lib/auth";
+import { resyncWebPush } from "@/lib/notificationPermissions";
 
 // Self-heals native push registration drift on app launch: an FCM/APNs
 // token that rotated silently, or a token whose registration POST failed
@@ -15,20 +15,13 @@ import { hydrateToken } from "@/lib/auth";
 // own PushSubscription survives, so Settings still reads "on". Re-POST the
 // existing subscription on sign-in (never prompts, never subscribes anew) so
 // a web user who logs out and back in keeps getting pushes.
-async function resyncWebPush(): Promise<void> {
-  if (!("Notification" in window) || !("serviceWorker" in navigator) || !("PushManager" in window)) return;
-  if (Notification.permission !== "granted") return;
-  const reg = await navigator.serviceWorker.ready;
-  const sub = await reg.pushManager.getSubscription();
-  if (sub) await api.subscribePush(sub.toJSON());
-}
-
 export default function NativePushResync() {
   // A120: keyed on the signed-in user so a device that logs out and back in
   // (no app relaunch) registers for push again.
   const { user } = useAuth();
   const email = user?.email ?? null;
   useEffect(() => {
+    if (!email) return;
     // A123: on native the token is hydrated from Keychain/Keystore before
     // AuthProvider renders its children, so on ordinary routes this is
     // already done. On AuthProvider's exempt routes (/design, /terms,
@@ -36,7 +29,7 @@ export default function NativePushResync() {
     // the shared, idempotent promise rather than let resyncCapacitorPush's
     // getToken() guard skip registration on a cold start.
     hydrateToken().then(() => resyncCapacitorPush()).catch(() => {});
-    if (email) resyncWebPush().catch(() => {});
+    if (email) resyncWebPush(email).catch(() => {});
   }, [email]);
   return null;
 }

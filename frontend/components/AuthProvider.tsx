@@ -25,6 +25,7 @@ import { resolveFullName } from "@/lib/displayName";
 import { FINE_FOLD_KEY } from "@/lib/upcomingAccountStatus";
 import { identifyForErrorReporting } from "@/lib/errorReporting";
 import "@/lib/endpointCacheBindings"; // G425: registers the client endpoint-cache invalidation listeners
+import { NotificationPermissionProvider } from "@/components/notifications/NotificationPermissionProvider";
 
 interface AuthUser {
   email: string;
@@ -570,6 +571,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return <LoginScreen error={authError} onSignedIn={(sig, fresh) => establishSession(sig, fresh === true)} resuming={resuming} onCancelResume={cancelResume} />;
   }
 
+  let content = children;
   if (needsOnboarding) {
     // D7: `user.name` is the raw sign-in provider claim on the session
     // token — an old token issued before the apple_native() fix (or any
@@ -579,12 +581,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // rather than pre-filling Onboarding's name field with it — see
     // lib/displayName.ts.
     const prefillName = resolveFullName({ sessionName: user.name, email: user.email }) ?? "";
-    return <Onboarding defaultName={prefillName} onComplete={() => { markOnboarded(localStorage, user.email); setNeedsOnboarding(false); }} />;
+    content = <Onboarding defaultName={prefillName} onComplete={() => { markOnboarded(localStorage, user.email); setNeedsOnboarding(false); }} />;
   }
 
   return (
     <AuthContext.Provider value={{ user, logout, clearLocalSession }}>
-      {children}
+      {/* The Board app opens /ops and deliberately has no notification
+          permission journey. Ask only when entering the Sorted product. */}
+      {pathname === "/ops" || pathname?.startsWith("/ops/") ? content : <NotificationPermissionProvider account={user.email}>{content}</NotificationPermissionProvider>}
     </AuthContext.Provider>
   );
 }
