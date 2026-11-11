@@ -23,6 +23,9 @@ async def task_auto_categorise(ctx, user_id: str):
 
 
 async def task_refresh_savings_insights(ctx, user_id: str):
+    from app.core import config as _config
+    if not _config.TIPS_ENABLED:
+        return {"ok": False, "skipped": "tips_disabled"}  # G455
     await _refresh_savings_insights_for_user(user_id)
     return {"ok": True}
 
@@ -38,7 +41,10 @@ async def task_categorise_all_users(ctx):
 
 
 class WorkerSettings:
-    functions = [task_auto_categorise, task_refresh_savings_insights, task_categorise_all_users]
+    from app.core import config as _cfg
+    functions = [task_auto_categorise, task_categorise_all_users] + (
+        [task_refresh_savings_insights] if _cfg.TIPS_ENABLED else []  # G455
+    )
     redis_settings = RedisSettings.from_dsn(REDIS_URL)
     max_jobs = 3
     job_timeout = 300

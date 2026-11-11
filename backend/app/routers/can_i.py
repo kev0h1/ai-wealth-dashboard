@@ -1289,7 +1289,15 @@ async def _execute_undo_trend_intent(uid: str, params: dict) -> dict:
     return await _route_delete_intent_answer(params["category"], user={"email": uid})
 
 
+def _require_tips_on() -> None:
+    """G455: a stale tip proposal must not write while TIPS_ENABLED is off."""
+    from app.core import config as _config
+    if not _config.TIPS_ENABLED:
+        raise HTTPException(409, "Tips are switched off.")
+
+
 async def _execute_mark_insight_opened(uid: str, params: dict) -> dict:
+    _require_tips_on()
     from app.routers.savings_insights import mark_insight_opened as _route_mark_insight_opened
 
     return await _route_mark_insight_opened(params["insight_id"], user={"email": uid})
@@ -1302,6 +1310,7 @@ async def _execute_save_insight_context(uid: str, params: dict) -> dict:
     `await bg()` immediately after, so this executor has the exact same
     net effect as a real POST — the insight really does regenerate, not
     just get a params dict silently dropped."""
+    _require_tips_on()
     from starlette.background import BackgroundTasks as _BackgroundTasks
 
     from app.routers.savings_insights import save_insight_context as _route_save_insight_context
@@ -1314,6 +1323,7 @@ async def _execute_save_insight_context(uid: str, params: dict) -> dict:
 
 
 async def _execute_dismiss_insight(uid: str, params: dict) -> dict:
+    _require_tips_on()
     from app.routers.savings_insights import dismiss_spotlight_insight as _route_dismiss_spotlight_insight
 
     return await _route_dismiss_spotlight_insight(params["insight_id"], user={"email": uid})
@@ -1332,6 +1342,7 @@ async def _execute_pin_insight(uid: str, params: dict) -> dict:
     the same module-level reference `toggle_pin_insight` itself reads/
     writes through, so this pre-read can never be looking at a different
     collection object than the toggle that follows it."""
+    _require_tips_on()
     from app.routers.savings_insights import savings_insights_col as _savings_insights_col_execute
     from app.routers.savings_insights import toggle_pin_insight as _route_toggle_pin_insight
 

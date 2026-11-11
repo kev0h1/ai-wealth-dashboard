@@ -56,7 +56,7 @@ from app.core.session_revocation import is_revoked
 from app.core.timeutil import as_utc
 from app.db.collections import mcp_call_counters_col, mcp_calls_col, oauth_tokens_col
 from app.services.mcp_mask import mask_output_and_count
-from app.services.penny_tools import TOOL_SCHEMAS, execute_tool
+from app.services.penny_tools import TOOL_SCHEMAS, execute_tool, tips_tools_enabled, TIP_TOOL_NAMES, visible_tool_schemas
 
 logger = logging.getLogger(__name__)
 
@@ -375,7 +375,7 @@ async def resolve_mcp_principal(request: Request) -> dict:
 
 def _mcp_tool_list() -> list[dict]:
     out = []
-    for t in MCP_TOOLS:
+    for t in visible_tool_schemas(MCP_TOOLS):  # G455: no tip tool with TIPS_ENABLED off
         fn = t["function"]
         scope = TOOL_SCOPES[fn["name"]]
         out.append({
@@ -485,7 +485,7 @@ async def _write_audit(
 async def _handle_tools_call(principal: dict, params: dict) -> dict:
     name = (params or {}).get("name")
     args = (params or {}).get("arguments") or {}
-    if not isinstance(name, str) or name not in TOOL_SCOPES:
+    if not isinstance(name, str) or name not in TOOL_SCOPES or (name in TIP_TOOL_NAMES and not tips_tools_enabled()):  # G455
         raise McpError(-32602, f"Unknown or unavailable tool: {name!r}")
 
     scope = TOOL_SCOPES[name]

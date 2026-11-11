@@ -13,6 +13,7 @@ currently is.
 All tools remain read-only: no test here calls an update/insert/delete on
 any fake collection.
 """
+import pytest
 import asyncio
 from datetime import datetime, timezone
 
@@ -1817,3 +1818,11 @@ def test_all_new_tools_never_call_a_write_method_on_a_fake_collection():
     assert not hasattr(_FakeCollection([]), "update_one")
     assert not hasattr(_FakeCollection([]), "replace_one")
     assert not hasattr(_FakeCollection([]), "insert_one")
+
+
+@pytest.fixture(autouse=True)
+def _tips_flag_on(monkeypatch):
+    """G455: these tests exercise tip behaviour, which is off unless
+    TIPS_ENABLED is on (it defaults to false)."""
+    from app.core import config as _tips_cfg
+    monkeypatch.setattr(_tips_cfg, "TIPS_ENABLED", True)

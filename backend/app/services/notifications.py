@@ -182,6 +182,9 @@ async def _maybe_goal_funded(user_id: str) -> None:
 
 
 async def _maybe_new_insights(user_id: str) -> None:
+    from app.core import config as _config
+    if not _config.TIPS_ENABLED:
+        return  # G455: TIPS_ENABLED off, no tip notification and no baseline write
     if not await notif_pref(user_id, "insights"):
         return
     from app.routers.analytics import compute_insights

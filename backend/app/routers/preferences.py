@@ -222,6 +222,11 @@ def _coerce_money_field(value, field_name: str) -> int:
     raise HTTPException(status_code=422, detail=f"{field_name} must be a number")
 
 
+def _tips_flag() -> bool:
+    from app.core import config as _config
+    return bool(_config.TIPS_ENABLED)
+
+
 @router.get("/preferences")
 async def get_preferences(user: dict = Depends(current_user)):
     # G61: a single doc-driven shape for both "no document yet" and "document
@@ -239,6 +244,10 @@ async def get_preferences(user: dict = Depends(current_user)):
         # G189: display preference, default on. Off hides Spend and
         # Transactions tips (and the savings-insights API serves none).
         "show_tips":          doc.get("show_tips", True),
+        # G455: the deployment-level TIPS_ENABLED capability. Off hides every
+        # tip surface and the Show tips setting in the web and both apps (all
+        # three read this on start), and the stored show_tips is ignored.
+        "tips_enabled":       _tips_flag(),
         "dark_mode":          doc.get("dark_mode", False),
         "penny_appearance":   _penny_appearance(doc),
         "pay_period_config":  doc.get("pay_period_config", {"type": "calendar_month"}),

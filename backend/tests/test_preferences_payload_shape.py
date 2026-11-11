@@ -75,6 +75,7 @@ def _patch(monkeypatch, doc=None):
 EXPECTED_KEYS = {
     "hide_net_worth",
     "show_tips",
+    "tips_enabled",
     "dark_mode",
     "penny_appearance",
     "pay_period_config",

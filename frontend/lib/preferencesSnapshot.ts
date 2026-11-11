@@ -177,6 +177,8 @@ export interface WholeDocumentApplyCallbacks {
   applyPennyAppearance?: (v: PennyAppearance) => void;
   /** G189: optional so older callers and tests need not supply it. */
   applyShowTips?: (v: boolean) => void;
+  /** G455: the deployment-level tips capability (`tips_enabled`). */
+  applyTipsEnabled?: (v: boolean) => void;
   applyPayPeriodConfig: (v: PayPeriodConfig) => void;
   applyDebtTargetMonths: (v: number) => void;
   applyDebtTrackingStart: (v: string) => void;
@@ -234,6 +236,9 @@ export function applyWholeDocument(
   if (p.dark_mode !== undefined && !skip.darkMode?.()) cb.applyDarkMode(p.dark_mode);
   if (!skip.pennyAppearance?.()) cb.applyPennyAppearance?.(pennyAppearanceFromSnapshot(p.penny_appearance));
   if (p.show_tips !== undefined && !skip.showTips?.()) cb.applyShowTips?.(p.show_tips);
+  // G455: only an explicit true shows tips; absent (an older backend) and
+  // false both hide them.
+  cb.applyTipsEnabled?.(p.tips_enabled === true);
   if (p.pay_period_config && !skip.payPeriodConfig?.()) cb.applyPayPeriodConfig(p.pay_period_config as PayPeriodConfig);
   if (p.debt_target_months && !skip.debtTargetMonths?.()) cb.applyDebtTargetMonths(p.debt_target_months as number);
   if (p.debt_tracking_start && !skip.debtTrackingStart?.()) cb.applyDebtTrackingStart(p.debt_tracking_start as string);

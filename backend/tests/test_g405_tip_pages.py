@@ -3,6 +3,7 @@
 No network: every request goes through httpx.MockTransport, the page text is
 invented, and Tavily and OpenRouter are faked. No real user data."""
 import asyncio
+import pytest
 import json
 from datetime import datetime, timedelta
 
@@ -637,3 +638,11 @@ def test_summary_ignores_runs_older_than_the_window():
     finally:
         m.tip_research_col = orig
     assert s["runs"] == 1 and s["pages_fetched"] == 1
+
+
+@pytest.fixture(autouse=True)
+def _tips_flag_on(monkeypatch):
+    """G455: these tests exercise tip behaviour, which is off unless
+    TIPS_ENABLED is on (it defaults to false)."""
+    from app.core import config as _tips_cfg
+    monkeypatch.setattr(_tips_cfg, "TIPS_ENABLED", True)

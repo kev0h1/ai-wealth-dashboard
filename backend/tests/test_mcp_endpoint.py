@@ -8,6 +8,7 @@ runs execute_tool (monkeypatched)"), so these tests exercise the connector's
 own transport, scope, allowance and masking logic, not the tool executors
 themselves (already covered by tests/test_penny_tools.py).
 """
+import pytest
 import asyncio
 
 import app.core.subscription as subscription_module
@@ -787,3 +788,11 @@ def test_mask_output_and_count_reports_how_many_keys_were_dropped():
     assert dropped == 2
     assert sanitised == 0
     assert masked == {"name": "ok"}
+
+
+@pytest.fixture(autouse=True)
+def _tips_flag_on(monkeypatch):
+    """G455: these tests exercise tip behaviour, which is off unless
+    TIPS_ENABLED is on (it defaults to false)."""
+    from app.core import config as _tips_cfg
+    monkeypatch.setattr(_tips_cfg, "TIPS_ENABLED", True)

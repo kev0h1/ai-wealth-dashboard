@@ -1214,3 +1214,11 @@ if __name__ == "__main__":
             "usage: PYTHONPATH=. .venv/bin/python -m tests.test_penny_golden_eval --repin\n"
             "(run from backend/; review the diff before committing it)"
         )
+
+
+@pytest.fixture(autouse=True)
+def _tips_flag_on(monkeypatch):
+    """G455: these tests exercise tip behaviour, which is off unless
+    TIPS_ENABLED is on (it defaults to false)."""
+    from app.core import config as _tips_cfg
+    monkeypatch.setattr(_tips_cfg, "TIPS_ENABLED", True)

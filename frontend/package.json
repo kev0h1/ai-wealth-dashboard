@@ -71,6 +71,7 @@
     "check:g334-penny-move-plan": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g334-penny-move-plan.test.mjs",
     "check:g251-penny-table": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g251-penny-table.test.mjs",
     "check:g248-penny-session": "node --no-warnings --experimental-strip-types scripts/g248-penny-session.test.mjs",
+    "check:g455-tips-flag": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g455-tips-flag.test.mjs",
     "check:g189-show-tips": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g189-show-tips.test.mjs",
     "check:g201-settings-directory": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g201-settings-directory.test.mjs",
     "check:g304-ledger-explainer": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g304-ledger-explainer.test.mjs",

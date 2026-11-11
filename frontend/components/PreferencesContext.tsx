@@ -45,8 +45,17 @@ interface Prefs {
    * the launcher must not paint it. */
   pennyAppearanceResolved: boolean;
   /** G189: display preference, default true. False hides the Spend and
-   * Transactions tips (the server also serves none). */
+   * Transactions tips (the server also serves none). G455: this is the
+   * EFFECTIVE value, `tipsEnabled && the stored preference`, so every tip
+   * surface that already gates on it disappears when the deployment has tips
+   * off. */
   showTips: boolean;
+  /** G455: the deployment capability (`tips_enabled` on GET /preferences,
+   * from the backend's TIPS_ENABLED flag). False hides every tip surface and
+   * the Show tips setting. Defaults to false until the server (or the value
+   * cached from the last visit) says otherwise, so a deployment with tips off
+   * never flashes one. */
+  tipsEnabled: boolean;
   payPeriodConfig: PayPeriodConfig;
   debtTargetMonths: number;
   debtTrackingStart: string;
@@ -121,7 +130,11 @@ const Ctx = createContext<PrefsCtx>({
   darkMode: false,
   pennyAppearance: DEFAULT_PENNY_APPEARANCE,
   pennyAppearanceResolved: false,
+  // G455: these defaults only apply outside the provider (tests, design
+  // previews), where showTips stays true as before; the real provider
+  // derives showTips from tipsEnabled, which starts false.
   showTips: true,
+  tipsEnabled: false,
   payPeriodConfig: DEFAULT_PAY_PERIOD_CONFIG,
   debtTargetMonths: 12,
   debtTrackingStart: todayYM(),
@@ -174,6 +187,7 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
     if (typeof window === "undefined") return true;
     try { return localStorage.getItem("wd_show_tips") !== "0"; } catch { return true; }
   });
+  const [tipsEnabled, setTipsEnabledState] = useState(false);
   const [payPeriodConfig, setPayPeriodConfigState] = useState<PayPeriodConfig>(DEFAULT_PAY_PERIOD_CONFIG);
   const [debtTargetMonths, setDebtTargetMonthsState] = useState(12);
   const [debtTrackingStart, setDebtTrackingStartState] = useState(todayYM());
@@ -237,6 +251,17 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
     showTipsRef.current = v;
     setShowTipsState(v);
     try { localStorage.setItem("wd_show_tips", v ? "1" : "0"); } catch {}
+  }, []);
+
+  // G455: seeded after mount (not in the initial state) so the server render
+  // and the hydrating render agree; the cached value is only the last answer
+  // the server gave, replaced by every GET /preferences.
+  useIsomorphicLayoutEffect(() => {
+    try { if (localStorage.getItem("wd_tips_enabled") === "1") setTipsEnabledState(true); } catch {}
+  }, []);
+  const applyTipsEnabled = useCallback((v: boolean) => {
+    setTipsEnabledState(v);
+    try { localStorage.setItem("wd_tips_enabled", v ? "1" : "0"); } catch {}
   }, []);
 
   const payPeriodConfigRef = useRef(payPeriodConfig);
@@ -515,6 +540,7 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
           applyDarkMode,
           applyPennyAppearance,
           applyShowTips,
+          applyTipsEnabled,
           applyPayPeriodConfig,
           applyDebtTargetMonths,
           applyDebtTrackingStart,
@@ -548,7 +574,7 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
     });
   }, [
     fetchPreferencesSnapshot,
-    applyHideNetWorth, applyDarkMode, applyPennyAppearance, applyShowTips, applyPayPeriodConfig, applyDebtTargetMonths, applyDebtTrackingStart,
+    applyHideNetWorth, applyDarkMode, applyPennyAppearance, applyShowTips, applyTipsEnabled, applyPayPeriodConfig, applyDebtTargetMonths, applyDebtTrackingStart,
     hideNetWorthSaver, darkModeSaver, pennyAppearanceSaver, showTipsSaver, payPeriodConfigSaver, debtTargetMonthsSaver, debtTrackingStartSaver,
     applyOpenLastChat, openLastChatSaver, applyPaySplitReference, paySplitReferenceSaver,
   ]);
@@ -596,7 +622,7 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
 
   return (
     <Ctx.Provider value={{
-      hideNetWorth, preferencesReady, darkMode, pennyAppearance, pennyAppearanceResolved: pennyAppearanceSeeded || preferencesReady, showTips, payPeriodConfig, debtTargetMonths, debtTrackingStart,
+      hideNetWorth, preferencesReady, darkMode, pennyAppearance, pennyAppearanceResolved: pennyAppearanceSeeded || preferencesReady, showTips: tipsEnabled && showTips, tipsEnabled, payPeriodConfig, debtTargetMonths, debtTrackingStart,
       openLastChat, paySplitReference, spendWidgets, homePinnedWidget, debtBurndownOverrides, rawPrefs, preferencesSaveError,
       setHideNetWorth, setDarkMode, setPennyAppearance, setShowTips, setPayPeriodConfig, setDebtTargetMonths, setDebtTrackingStart,
       setOpenLastChat, setPaySplitReference, setSpendWidgets, setHomePinnedWidget, setDebtBurndownOverrides, refreshPreferences,

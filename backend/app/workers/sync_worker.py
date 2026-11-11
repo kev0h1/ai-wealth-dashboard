@@ -68,6 +68,9 @@ async def _enqueue_weekly_insight_refresh(ctx, user_id: str) -> None:
     per ISO week (job-id dedupe). The refresh itself carries a 7-day per-category
     guard plus event-driven regen reasons, so even duplicate runs cannot spam
     search/LLM calls. Never lets a queueing hiccup fail the sync."""
+    from app.core import config as _config
+    if not _config.TIPS_ENABLED:
+        return  # G455: TIPS_ENABLED off, no tip refresh is ever queued
     try:
         arq: ArqRedis = ctx.get("redis") if isinstance(ctx, dict) else None
         if arq is None or not user_id:
@@ -984,13 +987,22 @@ async def task_backfill_transfer_judgements(ctx):
     return await own_transfer_judge.backfill_all_users()
 
 
+def tip_job_functions(enabled: bool | None = None) -> list:
+    """G455: the tip refresh job is only registered with the worker when
+    TIPS_ENABLED is on, so a deployment with tips off can neither run one nor
+    have one queued and executed (an already-queued job id is simply unknown
+    to the worker). `enabled` is a parameter so tests can force it."""
+    from app.core import config as _config
+    return [task_refresh_savings_insights] if (_config.TIPS_ENABLED if enabled is None else enabled) else []
+
+
 class WorkerSettings:
     # task_refresh_savings_insights is defined in ai_worker but registered here
     # too: this is the worker systemd actually runs, so post-sync enqueues of
     # the weekly insights refresh land somewhere that executes them.
     functions = [task_sync_truelayer,
                  task_sync_finexer, task_reconcile_truelayer, task_period_digests,
-                 task_refresh_investment_prices, task_refresh_savings_insights,
+                 task_refresh_investment_prices,
                  task_consent_watch, task_retention_sweep, task_trial_reminder,
                  task_reconcile_finexer_events, task_safe_to_spend_snapshot, task_health_samples,
                  # keep_result=0: the job id dedupes a burst while queued or
@@ -1002,7 +1014,7 @@ class WorkerSettings:
                  task_warm_rollover,
                  # G442: keep_result=0 so the job id only dedupes a burst.
                  arq_func(task_judge_transfer_pairs, keep_result=0),
-                 task_backfill_transfer_judgements]
+                 task_backfill_transfer_judgements] + tip_job_functions()
     cron_jobs = [
         cron(task_reconcile_truelayer, hour={0, 4, 8, 12, 16, 20}, minute=0, run_at_startup=False),
         cron(task_refresh_investment_prices, hour=6, minute=30, run_at_startup=False),
