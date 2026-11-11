@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { ChevronRight, Search, X } from "lucide-react";
 
-export const SETTINGS_SECTIONS = ["financial", "cover", "display", "notifications", "account", "penny-plan", "assistants", "help", "delete"] as const;
+export const SETTINGS_SECTIONS = ["financial", "rules", "cover", "display", "notifications", "account", "penny-plan", "assistants", "help", "delete"] as const;
 export type SettingsSection = typeof SETTINGS_SECTIONS[number];
 
 export function isSettingsSection(value: string | null): value is SettingsSection {
@@ -47,6 +47,7 @@ export function buildSettingsGroups(status: SettingsDirectoryStatus): Group[] {
     { title: "Manage your money", intro: "Dates, tax details and safeguards behind your plan.", tasks: [
       { section: "financial", label: "Pay period", keywords: "pay payday period", value: status.payPeriodSummary, action: "pay-period" },
       { section: "financial", label: "Financial profile", keywords: "financial income salary pension child benefit tax", value: status.financialSummary },
+      { section: "rules", label: "Category rules", keywords: "category rules future payments filing merchant correction", value: "Manage rules" },
       { section: "cover", label: "Cover-plan safeguards", keywords: "cover plan safeguards accounts payment short", value: status.coverSummary },
     ] },
     { title: "Make the app yours", intro: "Choose what you see and what Sorted highlights.", tasks: [

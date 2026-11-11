@@ -138,6 +138,7 @@ export interface Transaction {
   description: string;
   merchant_name?: string;
   category?: string;
+  custom_category?: string | null;
   transaction_type: "debit" | "credit";
   planned?: boolean;
   /** A194: the bank's rail code from Finexer (DD, CR, BP, FP, STO, FT, and whatever else a bank sends). Absent when the bank sent none. */

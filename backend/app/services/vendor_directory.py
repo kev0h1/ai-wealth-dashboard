@@ -811,9 +811,11 @@ async def _corrected_keys(uid: str) -> set[str]:
     custom_category). The ladder never touches these, matching the keys Pass 2.5
     and Pass 4 of apply_rules_bulk use (combined, name only, description only)."""
     from app.services import categorisation as cat
+    from app.services.scoped_correction_rules import SCOPED_CORRECTION_KINDS
     rows = await transactions_col.find(
-        {"user_id": uid, "custom_category": {"$ne": None}},
-        {"merchant_name": 1, "description": 1},
+        {"user_id": uid, "custom_category": {"$ne": None},
+         "correction_scope": {"$nin": list(SCOPED_CORRECTION_KINDS)}},
+        {"merchant_name": 1, "description": 1, "correction_scope": 1},
     ).to_list(None)
     keys: set[str] = set()
     for t in rows:
@@ -825,8 +827,12 @@ async def _corrected_keys(uid: str) -> set[str]:
 
 
 async def _rule_patterns(uid: str) -> list[re.Pattern]:
+    from app.services.scoped_correction_rules import TYPED_RULE_KIND
+
     out = []
     for r in await user_rules_col.find({"uid": uid}).to_list(None):
+        if r.get("kind") == TYPED_RULE_KIND:
+            continue
         try:
             out.append(re.compile(r["pattern"], re.IGNORECASE))
         except (re.error, KeyError, TypeError):

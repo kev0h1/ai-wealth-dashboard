@@ -1098,7 +1098,7 @@ export default function SpendPage() {
   }, [searchParams, router, showFullSkeleton]);
 
 
-  function handleTxUpdated(updated: Transaction, additionalIds?: string[]) {
+  function handleTxUpdated(updated: Pick<Transaction, "id" | "category">, additionalIds?: string[]) {
     // TeachingSheet.tsx's notifyUpdated already ran the shared G146
     // invalidator (lib/cacheInvalidation.ts) before calling this, which
     // clears the transactions/verdict/signals/home module caches — this
@@ -1109,7 +1109,7 @@ export default function SpendPage() {
     // categories involved — and can move which categories are
     // notable/majority for any period, not just the one currently in view.
     invalidateAfterTransactionCorrection(updated.id, { newCategory: updated.category });
-    setAllTransactions((prev) =>
+    if (updated.category !== undefined) setAllTransactions((prev) =>
       prev.map((t) => {
         if (t.id === updated.id) return { ...t, category: updated.category };
         if (additionalIds?.includes(t.id)) return { ...t, category: updated.category };

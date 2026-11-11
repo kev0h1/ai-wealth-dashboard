@@ -1,34 +1,15 @@
 "use client";
 
-// The Engine's teaching surface (ENGINE.md "Input Contract" + "The Destination
-// Rule") — the real sheet that replaces the /design/spend-b mockup and absorbs
-// TransactionSheet's recategorise flow wherever categorisation is the point.
-//
-// Progressive disclosure, two forks decided by the transaction's CURRENT
-// category kind (backend/app/services/categories.py via CategoriesContext):
-//   - movement-kind read  -> "Is this account yours?" (another account here /
-//     goal / offline pot / "no, this was spending") -> POST
-//     /transactions/{id}/resolve-movement. ("No, someone else" was removed
-//     2026-08-23, owner decision — it duplicated "no, this was spending"
-//     confusingly; the backend someone-else resolution stays for API
-//     compatibility, just unreachable from this UI now.)
-//   - spend-kind read     -> category picker, user vocabulary first,
-//     "Something else…" born-in-context naming (spend-only kinds, per the
-//     Destination Rule — movement never gets named inline) -> PATCH
-//     /transactions/{id}
-// A spend-fork escape hatch ("This was money I moved") and a movement-fork
-// "No — this was spending" option let the two forks reach each other, so a
-// mis-filed transaction can move either direction in one sheet.
-//
-// After a spend commit, the propagation offer reads {matches_past,
-// rule_suggestion} straight off the PATCH response (no second round-trip) —
-// "Always file X as Y?" -> POST /rules; either choice ends on an undo toast
-// that reverts the categorisation (and the rule, if one was saved).
+// The teaching sheet collects a classification and a payment scope before
+// saving. The server owns the matching set, protection and Undo snapshots.
 
 import { displayAccountName } from "@/lib/accountName";
-import { useState, useEffect, useRef, useId, type MutableRefObject } from "react";
-import { Check, Undo2, ChevronRight, ChevronLeft, Home, Landmark, ReceiptText, Target } from "lucide-react";
-import { Transaction, Commitment, Account, api, ApiError } from "@/lib/api";
+import { useState, useEffect, useRef, useId } from "react";
+import { Undo2, ChevronRight, ChevronLeft, Home, Landmark, ReceiptText, Target } from "lucide-react";
+import {
+  api, ApiError, type Account, type Commitment, type Transaction,
+  type CorrectionChoice, type CorrectionRequest, type CorrectionScope, type CorrectionScopeCounts,
+} from "@/lib/api";
 import { SheetFrame } from "@/components/SheetFrame";
 import { getCategoryColour, inferCategoryKind, type CategoryKind } from "@/lib/categories";
 import { useColours } from "@/components/ColourProvider";
@@ -39,32 +20,12 @@ import { getCategoryIcon } from "@/lib/categoryIcons";
 import { useCategoryIcons } from "@/components/IconProvider";
 import CategoryIconPicker from "@/components/CategoryIconPicker";
 import { formatDate } from "@/lib/payPeriod";
-import { formatCurrency } from "@/lib/currency";
+import { currencySymbol, formatCurrency, MINUS } from "@/lib/currency";
 import { accountBrand, BankBadge } from "@/components/AccountMiniCard";
 import CommitmentSheet from "@/components/CommitmentSheet";
 import { invalidateAfterTransactionCorrection, notifyTransactionsChanged } from "@/lib/cacheInvalidation";
-import { runTeachingUndoStages, type TeachingUndoStage } from "@/lib/teachingUndo";
-
-const MINUS = "−"; // U+2212, never ASCII hyphen-minus, for money (copy rule)
-
-/** Registers SheetFrame's history-safe close only while the frame is mounted.
- * Delayed completion must never call a stale parent callback after unmount. */
-function SheetCloseBinding({ closeRef, close }: { closeRef: MutableRefObject<(() => void) | null>; close: () => void }) {
-  useEffect(() => {
-    closeRef.current = close;
-    return () => { closeRef.current = null; };
-  }, [close, closeRef]);
-  return null;
-}
-
-// Owner review defect 2 — surface the backend's own detail string when
-// present (toJson<T> in lib/api.ts already threads FastAPI's `detail` field
-// into Error.message for both patchTransaction and resolveMovement) rather
-// than always showing the fixed generic line. The fixed copy stays as the
-// fallback for failures with no message (e.g. a network drop).
-function saveErrorMessage(e: unknown): string {
-  return e instanceof Error && e.message ? e.message : "That didn't save, try again.";
-}
+import CorrectionScopeReview, { paymentCount } from "@/components/CorrectionScopeReview";
+import CategorisationRulesSheet from "@/components/CategorisationRulesSheet";
 
 type Step =
   | "spend-root"
@@ -72,18 +33,46 @@ type Step =
   | "spend-naming"
   | "movement-root"
   | "movement-kind"
-  | "movement-destination"
   | "movement-goal"
   | "movement-offline"
-  | "propose-rule"
+  | "scope"
   | "done";
+
+type CorrectionDraft = {
+  choice: CorrectionChoice;
+  category: string;
+  detail?: string;
+  back: Step;
+  newCategory?: { kind: CategoryKind; icon?: string };
+};
+
+type CorrectionReceipt = {
+  operationId: string;
+  count: number;
+  category: string;
+  protectedCount: number;
+  ruleId: string | null;
+  ruleConflict?: boolean;
+  refreshPending: boolean;
+  undone: boolean;
+};
+
+type CategoryChange = Pick<Transaction, "id" | "category">;
+type CategoryChanges = { ids: string[]; category: string };
+
+const primaryAction = "min-h-11 rounded-xl bg-indigo-600 px-4 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-50";
+const secondaryAction = "min-h-11 rounded-xl border border-slate-300 px-4 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-800";
+
+function saveErrorMessage(error: unknown): string {
+  return error instanceof ApiError ? error.message : "The update could not be confirmed. Try again to check what was saved.";
+}
 
 interface TeachingSheetProps {
   transaction: Transaction;
   onClose: () => void;
   /** Mirrors TransactionSheet's contract so existing callers (SpendPage's
    *  cache invalidation / verdict refetch) plug in unchanged. */
-  onUpdated: (tx: Transaction, additionalIds?: string[], reverted?: boolean) => void;
+  onUpdated: (change: CategoryChange, additionalIds?: string[], reverted?: boolean) => void;
   account?: Account;
   /** Opens straight on "Is this account yours?" instead of the category
    *  picker, without changing what `transaction.category` says (so the
@@ -150,283 +139,209 @@ export default function TeachingSheet({ transaction, onClose, onUpdated, account
   }, [step, goals, goalsFailed]);
 
   const [offlineName, setOfflineName] = useState("");
-  const [movementKind, setMovementKind] = useState<"Savings" | "Investment">("Savings");
-  const [destinationName, setDestinationName] = useState("");
+  const offlineNameId = useId();
 
   const [namingText, setNamingText] = useState("");
   const namingId = useId();
   const [namingIcon, setNamingIcon] = useState<string | null>(null);
   const [namingKind, setNamingKind] = useState<CategoryKind>("discretionary");
-  useEffect(() => {
-    if (step !== "spend-naming") return;
-    const guess = inferCategoryKind(namingText);
+  function changeNamingText(text: string) {
+    setNamingText(text);
+    const guess = inferCategoryKind(text);
     setNamingKind(guess === "movement" ? "discretionary" : guess);
-  }, [namingText, step]);
+  }
 
-  const [proposal, setProposal] = useState<{ category: string; matchesPast: number; pattern: string } | null>(null);
-  const [toast, setToast] = useState<{ message: string; undoStages: TeachingUndoStage[] } | null>(null);
+  const [draft, setDraft] = useState<CorrectionDraft | null>(null);
+  const [scope, setScope] = useState<CorrectionScope>("one");
+  const [counts, setCounts] = useState<CorrectionScopeCounts | null>(null);
+  const [countStatus, setCountStatus] = useState<"loading" | "ready" | "error" | "unavailable">("loading");
+  const [pendingRequest, setPendingRequest] = useState<CorrectionRequest | null>(null);
+  const [receipt, setReceipt] = useState<CorrectionReceipt | null>(null);
   const [undoFailed, setUndoFailed] = useState(false);
-  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const undoStarted = useRef(false);
-  const undoInFlight = useRef(false);
-  const undoCompleted = useRef(new Set<string>());
-  const sheetCloseRef = useRef<(() => void) | null>(null);
-  useEffect(() => () => { if (toastTimer.current) clearTimeout(toastTimer.current); }, []);
+  const [viewRuleId, setViewRuleId] = useState<string | null>(null);
+  const countRead = useRef(0);
+  const mutationInFlight = useRef(false);
+  const createdCategory = useRef<string | null>(null);
+  const reviewHeading = useRef<HTMLHeadingElement>(null);
+  const sheetHeading = useRef<HTMLHeadingElement>(null);
+  const sheetBody = useRef<HTMLDivElement>(null);
+  const returningFromReview = useRef(false);
 
-  function finish(message: string, undoStages: TeachingUndoStage[]) {
-    setStep("done");
-    setToast({ message, undoStages });
-    setUndoFailed(false);
-    undoStarted.current = false;
-    undoInFlight.current = false;
-    undoCompleted.current = new Set<string>();
-    if (toastTimer.current) clearTimeout(toastTimer.current);
-    toastTimer.current = setTimeout(() => {
-      if (!undoStarted.current) sheetCloseRef.current?.();
-    }, 5000);
-  }
-
-  async function retryUndo(close: () => void) {
-    if (!toast || undoInFlight.current) return;
-    if (toastTimer.current) clearTimeout(toastTimer.current);
-    undoStarted.current = true;
-    undoInFlight.current = true;
-    setBusy(true);
-    setUndoFailed(false);
-    try {
-      const result = await runTeachingUndoStages(toast.undoStages, undoCompleted.current);
-      if (result.complete) {
-        setToast(null);
-        close();
-      } else {
-        // This is a product-state recovery, not a financial-risk warning.
-        // The sheet stays open and the completed stage set makes Retry safe.
-        setUndoFailed(true);
-      }
-    } finally {
-      undoInFlight.current = false;
-      setBusy(false);
+  useEffect(() => () => { countRead.current += 1; }, []);
+  useEffect(() => {
+    if (step === "scope" || step === "done") {
+      sheetBody.current?.scrollTo({ top: 0 });
+      reviewHeading.current?.focus({ preventScroll: true });
+    } else if (returningFromReview.current) {
+      returningFromReview.current = false;
+      sheetHeading.current?.focus({ preventScroll: true });
     }
-  }
+  }, [step, receipt?.undone]);
 
-  // G83 fix-round (2026-09-18 review): every successful write below
-  // (commitSpend/undoToSpend, commitMovement/undoMovement,
-  // commitCreditMovement/undoCreditMovement) changes what /spend/verdict
-  // returns for this period — a re-categorised or re-resolved transaction
-  // moves notables/majority/unresolved. This sheet is the ONE place all
-  // four mount points that recategorise a transaction (SpendPage,
-  // HomePage, AccountsPage, transactions hub) actually funnel through, so
-  // invalidating here once — instead of trusting each of those four
-  // pages' own `onUpdated` to remember to do it — is what makes this
-  // exhaustive rather than three-out-of-four. SpendPage's own
-  // `handleTxUpdated` also calls `invalidateVerdictCache()` itself; that's
-  // a harmless redundant clear, not a second bug, kept so its own comment
-  // there still reads true. Money-shape is unaffected by a single
-  // transaction's category — only a category's KIND does, wired in
-  // CategoriesContext, not here.
-  //
-  // G146 (2026-09-28): this is ALSO the one place every correction that
-  // goes through this sheet funnels through, so it's the right spot to
-  // close the client-cache gap that item found — lib/homeCache.ts's
-  // companionItems snapshot (the Home brief) and lib/signalsCache.ts's
-  // category multiples (the spending-pattern card) were never told a
-  // correction had happened at all, on any of the four mount points, and
-  // kept painting pre-correction figures from module memory until a hard
-  // refresh. `invalidateAfterTransactionCorrection` folds the previously
-  // solitary `invalidateVerdictCache()` call in here too — same effect,
-  // one fewer call — so every correction clears all four caches that can
-  // hold stale figures for it in one place.
-  function notifyUpdated(tx: Transaction, additionalIds?: string[], reverted = false) {
-    if (deferRecompute) { onUpdated(tx, additionalIds, reverted); return; }
-    invalidateAfterTransactionCorrection(tx.id, { oldCategory: originalCategory, newCategory: tx.category });
-    onUpdated(tx, additionalIds);
-    notifyTransactionsChanged([tx.id, ...(additionalIds ?? [])], tx.category);
-  }
-
-  // ── Spend fork: existing category or newly-named one ──────────────────
-  // Whenever the row is CURRENTLY a movement-kind read, route through
-  // resolve-movement's "spending" branch instead of a plain PATCH — that
-  // branch also unsets any linked_goal_id/linked_offline_account_id, so a
-  // reverted movement doesn't leave a stale destination link behind.
-  async function commitSpend(category: string) {
-    setBusy(true);
-    setError(null);
+  async function checkCounts() {
+    const read = ++countRead.current;
+    setCounts(null);
+    setCountStatus("loading");
     try {
-      if (isMovementRead) {
-        await api.resolveMovement(transaction.id, { ...(deferRecompute ? { defer_recompute: true } : {}), resolution: "spending", category });
-        notifyUpdated({ ...transaction, category });
-        finish(`Filed as ${category}.`, [{ id: "primary", run: () => undoToSpend(category) }]);
-        return;
-      }
-      const res = await api.patchTransaction(transaction.id, { ...(deferRecompute ? { defer_recompute: true } : {}), category });
-      notifyUpdated(
-        { ...transaction, category },
-        res.affected_ids?.filter((id) => id !== transaction.id),
-      );
-      if (res.matches_past > 0 && res.rule_suggestion) {
-        setProposal({ category, matchesPast: res.matches_past, pattern: res.rule_suggestion.pattern });
-        setStep("propose-rule");
-      } else {
-        finish(`Filed as ${category}.`, [{ id: "primary", run: () => undoToSpend(category) }]);
-      }
-    } catch (e) {
-      setError(saveErrorMessage(e));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function undoToSpend(_appliedCategory: string) {
-    if (isMovementRead) {
-      await api.resolveMovement(transaction.id, { ...(deferRecompute ? { defer_recompute: true } : {}), resolution: "spending", category: originalCategory });
-    } else {
-      await api.patchTransaction(transaction.id, { ...(deferRecompute ? { defer_recompute: true } : {}), category: originalCategory });
-    }
-    notifyUpdated({ ...transaction, category: originalCategory }, undefined, true);
-  }
-
-  async function handleSaveNewCategory() {
-    const trimmed = namingText.trim();
-    if (!trimmed) return;
-    setBusy(true);
-    setError(null);
-    try {
-      await addCategory(trimmed, namingKind, namingIcon ?? undefined);
-      await commitSpend(trimmed);
+      const next = await api.correctionScope(transaction.id);
+      if (read !== countRead.current) return;
+      setCounts(next);
+      setCountStatus("ready");
     } catch (cause) {
+      if (read !== countRead.current) return;
+      const unavailable = cause instanceof ApiError && (cause.status === 400 || cause.status === 404);
+      setCountStatus(unavailable ? "unavailable" : "error");
+    }
+  }
+
+  function openReview(next: Omit<CorrectionDraft, "back">) {
+    setDraft({ ...next, back: step });
+    setScope("one");
+    setError(null);
+    setStep("scope");
+    void checkCounts();
+  }
+
+  function changeClassification() {
+    if (!draft || mutationInFlight.current || pendingRequest) return;
+    countRead.current += 1;
+    returningFromReview.current = true;
+    setStep(draft.back);
+    setDraft(null);
+    setError(null);
+  }
+
+  function chooseSpend(category: string) {
+    openReview({ choice: { resolution: isMovementRead ? "spending" : "category", category }, category });
+  }
+
+  function chooseNewCategory() {
+    const category = namingText.trim().replace(/\s+/g, " ");
+    if (!category) return;
+    openReview({
+      choice: { resolution: isMovementRead ? "spending" : "category", category },
+      category,
+      newCategory: { kind: namingKind, icon: namingIcon ?? undefined },
+    });
+  }
+
+  const oneCount = counts?.one_count ?? (
+    countStatus === "unavailable" || transaction.custom_category != null || transaction.is_pending || transaction.planned ? 0 : 1
+  );
+  const selectedCount = scope === "one" ? oneCount : scope === "history" ? counts?.history_count : counts?.all_count;
+
+  function notifyUpdated(groups: CategoryChanges[], reverted = false) {
+    const changes = groups.filter(group => group.ids.length);
+    if (!changes.length) return;
+    if (!deferRecompute) invalidateAfterTransactionCorrection(transaction.id, { oldCategory: originalCategory, newCategory: changes[0].category });
+    for (const { ids: [id, ...siblings], category } of changes) {
+      onUpdated({ id, category }, siblings, reverted);
+    }
+    if (!deferRecompute) {
+      notifyTransactionsChanged(changes.flatMap(group => group.ids), changes.length === 1 ? changes[0].category : undefined);
+    }
+  }
+
+  async function saveCorrection() {
+    if (!draft || mutationInFlight.current || (!pendingRequest && !selectedCount)) return;
+    mutationInFlight.current = true;
+    setBusy(true);
+    setError(null);
+    try {
+      const request = pendingRequest ?? {
+        ...draft.choice,
+        operation_id: crypto.randomUUID(),
+        scope,
+        expected_count: selectedCount!,
+        defer_recompute: deferRecompute,
+      };
+      if (draft.newCategory && createdCategory.current !== draft.category && !allCategories.includes(draft.category)) {
+        await addCategory(draft.category, draft.newCategory.kind, draft.newCategory.icon);
+        createdCategory.current = draft.category;
+      }
+      setPendingRequest(request);
+      const saved = await api.applyCorrection(transaction.id, request);
+      const changes = [{ ids: saved.affected_ids, category: saved.category }];
+      setPendingRequest(null);
+      setReceipt({
+        operationId: request.operation_id,
+        count: saved.updated_count,
+        category: saved.category,
+        protectedCount: saved.protected_count,
+        ruleId: saved.rule_id ?? null,
+        ruleConflict: saved.rule_conflict,
+        refreshPending: saved.refresh_pending && !saved.refresh_deferred,
+        undone: false,
+      });
+      setStep("done");
+      notifyUpdated(changes);
+    } catch (cause) {
+      if (cause instanceof ApiError && cause.status < 500) {
+        setPendingRequest(null);
+        if (cause.status === 409) {
+          setScope("one");
+          void checkCounts();
+        }
+      }
       setError(saveErrorMessage(cause));
+    } finally {
+      mutationInFlight.current = false;
       setBusy(false);
     }
   }
 
-  // ── Movement fork: destination resolutions ─────────────────────────────
-  async function commitMovement(
-    resolution: "mine-here" | "mine-goal" | "mine-offline" | "mine-savings" | "mine-investment" | "mine-card",
-    extra: { goal_id?: string; offline_pot_name?: string; destination_name?: string },
-    successMessage: string,
-  ) {
+  async function undoCorrection() {
+    if (!receipt || receipt.undone || mutationInFlight.current) return;
+    mutationInFlight.current = true;
     setBusy(true);
+    setUndoFailed(false);
     setError(null);
     try {
-      const result = await api.resolveMovement(transaction.id, { ...(deferRecompute ? { defer_recompute: true } : {}), resolution, ...extra });
-      const category = resolution === "mine-savings"
-        ? "Savings"
-        : resolution === "mine-investment"
-          ? "Investment"
-          : resolution === "mine-card"
-            ? "Debt"
-            : "Transfer";
-      notifyUpdated({ ...transaction, category: result.custom_category ?? category });
-      finish(successMessage, [{ id: "primary", run: undoMovement }]);
-    } catch (e) {
-      setError(saveErrorMessage(e));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function undoMovement() {
-    await api.resolveMovement(transaction.id, { ...(deferRecompute ? { defer_recompute: true } : {}), resolution: "spending", category: originalCategory });
-    notifyUpdated({ ...transaction, category: originalCategory }, undefined, true);
-  }
-
-  // ── Movement fork, CREDIT side (owner review defect 2) ──────────────────
-  // A credit on movement-root is asking a different question than a debit
-  // ("where did this arrive FROM", not "where did it go") and its two real
-  // answers are ordinary category choices, not resolve-movement
-  // destinations — mine-here/mine-goal/mine-offline are debit-only concepts
-  // (a goal or offline pot is somewhere money goes, not where it came
-  // from), and resolve-movement 400s all three for a credit regardless
-  // ("Movement resolution only applies to outgoing payments"). Always the
-  // plain PATCH the spend fork already uses, never resolve-movement,
-  // regardless of the row's current category kind (isMovementRead) — a
-  // credit already sitting in "Transfer" re-confirming as "Transfer" is
-  // still just a PATCH, not a "spending" resolution (it isn't spending).
-  async function commitCreditMovement(category: "Transfer" | "Income") {
-    setBusy(true);
-    setError(null);
-    try {
-      await api.patchTransaction(transaction.id, { ...(deferRecompute ? { defer_recompute: true } : {}), category });
-      notifyUpdated({ ...transaction, category });
-      finish(`Filed as ${category}.`, [{ id: "primary", run: undoCreditMovement }]);
-    } catch (e) {
-      setError(saveErrorMessage(e));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function undoCreditMovement() {
-    await api.patchTransaction(transaction.id, { ...(deferRecompute ? { defer_recompute: true } : {}), category: originalCategory });
-    notifyUpdated({ ...transaction, category: originalCategory }, undefined, true);
-  }
-
-  // ── Propagation offer ───────────────────────────────────────────────────
-  async function handleAlways() {
-    if (!proposal) return;
-    setBusy(true);
-    try {
-      const merchantLabel = name;
-      const saved = await api.addRule(`${merchantLabel} → ${proposal.category}`, proposal.pattern, proposal.category, deferRecompute);
-      // G83 fix-round: this bulk-recategorises every past `saved.affected`
-      // sibling too, on top of the primary transaction `commitSpend`'s own
-      // `notifyUpdated` already invalidated for — those siblings are a
-      // SECOND wave of transactions_col writes landing after that first
-      // invalidation, so without clearing again here a verdict cached in
-      // the gap between the two (e.g. another tab, or this one navigating
-      // away and back while the propagation card was showing) would still
-      // be missing the siblings' effect for up to the TTL. G146: the
-      // siblings can also move the signals/home-brief caches the same way
-      // the primary transaction did, so this uses the same shared
-      // invalidator `notifyUpdated` does above, not the narrower verdict-
-      // only clear this used before that item.
-      if (!deferRecompute) invalidateAfterTransactionCorrection(transaction.id, { oldCategory: originalCategory, newCategory: proposal.category });
-      // G358: tell the host list every row the rule re-filed, so a filtered
-      // list drops them and counts settle without a full reload.
-      onUpdated(
-        { ...transaction, category: proposal.category },
-        (saved.affected_ids ?? (saved.affected || []).map((a) => a.id)).filter((id) => id !== transaction.id),
-      );
-      const siblingStages: TeachingUndoStage[] = (saved.affected || [])
-        .filter((a) => a.id !== transaction.id)
-        .map((a) => {
-          const previousCategory = a.previous_category || "Other";
-          return {
-            id: `sibling:${a.id}`,
-            run: async () => {
-              await api.patchTransaction(a.id, { ...(deferRecompute ? { defer_recompute: true } : {}), category: previousCategory });
-              if (deferRecompute) {
-                onUpdated({ ...transaction, id: a.id, category: previousCategory }, undefined, true);
-                return;
-              }
-              invalidateAfterTransactionCorrection(a.id, { oldCategory: proposal.category, newCategory: previousCategory });
-              onUpdated({ ...transaction, id: a.id, category: previousCategory });
-              notifyTransactionsChanged([a.id], previousCategory);
-            },
-          };
-        });
-      finish("Filed and rule saved. Undo", [
-        // Deleting first prevents an active rule from reapplying its category
-        // while the primary and historical rows are being restored.
-        // A DELETE can commit before its response is lost. The following 404
-        // is therefore the desired state for this one idempotent stage.
-        { id: "rule", run: () => api.deleteRule(saved.id), acceptsError: (error) => error instanceof ApiError && error.status === 404 },
-        { id: "primary", dependsOn: ["rule"], run: () => undoToSpend(proposal.category) },
-        ...siblingStages.map((stage) => ({ ...stage, dependsOn: ["rule"] })),
-      ]);
+      const restored = await api.undoCorrection(transaction.id, receipt.operationId, deferRecompute);
+      const byCategory = new Map<string, string[]>();
+      for (const [id, category] of Object.entries(restored.restored_categories)) {
+        const ids = byCategory.get(category) ?? [];
+        ids.push(id);
+        byCategory.set(category, ids);
+      }
+      const changes = [...byCategory].map(([category, ids]) => ({ ids, category }));
+      setReceipt({
+        ...receipt,
+        count: restored.updated_count,
+        ruleId: null,
+        ruleConflict: false,
+        refreshPending: restored.refresh_pending && !restored.refresh_deferred,
+        undone: true,
+      });
+      notifyUpdated(changes, true);
     } catch {
-      // Rule save failed (e.g. free-tier gate) — the categorisation itself
-      // already succeeded, so still land on a clean undo toast rather than
-      // stranding the user on the propagation card.
-      finish("Filed.", [{ id: "primary", run: () => undoToSpend(proposal.category) }]);
+      setUndoFailed(true);
     } finally {
+      mutationInFlight.current = false;
       setBusy(false);
     }
   }
 
-  function handleJustThisOnce() {
-    if (!proposal) return;
-    finish("Filed.", [{ id: "primary", run: () => undoToSpend(proposal.category) }]);
+  async function refreshFigures() {
+    if (!receipt || mutationInFlight.current) return;
+    mutationInFlight.current = true;
+    setBusy(true);
+    setError(null);
+    try {
+      const refreshed = await api.refreshCorrection(transaction.id, receipt.operationId);
+      if (refreshed.refresh_pending) throw new Error("Refresh still pending");
+      setReceipt({ ...receipt, refreshPending: false });
+      if (!deferRecompute) {
+        invalidateAfterTransactionCorrection(transaction.id, {});
+        onUpdated({ id: transaction.id });
+        notifyTransactionsChanged();
+      }
+    } catch {
+      setError("The changes are saved. Try refreshing the figures again.");
+    } finally {
+      mutationInFlight.current = false;
+      setBusy(false);
+    }
   }
 
   const colour = getCategoryColour(originalCategory, colours);
@@ -451,9 +366,47 @@ export default function TeachingSheet({ transaction, onClose, onUpdated, account
   const returnFromGoalSetup = () => { setGoalSetupOpen(false); setStep("movement-goal"); };
 
   return (
+    <>
     <SheetFrame
       nested={nested}
-      title={goalSetupOpen ? "Create a goal" : "Tell me what this was"}
+      title={goalSetupOpen ? "Create a goal" : receipt
+        ? `${receipt.undone ? "Restored" : "Updated"} ${paymentCount(receipt.count)}`
+        : "Tell me what this was"}
+      bodyRef={sheetBody}
+      headingRef={step === "done" ? reviewHeading : sheetHeading}
+      footer={step === "scope" && draft ? () => (
+        <div className="grid gap-2">
+          <button
+            type="button"
+            className={primaryAction}
+            disabled={busy || (!pendingRequest && (countStatus === "loading" || !selectedCount))}
+            onClick={saveCorrection}
+          >
+            {busy ? "Updating…" : pendingRequest ? "Retry update" : selectedCount ? `Update ${paymentCount(selectedCount)}` : "Update payments"}
+          </button>
+          <button type="button" className={secondaryAction} disabled={busy || !!pendingRequest} onClick={changeClassification}>Back</button>
+        </div>
+      ) : step === "done" && receipt ? ({ close }) => (
+        <div className="grid gap-2">
+          {receipt.refreshPending && !undoFailed && (
+            <button type="button" className={primaryAction} disabled={busy} onClick={refreshFigures}>
+              {busy ? "Refreshing…" : "Refresh figures"}
+            </button>
+          )}
+          <button type="button" className={receipt.refreshPending ? secondaryAction : primaryAction} disabled={busy} onClick={close}>Done</button>
+          {!receipt.undone && receipt.count > 0 && (
+            <button
+              type="button"
+              className="flex min-h-11 items-center justify-center gap-2 rounded-lg text-sm font-semibold text-indigo-700 hover:underline disabled:opacity-50 dark:text-indigo-300"
+              disabled={busy}
+              onClick={undoCorrection}
+            >
+              <Undo2 size={16} aria-hidden="true" />
+              {busy ? "Working…" : undoFailed ? "Retry Undo" : "Undo correction"}
+            </button>
+          )}
+        </div>
+      ) : undefined}
       onClose={onClose}
       dismissDisabled={busy || goalSetupBusy}
       onBack={goalSetupOpen ? returnFromGoalSetup : undefined}
@@ -461,8 +414,6 @@ export default function TeachingSheet({ transaction, onClose, onUpdated, account
       onEscape={goalSetupOpen ? returnFromGoalSetup : undefined}
       backLabel="Back to this payment"
     >
-      {({ close }) => <>
-        <SheetCloseBinding closeRef={sheetCloseRef} close={close} />
         <div className="pb-2">
           {/* 1. Transaction header — shared shape across every step */}
           <div className="flex items-center gap-3">
@@ -473,11 +424,11 @@ export default function TeachingSheet({ transaction, onClose, onUpdated, account
               <CategoryIcon size={16} style={{ color: colour }} />
             </span>
             <div className="min-w-0">
-              <p className="text-[11px] font-bold uppercase tracking-widest text-slate-600 dark:text-slate-400 truncate">
+              <p className="break-words text-sm font-semibold text-slate-800 dark:text-slate-200">
                 {name}
               </p>
               <p aria-label={amountsHidden ? "Amount hidden" : undefined} className="text-xl font-bold text-slate-900 dark:text-slate-100 font-mono tabular-nums">
-                {amountsHidden ? "£••••" : <>{isCredit ? "+" : MINUS}{formatCurrency(transaction.amount, transaction.currency)}</>}
+                {isCredit ? "+" : MINUS}{amountsHidden ? `${currencySymbol(transaction.currency)}••••` : formatCurrency(transaction.amount, transaction.currency)}
               </p>
               <p className="text-[13px] text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
                 {formatDate(transaction.date)}
@@ -541,7 +492,7 @@ export default function TeachingSheet({ transaction, onClose, onUpdated, account
                 <button
                   type="button"
                   disabled={busy}
-                  onClick={() => commitCreditMovement("Transfer")}
+                  onClick={() => openReview({ choice: { resolution: "category", category: "Transfer" }, category: "Transfer", detail: "Money from another of your accounts." })}
                   className="w-full min-h-[44px] rounded-xl bg-slate-50 dark:bg-slate-700/60 px-3 py-2.5 text-left active:opacity-70 transition-opacity disabled:opacity-50"
                 >
                   <span className="text-[13px] font-semibold text-slate-800 dark:text-slate-100">
@@ -554,7 +505,7 @@ export default function TeachingSheet({ transaction, onClose, onUpdated, account
                 <button
                   type="button"
                   disabled={busy}
-                  onClick={() => commitCreditMovement("Income")}
+                  onClick={() => openReview({ choice: { resolution: "category", category: "Income" }, category: "Income" })}
                   className="w-full min-h-[44px] rounded-xl bg-slate-50 dark:bg-slate-700/60 px-3 py-2.5 text-left active:opacity-70 transition-opacity disabled:opacity-50"
                 >
                   <span className="text-[13px] font-semibold text-slate-800 dark:text-slate-100">
@@ -596,7 +547,7 @@ export default function TeachingSheet({ transaction, onClose, onUpdated, account
                 <button
                   type="button"
                   disabled={busy}
-                  onClick={() => commitMovement("mine-here", {}, "Filed as a transfer.")}
+                  onClick={() => openReview({ choice: { resolution: "mine-here" }, category: "Transfer", detail: "Money moved between your own accounts." })}
                   className="w-full min-h-[56px] rounded-xl border border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-700/60 px-3 py-2.5 text-left active:scale-[0.99] transition disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
                 >
                   <span className="flex items-center gap-3"><span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-indigo-100 bg-indigo-50 text-indigo-600 dark:border-transparent dark:bg-indigo-400/15 dark:text-indigo-300"><Landmark size={18} aria-hidden="true" /></span><span className="min-w-0 flex-1 text-[13px] font-semibold text-slate-800 dark:text-slate-100">Another of my accounts in Sorted</span><ChevronRight size={17} className="shrink-0 text-slate-400" aria-hidden="true" /></span>
@@ -604,7 +555,7 @@ export default function TeachingSheet({ transaction, onClose, onUpdated, account
                 <button
                   type="button"
                   disabled={busy}
-                  onClick={() => commitMovement("mine-card", {}, "Filed as a card payment.")}
+                  onClick={() => openReview({ choice: { resolution: "mine-card" }, category: "Debt", detail: "A repayment to one of your cards." })}
                   className="w-full min-h-[56px] rounded-xl border border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-700/60 px-3 py-2.5 text-left active:scale-[0.99] transition disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
                 >
                   <span className="flex items-center gap-3"><span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-indigo-100 bg-indigo-50 text-indigo-600 dark:border-transparent dark:bg-indigo-400/15 dark:text-indigo-300"><DebtCategoryIcon size={18} aria-hidden="true" /></span><span className="min-w-0 flex-1 text-[13px] font-semibold text-slate-800 dark:text-slate-100">Paying off one of my cards</span><ChevronRight size={17} className="shrink-0 text-slate-400" aria-hidden="true" /></span>
@@ -664,52 +615,14 @@ export default function TeachingSheet({ transaction, onClose, onUpdated, account
                 Back
               </button>
               <p className="mt-1 text-[15px] font-semibold text-slate-900 dark:text-slate-100">What did you put it into?</p>
-              <p className="mt-1 text-[13px] text-slate-500 dark:text-slate-400">Choose the broad type. Name the place next.</p>
               <div className="mt-3 space-y-2">
-                <button type="button" onClick={() => { setMovementKind("Savings"); setStep("movement-destination"); }} className="w-full min-h-[64px] rounded-xl border border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-700/60 px-3 py-2.5 text-left active:scale-[0.99] transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500">
+                <button type="button" onClick={() => openReview({ choice: { resolution: "mine-savings" }, category: "Savings", detail: "Money you put aside for later." })} className="w-full min-h-[64px] rounded-xl border border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-700/60 px-3 py-2.5 text-left active:scale-[0.99] transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500">
                   <span className="flex items-center gap-3"><span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-indigo-100 bg-indigo-50 text-indigo-600 dark:border-transparent dark:bg-indigo-400/15 dark:text-indigo-300"><SavingsCategoryIcon size={18} aria-hidden="true" /></span><span className="min-w-0 flex-1"><span className="block text-[13px] font-semibold text-slate-800 dark:text-slate-100">Savings</span><span className="mt-0.5 block text-[11px] font-normal text-slate-600 dark:text-slate-400">Cash you&apos;re putting aside</span></span><ChevronRight size={17} className="shrink-0 text-slate-400" aria-hidden="true" /></span>
                 </button>
-                <button type="button" onClick={() => { setMovementKind("Investment"); setStep("movement-destination"); }} className="w-full min-h-[64px] rounded-xl border border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-700/60 px-3 py-2.5 text-left active:scale-[0.99] transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500">
+                <button type="button" onClick={() => openReview({ choice: { resolution: "mine-investment" }, category: "Investment", detail: "Money sent to an investment." })} className="w-full min-h-[64px] rounded-xl border border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-700/60 px-3 py-2.5 text-left active:scale-[0.99] transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500">
                   <span className="flex items-center gap-3"><span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-indigo-100 bg-indigo-50 text-indigo-600 dark:border-transparent dark:bg-indigo-400/15 dark:text-indigo-300"><InvestmentCategoryIcon size={18} aria-hidden="true" /></span><span className="min-w-0 flex-1"><span className="block text-[13px] font-semibold text-slate-800 dark:text-slate-100">Investment</span><span className="mt-0.5 block text-[11px] font-normal text-slate-600 dark:text-slate-400">Funds, shares, crypto or a pension</span></span><ChevronRight size={17} className="shrink-0 text-slate-400" aria-hidden="true" /></span>
                 </button>
               </div>
-            </>
-          )}
-
-          {step === "movement-destination" && (
-            <>
-              <button
-                type="button"
-                onClick={() => setStep("movement-kind")}
-                className="mt-3 inline-flex min-h-11 items-center gap-0.5 text-[12px] font-semibold text-slate-500 dark:text-slate-400 active:opacity-70 transition-opacity focus-visible:rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
-              >
-                <ChevronLeft size={13} className="flex-shrink-0" aria-hidden="true" />
-                Back
-              </button>
-              <p className="mt-1 text-[15px] font-semibold text-slate-900 dark:text-slate-100">Name this {movementKind.toLowerCase()}</p>
-              <p className="mt-1 text-[13px] text-slate-500 dark:text-slate-400">So I can recognise it next time.</p>
-              <label className="mt-3 block text-[12px] font-semibold text-slate-700 dark:text-slate-300" htmlFor="movement-destination-name">Name</label>
-              <input
-                id="movement-destination-name"
-                autoFocus
-                value={destinationName}
-                onChange={(e) => setDestinationName(e.target.value)}
-                placeholder={movementKind === "Investment" ? "e.g. Crypto.com" : "e.g. Premium Bonds"}
-                maxLength={60}
-                className="mt-1 w-full h-11 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 px-3 text-[16px] text-slate-900 dark:text-slate-100 outline-none focus:ring-2 focus:ring-indigo-500"
-              />
-              <button
-                type="button"
-                disabled={busy || !destinationName.trim()}
-                onClick={() => commitMovement(
-                  movementKind === "Savings" ? "mine-savings" : "mine-investment",
-                  { destination_name: destinationName.trim() },
-                  `Filed as ${movementKind.toLowerCase()}.`,
-                )}
-                className="mt-3 w-full min-h-11 rounded-xl bg-indigo-600 text-white text-[13px] font-semibold active:scale-95 transition-transform disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
-              >
-                Save as {movementKind}
-              </button>
             </>
           )}
 
@@ -751,7 +664,7 @@ export default function TeachingSheet({ transaction, onClose, onUpdated, account
                       key={g.id}
                       type="button"
                       disabled={busy}
-                      onClick={() => commitMovement("mine-goal", { goal_id: g.id }, `Filed as money to ${g.name}.`)}
+                      onClick={() => openReview({ choice: { resolution: "mine-goal", goal_id: g.id }, category: "Transfer", detail: `Money for your ${g.name} goal.` })}
                       className="w-full min-h-[56px] px-3 flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 text-left text-[13px] font-semibold text-slate-800 dark:border-slate-700 dark:bg-slate-700/60 dark:text-slate-100 active:scale-[0.99] transition disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
                     >
                       <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-indigo-100 bg-indigo-50 text-indigo-600 dark:border-transparent dark:bg-indigo-400/15 dark:text-indigo-300"><Target size={18} aria-hidden="true" /></span>
@@ -779,14 +692,16 @@ export default function TeachingSheet({ transaction, onClose, onUpdated, account
 
           {step === "movement-offline" && (
             <>
-              <p className="mt-4 text-[13px] text-slate-500 dark:text-slate-400">
-                What should I call this account? (optional)
-              </p>
+              <label htmlFor={offlineNameId} className="mt-4 block text-sm font-semibold text-slate-800 dark:text-slate-200">
+                Account name (optional)
+              </label>
               <input
-                autoFocus
+                id={offlineNameId}
+                name="offline-account-name"
+                autoComplete="off"
                 value={offlineName}
                 onChange={(e) => setOfflineName(e.target.value)}
-                placeholder="e.g. Premium Bonds"
+                placeholder="For example, Premium Bonds…"
                 maxLength={60}
                 className="mt-3 w-full h-11 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 px-3 text-[14px] text-slate-900 dark:text-slate-100 outline-none focus:ring-2 focus:ring-indigo-500"
               />
@@ -794,10 +709,14 @@ export default function TeachingSheet({ transaction, onClose, onUpdated, account
                 <button
                   type="button"
                   disabled={busy}
-                  onClick={() => commitMovement("mine-offline", { offline_pot_name: offlineName.trim() || undefined }, "Filed as money you moved.")}
+                  onClick={() => openReview({
+                    choice: { resolution: "mine-offline", offline_pot_name: offlineName.trim() || undefined },
+                    category: "Transfer",
+                    detail: offlineName.trim() ? `Money for your ${offlineName.trim()} account.` : "Money moved to an account Sorted cannot see.",
+                  })}
                   className="h-11 px-4 rounded-xl bg-indigo-600 text-white text-[13px] font-semibold active:scale-95 transition-transform disabled:opacity-50"
                 >
-                  Save
+                  Use this account
                 </button>
                 <button
                   type="button"
@@ -819,15 +738,15 @@ export default function TeachingSheet({ transaction, onClose, onUpdated, account
               <div className="mt-3 rounded-2xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-700/60">
                 <p className="text-[14px] font-semibold text-slate-900 dark:text-slate-100">Paying off a card</p>
                 <p className="mt-1 text-[12px] leading-5 text-slate-600 dark:text-slate-400">
-                  This only changes this payment. It does not match it to a card automatically.
+                  Choose which matching payments to file as card repayments.
                 </p>
                 <button
                   type="button"
                   disabled={busy}
-                  onClick={() => commitSpend("Debt")}
+                  onClick={() => openReview({ choice: { resolution: "mine-card" }, category: "Debt", detail: "A repayment to one of your cards." })}
                   className="mt-3 min-h-[44px] w-full rounded-xl bg-indigo-600 px-3 py-2 text-[13px] font-semibold text-white active:scale-[0.99] transition-transform disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 dark:ring-offset-slate-900"
                 >
-                  Save this payment
+                  Choose payment scope
                 </button>
               </div>
               <button
@@ -845,7 +764,7 @@ export default function TeachingSheet({ transaction, onClose, onUpdated, account
           {step === "spend-root" && (
             <>
               <p className="mt-4 text-[13px] text-slate-500 dark:text-slate-400">
-                I&apos;ve filed this as {originalCategory}, correct it and I learn.
+                Currently filed as {originalCategory}. Choose a category.
               </p>
               <div className="mt-3 flex flex-wrap gap-2">
                 {orderedSpend.map((c) => {
@@ -856,7 +775,7 @@ export default function TeachingSheet({ transaction, onClose, onUpdated, account
                       key={c}
                       type="button"
                       disabled={busy}
-                      onClick={() => commitSpend(c)}
+                      onClick={() => chooseSpend(c)}
                       className={`min-h-[44px] px-3 flex items-center rounded-full text-[13px] font-semibold active:scale-95 transition-transform disabled:opacity-50 ${
                         active
                           ? "bg-indigo-600 text-white ring-2 ring-indigo-300 dark:ring-indigo-400/40"
@@ -900,7 +819,7 @@ export default function TeachingSheet({ transaction, onClose, onUpdated, account
                   autoFocus
                   disabled={busy}
                   value={namingText}
-                  onChange={(e) => setNamingText(e.target.value)}
+                  onChange={(e) => changeNamingText(e.target.value)}
                   placeholder="For example, Golf…"
                   maxLength={40}
                   className="mt-1.5 w-full h-11 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 px-3 text-[14px] font-semibold text-slate-900 dark:text-slate-100 outline-none focus:ring-2 focus:ring-indigo-500"
@@ -939,10 +858,10 @@ export default function TeachingSheet({ transaction, onClose, onUpdated, account
                 <button
                   type="button"
                   disabled={busy || !namingText.trim()}
-                  onClick={handleSaveNewCategory}
+                  onClick={chooseNewCategory}
                   className="h-11 px-4 rounded-xl bg-indigo-600 text-white text-[13px] font-semibold active:scale-95 transition-transform disabled:opacity-50"
                 >
-                  Save
+                  Use this category
                 </button>
                 <button
                   type="button"
@@ -957,101 +876,71 @@ export default function TeachingSheet({ transaction, onClose, onUpdated, account
             </>
           )}
 
-          {step === "propose-rule" && proposal && (
-            <div className="mt-4 glass-tile rounded-2xl p-4">
-              <p className="text-[14px] font-bold text-slate-900 dark:text-slate-100 leading-snug">
-                Always file {name} as{" "}
-                <span className="text-indigo-600 dark:text-indigo-400">{proposal.category}</span>?
-              </p>
-              <p className="mt-1 text-[12px] text-slate-600 dark:text-slate-400">
-                Matches {proposal.matchesPast} past payment{proposal.matchesPast !== 1 ? "s" : ""} · will catch future ones
-              </p>
-              <div className="mt-3 flex items-center gap-2">
-                <button
-                  type="button"
-                  disabled={busy}
-                  onClick={handleAlways}
-                  className="flex-1 h-11 rounded-xl bg-indigo-600 text-white text-[13px] font-semibold active:scale-95 transition-transform disabled:opacity-50"
-                >
-                  Always
-                </button>
-                <button
-                  type="button"
-                  disabled={busy}
-                  onClick={handleJustThisOnce}
-                  className="flex-1 h-11 rounded-xl bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 text-[13px] font-semibold active:scale-95 transition-transform disabled:opacity-50"
-                >
-                  Just this once
-                </button>
-              </div>
-              <p className="mt-2 text-[11px] text-slate-600 dark:text-slate-400">
-                You can undo this any time.
-              </p>
+          {step === "scope" && draft && (
+            <div className="mt-5">
+              {countStatus === "error" && (
+                <div className="mb-4 rounded-xl bg-slate-100 p-3 text-sm text-slate-700 dark:bg-slate-800 dark:text-slate-200">
+                  <p role="status">Matching payments could not be checked. You can still choose this payment if it is eligible.</p>
+                  <button type="button" onClick={checkCounts} disabled={busy || !!pendingRequest} className="min-h-11 rounded-lg px-1 font-semibold text-indigo-700 underline dark:text-indigo-300">Check again</button>
+                </div>
+              )}
+              {countStatus === "unavailable" && <p role="status" className="mb-4 text-sm text-slate-700 dark:text-slate-200">This payment is unavailable for correction.</p>}
+              <CorrectionScopeReview
+                category={draft.category}
+                detail={draft.detail}
+                counts={counts}
+                oneCount={oneCount}
+                loading={countStatus === "loading"}
+                scope={scope}
+                onChange={setScope}
+                onBack={changeClassification}
+                disabled={busy || !!pendingRequest}
+                headingRef={reviewHeading}
+              />
             </div>
           )}
 
-          {step === "done" && toast && (
-            <div className="mt-4 glass-tile rounded-2xl p-4">
-              <div className="flex items-center gap-3">
-              <span className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${undoStarted.current ? "bg-slate-100 dark:bg-slate-700/60" : "bg-emerald-100 dark:bg-emerald-500/15"}`}>
-                {undoStarted.current ? <Undo2 size={15} className="text-slate-600 dark:text-slate-300" /> : <Check size={15} className="text-emerald-600 dark:text-emerald-400" />}
-              </span>
-              <p className="flex-1 text-[13px] font-semibold text-slate-800 dark:text-slate-100">
-                {undoStarted.current ? (undoFailed ? "Undo needs your attention." : "Undoing your changes…") : toast.message}
-              </p>
-              {!undoStarted.current && (
-                <button
-                  type="button"
-                  disabled={busy}
-                  onClick={() => retryUndo(close)}
-                  className="min-h-[44px] flex-shrink-0 flex items-center gap-1 px-1 text-[12px] font-semibold text-indigo-600 dark:text-indigo-400 active:opacity-70 transition-opacity disabled:opacity-50"
-                >
-                  <Undo2 size={13} />
-                  Undo
-                </button>
+          {step === "done" && receipt && (
+            <div className="mt-4 space-y-3 text-sm leading-6 text-slate-700 dark:text-slate-200">
+              {!receipt.undone && receipt.count > 0 && (
+                <h3 className="text-base font-semibold text-slate-900 dark:text-slate-100">Filed as {receipt.category}.</h3>
               )}
-              </div>
+              {!receipt.undone && receipt.protectedCount > 0 && (
+                <p>{paymentCount(receipt.protectedCount)} you already categorised kept {receipt.protectedCount === 1 ? "its category" : "their categories"}.</p>
+              )}
+              {receipt.ruleId && (
+                <>
+                  <p>New matching {isCredit ? "incoming" : "outgoing"} payments will be filed as {receipt.category}.</p>
+                  <button type="button" onClick={() => setViewRuleId(receipt.ruleId)} disabled={busy} className="min-h-11 rounded-lg px-1 font-semibold text-indigo-700 underline dark:text-indigo-300">
+                    View future rule
+                  </button>
+                </>
+              )}
+              {receipt.ruleConflict && <p role="status">The future rule changed elsewhere. Review it in Settings → Category rules.</p>}
+              {receipt.refreshPending && <p role="status">Your changes are saved. The figures still need to refresh.</p>}
               {undoFailed && (
-                <div className="mt-3 rounded-xl bg-slate-100 dark:bg-slate-700/60 p-3" role="alert">
-                  <p className="text-[12px] font-semibold text-slate-700 dark:text-slate-200">
-                    Undo could not finish. Some saved changes may still be in place.
-                  </p>
-                  <div className="mt-2 flex items-center gap-2">
-                    <button
-                      type="button"
-                      disabled={busy}
-                      onClick={() => retryUndo(close)}
-                      className="min-h-[44px] rounded-xl bg-indigo-600 px-3 text-[12px] font-semibold text-white active:scale-95 transition-transform disabled:opacity-50"
-                    >
-                      Retry
-                    </button>
-                    <button
-                      type="button"
-                      disabled={busy}
-                      onClick={close}
-                      className="min-h-[44px] rounded-xl px-3 text-[12px] font-semibold text-slate-600 dark:text-slate-300 active:opacity-70 transition-opacity disabled:opacity-50"
-                    >
-                      Done
-                    </button>
-                  </div>
-                </div>
+                <p className="rounded-xl bg-slate-100 p-3 dark:bg-slate-800" role="alert">
+                  Undo could not finish. Some saved changes may still be in place.
+                </p>
               )}
             </div>
           )}
 
           {error && (
-            <p className="mt-3 rounded-xl bg-slate-100 dark:bg-slate-700/60 px-3 py-2 text-[12px] font-semibold text-slate-700 dark:text-slate-200" role="alert">{error}</p>
-          )}
-
-          {/* Footer whisper — every step, first person, never "the engine" */}
-          {step !== "done" && (
-            <p className="mt-4 text-center text-[11px] text-slate-600 dark:text-slate-400">
-              I learn from every correction, you shouldn&apos;t have to do this twice.
-            </p>
+            <p className="mt-3 rounded-xl bg-slate-100 p-3 text-sm text-slate-700 dark:bg-slate-800 dark:text-slate-200" role="alert">{error}</p>
           )}
           </>}
         </div>
-      </>}
     </SheetFrame>
+    {viewRuleId && (
+      <CategorisationRulesSheet
+        rulesOnly
+        nested
+        ruleId={viewRuleId}
+        onClose={() => setViewRuleId(null)}
+        onRuleRemoved={() => setReceipt(current => current ? { ...current, ruleId: null } : null)}
+      />
+    )}
+    </>
   );
 }
