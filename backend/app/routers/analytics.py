@@ -6962,8 +6962,8 @@ async def get_transfer_pair_suggestions(user: dict = Depends(current_user)):
 @router.post("/transactions/confirm-transfer-pair")
 async def confirm_transfer_pair(body: dict, user: dict = Depends(current_user)):
     """Confirm a suggested pair as one real transfer: categorise both legs
-    through the same refinement semantics as the sync-time matcher's Pass 2.6
-    (categorisation.py's `refine_transfer_target`), then learn the
+    from the two account types (G456, services/account_kinds.py's
+    `own_transfer_leg_categories`, the same function the matcher uses), then learn the
     description pair so future occurrences auto-match at the next sync."""
     uid = user["email"]
     credit_id = body.get("credit_id")
@@ -7027,20 +7027,15 @@ async def confirm_transfer_pair(body: dict, user: dict = Depends(current_user)):
     credit_locked = kind_of(kind_map, credit_txn.get("custom_category")) == MOVEMENT
     debit_locked = kind_of(kind_map, debit_txn.get("custom_category")) == MOVEMENT
 
-    c_target = refine_transfer_target(accts.get(str(credit_txn.get("account_id"))))
-    d_target = refine_transfer_target(accts.get(str(debit_txn.get("account_id"))))
-
-    # Mirrors categorisation.py Pass 2.6a exactly: whichever leg sits on the
-    # savings/ISA or credit-card account stays "Transfer"; the OTHER
-    # (current-account) leg carries the intent. Both or neither resolving ->
-    # both legs are plain "Transfer". Computed regardless of lock state —
-    # only the WRITE below is conditional on it.
-    if c_target and not d_target:
-        credit_category, debit_category = "Transfer", c_target
-    elif d_target and not c_target:
-        credit_category, debit_category = d_target, "Transfer"
-    else:
-        credit_category, debit_category = "Transfer", "Transfer"
+    # G456 (Kevin 2026-11-11): each leg's category comes from the two ACCOUNT
+    # TYPES through the one shared function (services/account_kinds.py):
+    # current -> savings is Savings on the paying leg, current -> card is Debt,
+    # every other direction (savings -> current, card -> current, current ->
+    # current, savings -> savings, unknown types) is Transfer on both legs.
+    # Computed regardless of lock state; only the WRITE below is conditional.
+    from app.services.account_kinds import own_transfer_leg_categories
+    debit_category, credit_category = own_transfer_leg_categories(
+        accts.get(str(debit_txn.get("account_id"))), accts.get(str(credit_txn.get("account_id"))))
 
     # Write to the AUTO layer (`category`), NOT `custom_category` —
     # deliberate. Pass 2.5 propagates a *manual* override to every future row
