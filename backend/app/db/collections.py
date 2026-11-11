@@ -29,6 +29,7 @@ chat_sessions_col       = db["chat_sessions"]
 episodic_memory_col     = db["episodic_memory"]
 user_categories_col     = db["user_categories"]
 user_rules_col          = db["user_rules"]
+scoped_correction_operations_col = db["scoped_correction_operations"]
 merchant_categories_col = db["merchant_categories"]
 budgets_col             = db["budgets"]
 challenges_col          = db["challenges"]
@@ -578,7 +579,7 @@ session_tombstones_col = db["session_tombstones"]
 ERASURE_MANIFEST = frozenset({
     "connections_col", "accounts_col", "transactions_col",
     "preferences_col", "user_profiles_col", "chat_sessions_col",
-    "episodic_memory_col", "user_categories_col", "user_rules_col",
+    "episodic_memory_col", "user_categories_col", "user_rules_col", "scoped_correction_operations_col",
     "merchant_categories_col", "budgets_col", "challenges_col",
     "account_rates_col", "push_subscriptions_col", "apns_tokens_col",
     "fcm_tokens_col", "notification_state_col", "confirmed_transfer_pairs_col",

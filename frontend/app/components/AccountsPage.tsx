@@ -1764,12 +1764,12 @@ export default function AccountsPage() {
     };
   }
 
-  function handleTxUpdated(updated: Transaction, additionalIds?: string[]) {
+  function handleTxUpdated(updated: Pick<Transaction, "id" | "category">, additionalIds?: string[]) {
     const apply = (t: Transaction) =>
       t.id === updated.id || additionalIds?.includes(t.id)
         ? { ...t, category: updated.category }
         : t;
-    setServerTxns(prev => prev.map(apply));
+    if (updated.category !== undefined) setServerTxns(prev => prev.map(apply));
     // Category totals shifted — drop both rollups so they refetch on next view
     setCatSummaries(null);
     setCatSummariesCredit(null);

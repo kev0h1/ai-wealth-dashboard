@@ -18,7 +18,7 @@ const html = render();
 assert.deepEqual(buildSettingsGroups(status).map(g => g.title), [
   "Manage your money", "Make the app yours", "Notifications", "Your account", "Penny and your plan", "Help and information",
 ], "six approved D groups, in order");
-assert.deepEqual(buildSettingsGroups(status)[0].tasks.map(t => t.label), ["Pay period", "Financial profile", "Cover-plan safeguards"]);
+assert.deepEqual(buildSettingsGroups(status)[0].tasks.map(t => t.label), ["Pay period", "Financial profile", "Category rules", "Cover-plan safeguards"]);
 assert.match(html, /<nav[^>]*aria-label="Settings tasks"/);
 assert.match(html, /<input(?=[^>]*type="search")(?=[^>]*name="settings-search")(?=[^>]*autoComplete="off")/);
 assert.match(html, /<button[^>]*>.*?Pay period/s, "pay period is an action, not another detail page");
@@ -28,7 +28,7 @@ for (const section of SETTINGS_SECTIONS.filter(s => !["assistants", "delete"].in
 assert.ok(!html.includes("Connected assistants"), "feature-off directory cannot expose assistants");
 assert.ok(render("", { assistantsVisible: true }).includes('href="/settings?section=assistants"'));
 assert.match(render("", {}, "display"), /<a(?=[^>]*href="\/settings\?section=display")(?=[^>]*aria-current="page")/);
-for (const [search, section] of [["income", "financial"], ["PENSION", "financial"], ["Child Benefit", "financial"], ["history", "account"], ["Apple", "account"], [" privacy ", "display"]]) {
+for (const [search, section] of [["income", "financial"], ["PENSION", "financial"], ["Child Benefit", "financial"], ["merchant", "rules"], ["history", "account"], ["Apple", "account"], [" privacy ", "display"]]) {
   const result = render(search);
   assert.ok(result.includes(`href="/settings?section=${section}"`), `${search} is discoverable`);
   assert.ok(!result.includes("No settings match"));
@@ -80,6 +80,7 @@ assert.match(page, /await api\.deleteUserAccount\(\)/);
 assert.match(page, /Could not confirm deletion\. Try again\./, "a failed response must not assert the account was not deleted");
 assert.match(page, /clearOnboarded\(localStorage, user\?\.email\)/);
 assert.match(page, /<PayPeriodSettingsSheet[\s\S]*?current=\{payPeriodConfig\}[\s\S]*?setPayPeriodConfig/, "pay period uses the real shared preference saver");
+assert.match(page, /activeSection === "rules" && <div[^>]*><CategoryRulesPanel \/>/, "category rules show the shared actionable panel in Settings");
 for (const handler of ["saveProfile", "handleLinkApple", "handleUnlinkApple", "toggleBiometrics", "handleSyncHistory", "toggleCoverAccount", "toggleNotifPref", "handleRegisterDevice", "handleTestPush", "handleIncomeBlur", "handlePensionBlur", "handleChildBenefitToggle"]) {
   assert.ok(page.includes(handler), `${handler} retained`);
 }

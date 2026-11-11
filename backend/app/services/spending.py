@@ -104,7 +104,7 @@ _PROJECTION = {
     "transaction_type": 1, "description": 1, "merchant_name": 1,
     "account_id": 1, "linked_offline_account_id": 1, "linked_goal_id": 1,
     "currency": 1, "party_sort_code": 1, "party_number": 1, "bank_code": 1,
-    "card_repayment_rule": 1, "card_repayment_taught": 1,
+    "card_repayment_rule": 1, "card_repayment_taught": 1, "correction_scope": 1,
 }
 
 
@@ -518,8 +518,11 @@ def find_card_repayment_ids(docs: list[dict], kinds, cards: list[CardAccount]) -
     # taught as "Paying off one of my cards" (`card_repayment_taught`), and later
     # Debt debits from a payee the user taught that way. A user answer is evidence
     # whether or not the card is one Sorted can see.
+    from app.services.scoped_correction_rules import SCOPED_CORRECTION_KINDS
+
     taught_keys = {
         key for d in docs if d.get("card_repayment_taught") and _is_debit(d)
+        and d.get("correction_scope") not in SCOPED_CORRECTION_KINDS
         and normalise_name(_effective_category(d)) == normalise_name(DEBT_CATEGORY)
         for key in [canonical_merchant_key(d.get("merchant_name") or "", d.get("description") or "")]
         if len(key) >= 3

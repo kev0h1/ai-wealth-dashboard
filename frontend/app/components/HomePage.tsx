@@ -801,7 +801,7 @@ export default function HomePage() {
     return () => obs.disconnect();
   }, []);
 
-  function handleTxUpdated(updated: Transaction, additionalIds?: string[]) {
+  function handleTxUpdated(updated: Pick<Transaction, "id" | "category">, additionalIds?: string[]) {
     const patch = (prev: Transaction[]) =>
       prev.map((t) => {
         if (t.id === updated.id) return { ...t, category: updated.category };
@@ -811,8 +811,10 @@ export default function HomePage() {
     // `transactions` still feeds the pinned chart widget below; `recentTxns`
     // is what this screen's own Recent Transactions row actually renders —
     // both need the correction so it's visible immediately, wherever it's read.
-    setTransactions(patch);
-    setRecentTxns(patch);
+    if (updated.category !== undefined) {
+      setTransactions(patch);
+      setRecentTxns(patch);
+    }
     // G146: TeachingSheet.tsx's notifyUpdated already cleared lib/
     // homeCache.ts's module-scope snapshot before calling this (the shared
     // invalidator in lib/cacheInvalidation.ts), so the NEXT mount of this

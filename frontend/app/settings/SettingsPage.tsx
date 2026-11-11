@@ -45,6 +45,7 @@ import { SettingsDirectory, resolveSettingsSection, type SettingsSection } from 
 import { settingsPayPeriodLabel, settingsPlanLabel, settingsIdentityState } from "@/lib/settingsNavigation";
 import PennyAppearanceSetting from "@/components/settings/PennyAppearanceSetting";
 import { shouldWriteNumericPreference, numericBaselineFromSnapshot } from "@/lib/numericPreferenceWrite";
+import { CategoryRulesPanel } from "@/components/CategorisationRulesSheet";
 
 // D keeps orientation on the canvas; only related controls share a surface.
 function SettingsGroup({ visible, title, intro, children, surface = true }: {
@@ -1063,6 +1064,7 @@ export default function SettingsPage() {
   const initials = initialsOf(settingsDisplayName) ?? "";
   const detailCopy: Record<SettingsSection, { title: string; intro: string }> = {
     financial: { title: "Financial profile", intro: "Tax details behind your plan." },
+    rules: { title: "Category rules", intro: "Choose how future matching payments are filed." },
     cover: { title: "Cover-plan safeguards", intro: "Choose which accounts Sorted can consider for a cover plan." },
     display: { title: "Display and privacy", intro: "Choose what you see and what Sorted highlights." },
     notifications: { title: "Notifications", intro: "Permission, delivery and the alerts you receive." },
@@ -1119,6 +1121,8 @@ export default function SettingsPage() {
       <div className={activeSection ? "min-w-0" : "hidden"}>
       {activeSection && <><Link href="/settings" className="-ml-2 inline-flex min-h-11 items-center gap-1 rounded-xl px-2 text-sm font-medium text-indigo-700 hover:bg-indigo-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-indigo-300 dark:hover:bg-indigo-900/10"><ChevronRight size={18} aria-hidden="true" className="rotate-180" />Account</Link><h1 ref={detailHeadingRef} tabIndex={-1} className="mt-2 text-xl font-bold text-slate-900 outline-none dark:text-slate-100">{detailCopy[activeSection].title}</h1><p className="mt-1 text-[13px] leading-5 text-slate-600 dark:text-slate-400">{detailCopy[activeSection].intro}</p></>}
       <div>
+
+        {activeSection === "rules" && <div className="mt-5"><CategoryRulesPanel /></div>}
 
         <SettingsGroup visible={activeSection === "account"} title="Profile" intro="Your name in Sorted.">
           <ProfileSettingsForm name={profileName} loading={!profileLoaded && !profileLoadError} loadError={profileLoadError} saving={profileSaving} dirty={profileDirty} status={profileMsg?.text ?? ""} onChange={name => { setProfileName(name); setProfileMsg(null); }} onSave={() => void saveProfile()} onRetry={() => { setProfileLoadError(false); void loadProfile(); }} />
