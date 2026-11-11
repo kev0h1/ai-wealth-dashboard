@@ -8,7 +8,7 @@ from PIL import Image
 ROOT = Path(__file__).resolve().parents[2]
 OUT = ROOT / "frontend/public/design-media/c22/store"
 SIZES = {"apple-medium": (1206, 2622), "apple-large": (1320, 2868), "apple-classic": (1242, 2688), "play": (1080, 1920), "feature": (1024, 500)}
-IDS = {"amount", "account", "spend", "month", "split", "movement", "penny", "aside"}
+IDS = {"amount", "account", "spend", "movement", "penny", "plans", "aside", "schedule"}
 
 def digest(path): return hashlib.sha256(path.read_bytes()).hexdigest()
 
@@ -23,6 +23,7 @@ def main():
         assert record["sha256"] == digest(path), path
         expected = SIZES[record["platform"]]; assert tuple(record["size"]) == expected
         with Image.open(path) as image:
+            image.load()
             assert image.size == expected and image.mode == "RGB", (path, image.size, image.mode)
             origin = json.loads(image.info["Source"])
             assert all(origin[key] == record[key] for key in ("id", "theme", "platform", "proof", "proofHash", "dependencies", "proofManifests")), path
@@ -42,9 +43,15 @@ def main():
         path = OUT / pack["file"]; assert path.is_file(), path
         assert pack["bytes"] == path.stat().st_size and pack["sha256"] == digest(path)
         with zipfile.ZipFile(path) as archive:
-            names = set(archive.namelist())
-        assert set(pack["members"]).issubset(names)
-        assert "upload-order-and-alt-text.json" in names
+            names = archive.namelist()
+            assert len(pack["members"]) == (1 if pack["platform"] == "feature" else 8)
+            assert len(names) == len(set(names)) == len(pack["members"]) + 1
+            assert set(names) == set(pack["members"]) | {"upload-order-and-alt-text.json"}
+            assert archive.testzip() is None
+            order = json.loads(archive.read("upload-order-and-alt-text.json"))
+            assert [item["file"] for item in order] == pack["members"]
+            for member in pack["members"]:
+                assert archive.read(member) == (OUT / member).read_bytes()
     print("C22 store assets: 66 RGB exports, exact platform dimensions and current provenance.")
 
 if __name__ == "__main__": main()

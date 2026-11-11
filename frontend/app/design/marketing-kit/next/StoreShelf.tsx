@@ -1,6 +1,7 @@
 "use client";
 /* eslint-disable @next/next/no-img-element -- Show the exact downloadable store exports. */
 import { useSearchParams } from "next/navigation";
+import MoneyText from "@/components/MoneyText";
 import { STORE_IDS, STORE_ART, STORE_SIZES, isStorePlatform, storeAssetName, type StoreTheme, type StorePlatform } from "../store/catalog";
 import styles from "./gallery.module.css";
 
@@ -35,7 +36,7 @@ export default function StoreShelf({ theme }: { theme: StoreTheme }) {
       const src = `${base}/${storeAssetName(platform, id, theme)}`;
       return <article key={id}>
         <a className={styles.fullImage} href={src}><img src={src} alt={item.alt} width={size.width} height={size.height} loading={index < 3 ? "eager" : "lazy"} /></a>
-        <h3>{index + 1}. {item.title}</h3><p>{item.caption}</p>
+        <h3>{index + 1}. {item.title}</h3><p><MoneyText text={item.caption} unmasked /></p>
         <a href={src} download>Download PNG</a> · <a href={src}>Full size</a>
       </article>;
     })}</div>

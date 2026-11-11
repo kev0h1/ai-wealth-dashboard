@@ -8,7 +8,7 @@ import { api, type Account, type GoalSchedule, type GoalSchedulePreview, type Pe
 import { useBalancesHidden } from "@/lib/balancesHidden";
 import { isPlanSourceAccount } from "@/lib/upcomingPlans";
 
-type Props = { proposal: PennyProposal; busy: boolean; onConfirm: () => void; onCancel: () => void; onRevise: (schedule: GoalSchedule, sourceId: string) => Promise<void> };
+type Props = { proposal: PennyProposal; busy: boolean; onConfirm: () => void; onCancel: () => void; onRevise: (schedule: GoalSchedule, sourceId: string) => Promise<void>; accountOptions?: Account[] };
 type ScheduleParams = { schedule: GoalSchedule; schedule_preview: GoalSchedulePreview; source_account_id: string; source_account_name?: string; destination_names?: string[]; funding_pots?: { account_id: string }[]; deactivate_allocation_name?: string };
 
 export function scheduledGoalParams(params: Record<string, unknown>): ScheduleParams | null {
@@ -26,12 +26,12 @@ export function isScheduledGoalProposal(proposal: PennyProposal): boolean {
   return Boolean(parsed && preview && typeof preview.label === "string" && typeof preview.start_date === "string" && typeof preview.end_date === "string" && Number.isFinite(preview.total) && Number.isFinite(preview.planned_to_date) && preview.current_period && typeof preview.current_period.start === "string" && typeof preview.current_period.end === "string" && Number.isFinite(preview.current_period.amount) && Array.isArray(preview.periods) && preview.periods.every(period => period && typeof period.start === "string" && typeof period.end === "string" && Number.isFinite(period.amount)));
 }
 
-export default function ScheduledGoalProposalCard({ proposal, busy, onConfirm, onCancel, onRevise }: Props) {
+export default function ScheduledGoalProposalCard({ proposal, busy, onConfirm, onCancel, onRevise, accountOptions }: Props) {
   const hidden = useBalancesHidden();
   const revisionLock = useRef(false);
   const parsed = useMemo(() => scheduledGoalParams(proposal.params), [proposal.params]);
   const [mode, setMode] = useState<"view" | "edit" | "source">("view");
-  const [accounts, setAccounts] = useState<Account[] | null>(null);
+  const [accounts, setAccounts] = useState<Account[] | null>(() => accountOptions ?? null);
   const [loadError, setLoadError] = useState(false);
   const [sourceId, setSourceId] = useState(parsed?.source_account_id ?? "");
   const [revising, setRevising] = useState(false);

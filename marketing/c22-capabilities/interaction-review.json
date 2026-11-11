@@ -1,0 +1,18 @@
+{
+  "date": "2026-11-11",
+  "unexpectedApi": [],
+  "results": [
+    {
+      "theme": "light",
+      "sourcePicker": "fixture account, no API",
+      "back": "returns to actual goal card",
+      "cancel": "no goal created"
+    },
+    {
+      "theme": "dark",
+      "sourcePicker": "fixture account, no API",
+      "back": "returns to actual goal card",
+      "cancel": "no goal created"
+    }
+  ]
+}

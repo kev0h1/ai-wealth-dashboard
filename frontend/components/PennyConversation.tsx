@@ -119,7 +119,7 @@ import { X, ChevronRight } from "lucide-react";
 import PennyStarterState from "@/components/PennyStarterState";
 import { answerText, proposalMsgFromTurn } from "@/lib/pennyProposalRestore";
 import ScheduledGoalProposalCard, { isScheduledGoalProposal } from "@/components/plans/ScheduledGoalProposalCard";
-import { api, CanIOffer, CanISuggestionChip, PennyConversationFullError, PennyLimitError, PennyProposal, type GoalSchedule } from "@/lib/api";
+import { api, CanIOffer, CanISuggestionChip, PennyConversationFullError, PennyLimitError, PennyProposal, type Account, type GoalSchedule } from "@/lib/api";
 import type { PennyChatSession } from "@/lib/usePennyChatSession";
 import { PENNY_FULL_ACTION, PENNY_FULL_NOTICE, PENNY_MAX_TURNS } from "@/lib/pennyConversationSession";
 import { BRAND_GRADIENT } from "@/lib/brand";
@@ -530,9 +530,13 @@ export function ProposalConfirmCard({
   onCancel,
   onOpenDone,
   onRevise,
+  scheduledGoalAccountOptions,
 }: {
   msg: ProposalMsg;
   onRevise?: (schedule: GoalSchedule, sourceId: string) => Promise<void>;
+  /** Optional local account data for an isolated proof host. Normal chat leaves
+   * this unset and retains its live account picker behaviour. */
+  scheduledGoalAccountOptions?: Account[];
   onConfirm: () => void;
   onCancel: () => void;
   /** Fired when the user taps a resolved "Done ..." row. Every v1 artefact
@@ -609,7 +613,7 @@ export function ProposalConfirmCard({
 
   const busy = status === "executing" || status === "revising";
   if (onRevise && isScheduledGoalProposal(proposal)) {
-    return <ScheduledGoalProposalCard proposal={proposal} busy={busy} onConfirm={onConfirm} onCancel={onCancel} onRevise={onRevise} />;
+    return <ScheduledGoalProposalCard proposal={proposal} busy={busy} onConfirm={onConfirm} onCancel={onCancel} onRevise={onRevise} accountOptions={scheduledGoalAccountOptions} />;
   }
   return (
     <div className="glass-card rounded-2xl p-4 w-full">

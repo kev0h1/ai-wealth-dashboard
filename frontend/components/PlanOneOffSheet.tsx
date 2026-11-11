@@ -1,7 +1,7 @@
 "use client";
 import { useState, useEffect, useRef } from "react";
 import { AccountRadioPicker } from "@/components/AccountRadioPicker";
-import { api, Account, PlannedImpact } from "@/lib/api";
+import { api, Account, PlannedImpact, type PlannedExpense } from "@/lib/api";
 import { useBalancesHidden, maskMoneyText } from "@/lib/balancesHidden";
 import MoneyText from "@/components/MoneyText";
 import { SheetFrame } from "@/components/SheetFrame";
@@ -10,7 +10,9 @@ import { DateField } from "@/components/DatePicker";
 interface PlanOneOffSheetProps {
   accounts: Account[];
   onClose: () => void;
-  onSaved: () => void;
+  onSaved: (planned?: PlannedExpense) => void;
+  /** Optional for fixture-safe hosts. The shipped sheet still writes through api. */
+  operations?: Pick<typeof api, "addPlanned">;
 }
 
 // RadioDot's canonical home is now AccountMiniCard.tsx; re-exported here so
@@ -39,7 +41,7 @@ export function planConfirmMessage(impact: PlannedImpact | "none" | null, hidden
     : `Planned. This tips your window ${gbp(Math.abs(sts))} short, a cover plan will appear on Home.`;
 }
 
-export default function PlanOneOffSheet({ accounts, onClose, onSaved }: PlanOneOffSheetProps) {
+export default function PlanOneOffSheet({ accounts, onClose, onSaved, operations = api }: PlanOneOffSheetProps) {
   const [mounted, setMounted] = useState(false);
   const balancesHidden = useBalancesHidden();
   useEffect(() => setMounted(true), []);
@@ -86,10 +88,10 @@ export default function PlanOneOffSheet({ accounts, onClose, onSaved }: PlanOneO
         date,
       };
       if (accountId) params.account_id = accountId;
-      const result = await api.addPlanned(params);
+      const result = await operations.addPlanned(params);
       savedRef.current = true;
       setImpact(result.impact ?? "none");
-      onSaved();
+      onSaved(result.planned);
     } catch {
       setError("Couldn't save, please try again");
     } finally {

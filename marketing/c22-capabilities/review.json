@@ -1,0 +1,566 @@
+{
+  "item": "C22",
+  "date": "2026-11-11",
+  "status": "creative-review-only",
+  "delivery": {
+    "socialPNGs": 48,
+    "socialConcepts": 12,
+    "MP4s": 22,
+    "storePNGs": 66,
+    "storeZIPs": 10,
+    "featureProofs": 66,
+    "originalProofs": 10,
+    "themes": [
+      "light",
+      "dark"
+    ]
+  },
+  "brief": "User-requested capability expansion in the approved real-product campaign style, aligned to current production UI.",
+  "examples": {
+    "cover": "£68 + £80 + £40 = £188; the user makes transfers in their bank.",
+    "spend": "£860 versus £740 by day 10; Eating Out £240 versus £120 usual; £92 + £58 + £48 + £42 = £240; £400 moved stays separate.",
+    "goal": "£600 from three £200 contributions on 30 Nov, 30 Dec and 30 Jan; actual engine end 27 Feb 2027, no separate bill due date.",
+    "oneOff": "Boiler service £90 due 24 Nov created, then £95 due 26 Nov saved.",
+    "setAside": "Groceries £250 each pay period."
+  },
+  "checks": {
+    "productionBuild": "pass",
+    "typeScript": "pass",
+    "eslintNewMarketingSources": "pass",
+    "inheritedLint": "Three existing set-state-in-effect findings remain in untouched production effects; no new marketing-source findings.",
+    "designIndex": "pass (61 indexed previews)",
+    "designStale": "pass",
+    "originalMediaValidation": "Pass: 4 fully decoded H.264/AAC films and 12 PNGs.",
+    "featureMediaValidation": "Pass: 18 fully decoded H.264/AAC films, measured non-silent sound, 36 PNGs and 66 UI captures.",
+    "storeValidation": "Pass: 66 RGB images, exact dimensions and 10 ZIPs with verified CRC, member order and byte equality.",
+    "rasterOrigins": "212 shipping rasters,zero missing origins; PNG IDAT chunks unchanged by metadata embedding"
+  },
+  "sourceFreshness": {
+    "capturedDependencyFiles": 83,
+    "comparison": "All captured production UI matches shared main except the three independently reviewed optional fixture seams.",
+    "fixtureSeams": [
+      "frontend/components/PennyConversation.tsx",
+      "frontend/components/PlanOneOffSheet.tsx",
+      "frontend/components/plans/ScheduledGoalProposalCard.tsx"
+    ],
+    "defaults": "Normal production API behaviour is retained."
+  },
+  "interactionReview": {
+    "date": "2026-11-11",
+    "unexpectedApi": [],
+    "results": [
+      {
+        "theme": "light",
+        "sourcePicker": "fixture account, no API",
+        "back": "returns to actual goal card",
+        "cancel": "no goal created"
+      },
+      {
+        "theme": "dark",
+        "sourcePicker": "fixture account, no API",
+        "back": "returns to actual goal card",
+        "cancel": "no goal created"
+      }
+    ]
+  },
+  "browser": {
+    "features": {
+      "errors": [],
+      "playback": [
+        {
+          "story": "movement",
+          "theme": "light",
+          "width": 1080,
+          "height": 1920,
+          "duration": 15,
+          "elapsed": 0.189464,
+          "seek": 9,
+          "tracks": 1,
+          "cues": 5,
+          "frameContrast": 213.33333333333334,
+          "lastCaption": "Sorted. See what needs moving. Coming soon."
+        },
+        {
+          "story": "month",
+          "theme": "light",
+          "width": 1080,
+          "height": 1920,
+          "duration": 15,
+          "elapsed": 0.05203,
+          "seek": 9,
+          "tracks": 1,
+          "cues": 5,
+          "frameContrast": 218,
+          "lastCaption": "Sorted. Review the month. Coming soon."
+        },
+        {
+          "story": "spend",
+          "theme": "light",
+          "width": 1080,
+          "height": 1920,
+          "duration": 15,
+          "elapsed": 0.005547,
+          "seek": 9,
+          "tracks": 1,
+          "cues": 5,
+          "frameContrast": 218,
+          "lastCaption": "Sorted. Know where it goes. Coming soon."
+        },
+        {
+          "story": "split",
+          "theme": "light",
+          "width": 1080,
+          "height": 1920,
+          "duration": 15,
+          "elapsed": 0.047411,
+          "seek": 9,
+          "tracks": 1,
+          "cues": 5,
+          "frameContrast": 214.66666666666666,
+          "lastCaption": "Sorted. Compare your month. Coming soon."
+        },
+        {
+          "story": "penny",
+          "theme": "light",
+          "width": 1080,
+          "height": 1920,
+          "duration": 15,
+          "elapsed": 0.071757,
+          "seek": 9,
+          "tracks": 1,
+          "cues": 5,
+          "frameContrast": 211.33333333333334,
+          "lastCaption": "Sorted. Ask Penny. See the picture. Coming soon."
+        },
+        {
+          "story": "aside",
+          "theme": "light",
+          "width": 1080,
+          "height": 1920,
+          "duration": 15,
+          "elapsed": 0.064961,
+          "seek": 9,
+          "tracks": 1,
+          "cues": 5,
+          "frameContrast": 213,
+          "lastCaption": "Sorted. Make room for what is ahead. Coming soon."
+        },
+        {
+          "story": "upcoming",
+          "theme": "light",
+          "width": 1080,
+          "height": 1920,
+          "duration": 15,
+          "elapsed": 0.019273,
+          "seek": 9,
+          "tracks": 1,
+          "cues": 5,
+          "frameContrast": 204.66666666666666,
+          "lastCaption": "Sorted. Keep upcoming payments current. Coming soon."
+        },
+        {
+          "story": "plans",
+          "theme": "light",
+          "width": 1080,
+          "height": 1920,
+          "duration": 15,
+          "elapsed": 0.131243,
+          "seek": 9,
+          "tracks": 1,
+          "cues": 5,
+          "frameContrast": 203,
+          "lastCaption": "Sorted. Plan the cost. Keep the dates. Coming soon."
+        },
+        {
+          "story": "schedule",
+          "theme": "light",
+          "width": 1080,
+          "height": 1920,
+          "duration": 15,
+          "elapsed": 0.021398,
+          "seek": 9,
+          "tracks": 1,
+          "cues": 5,
+          "frameContrast": 202.66666666666666,
+          "lastCaption": "Sorted. Keep the plan up to date. Coming soon."
+        },
+        {
+          "story": "balance",
+          "theme": "light",
+          "width": 1080,
+          "height": 1920,
+          "duration": 15.019,
+          "elapsed": 0.176892,
+          "seek": 9,
+          "tracks": 1,
+          "cues": 5,
+          "frameContrast": 225.66666666666666,
+          "lastCaption": "Sorted. See what is left to spend. Coming soon."
+        },
+        {
+          "story": "account",
+          "theme": "light",
+          "width": 1080,
+          "height": 1920,
+          "duration": 15.019,
+          "elapsed": 0.126426,
+          "seek": 9,
+          "tracks": 1,
+          "cues": 5,
+          "frameContrast": 230.66666666666666,
+          "lastCaption": "Sorted. Before the next bill. Coming soon."
+        },
+        {
+          "story": "movement",
+          "theme": "dark",
+          "width": 1080,
+          "height": 1920,
+          "duration": 15,
+          "elapsed": 0.065542,
+          "seek": 9,
+          "tracks": 1,
+          "cues": 5,
+          "frameContrast": 225.66666666666666,
+          "lastCaption": "Sorted. See what needs moving. Coming soon."
+        },
+        {
+          "story": "month",
+          "theme": "dark",
+          "width": 1080,
+          "height": 1920,
+          "duration": 15,
+          "elapsed": 0.147451,
+          "seek": 9,
+          "tracks": 1,
+          "cues": 5,
+          "frameContrast": 192.66666666666666,
+          "lastCaption": "Sorted. Review the month. Coming soon."
+        },
+        {
+          "story": "spend",
+          "theme": "dark",
+          "width": 1080,
+          "height": 1920,
+          "duration": 15,
+          "elapsed": 0.094034,
+          "seek": 9,
+          "tracks": 1,
+          "cues": 5,
+          "frameContrast": 207,
+          "lastCaption": "Sorted. Know where it goes. Coming soon."
+        },
+        {
+          "story": "split",
+          "theme": "dark",
+          "width": 1080,
+          "height": 1920,
+          "duration": 15,
+          "elapsed": 0.109881,
+          "seek": 9,
+          "tracks": 1,
+          "cues": 5,
+          "frameContrast": 203.33333333333331,
+          "lastCaption": "Sorted. Compare your month. Coming soon."
+        },
+        {
+          "story": "penny",
+          "theme": "dark",
+          "width": 1080,
+          "height": 1920,
+          "duration": 15,
+          "elapsed": 0.117218,
+          "seek": 9,
+          "tracks": 1,
+          "cues": 5,
+          "frameContrast": 201.66666666666666,
+          "lastCaption": "Sorted. Ask Penny. See the picture. Coming soon."
+        },
+        {
+          "story": "aside",
+          "theme": "dark",
+          "width": 1080,
+          "height": 1920,
+          "duration": 15,
+          "elapsed": 0.030718,
+          "seek": 9,
+          "tracks": 1,
+          "cues": 5,
+          "frameContrast": 202.33333333333331,
+          "lastCaption": "Sorted. Make room for what is ahead. Coming soon."
+        },
+        {
+          "story": "upcoming",
+          "theme": "dark",
+          "width": 1080,
+          "height": 1920,
+          "duration": 15,
+          "elapsed": 0.034299,
+          "seek": 9,
+          "tracks": 1,
+          "cues": 5,
+          "frameContrast": 194.66666666666666,
+          "lastCaption": "Sorted. Keep upcoming payments current. Coming soon."
+        },
+        {
+          "story": "plans",
+          "theme": "dark",
+          "width": 1080,
+          "height": 1920,
+          "duration": 15,
+          "elapsed": 0.021758,
+          "seek": 9,
+          "tracks": 1,
+          "cues": 5,
+          "frameContrast": 201.33333333333331,
+          "lastCaption": "Sorted. Plan the cost. Keep the dates. Coming soon."
+        },
+        {
+          "story": "schedule",
+          "theme": "dark",
+          "width": 1080,
+          "height": 1920,
+          "duration": 15,
+          "elapsed": 0.125823,
+          "seek": 9,
+          "tracks": 1,
+          "cues": 5,
+          "frameContrast": 202,
+          "lastCaption": "Sorted. Keep the plan up to date. Coming soon."
+        },
+        {
+          "story": "balance",
+          "theme": "dark",
+          "width": 1080,
+          "height": 1920,
+          "duration": 15.019,
+          "elapsed": 0.138625,
+          "seek": 9,
+          "tracks": 1,
+          "cues": 5,
+          "frameContrast": 236.66666666666666,
+          "lastCaption": "Sorted. See what is left to spend. Coming soon."
+        },
+        {
+          "story": "account",
+          "theme": "dark",
+          "width": 1080,
+          "height": 1920,
+          "duration": 15.019,
+          "elapsed": 0.087359,
+          "seek": 9,
+          "tracks": 1,
+          "cues": 5,
+          "frameContrast": 238,
+          "lastCaption": "Sorted. Before the next bill. Coming soon."
+        }
+      ],
+      "widths": [
+        320,
+        390,
+        1440
+      ],
+      "filters": "pass",
+      "archives": "pass",
+      "rapidControls": "pass"
+    },
+    "store": {
+      "errors": [],
+      "downloads": [
+        {
+          "theme": "light",
+          "platform": "apple-medium",
+          "bytes": 1614665
+        },
+        {
+          "theme": "light",
+          "platform": "apple-large",
+          "bytes": 1790894
+        },
+        {
+          "theme": "light",
+          "platform": "apple-classic",
+          "bytes": 1657904
+        },
+        {
+          "theme": "light",
+          "platform": "play",
+          "bytes": 1215611
+        },
+        {
+          "theme": "dark",
+          "platform": "apple-medium",
+          "bytes": 1622737
+        },
+        {
+          "theme": "dark",
+          "platform": "apple-large",
+          "bytes": 1797804
+        },
+        {
+          "theme": "dark",
+          "platform": "apple-classic",
+          "bytes": 1664911
+        },
+        {
+          "theme": "dark",
+          "platform": "play",
+          "bytes": 1219698
+        }
+      ],
+      "widths": [
+        320,
+        390,
+        1440
+      ],
+      "controls": "pass",
+      "copy": "pass"
+    }
+  },
+  "independentFinishReview": {
+    "disposition": "ship",
+    "scope": "All current store/social stills, all 11 film contact sheets in both themes, actual production-gallery captures at 320/390/1440 and recorded browser evidence.",
+    "materialFindings": [],
+    "reviewer": "capability_finish_review, fresh normal independent agent; specialist Impeccable reviewer unavailable.",
+    "limitation": "Held-frame visual inspection; continuous playback was exercised by browser automation."
+  },
+  "documentation": "system-fit.md compares this ordinary extension with the incumbent system. PRODUCT.md and DESIGN.md are preserved. The design sidecar is absent and pre-existing context drift is reported. Specialist documenter unavailable; normal independent documenter used.",
+  "repositoryGate": {
+    "command": "BACKLOG_AGENT=codex scripts/session.sh finish C22 --uat-review",
+    "resultLocation": "C22 board handoff notes, recorded after the mandatory backend,scenario,TypeScript and frontend gates"
+  },
+  "publication": "UAT review handoff only. C5 owns native build parity and store-console submission. Nothing uploaded to stores or Instagram.",
+  "evidence": [
+    {
+      "path": ".impeccable/review/c22-capabilities/social-dark-feed.jpg",
+      "sha256": "b5c9fcd22993bc6ccef679f6891d70f6828d6d89fc8a02d92aea96d536ea002b"
+    },
+    {
+      "path": ".impeccable/review/c22-capabilities/social-dark-story.jpg",
+      "sha256": "7eb97d7ce8dd92da5079ae024f79a09caae7b6c6b12060a006555c54151bf416"
+    },
+    {
+      "path": ".impeccable/review/c22-capabilities/social-light-feed.jpg",
+      "sha256": "6b60dddb59b08e8d31b7bda19d82028366641a1abad83a415d53fed08732c113"
+    },
+    {
+      "path": ".impeccable/review/c22-capabilities/social-light-story.jpg",
+      "sha256": "961765dda76a058069c3e9a4d3b94c0954faeb635be04fa4356a38e4f1f21aa7"
+    },
+    {
+      "path": ".impeccable/review/c22-capabilities/store-dark-apple-medium.jpg",
+      "sha256": "242bf8357e1671724a680ebe0ba3f062af160211a45610be3a1308e63450e624"
+    },
+    {
+      "path": ".impeccable/review/c22-capabilities/store-dark-play.jpg",
+      "sha256": "33841a40920161632f1a50e70754ddc8b351f11dfa25606fb4e3531278561de4"
+    },
+    {
+      "path": ".impeccable/review/c22-capabilities/store-light-apple-medium.jpg",
+      "sha256": "91d6ec500d0a65d52da0c9d5fe0b11d84720fc3344d0e2fee6658cc616f68bef"
+    },
+    {
+      "path": ".impeccable/review/c22-capabilities/store-light-play.jpg",
+      "sha256": "76e780b8bfd9d234375f76902587f60888182c3bf1ddcc8ae502bafc220b3465"
+    },
+    {
+      "path": ".impeccable/review/c22-features/film-account-contact.jpg",
+      "sha256": "e7af58b35c3ff8f3018dc176c2fc9646a1640fbf8e47b8845d282c8a4fe1665a"
+    },
+    {
+      "path": ".impeccable/review/c22-features/film-aside-contact.jpg",
+      "sha256": "21b402dbb6a40731deca44640ef4dd4544663742930aa4992b85f48580714ffc"
+    },
+    {
+      "path": ".impeccable/review/c22-features/film-balance-contact.jpg",
+      "sha256": "51f20859e1a4bfdb427b35bd4976fea07f0cf522aaf07464920dd248ebb80b7e"
+    },
+    {
+      "path": ".impeccable/review/c22-features/film-month-contact.jpg",
+      "sha256": "f01be0f3751fe107618794a525b2d9bff1f46e500e25a1de25af1e4d56a62e71"
+    },
+    {
+      "path": ".impeccable/review/c22-features/film-movement-contact.jpg",
+      "sha256": "5d315e5417e4d1b3b4f6fc147decc8df6752e6929436db4927125641084a4721"
+    },
+    {
+      "path": ".impeccable/review/c22-features/film-penny-contact.jpg",
+      "sha256": "a8eda8b051c733c3f64be757f5f297c7e0df7280ed0f1045b8957df11b61036d"
+    },
+    {
+      "path": ".impeccable/review/c22-features/film-plans-contact.jpg",
+      "sha256": "337661773f44a82593e557e300afca387945af47ed76e1a19b6310efdbac3a6b"
+    },
+    {
+      "path": ".impeccable/review/c22-features/film-schedule-contact.jpg",
+      "sha256": "91b5786c0e85e4cc0dc530c04011f98de206b0d3f3e99aa51a72eea1ff57134e"
+    },
+    {
+      "path": ".impeccable/review/c22-features/film-spend-contact.jpg",
+      "sha256": "44a0fbe5d77a87c4a6c8fbd4a5a55bbe4f15bebba2182a4b9e8c8687413cd303"
+    },
+    {
+      "path": ".impeccable/review/c22-features/film-split-contact.jpg",
+      "sha256": "522f8231bcf53fede4e6b353f15604c15c4235987685db6c3c8ae48c65dcb726"
+    },
+    {
+      "path": ".impeccable/review/c22-features/film-upcoming-contact.jpg",
+      "sha256": "6275917b87f61306544722c3f8e9cc851866236be9dd265488c0b9751b437f64"
+    },
+    {
+      "path": ".impeccable/review/c22-features/gallery-dark-1440.png",
+      "sha256": "133d4a5f9a916b6b81215f4e3c71050dcf9639b12128385ebdd24a10b261210e"
+    },
+    {
+      "path": ".impeccable/review/c22-features/gallery-dark-320.png",
+      "sha256": "d04202b1e6c2b711a85eb062c1f11dfc56f7e247f45e0c918e6188fcfa82a8c4"
+    },
+    {
+      "path": ".impeccable/review/c22-features/gallery-dark-390.png",
+      "sha256": "41b5bedc379f2c37b45b1a4ea0404acc87a111d1d9fe29db3122c7f429340c57"
+    },
+    {
+      "path": ".impeccable/review/c22-features/gallery-light-1440.png",
+      "sha256": "db3ac9e02ebe8e129f120de1713f1d6588999f61d3d08d337880ef0a07aeaaf3"
+    },
+    {
+      "path": ".impeccable/review/c22-features/gallery-light-320.png",
+      "sha256": "c91da476f66574a16b90f3705ad9cca4e110eb94893681945b0190ded8cd9629"
+    },
+    {
+      "path": ".impeccable/review/c22-features/gallery-light-390.png",
+      "sha256": "34fe2bbbca8c3a2e733f50e4d726b04e58f60bece715b3579ddd5ce76a6b779d"
+    },
+    {
+      "path": ".impeccable/review/c22-store/gallery-dark-1440.png",
+      "sha256": "54534f5afd1a95a56516631b637188bce3469f1e62ff74ae57f336727f1633a1"
+    },
+    {
+      "path": ".impeccable/review/c22-store/gallery-dark-320.png",
+      "sha256": "94c49a5e41c85e1c5df9e9825c43328aef861de57a01e147853c229a4a6bc090"
+    },
+    {
+      "path": ".impeccable/review/c22-store/gallery-dark-390.png",
+      "sha256": "5f3db9181270ba213254df8bb913bc38c3da2472ad85f737e4363c79da60cdba"
+    },
+    {
+      "path": ".impeccable/review/c22-store/gallery-light-1440.png",
+      "sha256": "bdd1812b0b524729eb20b9341610e87cc47eaf75ba81e8362f3745074376cbfe"
+    },
+    {
+      "path": ".impeccable/review/c22-store/gallery-light-320.png",
+      "sha256": "e4caac75ce4f0bcdb468dd7f931fb65b1a31e2bf936520ca805fcfd8760f9163"
+    },
+    {
+      "path": ".impeccable/review/c22-store/gallery-light-390.png",
+      "sha256": "4186e4aa8bd146e6001771cad975168b7615ab16ee14b72fac6ce262e7c0f371"
+    },
+    {
+      "path": ".impeccable/review/c22-store/store-section-dark-phone.png",
+      "sha256": "01ab8917cb08244466cfda6c8433fe2dbd567636a153f3fa33d5dcd59c2ccf44"
+    },
+    {
+      "path": ".impeccable/review/c22-store/store-section-light-phone.png",
+      "sha256": "7cb465d146e258155057ed2b1ea9fbde7a1789f371f84225cc10de73c7b1f0c7"
+    }
+  ]
+}

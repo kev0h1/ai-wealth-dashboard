@@ -15,30 +15,30 @@ from playwright.sync_api import sync_playwright
 
 ROOT = Path(__file__).resolve().parents[2]
 OUT = ROOT / "frontend/public/design-media/c22/store"
-IDS = ("amount", "account", "spend", "month", "split", "movement", "penny", "aside")
+IDS = ("amount", "account", "spend", "movement", "penny", "plans", "aside", "schedule")
 PLATFORMS = ("apple-medium", "apple-large", "apple-classic", "play")
 SIZES = {"apple-medium": (1206, 2622), "apple-large": (1320, 2868), "apple-classic": (1242, 2688), "play": (1080, 1920), "feature": (1024, 500)}
 SHELL = {"/api/cashflow/at-risk-count": {"count": 0}, "/api/categories": [], "/api/preferences": {"hide_net_worth": False}}
 SOURCES = ("frontend/app/design/marketing-kit/store/StoreCanvas.tsx", "frontend/app/design/marketing-kit/store/catalog.ts", "frontend/app/design/marketing-kit/store/store.module.css")
 PROOFS = {
     "amount": "frontend/public/design-media/c22/next/proof-safe",
-    "account": "frontend/public/design-media/c22/next/proof-accounts",
-    "spend": "frontend/public/design-media/c22/features/proof-spend",
-    "month": "frontend/public/design-media/c22/features/proof-month-spending",
-    "split": "frontend/public/design-media/c22/features/proof-split-card",
-    "movement": "frontend/public/design-media/c22/features/proof-movement",
-    "penny": "frontend/public/design-media/c22/features/proof-penny-proposal",
+    "account": "frontend/public/design-media/c22/features/proof-upcoming-updated",
+    "spend": "frontend/public/design-media/c22/features/proof-spend-insight",
+    "movement": "frontend/public/design-media/c22/features/proof-movement-sources",
+    "penny": "frontend/public/design-media/c22/features/proof-penny-chart",
+    "plans": "frontend/public/design-media/c22/features/proof-penny-proposal",
     "aside": "frontend/public/design-media/c22/features/proof-aside-form",
+    "schedule": "frontend/public/design-media/c22/features/proof-schedule-proposal"
 }
 ALTS = {
-    "amount": "Left to spend estimate in the Sorted app with its account context.",
-    "account": "Upcoming payment in the Sorted app showing an account shortfall.",
-    "spend": "Pay-period spending pace in the Sorted app.",
-    "month": "Month in review in the Sorted app showing income and spending.",
-    "split": "A spending split comparison in the Sorted app.",
-    "movement": "Suggested movement in the Sorted app explaining a payment gap.",
-    "penny": "Penny proposal in the Sorted app awaiting the user confirmation.",
-    "aside": "Annual-costs set-aside review in Sorted, showing its amount and paying account before saving.",
+    "amount": "Left to spend estimate and its paying-account context.",
+    "account": "Upcoming bills and an updated Boiler service one-off in Sorted.",
+    "spend": "Eating Out spending of £240 compared with £120 usual by day 10.",
+    "movement": "Suggested £80 and £40 contributions cover a £120 payment gap.",
+    "penny": "Penny charts category spending against usual by day 10.",
+    "plans": "Penny proposes a £600 goal with three £200 contributions before confirmation.",
+    "aside": "Review a £250 grocery set-aside, its source and tracking before saving.",
+    "schedule": "Penny proposes changing Boiler service from £90 on 24 Nov to £95 on 26 Nov."
 }
 
 def digest(path): return hashlib.sha256(path.read_bytes()).hexdigest()

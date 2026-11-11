@@ -7,7 +7,7 @@ from playwright.sync_api import sync_playwright, expect
 
 ROOT = Path(__file__).resolve().parents[2]
 REVIEW = ROOT / ".impeccable/review/c22-features"
-FEATURES = {"movement":"Money movements", "month":"Month in review", "spend":"Spend", "split":"50/30/20", "penny":"Penny actions", "aside":"Set money aside"}
+FEATURES = {"movement":"Money movements", "month":"Month in review", "spend":"Spend", "split":"50/30/20", "penny":"Penny charts", "aside":"Set money aside", "upcoming":"Upcoming payments", "plans":"Penny plans", "schedule":"Payment schedule"}
 SHELL = {"/api/cashflow/at-risk-count":{"count":0}, "/api/categories":[], "/api/preferences":{"hide_net_worth":False}}
 PLAY = """async v => {
  const event = type => new Promise((resolve,reject)=>{const timeout=setTimeout(()=>reject(Error(type+' timed out')),15000);v.addEventListener(type,()=>{clearTimeout(timeout);resolve()},{once:true});v.addEventListener('error',()=>{clearTimeout(timeout);reject(Error('media error'))},{once:true});});
@@ -52,7 +52,7 @@ def main():
    assert not small,(width,small)
   for theme in ("light","dark"):
    visit("?mode="+theme)
-   expect(page.locator("#images img")).to_have_count(9);expect(page.locator("video")).to_have_count(8)
+   expect(page.locator("#images img")).to_have_count(12);expect(page.locator("video")).to_have_count(11)
    for width in (1440,390,320):
     layout(width);page.screenshot(path=str(REVIEW/f"gallery-{theme}-{width}.png"),full_page=True)
    for feature,title in FEATURES.items():
@@ -81,7 +81,7 @@ def main():
   # Rapid sequential controls must preserve all three URL parameters.
   page.get_by_role("button",name="Light",exact=True).click()
   page.get_by_role("button",name="Story",exact=True).click()
-  page.get_by_role("button",name="Penny actions",exact=True).click()
+  page.get_by_role("button",name="Penny charts",exact=True).click()
   expect(page.locator("#images img")).to_have_attribute("src","/design-media/c22/features/penny-light-story.png")
   assert all(s in page.url for s in ("mode=light","format=story","topic=penny")),page.url
   page.get_by_role("link",name="Watch the videos",exact=True).click();assert page.url.endswith("#videos")
@@ -91,6 +91,6 @@ def main():
   browser.close()
  assert not errors,errors
  (REVIEW/"browser-result.json").write_text(json.dumps({"errors":errors,"playback":playback,"widths":[320,390,1440],"filters":"pass","archives":"pass","rapidControls":"pass"},indent=2)+"\n")
- print("All six feature filters, 320/390/1440 layouts and 16 actual MP4 play/pause/seek/caption checks passed.")
+ print("All nine feature filters, 320/390/1440 layouts and 22 actual MP4 play/pause/seek/caption checks passed.")
 
 if __name__=="__main__":main()

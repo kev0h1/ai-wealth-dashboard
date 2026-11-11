@@ -8,7 +8,7 @@ from PIL import Image
 
 ROOT = Path(__file__).resolve().parents[2]
 OUT = ROOT / "frontend/public/design-media/c22/features"
-FEATURES = ("movement", "month", "spend", "split", "penny", "aside")
+FEATURES = ("movement", "month", "spend", "split", "penny", "aside", "upcoming", "plans", "schedule")
 
 def digest(path):
  return hashlib.sha256(path.read_bytes()).hexdigest()
@@ -26,10 +26,12 @@ def main():
   assert path.stat().st_size == asset["bytes"] and digest(path) == asset["sha256"], name
   if name.endswith(".png"):
    with Image.open(path) as image:
+    image.load()
     assert image.size == (asset["width"], asset["height"]), name
     origin = json.loads(image.info["Source"])
     assert origin["data"] == "fictional", name
     assert all(manifest["sourceDependencies"][file] == expected for file, expected in origin["productionUI"].items()), name
+   with Image.open(path) as image:
     image.verify()
   if asset["kind"] == "film":
    info = json.loads(subprocess.check_output(["ffprobe", "-v", "error", "-show_streams", "-show_format", "-of", "json", str(path)]))
@@ -52,14 +54,14 @@ def main():
    assert assets[f"{feature}-{theme}.mp4"]["kind"] == "film"
   assert (OUT / f"{feature}.vtt").read_text().count(" --> ") == 5
   assert assets[f"{feature}-sound.wav"]["kind"] == "sound"
- assert sum(a["kind"] == "still" for a in assets.values()) == 24
- assert sum(a["kind"] == "film" for a in assets.values()) == 12
- assert sum(a["kind"] == "proof" for a in assets.values()) == 30
+ assert sum(a["kind"] == "still" for a in assets.values()) == 36
+ assert sum(a["kind"] == "film" for a in assets.values()) == 18
+ assert sum(a["kind"] == "proof" for a in assets.values()) == 66
  # The companion original-story exports must match their refreshed manifest.
  old = ROOT / "frontend/public/design-media/c22/next"
  previous = json.loads((old / "manifest.json").read_text())
  for asset in previous["assets"]:
   assert digest(old / asset["file"]) == asset["sha256"], f"Approved asset changed: {asset['file']}"
- print("24 feature PNGs, 12 films, 30 fresh UI proofs; refreshed original stories match their manifest.")
+ print("36 feature PNGs, 18 films, 66 fresh UI proofs; refreshed original stories match their manifest.")
 
 if __name__ == "__main__": main()

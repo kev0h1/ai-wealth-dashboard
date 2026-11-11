@@ -56,7 +56,7 @@ export default function CampaignGallery() {
     <nav className={styles.jump} aria-label="Media sections"><a href="#stores">Store screenshots</a><a href="#images">Instagram images</a><a href="#videos">Watch the videos</a><a href="/design-media/c22/listing-copy.json" download>Store listing copy</a></nav>
     <StoreShelf theme={theme} />
     <fieldset className={styles.topics}><legend>Explore a campaign feature</legend>{[{ id: "all", title: "All" }, { id: "original", title: "First round" }, ...FEATURE_IDS.map(id => ({ id, title: FEATURES[id].title }))].map(item => <button type="button" key={item.id} aria-pressed={topic === item.id} onClick={() => update("topic", item.id)}>{item.title}</button>)}</fieldset>
-    <p className={styles.draft}>36 Instagram images · 16 MP4s · Light and dark · Review media with fictional data.</p>
+    <p className={styles.draft}>{images.length * 4} Instagram images · {films.length * 2} MP4s · Light and dark · Review media with fictional data.</p>
     <section id="images" aria-labelledby="images-title">
       <div className={styles.sectionHead}><h2 id="images-title">Images</h2><p>For Instagram</p></div>
       <div className={styles.imageGrid}>{visibleImages.map((item, index) => {

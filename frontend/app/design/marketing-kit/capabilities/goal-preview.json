@@ -1,0 +1,42 @@
+{
+  "schedule": {
+    "type": "fixed",
+    "start_date": "2026-11-30",
+    "amounts_pence": [
+      20000,
+      20000,
+      20000
+    ],
+    "unit": "period"
+  },
+  "label": "\u00a3200, \u00a3200, \u00a3200, one a pay period from 30 Nov 2026",
+  "total": 600.0,
+  "start_date": "2026-11-30",
+  "start_weekday": "Monday",
+  "end_date": "2027-02-27",
+  "end_weekday": "Saturday",
+  "estimated": false,
+  "current_period": {
+    "start": "2026-10-30",
+    "end": "2026-11-29",
+    "amount": 0.0
+  },
+  "periods": [
+    {
+      "start": "2026-11-30",
+      "end": "2026-12-29",
+      "amount": 200.0
+    },
+    {
+      "start": "2026-12-30",
+      "end": "2027-01-29",
+      "amount": 200.0
+    },
+    {
+      "start": "2027-01-30",
+      "end": "2027-02-27",
+      "amount": 200.0
+    }
+  ],
+  "planned_to_date": 0.0
+}

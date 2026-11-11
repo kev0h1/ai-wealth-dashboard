@@ -80,8 +80,9 @@ def main():
         page.on("pageerror", lambda e: errors.append(str(e)))
         page.on("response", lambda r: errors.append(f"HTTP {r.status}: {r.url}") if r.status >= 400 else None)
         def visit(query):
-            response = page.goto(args.base + "/design/marketing-kit?" + urlencode(query), wait_until="networkidle")
+            response = page.goto(args.base + "/design/marketing-kit?" + urlencode(query), wait_until="domcontentloaded")
             assert response.status == 200
+            page.locator("[data-next-proof], [data-next-artboard]").first.wait_for()
             page.evaluate("document.fonts.ready")
             page.evaluate("Promise.all([...document.images].map(i=>i.decode()))")
             page.evaluate("new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))")

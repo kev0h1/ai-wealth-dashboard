@@ -1,4 +1,4 @@
-export const STORE_IDS = ["amount", "account", "spend", "month", "split", "movement", "penny", "aside"] as const;
+export const STORE_IDS = ["amount", "account", "spend", "movement", "penny", "plans", "aside", "schedule"] as const;
 export type StoreId = (typeof STORE_IDS)[number];
 export const STORE_PLATFORMS = ["apple-medium", "apple-large", "apple-classic", "play", "feature"] as const;
 export type StorePlatform = (typeof STORE_PLATFORMS)[number];
@@ -12,105 +12,95 @@ export const STORE_SIZES: Record<StorePlatform, { width: number; height: number 
   feature: { width: 1024, height: 500 },
 };
 
-export const STORE_ART: Record<StoreId, {
-  title: string;
-  kicker: string;
-  headline: string;
-  heading: string;
-  caption: string;
-  supporting: string;
-  proof: string;
-  alt: string;
-  qualifier: string;
-}> = {
-  amount: {
-    title: "Left to spend",
-    kicker: "LEFT TO SPEND",
-    headline: "Know what is yours to spend.",
-    heading: "Know what is yours to spend.",
-    caption: "One clear estimate for the time until payday.",
-    supporting: "One clear estimate for the time until payday.",
-    proof: "next/proof-safe",
-    alt: "Left to spend estimate in the Sorted app with its account context.",
-    qualifier: "Fictional example · Estimated until 30 October 2026",
+export const STORE_ART: Record<StoreId, { title: string; kicker: string; headline: string; heading: string; caption: string; supporting: string; proof: string; alt: string; qualifier: string }> = {
+  "amount": {
+    "title": "Left to spend",
+    "kicker": "LEFT TO SPEND",
+    "headline": "Know what is yours to spend.",
+    "supporting": "One clear estimate for the time until payday.",
+    "proof": "next/proof-safe",
+    "alt": "Left to spend estimate and its paying-account context.",
+    "qualifier": "Fictional example · Estimated until 30 October 2026",
+    "heading": "Know what is yours to spend.",
+    "caption": "One clear estimate for the time until payday."
   },
-  account: {
-    title: "Upcoming payments",
-    kicker: "UPCOMING",
-    headline: "See which account needs attention.",
-    heading: "See which account needs attention.",
-    caption: "A payment is only covered when its own account is ready.",
-    supporting: "A payment is only covered when its own account is ready.",
-    proof: "next/proof-accounts",
-    alt: "Upcoming payment in the Sorted app showing an account shortfall.",
-    qualifier: "Fictional example · Payment expected 18 October 2026",
+  "account": {
+    "title": "Upcoming payments",
+    "kicker": "UPCOMING",
+    "headline": "Your payments. Your plan.",
+    "supporting": "See what is due, add one-offs and make changes.",
+    "proof": "features/proof-upcoming-updated",
+    "alt": "Upcoming bills and an updated Boiler service one-off in Sorted.",
+    "qualifier": "Fictional example · November 2026",
+    "heading": "Your payments. Your plan.",
+    "caption": "See what is due, add one-offs and make changes."
   },
-  spend: {
-    title: "Spending pace",
-    kicker: "SPENDING",
-    headline: "See your pace before it surprises you.",
-    heading: "See your pace before it surprises you.",
-    caption: "Spending and money moved are shown separately.",
-    supporting: "Spending and money moved are shown separately.",
-    proof: "features/proof-spend",
-    alt: "Pay-period spending pace in the Sorted app.",
-    qualifier: "Fictional example · 8–30 October 2026",
+  "spend": {
+    "title": "Where spending changed",
+    "kicker": "SPENDING",
+    "headline": "See where you are spending more.",
+    "supporting": "Compare expenses with your usual pace at the same point in the period.",
+    "proof": "features/proof-spend-insight",
+    "alt": "Eating Out spending of £240 compared with £120 usual by day 10.",
+    "qualifier": "Fictional example · Same pay period, through day 10",
+    "heading": "See where you are spending more.",
+    "caption": "Compare expenses with your usual pace at the same point in the period."
   },
-  month: {
-    title: "Month in review",
-    kicker: "MONTH IN REVIEW",
-    headline: "Your month. The whole picture.",
-    heading: "Your month. The whole picture.",
-    caption: "Income, spending, moves and what stayed left.",
-    supporting: "Income, spending, moves and what stayed left.",
-    proof: "features/proof-month-spending",
-    alt: "Month in review in the Sorted app showing income and spending.",
-    qualifier: "Fictional example · 1–30 September 2026",
+  "movement": {
+    "title": "Cover from multiple accounts",
+    "kicker": "MONEY MOVEMENTS",
+    "headline": "One bill. More than one account.",
+    "supporting": "Review the suggested contributions, then use your bank.",
+    "proof": "features/proof-movement-sources",
+    "alt": "Suggested £80 and £40 contributions cover a £120 payment gap.",
+    "qualifier": "Fictional example · You make transfers in your bank",
+    "heading": "One bill. More than one account.",
+    "caption": "Review the suggested contributions, then use your bank."
   },
-  split: {
-    title: "Your money split",
-    kicker: "YOUR MONEY",
-    headline: "A guide for how money is divided.",
-    heading: "A guide for how money is divided.",
-    caption: "Compare your actual split with a reference, without a score.",
-    supporting: "Compare your actual split with a reference, without a score.",
-    proof: "features/proof-split-card",
-    alt: "A spending split comparison in the Sorted app.",
-    qualifier: "Fictional example · Adapted reference, not a target",
+  "penny": {
+    "title": "Penny charts",
+    "kicker": "ASK PENNY",
+    "headline": "Ask a question. See it clearly.",
+    "supporting": "Visualise spending against the same point in your usual pay period.",
+    "proof": "features/proof-penny-chart",
+    "alt": "Penny charts category spending against usual by day 10.",
+    "qualifier": "Fictional example · Spending comparison, not a forecast",
+    "heading": "Ask a question. See it clearly.",
+    "caption": "Visualise spending against the same point in your usual pay period."
   },
-  movement: {
-    title: "Money movements",
-    kicker: "MONEY MOVEMENTS",
-    headline: "The right amount, in the right account.",
-    heading: "The right amount, in the right account.",
-    caption: "Sorted points out a gap. You make every bank transfer.",
-    supporting: "Sorted points out a gap. You make every bank transfer.",
-    proof: "features/proof-movement",
-    alt: "Suggested movement in the Sorted app explaining a payment gap.",
-    qualifier: "Fictional example · You make any transfer in your bank",
+  "plans": {
+    "title": "Penny plans",
+    "kicker": "PLAN WITH PENNY",
+    "headline": "A clear goal. A contribution plan.",
+    "supporting": "Three planned contributions build a £600 car-insurance goal.",
+    "proof": "features/proof-penny-proposal",
+    "alt": "Penny proposes a £600 goal with three £200 contributions before confirmation.",
+    "qualifier": "Fictional example · Your confirmation creates the goal",
+    "heading": "A clear goal. A contribution plan.",
+    "caption": "Three planned contributions build a £600 car-insurance goal."
   },
-  penny: {
-    title: "Penny",
-    kicker: "PENNY",
-    headline: "Ask Penny. Keep the final say.",
-    heading: "Ask Penny. Keep the final say.",
-    caption: "Review a proposal before a plan is saved.",
-    supporting: "Review a proposal before a plan is saved.",
-    proof: "features/proof-penny-proposal",
-    alt: "Penny proposal in the Sorted app awaiting the user confirmation.",
-    qualifier: "Fictional example · Your confirmation creates the plan",
+  "aside": {
+    "title": "Set money aside",
+    "kicker": "SET MONEY ASIDE",
+    "headline": "Give everyday spending its own plan.",
+    "supporting": "Set aside £250 for groceries each pay period.",
+    "proof": "features/proof-aside-form",
+    "alt": "Review a £250 grocery set-aside, its source and tracking before saving.",
+    "qualifier": "Fictional example · A plan you control",
+    "heading": "Give everyday spending its own plan.",
+    "caption": "Set aside £250 for groceries each pay period."
   },
-  aside: {
-    title: "Set money aside",
-    kicker: "SET ASIDES",
-    headline: "Future costs, already in the plan.",
-    heading: "Future costs, already in the plan.",
-    caption: "Review the amount, source and tracking before saving.",
-    supporting: "Review the amount, source and tracking before saving.",
-    proof: "features/proof-aside-form",
-    alt: "Annual-costs set-aside review in Sorted, showing its amount and paying account before saving.",
-    qualifier: "Fictional example · A plan, not a bank transfer",
-  },
+  "schedule": {
+    "title": "Payment changes in chat",
+    "kicker": "PAYMENT PLANS",
+    "headline": "Change a payment plan in chat.",
+    "supporting": "Review the new amount and date before confirming.",
+    "proof": "features/proof-schedule-proposal",
+    "alt": "Penny proposes changing Boiler service from £90 on 24 Nov to £95 on 26 Nov.",
+    "qualifier": "Fictional example · Bank payments stay with your bank",
+    "heading": "Change a payment plan in chat.",
+    "caption": "Review the new amount and date before confirming."
+  }
 };
 
 export const isStoreId = (value: string | null): value is StoreId => STORE_IDS.includes(value as StoreId);

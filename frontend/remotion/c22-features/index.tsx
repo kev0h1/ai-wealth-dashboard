@@ -20,7 +20,7 @@ function Film({ story, theme }: { story: FeatureStory; theme: "light" | "dark" }
 }
 
 function Root() {
-  return <>{(["movement", "month", "spend", "split", "penny", "aside"] as const).flatMap((story) => (["light", "dark"] as const).map((theme) =>
+  return <>{(["movement", "month", "spend", "split", "penny", "aside", "upcoming", "plans", "schedule"] as const).flatMap((story) => (["light", "dark"] as const).map((theme) =>
     <Composition key={`${story}-${theme}`} id={`Feature-${story}-${theme}`} component={Film} defaultProps={{ story, theme }} width={1080} height={1920} fps={30} durationInFrames={450} />
   ))}</>;
 }
