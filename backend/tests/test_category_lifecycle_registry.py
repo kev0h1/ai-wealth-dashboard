@@ -49,6 +49,7 @@ Four things, each covered by its own section below:
 """
 from datetime import datetime, timedelta, timezone
 
+import pytest
 import app.core.timeutil as timeutil
 import app.routers.savings_insights as savings_insights
 from app.routers.savings_insights import (
@@ -509,3 +510,11 @@ def _g418_real_line_gate_off(monkeypatch):
     figure. This file pins other behaviour with own-fact fixtures, so the rule is
     switched off here and covered on its own in test_g418_tip_filter.py."""
     monkeypatch.setattr(_tip_facts_g418, "carries_beyond_own_figure", lambda body: True)
+
+
+@pytest.fixture(autouse=True)
+def _tips_flag_on(monkeypatch):
+    """G455: these tests exercise tip behaviour, which is off unless
+    TIPS_ENABLED is on (it defaults to false)."""
+    from app.core import config as _tips_cfg
+    monkeypatch.setattr(_tips_cfg, "TIPS_ENABLED", True)

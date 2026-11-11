@@ -317,3 +317,20 @@ def test_mcp_has_no_get_insights_when_off(monkeypatch):
 def test_mcp_lists_get_insights_when_on(monkeypatch):
     _flag(monkeypatch, True)
     assert "get_insights" in {t["name"] for t in mcp._mcp_tool_list()}
+
+
+# ── Can I executors ──────────────────────────────────────────────────────
+
+def test_can_i_tip_executors_refuse_when_off(monkeypatch):
+    import app.routers.can_i as can_i
+    _flag(monkeypatch, False)
+    cases = [
+        (can_i._execute_mark_insight_opened, {"insight_id": "i1"}),
+        (can_i._execute_save_insight_context, {"insight_id": "i1", "context": {}}),
+        (can_i._execute_dismiss_insight, {"insight_id": "i1"}),
+        (can_i._execute_pin_insight, {"insight_id": "i1", "pinned": True}),
+    ]
+    for fn, params in cases:
+        with pytest.raises(HTTPException) as exc:
+            _run(fn(UID, params))
+        assert exc.value.detail == "Tips are switched off."
