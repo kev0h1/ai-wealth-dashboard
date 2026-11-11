@@ -59,11 +59,12 @@ const block = sts.slice(iSync, iDegraded);
 assert.doesNotMatch(block, /role="alert"/);
 assert.match(block, /aria-busy="true"/);
 
-const brief = readFileSync(new URL("../components/HomeBrief.tsx", import.meta.url), "utf8");
-const iBriefSync = brief.indexOf('safeToSpend.calculation_status === "syncing"');
-const iHeadroom = brief.indexOf("Your estimate has headroom");
-assert.ok(iBriefSync > 0 && iHeadroom > iBriefSync, "HomeBrief handles syncing before the headroom fallback");
-assert.match(brief.slice(iBriefSync, iBriefSync + 300), /first sync is still running/);
+// G457: the Home line moved into lib/pennyScreenViews.ts (homeBriefFallbackText).
+const briefViews = readFileSync(new URL("../lib/pennyScreenViews.ts", import.meta.url), "utf8");
+const iBriefSync = briefViews.indexOf('export function homeBriefFallbackText');
+const iHeadroom = briefViews.indexOf("Your estimate has headroom");
+assert.ok(iBriefSync > 0 && iHeadroom > iBriefSync, "the Home line handles syncing before the headroom fallback");
+assert.match(briefViews.slice(iBriefSync, iBriefSync + 700), /first sync is still running/);
 const views = readFileSync(new URL("../lib/pennyScreenViews.ts", import.meta.url), "utf8");
 assert.match(views, /calculation_status === "syncing"/, "Penny view builder guards syncing");
 assert.match(home, /verdictWithheld\s*=\s*\s*syncStatus\?\.first_sync === true/, "only a genuine first sync withholds the verdict");

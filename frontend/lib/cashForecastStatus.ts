@@ -1,6 +1,6 @@
 import type { SafeToSpend } from "./api";
-import { homeForecastPresentation, type SafeToSpendHeadline } from "./pennyScreenViews";
-export { homeForecastPresentation } from "./pennyScreenViews";
+import { homeForecastPresentation, isNoHeadroom, type SafeToSpendHeadline } from "./pennyScreenViews";
+export { homeForecastPresentation, forecastPence, isNoHeadroom } from "./pennyScreenViews";
 
 export type ForecastTone = "risk" | "watch" | "good" | "neutral";
 export type ForecastStatus = { tone: ForecastTone; label: string };
@@ -21,18 +21,6 @@ export type HomeForecastPresentation = {
   signed: boolean;
 };
 const finite = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value);
-
-/**
- * Cashflow inputs are already penny-denominated. Normalise only after the
- * client-side walk has combined them, so binary floating-point residue cannot
- * turn an exactly-covered forecast into a microscopic red shortage. Non-finite
- * values remain untouched for the existing neutral availability guard.
- */
-export function forecastPence(value: number): number {
-  if (!finite(value)) return value;
-  const rounded = Math.round(value * 100) / 100;
-  return rounded === 0 ? 0 : rounded;
-}
 
 /** Compare UK calendar days, including ISO timestamps with an offset. */
 function ukDay(value: string | number): string | null {
@@ -70,7 +58,7 @@ export function upcomingForecastPresentation(input: {
   // Conflicting snapshots must not turn a known dated gap into green.
   if (data.lowest_projected_balance < 0) return neutral;
   const home = homeForecastPresentation(data, input.headline);
-  if (input.runway === 0) return { status: { tone: "watch", label: "No headroom" }, qualifierTone: "watch" };
+  if (isNoHeadroom(input.runway)) return { status: { tone: "watch", label: "No headroom" }, qualifierTone: "watch" };
   if (home.status.tone === "neutral") return neutral;
   // A negative endpoint needs proved optional-reserve context, never green.
   if (input.runway < 0) return home.status.label === "Plans gap"
