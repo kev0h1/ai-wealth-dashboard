@@ -31,7 +31,7 @@ import HomeBrief, { HomeBriefClearedRow } from "@/components/HomeBrief";
 import HomeGreetingHeader from "@/components/HomeGreetingHeader";
 import HomeTransfersCheck from "@/components/HomeTransfersCheck";
 import { HomeNotificationPermission } from "@/components/notifications/NotificationPermissionProvider";
-import ReconnectStrip from "@/components/ReconnectStrip";
+import ReconnectStrip, { reconnectProviderLabel } from "@/components/ReconnectStrip";
 import ReconfirmPrompt from "@/components/ReconfirmPrompt";
 import { invalidateAllAccountData } from "@/lib/accountMutations";
 import { resolveAttention } from "@/lib/attention";
@@ -934,6 +934,8 @@ export default function HomePage() {
     return [...grouped.values()];
   }, [accounts, bankConnections]);
   const providerHealth = useProviderHealth(expiredProviders.length > 0);
+  // G457: the same list the reconnect banner renders, named the same way.
+  const reconnectNames = useMemo(() => expiredProviders.map(reconnectProviderLabel), [expiredProviders]);
 
   // A67: reconnect REPAIRS one named connection, so it must go back to the
   // provider that owns that consent — sending an expired TrueLayer account
@@ -1099,6 +1101,7 @@ export default function HomePage() {
               firstName={firstName}
               displayName={displayName}
               safeToSpend={safeToSpend}
+              reconnectNames={reconnectNames}
               loading={loading}
               syncError={syncError}
               hideNetWorth={hideNetWorth || !preferencesReady}

@@ -154,10 +154,19 @@ export function classifyLeftToSpend(data: SafeToSpendOk): { band: LeftToSpendBan
 
 /** Penny's Home line when she has no items. Pure so the copy can be tested
  * against the card's chip for the same payload. */
-export function homeBriefFallbackText(data: SafeToSpend | null): string {
+export function homeBriefFallbackText(data: SafeToSpend | null, reconnectNames: string[] = []): string {
   if (data && data.status === "ok" && data.calculation_status === "syncing") {
     // G210: no verdict while a first sync runs, so no headroom claim.
     return "Your first sync is still running. I will have a read on your money once it lands.";
+  }
+  // G457: an expired connection is excluded from the estimate (A192,
+  // counted_accounts.connection_ended), so "isn't counting it yet" is true.
+  // It outranks every verdict branch and insufficient_data, but not a first
+  // sync still running (above) nor a not-yet-loaded estimate.
+  if (data && reconnectNames.length > 0) {
+    return reconnectNames.length === 1
+      ? `${reconnectNames[0]} needs reconnecting, so your estimate isn't counting it yet.`
+      : `${reconnectNames.length} banks need reconnecting, so your estimate isn't counting them yet.`;
   }
   if (!data || data.status === "insufficient_data") {
     return "Your estimated left to spend isn't ready yet. I'm still checking the bills, so check back later.";

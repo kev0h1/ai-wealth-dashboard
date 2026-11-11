@@ -73,6 +73,8 @@ function writeDismissedPaydayEntry(nextPayday: string): void {
 
 interface HomeBriefProps {
   items: CompanionItem[];
+  /** G457: banks needing reconnection (the reconnect banner's own list). */
+  reconnectNames?: string[];
   firstName?: string;
   /** D7: the full resolved name (profile.full_name preferred, session name
    * as fallback, never an email or its local part — see lib/displayName.ts)
@@ -2037,6 +2039,8 @@ function useHomeDismissedAdvice(items: CompanionItem[], enabled: boolean) {
 
 export interface BriefBodyProps {
   items: CompanionItem[];
+  /** G457: banks needing reconnection (the reconnect banner's own list). */
+  reconnectNames?: string[];
   safeToSpend: SafeToSpend | null;
   router: ReturnType<typeof useRouter>;
   hideNetWorth?: boolean;
@@ -2078,7 +2082,7 @@ export interface BriefBodyProps {
   onCoverMoveVisibleChange?: (visible: boolean, reserves?: Record<string, number>, destinations?: Record<string, string[]>) => void;
 }
 
-export function BriefBody({ items: rawItems, safeToSpend, router, hideNetWorth: hideNetWorthProp = false, onRefresh, attnTarget, dismissible = false, hideAttribution = false, onClearedChange, onCoverMoveVisibleChange }: BriefBodyProps) {
+export function BriefBody({ items: rawItems, reconnectNames, safeToSpend, router, hideNetWorth: hideNetWorthProp = false, onRefresh, attnTarget, dismissible = false, hideAttribution = false, onClearedChange, onCoverMoveVisibleChange }: BriefBodyProps) {
   // B56: Penny sits under the app-level BalancesHiddenContext, so the preference applies even when a caller passes no prop.
   const ctxHidden = useBalancesHidden();
   const hideNetWorth = hideNetWorthProp || ctxHidden;
@@ -2164,7 +2168,7 @@ export function BriefBody({ items: rawItems, safeToSpend, router, hideNetWorth: 
 
     // G457: one shared classifier, so this line cannot disagree with the
     // Left to spend card chip (lib/pennyScreenViews.ts).
-    const fallbackText = homeBriefFallbackText(safeToSpend);
+    const fallbackText = homeBriefFallbackText(safeToSpend, reconnectNames);
     return (
       <p lang="en-GB" className="text-wrap text-[15px] text-slate-700 dark:text-slate-200 leading-relaxed"><MoneyText text={fallbackText} /></p>
     );
@@ -2397,7 +2401,7 @@ export function HomeBriefClearedRow({ cleared, router }: HomeBriefClearedRowProp
   );
 }
 
-export default function HomeBrief({ items, firstName, displayName, safeToSpend, loading, syncError, hideNetWorth, onRefresh, attnTarget, dismissible, hasAccounts, onClearedChange, onCoverMoveVisibleChange, banner }: HomeBriefProps) {
+export default function HomeBrief({ items, reconnectNames, firstName, displayName, safeToSpend, loading, syncError, hideNetWorth, onRefresh, attnTarget, dismissible, hasAccounts, onClearedChange, onCoverMoveVisibleChange, banner }: HomeBriefProps) {
   const router = useRouter();
   const name = firstName || "there";
 
@@ -2447,7 +2451,7 @@ export default function HomeBrief({ items, firstName, displayName, safeToSpend, 
         {loading ? (
           <BriefSkeleton />
         ) : (
-          <BriefBody items={items} safeToSpend={safeToSpend} router={router} hideNetWorth={hideNetWorth} onRefresh={onRefresh} attnTarget={attnTarget} dismissible={dismissible} onClearedChange={onClearedChange} onCoverMoveVisibleChange={onCoverMoveVisibleChange} />
+          <BriefBody items={items} reconnectNames={reconnectNames} safeToSpend={safeToSpend} router={router} hideNetWorth={hideNetWorth} onRefresh={onRefresh} attnTarget={attnTarget} dismissible={dismissible} onClearedChange={onClearedChange} onCoverMoveVisibleChange={onCoverMoveVisibleChange} />
         )}
       </div>
 
