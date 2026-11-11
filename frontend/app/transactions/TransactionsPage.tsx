@@ -9,7 +9,7 @@
 // time, unlike Spend's period-scoped view. Category correction goes through
 // TeachingSheet, same as everywhere else in Spend.
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { ArrowLeft, Search, X, ChevronLeft, ChevronRight } from "lucide-react";
@@ -131,15 +131,33 @@ export default function TransactionsPage() {
   const [committedQuery, setCommittedQuery] = useState(() => initialRoute.query);
   const [debouncedQuery, setDebouncedQuery] = useState(() => initialRoute.query);
   const [page, setPage] = useState(() => initialRoute.page);
+  const transactionRequest = useMemo(() => ({
+    q: debouncedQuery || undefined,
+    // The repeated category filter takes precedence over the scalar one.
+    categories: categoriesFilter?.length ? categoriesFilter : undefined,
+    category: categoriesFilter?.length ? undefined : categoryFilter || undefined,
+    transaction_id: sourceTransactionIds?.length ? sourceTransactionIds : undefined,
+    filed_series: filedSeries ?? undefined,
+    merchants: merchantsFilter?.length ? merchantsFilter.join(",") : undefined,
+    from: periodFrom || undefined,
+    to: periodTo || undefined,
+    txn_type: txnType || undefined,
+    page,
+    page_size: PAGE_SIZE,
+    activity_order: true,
+  }), [debouncedQuery, categoryFilter, categoriesFilter, merchantsFilter, periodFrom, periodTo, txnType, sourceTransactionIds, filedSeries, page]);
   const [items, setItems] = useState<Transaction[]>([]);
   const [totalPages, setTotalPages] = useState(1);
   const [total, setTotal] = useState(0);
   // Pending bank activity is deliberately a separate feed. It never joins
   // booked pagination, totals, category changes or the TeachingSheet.
-  const [pendingItems, setPendingItems] = useState<Transaction[]>([]);
-  const [pendingTotal, setPendingTotal] = useState(0);
-  const [pendingPage, setPendingPage] = useState(1);
-  const [pendingPages, setPendingPages] = useState(1);
+  const [pendingActivity, setPendingActivity] = useState<{
+    request: typeof transactionRequest;
+    items: Transaction[];
+    total: number;
+    page: number;
+    pages: number;
+  } | null>(null);
   const [pendingError, setPendingError] = useState<string | null>(null);
   const [loadingPendingMore, setLoadingPendingMore] = useState(false);
   const [bookedError, setBookedError] = useState<string | null>(null);
@@ -263,152 +281,43 @@ export default function TransactionsPage() {
     setPage(route.page);
   }, [searchParams, routeKey]);
 
-  // Clear the provisional group as soon as its context changes. This avoids
-  // one filter's pending payments briefly appearing under another filter
-  // while the new first page is loading.
-  useEffect(() => {
-    pendingGeneration.current += 1;
-    setPendingItems([]);
-    setPendingTotal(0);
-    setPendingPage(1);
-    setPendingPages(1);
-    setPendingError(null);
-    setLoadingPendingMore(false);
-  }, [debouncedQuery, categoryFilter, categoriesFilter, merchantsFilter, periodFrom, periodTo, txnType, sourceTransactionIds, filedSeries]);
-
   useEffect(() => {
     let cancelled = false;
     // Every booked refresh supersedes an in-flight pending-page request.
     // Otherwise an old "show more" result could land after a newly booked
     // payment has correctly disappeared from the refreshed first page.
-    const generation = ++pendingGeneration.current;
+    pendingGeneration.current += 1;
     setLoadingPendingMore(false);
-    setPendingItems([]);
-    setPendingTotal(0);
-    setPendingPage(1);
-    setPendingPages(1);
+    setPendingActivity(null);
     setPendingError(null);
     // A re-file reload settles quietly: the optimistic list stays on screen.
     if (reloadSeen.current === reloadKey) setLoading(true);
     reloadSeen.current = reloadKey;
     setBookedError(null);
-    api.transactionsSearch({
-      q: debouncedQuery || undefined,
-      // `categories` (repeated-param, exact-match list) wins when present —
-      // mirrors the backend's own precedence in `_search_query`. Only fall
-      // back to the scalar `category` when there's no multi-category deep
-      // link, so the two never both hit the wire for one request.
-      categories: categoriesFilter && categoriesFilter.length > 0 ? categoriesFilter : undefined,
-      category: (!categoriesFilter || categoriesFilter.length === 0) ? (categoryFilter || undefined) : undefined,
-      transaction_id: sourceTransactionIds && sourceTransactionIds.length > 0 ? sourceTransactionIds : undefined,
-      filed_series: filedSeries ?? undefined,
-      merchants: merchantsFilter && merchantsFilter.length > 0 ? merchantsFilter.join(",") : undefined,
-      from: periodFrom || undefined,
-      to: periodTo || undefined,
-      txn_type: txnType || undefined,
-      page,
-      page_size: PAGE_SIZE,
-      activity_order: true,
-    })
+    api.transactionsSearch(transactionRequest)
       .then((r) => {
         if (cancelled) return;
         setItems(r.items);
         setTotalPages(r.pages);
         setTotal(r.total);
-        // The API returns pending separately only alongside booked page one.
-        // Keep the group visible while the person browses booked pages.
-        if (page === 1 && "pending_items" in r) {
-          setPendingItems(r.pending_items ?? []);
-          setPendingTotal(r.pending_total ?? 0);
-          setPendingPage(r.pending_page ?? 1);
-          setPendingPages(r.pending_pages ?? 1);
-          setPendingError(null);
+        if (transactionRequest.page === 1 && "pending_items" in r) {
+          setPendingActivity({
+            request: transactionRequest,
+            items: r.pending_items ?? [],
+            total: r.pending_total ?? 0,
+            page: r.pending_page ?? 1,
+            pages: r.pending_pages ?? 1,
+          });
         }
       })
       .catch(() => {
         if (cancelled) return;
         setBookedError("Booked payments could not be loaded. Try again.");
-        if (page === 1) {
-          setPendingItems([]);
-          setPendingTotal(0);
-          setPendingError("Pending payments could not be loaded. Try again.");
-        }
       })
       .finally(() => { if (!cancelled) setLoading(false); });
 
-    // Page two and later omit pending rows by contract. Re-read pending page
-    // one whenever those booked pages refresh, so a bank handover cannot
-    // leave a now-booked payment in this separate group.
-    if (page > 1 && !sourceTransactionIds?.length && filedSeries === null) {
-      api.transactionsSearch({
-        q: debouncedQuery || undefined,
-        categories: categoriesFilter && categoriesFilter.length > 0 ? categoriesFilter : undefined,
-        category: (!categoriesFilter || categoriesFilter.length === 0) ? (categoryFilter || undefined) : undefined,
-        transaction_id: sourceTransactionIds && sourceTransactionIds.length > 0 ? sourceTransactionIds : undefined,
-        filed_series: filedSeries ?? undefined,
-        merchants: merchantsFilter && merchantsFilter.length > 0 ? merchantsFilter.join(",") : undefined,
-        from: periodFrom || undefined,
-        to: periodTo || undefined,
-        txn_type: txnType || undefined,
-        page: 1,
-        page_size: PAGE_SIZE,
-        pending_page: 1,
-        activity_order: true,
-      }).then((response) => {
-        if (cancelled || generation !== pendingGeneration.current) return;
-        setPendingItems(response.pending_items ?? []);
-        setPendingTotal(response.pending_total ?? 0);
-        setPendingPage(response.pending_page ?? 1);
-        setPendingPages(response.pending_pages ?? 1);
-        setPendingError(null);
-      }).catch(() => {
-        if (!cancelled && generation === pendingGeneration.current) {
-          setPendingError("Pending payments could not be loaded. Try again.");
-        }
-      });
-    }
     return () => { cancelled = true; pendingGeneration.current += 1; };
-  }, [debouncedQuery, categoryFilter, categoriesFilter, merchantsFilter, periodFrom, periodTo, txnType, sourceTransactionIds, filedSeries, page, reloadKey]);
-
-  const pendingRequest = useCallback((nextPendingPage: number) => api.transactionsSearch({
-    q: debouncedQuery || undefined,
-    categories: categoriesFilter && categoriesFilter.length > 0 ? categoriesFilter : undefined,
-    category: (!categoriesFilter || categoriesFilter.length === 0) ? (categoryFilter || undefined) : undefined,
-    transaction_id: sourceTransactionIds && sourceTransactionIds.length > 0 ? sourceTransactionIds : undefined,
-    filed_series: filedSeries ?? undefined,
-    merchants: merchantsFilter && merchantsFilter.length > 0 ? merchantsFilter.join(",") : undefined,
-    from: periodFrom || undefined,
-    to: periodTo || undefined,
-    txn_type: txnType || undefined,
-    page: 1,
-    page_size: PAGE_SIZE,
-    pending_page: nextPendingPage,
-    activity_order: true,
-  }), [debouncedQuery, categoryFilter, categoriesFilter, merchantsFilter, periodFrom, periodTo, txnType, sourceTransactionIds, filedSeries]);
-
-  const loadMorePending = useCallback(async () => {
-    if (hasFiledSeries || sourceTransactionIds?.length || loadingPendingMore || pendingPage >= pendingPages) return;
-    const generation = pendingGeneration.current;
-    setLoadingPendingMore(true);
-    try {
-      const response = await pendingRequest(pendingPage + 1);
-      if (generation !== pendingGeneration.current) return;
-      const next = response.pending_items ?? [];
-      setPendingItems((current) => {
-        const ids = new Set(current.map((item) => item.id));
-        return [...current, ...next.filter((item) => !ids.has(item.id))];
-      });
-      setPendingPage(response.pending_page ?? pendingPage + 1);
-      setPendingPages(response.pending_pages ?? pendingPages);
-      setPendingTotal(response.pending_total ?? pendingTotal);
-      setPendingError(null);
-    } catch {
-      if (generation !== pendingGeneration.current) return;
-      setPendingError("Pending payments could not be loaded. Try again.");
-    } finally {
-      if (generation === pendingGeneration.current) setLoadingPendingMore(false);
-    }
-  }, [hasFiledSeries, sourceTransactionIds, loadingPendingMore, pendingPage, pendingPages, pendingRequest, pendingTotal]);
+  }, [transactionRequest, reloadKey]);
 
   // Rebuilds the URL from whichever filters remain after one is cleared —
   // every clear*Filter below keeps the others (an insight deep-link, or a
@@ -632,10 +541,12 @@ export default function TransactionsPage() {
     (sourceTransactionIds && sourceTransactionIds.length > 0) || hasFiledSeries,
   );
   const hasSourceHistoryFilter = Boolean(sourceTransactionIds && sourceTransactionIds.length > 0) || hasFiledSeries;
-  // Historical evidence scopes are booked-only. Hide any rows retained from
-  // the previous unscoped render until the clearing effect above has run, so
-  // a Back/Forward deep link can never flash pending activity from elsewhere.
-  const hidesPendingActivity = hasSourceHistoryFilter;
+  // Bind the group to the first-page response for the current filters.
+  // Hide it as soon as the page or search changes, before the next fetch runs.
+  const pending = page === 1 && initialRoute.page === 1 && !hasSourceHistoryFilter
+    && searchQuery.trim() === debouncedQuery && pendingActivity?.request === transactionRequest
+    ? pendingActivity : null;
+  const hasPendingItems = Boolean(pending?.items.length);
 
   // The collapsed tips line's own data — computed here (not inline in the
   // JSX) so `!loading` and a `key={tipsLineCategory}` remount can both gate
@@ -696,13 +607,29 @@ export default function TransactionsPage() {
     rows: group.rows.map((displayItem) => bookedById.get(displayItem.id) ?? displayItem),
   }));
 
-  const retryPending = () => {
-    if (pendingItems.length === 0) {
-      setReloadKey((key) => key + 1);
-      return;
+  async function loadMorePending() {
+    if (!pending || loadingPendingMore || pending.page >= pending.pages) return;
+    const generation = pendingGeneration.current;
+    const nextPage = pending.page + 1;
+    setLoadingPendingMore(true);
+    try {
+      const response = await api.transactionsSearch({ ...transactionRequest, pending_page: nextPage });
+      if (generation !== pendingGeneration.current) return;
+      const ids = new Set(pending.items.map((item) => item.id));
+      setPendingActivity({
+        request: transactionRequest,
+        items: [...pending.items, ...(response.pending_items ?? []).filter((item) => !ids.has(item.id))],
+        page: response.pending_page ?? nextPage,
+        pages: response.pending_pages ?? pending.pages,
+        total: response.pending_total ?? pending.total,
+      });
+      setPendingError(null);
+    } catch {
+      if (generation === pendingGeneration.current) setPendingError("Pending payments could not be loaded. Try again.");
+    } finally {
+      if (generation === pendingGeneration.current) setLoadingPendingMore(false);
     }
-    void loadMorePending();
-  };
+  }
 
   return (
     <div className="min-h-dvh pb-[calc(9rem+env(safe-area-inset-bottom,0px))] lg:pb-8 lg:max-w-2xl lg:mx-auto" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
@@ -866,19 +793,6 @@ export default function TransactionsPage() {
       </div>
 
       <div className="px-4 pt-2 space-y-2">
-            {/* Parent `space-y-2` supplies 8px; this adds 16px for the
-                approved 24px separation before booked activity. */}
-            {!hidesPendingActivity && !loading && (pendingItems.length > 0 || (pendingError && !bookedError)) && (
-              <div className="pb-4">
-                <PendingPaymentsGroup
-                  items={pendingItems}
-                  total={pendingTotal}
-                  onLoadMore={pendingError ? retryPending : (pendingPage < pendingPages ? loadMorePending : undefined)}
-                  loadingMore={loadingPendingMore}
-                  error={pendingError}
-                />
-              </div>
-            )}
         {loading ? (
           <div className="flex items-center justify-center py-16">
             <Spinner size={32} />
@@ -907,6 +821,7 @@ export default function TransactionsPage() {
                 heading it falls on, which is the disclosed limit of
                 page-based Prev/Next paging, not a lost or duplicated row. */}
             <div
+              className="flex flex-col gap-4"
               onTouchStart={(e) => {
                 swipeTouchStart.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
               }}
@@ -920,10 +835,19 @@ export default function TransactionsPage() {
                 if (dx > 0 && page > 1) setPage((p) => p - 1);
               }}
             >
+              {pending && (
+                <PendingPaymentsGroup
+                  items={pending.items}
+                  total={pending.total}
+                  onLoadMore={pending.page < pending.pages ? loadMorePending : undefined}
+                  loadingMore={loadingPendingMore}
+                  error={pendingError}
+                />
+              )}
               {items.length === 0 ? (
                 <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm overflow-hidden py-8 text-center">
                   <p className="text-sm text-slate-600 dark:text-slate-400">
-                    {!hidesPendingActivity && pendingItems.length > 0
+                    {hasPendingItems
                       ? "No booked payments yet"
                       : searchQuery || categoryFilter || (categoriesFilter && categoriesFilter.length > 0) || merchantsFilter || hasSourceHistoryFilter
                       ? `No payments matching ${searchQuery ? `"${searchQuery}"` : (categoryLabel ?? categoryFilter ?? (categoriesFilter && categoriesFilter.length > 0 ? categoriesFilter.join(", ") : merchantsFilter?.join(", ") ?? sourceLabel ?? (hasFiledSeries ? "this transfer series" : "Source credits")))}`
@@ -931,7 +855,7 @@ export default function TransactionsPage() {
                         ? "No payments in this period"
                         : "No payments yet"}
                   </p>
-                  {hasPeriodFilter && (hidesPendingActivity || pendingItems.length === 0) && (
+                  {hasPeriodFilter && !hasPendingItems && (
                     <button
                       type="button"
                       onClick={clearPeriodFilter}
@@ -943,18 +867,16 @@ export default function TransactionsPage() {
                   )}
                 </div>
               ) : (
-                <div className="space-y-4">
-                  {activityGroups.map((g) => (
-                    <section key={g.key} className="rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800 overflow-hidden">
-                      <h2 className="px-4 pt-4 pb-1 text-sm font-bold text-slate-950 dark:text-slate-50">{g.heading}</h2>
-                      <div className="divide-y divide-slate-100 dark:divide-slate-700">
-                        {g.rows.map((tx) => (
-                          <TransactionRow key={tx.id} transaction={tx} onClick={() => setSelectedTx(tx)} iconVariant="category" showDate={false} showActivityDate />
-                        ))}
-                      </div>
-                    </section>
-                  ))}
-                </div>
+                activityGroups.map((g) => (
+                  <section key={g.key} className="rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800 overflow-hidden">
+                    <h2 className="px-4 pt-4 pb-1 text-sm font-bold text-slate-950 dark:text-slate-50">{g.heading}</h2>
+                    <div className="divide-y divide-slate-100 dark:divide-slate-700">
+                      {g.rows.map((tx) => (
+                        <TransactionRow key={tx.id} transaction={tx} onClick={() => setSelectedTx(tx)} iconVariant="category" showDate={false} showActivityDate />
+                      ))}
+                    </div>
+                  </section>
+                ))
               )}
             </div>
 
