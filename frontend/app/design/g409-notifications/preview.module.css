@@ -1,0 +1,53 @@
+.preview {
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+.preview ::selection {
+  background: #c7d2fe;
+  color: #0f172a;
+}
+
+.preview :global(button),
+.preview :global(a),
+.preview :global(summary) {
+  scroll-margin-block: 24px;
+}
+
+.preview :global(button:focus-visible),
+.preview :global(a:focus-visible),
+.preview :global(summary:focus-visible) {
+  outline: 2px solid #6366f1;
+  outline-offset: 3px;
+}
+
+.surface {
+  padding-bottom: max(20px, env(safe-area-inset-bottom, 0px));
+  padding-top: max(20px, env(safe-area-inset-top, 0px));
+}
+
+.intro {
+  display: flex;
+  min-height: 520px;
+  flex-direction: column;
+}
+
+.introFooter {
+  margin-top: auto;
+  padding-top: 32px;
+}
+
+@media (max-width: 420px) {
+  .intro {
+    min-height: 480px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .preview *,
+  .preview *::before,
+  .preview *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}
