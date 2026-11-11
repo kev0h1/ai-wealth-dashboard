@@ -145,7 +145,7 @@ export default function SettingsPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { user, logout, clearLocalSession } = useAuth();
-  const { darkMode, setDarkMode, pennyAppearance, setPennyAppearance, rawPrefs, refreshPreferences, notePreferencesVersion, preferencesSaveError, hideNetWorth, setHideNetWorth, preferencesReady, showTips, setShowTips, payPeriodConfig, setPayPeriodConfig } = usePreferences();
+  const { darkMode, setDarkMode, pennyAppearance, setPennyAppearance, rawPrefs, refreshPreferences, notePreferencesVersion, preferencesSaveError, hideNetWorth, setHideNetWorth, preferencesReady, showTips, setShowTips, tipsEnabled, payPeriodConfig, setPayPeriodConfig } = usePreferences();
   const { startFlow } = useTutorial();
 
   const [syncingHistory, setSyncingHistory] = useState(false);
@@ -1090,6 +1090,7 @@ export default function SettingsPage() {
     payPeriodSummary: preferencesReady ? settingsPayPeriodLabel(payPeriodConfig) : "Checking…",
     helpSummary: `${TUTORIAL_FLOWS.length} tours`,
     assistantsVisible: MCP_CONNECTOR,
+    tipsEnabled,
   };
   const IdentityHeading = activeSection ? "h2" : "h1";
 
@@ -1274,6 +1275,8 @@ export default function SettingsPage() {
           {/* G189: display preference, distinct from the "Tips and insights
               notifications" push switch further down. Off hides the tip
               lines on Spend and Transactions and the Home tip card. */}
+          {/* G455: the whole setting is absent while the deployment has tips off. */}
+          {tipsEnabled && (<>
           <div className="flex items-center justify-between px-4 py-3.5 border-t border-slate-100 dark:border-slate-700/70">
             <div className="pr-3">
               <p className="text-sm font-medium text-slate-800 dark:text-slate-100">Show tips on Spend and Transactions</p>
@@ -1295,6 +1298,7 @@ export default function SettingsPage() {
               <span>{preferencesSaveError.message}</span>
             </p>
           )}
+          </>)}
         </SettingsGroup>
 
         {/* ── Your plan (B5) ── */}
@@ -1464,7 +1468,7 @@ export default function SettingsPage() {
                 { key: "goal_milestones", title: "Goal milestones", desc: "When you reach a savings goal" },
                 { key: "period_digest", title: "Pay-period digest", desc: "A fresh-start goals summary each new pay period" },
                 { key: "transactions", title: "New transactions", desc: "Each time new transactions arrive" },
-              ] as { key: keyof NotificationPrefs; title: string; desc: string }[]).map((row) => (
+              ] as { key: keyof NotificationPrefs; title: string; desc: string }[]).filter((row) => row.key !== "insights" || tipsEnabled).map((row) => (
                 <div key={row.key} className="flex items-center justify-between px-4 py-3 border-t border-slate-50 dark:border-slate-700/50">
                   <div className="pr-3">
                     <p className="text-sm font-medium text-slate-800 dark:text-slate-100">{row.title}</p>

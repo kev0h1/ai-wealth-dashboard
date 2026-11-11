@@ -55,7 +55,7 @@ interface HomeInsightSpotlightProps {
 export default function HomeInsightSpotlight({ onReady, previewInsight }: HomeInsightSpotlightProps = {}) {
   const router = useRouter();
   const { icons } = useCategoryIcons();
-  const { showTips } = usePreferences();
+  const { showTips, tipsEnabled, preferencesReady } = usePreferences();
   // G425: seeded from the endpoint cache so a remount shows the card, no skeleton.
   const cachedInsight = previewInsight ? undefined : peekEndpoint<SavingsInsight | null>(ENDPOINT.spotlight.key);
   const [insight, setInsight] = useState<SavingsInsight | null>(previewInsight ?? cachedInsight ?? null);
@@ -86,16 +86,27 @@ export default function HomeInsightSpotlight({ onReady, previewInsight }: HomeIn
       });
   }, [previewInsight]);
 
+  // G455: with tips off for the deployment there is nothing to fetch. Home
+  // still needs the readiness signal, so it fires once the preferences have
+  // resolved (until then tipsEnabled is only the cached last answer).
   useEffect(() => {
-    load();
-  }, [load]);
+    if (previewInsight || tipsEnabled) {
+      load();
+      return;
+    }
+    if (!preferencesReady) return;
+    setLoaded(true);
+    if (readyFiredRef.current) return;
+    readyFiredRef.current = true;
+    onReadyRef.current?.();
+  }, [load, previewInsight, tipsEnabled, preferencesReady]);
 
   // While the very first fetch is in flight, show a skeleton so the zone
   // reserves space and doesn't cause layout shift when the card arrives.
   // Once loaded, dismissed/no-insight still returns null exactly as before.
   // G189: tips switched off in Settings. The server already serves null;
   // this keeps a cached card from showing before that resolves.
-  if (!showTips) return null;
+  if (!showTips && !previewInsight) return null;
 
   if (!loaded) {
     return (

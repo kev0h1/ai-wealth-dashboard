@@ -4059,6 +4059,8 @@ export const api = {
     pay_split_reference?: "50-30-20" | "conscious" | "first";
     open_last_chat?: boolean;
     show_tips?: boolean;
+    /** G455: deployment capability, from the backend's TIPS_ENABLED flag. */
+    tips_enabled?: boolean;
     dark_mode?: boolean;
     penny_appearance?: import("@/lib/pennyAppearance").PennyAppearance;
     notification_prefs?: NotificationPrefs;
