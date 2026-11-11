@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import re
-from datetime import datetime
+from datetime import UTC, datetime
 from hashlib import sha256
 from weakref import WeakValueDictionary
 
@@ -188,7 +188,7 @@ async def _plan(uid: str, transaction_id: str, body: dict) -> dict:
         raise HTTPException(409, "Matching payments changed. Check the count again.")
 
     operation_id = body["operation_id"]
-    stamp = datetime.utcnow()
+    stamp = datetime.now(UTC)  # naive-ok: persisted UTC instant, independent of calendar days
     values, clear, account = await _resolution(uid, anchor, body, stamp)
     category = values["custom_category"]
     applied = {
@@ -316,7 +316,7 @@ async def _undo_rule(operation: dict) -> None:
         # Keep a tombstone so an interrupted apply cannot recreate a removed
         # rule when it resumes with the same operation ID.
         await user_rules_col.update_one(guard, {
-            "$set": {"removed_at": datetime.utcnow(), "operation_id": f"undo:{op}"},
+            "$set": {"removed_at": datetime.now(UTC), "operation_id": f"undo:{op}"},  # naive-ok: persisted UTC instant, independent of calendar days
         })
 
 

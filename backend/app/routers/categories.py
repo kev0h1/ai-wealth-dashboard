@@ -2,7 +2,7 @@
 import asyncio
 import re
 import uuid as uuid_lib
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 from fastapi import APIRouter, Body, Depends, HTTPException
 import httpx
@@ -534,7 +534,7 @@ async def delete_rule(rule_id: str, user: dict = Depends(current_user)):
         # cannot recreate it after the user removes it.
         result = await user_rules_col.update_one(
             {"_id": rule_id, "uid": uid, "kind": TYPED_RULE_KIND, "removed_at": {"$exists": False}},
-            {"$set": {"removed_at": datetime.utcnow(), "operation_id": str(uuid_lib.uuid4())}},
+            {"$set": {"removed_at": datetime.now(UTC), "operation_id": str(uuid_lib.uuid4())}},  # naive-ok: persisted UTC instant, independent of calendar days
         )
         if not result.modified_count:
             deleted = await user_rules_col.delete_one({

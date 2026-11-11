@@ -4,7 +4,7 @@ import json
 import logging
 import unicodedata
 from collections import defaultdict, Counter
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Optional
 import httpx
 
@@ -1320,7 +1320,7 @@ async def apply_scoped_correction_rules(
         category = values.get("custom_category")
         if not isinstance(category, str) or category not in allowed:
             continue
-        values["custom_category_at"] = datetime.utcnow()
+        values["custom_category_at"] = datetime.now(UTC)  # naive-ok: persisted UTC instant, independent of calendar days
         values["correction_scope"] = "rule"
         unset_fields = dict(rule.get("correction_unset") or {})
         # Guard the identity we observed as well as automatic/booking state;
