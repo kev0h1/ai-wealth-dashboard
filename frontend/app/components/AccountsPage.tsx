@@ -516,6 +516,7 @@ export default function AccountsPage() {
   // Transaction search (server-side for bank accounts, debounced)
   const [searchQuery, setSearchQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
+  const searchDebouncing = searchQuery.trim() !== debouncedQuery;
   // Category filter chip on the Transactions tab — set from a Categories-tab
   // row tap (switches segment + scopes the fetch). Direction-aware: a
   // "Spending" row scopes to debit, a "Money in" row scopes to credit, so
@@ -1016,12 +1017,13 @@ export default function AccountsPage() {
     setServerPendingError(null);
   }, [selectedAccountId, accounts]);
 
-  useEffect(() => {
-    // Cleanup runs before the next activity context and on unmount, making a
-    // late pending-page response harmless even if its account id still looks
-    // current inside a stale closure.
-    return () => { activityRequestRef.current += 1; };
-  }, [selectedAccountId, debouncedQuery, detailCatFilter, refreshTick]);
+  function updateTransactionSearch(query: string) {
+    if (query.trim() !== searchQuery.trim()) {
+      clearPendingForNewQuery();
+      setPage(1);
+    }
+    setSearchQuery(query);
+  }
 
   // Fetch the current page for the selected bank account whenever the page,
   // search query or refresh tick changes. Manual accounts keep their full
@@ -1029,8 +1031,9 @@ export default function AccountsPage() {
   useEffect(() => {
     if (!selectedAccountId) return;
     const acc = accounts.find(a => a.id === selectedAccountId);
-    if (!acc || acc.manual) return;
-    let cancelled = false;
+    // A search from a later page resets pagination immediately. Wait for
+    // its query before requesting page one so pending rows match the search.
+    if (!acc || acc.manual || searchDebouncing) return;
     const requestToken = ++activityRequestRef.current;
     const accountId = selectedAccountId;
     setLoadingTxns(accountId);
@@ -1058,42 +1061,28 @@ export default function AccountsPage() {
         setServerPendingPage(1);
         setServerPendingError(null);
 
-        // Pending is only returned with booked page one. When the person is
-        // browsing a later booked page, independently refresh that first-page
-        // snapshot rather than silently retaining stale provisional activity.
-        const bookedRequest = api.transactions(accountId, { page, ...options });
-        const pendingRequest = page === 1
-          ? bookedRequest
-          : api.transactions(accountId, { page: 1, ...options });
-        const [bookedResult, pendingResult] = await Promise.allSettled([bookedRequest, pendingRequest]);
-        if (cancelled || requestToken !== activityRequestRef.current) return;
+        // Pending is a first-page group. Keep booked pagination independent
+        // from it so page two never refetches or renders page one's activity.
+        const result = await api.transactions(accountId, { page, ...options });
+        if (requestToken !== activityRequestRef.current) return;
 
-        if (bookedResult.status === "fulfilled") {
-          setServerTxns(bookedResult.value.items);
-          setServerPages(bookedResult.value.pages);
-        } else {
-          setServerTxnsError("Booked payments could not be loaded. Try again.");
-        }
-        if (pendingResult.status === "fulfilled") {
-          setServerPendingTxns(pendingResult.value.pending_items ?? []);
-          setServerPendingTotal(pendingResult.value.pending_total ?? 0);
-          setServerPendingPage(pendingResult.value.pending_page ?? 1);
-        } else {
-          setServerPendingError("Pending payments could not be loaded. Try again.");
+        setServerTxns(result.items);
+        setServerPages(result.pages);
+        if (page === 1) {
+          setServerPendingTxns(result.pending_items ?? []);
+          setServerPendingTotal(result.pending_total ?? 0);
+          setServerPendingPage(result.pending_page ?? 1);
         }
       } catch {
-        // Defensive fallback for an unexpected local failure before either
-        // request settled. The normal network path is handled independently
-        // above so one list can remain useful when the other fails.
-        if (!cancelled && requestToken === activityRequestRef.current) setServerTxnsError("Payments could not be loaded. Try again.");
-      }
-      finally {
-        if (!cancelled && requestToken === activityRequestRef.current) setLoadingTxns(null);
+        // Both booked rows and the first-page pending group share the same
+        // response, so retrying this request refreshes the complete view.
+        if (requestToken === activityRequestRef.current) setServerTxnsError("Payments could not be loaded. Try again.");
+      } finally {
+        if (requestToken === activityRequestRef.current) setLoadingTxns(null);
       }
     })();
-    return () => { cancelled = true; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedAccountId, page, debouncedQuery, detailCatFilter, refreshTick, accounts]);
+    return () => { activityRequestRef.current += 1; };
+  }, [selectedAccountId, page, debouncedQuery, searchDebouncing, detailCatFilter, refreshTick, accounts]);
 
   // Category rollups (spend + money-in) are fetched lazily, first time the
   // Categories tab opens — both sides of the same 90-day window.
@@ -1800,8 +1789,8 @@ export default function AccountsPage() {
     : serverTxns;
 
   const loadMorePending = useCallback(async () => {
-    if (!selectedAccountId || isManualSelected || loadingMorePending || (serverPendingTxns.length >= serverPendingTotal && !serverPendingError)) return;
-    const nextPage = serverPendingError ? 1 : serverPendingPage + 1;
+    if (page !== 1 || !selectedAccountId || isManualSelected || loadingMorePending || serverPendingTxns.length >= serverPendingTotal) return;
+    const nextPage = serverPendingPage + 1;
     const accountId = selectedAccountId;
     const requestToken = ++activityRequestRef.current;
     setLoadingMorePending(true);
@@ -1815,19 +1804,18 @@ export default function AccountsPage() {
       });
       if (requestToken !== activityRequestRef.current) return;
       setServerPendingTxns(prev => {
-        if (nextPage === 1) return r.pending_items ?? [];
         const ids = new Set(prev.map(item => item.id));
         return [...prev, ...(r.pending_items ?? []).filter(item => !ids.has(item.id))];
       });
       setServerPendingTotal(r.pending_total ?? serverPendingTotal);
-      setServerPendingPage(nextPage);
+      setServerPendingPage(r.pending_page ?? nextPage);
       setServerPendingError(null);
     } catch {
       if (requestToken === activityRequestRef.current) setServerPendingError("More pending payments could not be loaded. Try again.");
     } finally {
       if (requestToken === activityRequestRef.current) setLoadingMorePending(false);
     }
-  }, [selectedAccountId, isManualSelected, loadingMorePending, serverPendingTxns.length, serverPendingTotal, serverPendingPage, serverPendingError, debouncedQuery, detailCatFilter]);
+  }, [page, selectedAccountId, isManualSelected, loadingMorePending, serverPendingTxns.length, serverPendingTotal, serverPendingPage, debouncedQuery, detailCatFilter]);
 
   // Categories: server rollup for the account's Categories tab card grid.
   const categories = catSummaries ?? [];
@@ -2336,6 +2324,7 @@ export default function AccountsPage() {
     const manualAcc = manualAccounts.find(m => m.id === selectedAccount.id);
     const accountRules = rules.filter(r => r.target_account_id === selectedAccount.id);
     const showTransactions = isManual ? detailSegment === "Transactions" : segment === "Transactions";
+    const showPendingActivity = !isManual && page === 1;
     // Use the shared brand resolver so Finexer accounts (logo_url/bg_colors) get
     // the same branding as the card, and TrueLayer accounts fall through to accountBrand's own defaults.
     const brand = accountBrand(selectedAccount);
@@ -2466,8 +2455,8 @@ export default function AccountsPage() {
           {showTransactions && (
             <div className={detailStyles.search}><AccountTransactionsToolbar
               searchQuery={searchQuery}
-              onSearchChange={v => { clearPendingForNewQuery(); setSearchQuery(v); setPage(1); }}
-              onClearSearch={() => { clearPendingForNewQuery(); setSearchQuery(""); setPage(1); }}
+              onSearchChange={updateTransactionSearch}
+              onClearSearch={() => updateTransactionSearch("")}
               onAdd={isManual ? openAddManualTx : undefined}
             /></div>
           )}
@@ -2499,11 +2488,11 @@ export default function AccountsPage() {
             </div>
           ) : showTransactions ? (
             <>
-              <div className={detailStyles.rows}>
-                {!isManual && <PendingPaymentsGroup
+              <div className={`${detailStyles.rows} flex flex-col gap-3`}>
+                {showPendingActivity && <PendingPaymentsGroup
                   items={serverPendingTxns}
                   total={serverPendingTotal}
-                  onLoadMore={serverPendingError || serverPendingTxns.length < serverPendingTotal ? loadMorePending : undefined}
+                  onLoadMore={serverPendingTxns.length < serverPendingTotal ? loadMorePending : undefined}
                   loadingMore={loadingMorePending}
                   error={serverPendingError}
                 />}
@@ -2529,7 +2518,7 @@ export default function AccountsPage() {
               >
                 {pagedTxns.length === 0 ? (
                   <div className="py-8 text-center">
-                    {!isManual && serverPendingTxns.length > 0 ? (
+                    {showPendingActivity && serverPendingTxns.length > 0 ? (
                       <p className="text-sm text-slate-600 dark:text-slate-400">No booked payments yet</p>
                     ) : searchQuery || isManual ? (
                       <p className="text-sm text-slate-600 dark:text-slate-400">
