@@ -32,6 +32,14 @@ type PreviewRoute = {
 
 const ROUTES: PreviewRoute[] = [
   {
+    slug: "home-notifications",
+    name: "Home notifications · G458",
+    description: "Three preview-only treatments beneath Barclays needs reconnecting and above Penny’s line: A Quiet row, B Action card, C Explain in place. Every direction covers notifications off, permission denied with phone Settings, and an older app that needs updating. Fictional Home context, local demonstration actions, light and dark themes. Compare all shows the directions together. No production changes.",
+    variants: [{ label: "A · Quiet row", value: "a" }, { label: "B · Action card", value: "b" }, { label: "C · Explain in place", value: "c" }],
+    states: [{ label: "Off", value: "off" }, { label: "Denied", value: "denied" }, { label: "Older app", value: "old-app" }],
+    group: "current",
+  },
+  {
     slug: "statements-house-ads",
     name: "Statements house ads · B58",
     description:
