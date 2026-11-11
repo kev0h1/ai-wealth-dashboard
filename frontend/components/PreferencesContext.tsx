@@ -130,7 +130,10 @@ const Ctx = createContext<PrefsCtx>({
   darkMode: false,
   pennyAppearance: DEFAULT_PENNY_APPEARANCE,
   pennyAppearanceResolved: false,
-  showTips: false,
+  // G455: these defaults only apply outside the provider (tests, design
+  // previews), where showTips stays true as before; the real provider
+  // derives showTips from tipsEnabled, which starts false.
+  showTips: true,
   tipsEnabled: false,
   payPeriodConfig: DEFAULT_PAY_PERIOD_CONFIG,
   debtTargetMonths: 12,
