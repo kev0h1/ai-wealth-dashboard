@@ -105,7 +105,8 @@ assert.match(page, /layout="calm"/);
 assert.match(page, /className=\{detailStyles\.activity\}/);
 assert.match(page, /className=\{detailStyles\.activityTabs\}/);
 assert.match(page, /className=\{detailStyles\.search\}/);
-assert.match(page, /className=\{detailStyles\.rows\}/);
+assert.match(page, /className=\{`\$\{detailStyles\.rows\} flex flex-col gap-3`\}/,
+  "pending and booked activity retain the account surface and a normal-flow gap");
 const sheet = page.slice(page.indexOf("accountDetailsFor === selectedAccount.id"), page.indexOf("{/* Transaction sheet"));
 assert.match(sheet, /<AccountCountRow[\s\S]*?calm/);
 assert.match(sheet, /lockedReason=\{available\?\.kind === "ready" && available\.warning/, "real shortfalls lock the inclusion switch");
