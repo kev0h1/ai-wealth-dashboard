@@ -1,6 +1,7 @@
 """G373 transaction-list contracts against the disposable test Mongo DB."""
 import asyncio
 from datetime import datetime, timedelta
+from functools import partial
 from uuid import uuid4
 
 import pytest
@@ -86,6 +87,51 @@ def test_pending_first_page_filters_currency_and_never_inflates_settled_total(mo
         assert (await _account(uid, account, q="coffee", txn_type="debit"))["pending_total"] == 1
         assert not (await _search(uid, q="absent"))["pending_items"]
         assert not (await _search(uid, category="Other"))["pending_items"]
+    asyncio.run(scenario())
+
+
+def test_booked_pagination_with_and_without_pending_and_exact_handover(mongo):
+    async def scenario():
+        uid, account, now = _uid(), f"account-{_token()}", datetime.utcnow()
+        booked_ids = [f"booked-{_token()}" for _ in range(3)]
+        await transactions_col.insert_many([
+            _booked(uid, account, now - timedelta(days=index + 1), raw_id=raw_id)
+            for index, raw_id in enumerate(booked_ids)
+        ])
+        list_endpoints = (partial(_search, uid), partial(_account, uid, account))
+        options = {"q": "coffee", "txn_type": "debit", "activity_order": True, "page_size": 2}
+        pending_id = f"pending-{_token()}"
+        authorisations = [
+            {"transaction_id": pending_id, "date": now, "amount": -12.5,
+             "description": "COFFEE SHOP", "transaction_type": "debit"},
+            {"transaction_id": f"unmatched-{_token()}", "date": now, "amount": -5,
+             "description": "UNRELATED SHOP", "transaction_type": "debit"},
+        ]
+        for with_pending in (False, True):
+            if with_pending:
+                await pending.replace_pending_for_account(authorisations, account, uid, "TrueLayer")
+            for list_page in list_endpoints:
+                first = await list_page(page=1, **options)
+                second = await list_page(page=2, **options)
+                assert first["total"] == second["total"] == 3
+                assert first["pages"] == second["pages"] == 2
+                assert [tx.id for tx in first["items"]] == booked_ids[:2]
+                assert [tx.id for tx in second["items"]] == booked_ids[2:]
+                assert first["pending_total"] == int(with_pending)
+                assert len(first["pending_items"]) == int(with_pending)
+                assert not any(key.startswith("pending_") for key in second)
+
+        # The exact provider identity settles on the next refresh. Its
+        # booked row replaces the provisional entry once in both lists.
+        await transactions_col.insert_one(_booked(uid, account, now, raw_id=pending_id))
+        for list_page in list_endpoints:
+            first = await list_page(page=1, **options)
+            second = await list_page(page=2, **options)
+            ids = [tx.id for result in (first, second) for tx in result["items"]]
+            assert ids == [pending_id, *booked_ids]
+            assert first["total"] == second["total"] == 4
+            assert first["pending_items"] == [] and first["pending_total"] == 0
+            assert not any(key.startswith("pending_") for key in second)
     asyncio.run(scenario())
 
 
