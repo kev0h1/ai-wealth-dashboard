@@ -126,3 +126,51 @@ def manual_account_class(account_type) -> str:
     the back of the queue than at the front.
     """
     return "CURRENT" if account_type == "current" else "SAVINGS"
+
+
+# G456 (Kevin 2026-11-11): an own-account transfer's two legs are categorised
+# from the two ACCOUNT TYPES, in ONE place. Pure over account docs; the type
+# comes from the stored A181 mapping (`finexer_account_kind` writes type and
+# subtype), never from a display name.
+#
+#   debit (paying) account -> credit (receiving) account : paying leg, receiving leg
+#   current (or emoney)    -> savings                     : Savings,    Transfer
+#   current (or emoney)    -> credit_card / charge_card   : Debt,       Transfer  (G381)
+#   current                -> investment                  : Investment, Transfer (unchanged)
+#   savings -> current, card -> current, current -> current,
+#   savings -> savings, and anything else or unknown      : Transfer,   Transfer
+_INVESTMENT_VALUES = frozenset({"investment", "investment_account", "brokerage"})
+_CARD_VALUES = frozenset({"credit_card", "credit-card", "card"})
+_SAVINGS_VALUES = frozenset({"saving", "savings"})
+_CURRENT_VALUES = frozenset({"current", "transaction", "emoney", "prepaid", "bank"})
+
+
+def own_transfer_account_class(acc) -> str:
+    """One of current, savings, card, investment, other for an account doc."""
+    if not acc:
+        return "other"
+    values = {str(acc.get(k) or "").lower() for k in ("type", "subtype", "account_type")}
+    if is_debt_account(acc):
+        return "other"
+    if values & _INVESTMENT_VALUES:
+        return "investment"
+    if is_credit_card_account(acc) or values & _CARD_VALUES:
+        return "card"
+    if is_savings_account(acc) or values & _SAVINGS_VALUES:
+        return "savings"
+    if is_current_account(acc) or values & _CURRENT_VALUES:
+        return "current"
+    return "other"
+
+
+_PAYING_LEG_BY_DESTINATION = {"savings": "Savings", "card": "Debt", "investment": "Investment"}
+
+
+def own_transfer_leg_categories(debit_account, credit_account) -> tuple[str, str]:
+    """(paying leg category, receiving leg category) for a pair the user's own
+    accounts make. Only money leaving a current account into a savings, card or
+    investment account is anything but Transfer. Unknown or other types are
+    Transfer on both legs."""
+    if own_transfer_account_class(debit_account) == "current":
+        return _PAYING_LEG_BY_DESTINATION.get(own_transfer_account_class(credit_account), "Transfer"), "Transfer"
+    return "Transfer", "Transfer"

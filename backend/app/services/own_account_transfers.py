@@ -25,6 +25,7 @@ from app.services.card_repayment import (  # noqa: F401  G381: re-exported, one 
     bank_code_of, card_issuer_key, card_repayment_issuer, is_direct_debit, refine_transfer_target,
     same_bank_card_repayment, card_account_type_repayment, debit_only_repayment,
 )
+from app.services.account_kinds import own_transfer_account_class, own_transfer_leg_categories
 from app.services.card_names import last_four
 from app.services.categorisation import NUMERIC_DATE_RE, _CHANNEL_CODES, _NOT_INITIALS, _text_has_account_pair, canonical_merchant_key, name_matches_owner, own_transfer_evidence, series_key as _base_series_key, word_matches_name_token
 from app.services.categories import BUILTIN_CATEGORY_KINDS, MOVEMENT, get_category_kinds
@@ -121,7 +122,7 @@ def resolve_own_account(index: dict, key: tuple[str, str], walking_account_id: s
     docs = index.get(key) or []
     if not docs or any(d.get("_id") == walking_account_id for d in docs):
         return None
-    if len({refine_transfer_target(d) for d in docs}) > 1:
+    if len({own_transfer_account_class(d) for d in docs}) > 1:
         return {"_id": docs[0].get("_id")}
     return docs[0]
 
@@ -140,13 +141,17 @@ async def load_own_account_index(user_id: str, *, account_collection=None) -> di
     return own_account_index(docs)
 
 
-def counterparty_category(own_account: dict, transaction_type: str) -> str:
+def counterparty_category(own_account: dict, transaction_type: str, source_account: dict | None = None) -> str:
     """Category for ONE leg whose counterparty is the user's own account.
-    The money-out leg takes the destination's refined kind (Debt for a card,
-    Savings, Investment) and otherwise Transfer; the money-in leg is Transfer.
+    G456: the money-out leg is Savings, Debt or Investment only when it leaves a
+    current account for that kind of account (`own_transfer_leg_categories`);
+    every other direction, and the money-in leg, is Transfer. When the walking
+    account is not known (`source_account` None) the leg is taken to be on a
+    current account, which is what the sync-time label can say; reconcile
+    re-files the pair with both types known.
     Card-side wording beyond this belongs to G381."""
     if transaction_type == "debit":
-        return refine_transfer_target(own_account) or "Transfer"
+        return own_transfer_leg_categories(source_account if source_account is not None else {"type": "bank"}, own_account)[0]
     return "Transfer"
 
 
@@ -1235,14 +1240,8 @@ async def _series_single_matches(
         for credit, debit, issuer in detailed:
             if issuer:
                 continue  # a card repayment is not an own-transfer series
-            credit_target = refine_transfer_target(accounts[credit["account_id"]])
-            debit_target = refine_transfer_target(accounts[debit["account_id"]])
-            if credit_target and not debit_target:
-                cats = {"credit": "Transfer", "debit": credit_target}
-            elif debit_target and not credit_target:
-                cats = {"credit": debit_target, "debit": "Transfer"}
-            else:
-                cats = {"credit": "Transfer", "debit": "Transfer"}
+            debit_cat, credit_cat = own_transfer_leg_categories(accounts[debit["account_id"]], accounts[credit["account_id"]])
+            cats = {"credit": credit_cat, "debit": debit_cat}
             triples.append((credit, debit, cats))
         evidence = series_evidence(triples)
         if not evidence:
@@ -1452,8 +1451,6 @@ async def reconcile_own_account_transfers(
         if getattr(result, "modified_count", 0):
             changed += 1
     for credit, debit in pairs:
-        credit_target = refine_transfer_target(accounts[credit["account_id"]])
-        debit_target = refine_transfer_target(accounts[debit["account_id"]])
         issuer = issuers.get((str(credit["_id"]), str(debit["_id"])))
         link = {"issuer": issuer, "card_account_id": str(credit["account_id"])} if issuer else None
         pair_keys = tuple(sorted(AI_KEY_PREFIX + k for k in ai_pair_keys(credit, debit)))
@@ -1468,12 +1465,10 @@ async def reconcile_own_account_transfers(
             # G403: the bank debit is Debt against the card, the card credit stays Transfer.
             classifications = ((credit, "Transfer", debit),
                                (debit, counterparty_category(accounts[credit["account_id"]], "debit"), credit))
-        elif credit_target and not debit_target:
-            classifications = ((credit, "Transfer", debit), (debit, credit_target, credit))
-        elif debit_target and not credit_target:
-            classifications = ((credit, debit_target, debit), (debit, "Transfer", credit))
         else:
-            classifications = ((credit, "Transfer", debit), (debit, "Transfer", credit))
+            # G456: both legs from the two account types, one function.
+            debit_cat, credit_cat = own_transfer_leg_categories(accounts[debit["account_id"]], accounts[credit["account_id"]])
+            classifications = ((credit, credit_cat, debit), (debit, debit_cat, credit))
         for row, category, counterpart in classifications:
             if row.get("custom_category") is not None:
                 continue

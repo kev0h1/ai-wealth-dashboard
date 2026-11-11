@@ -1450,7 +1450,11 @@ async def _upsert_finexer_walk(
             candidate = resolve_own_account(state["own_index"], own_key, account_id)
             if candidate is not None:
                 own_account = candidate
-                category = counterparty_category(own_account, txn_type)
+                # G456: the paying leg's category depends on BOTH account types; the
+                # walking account's doc is in the same index when it has a sort code.
+                source_account = next((d for docs in state["own_index"].values() for d in docs
+                                       if d.get("_id") == account_id), None)
+                category = counterparty_category(own_account, txn_type, source_account)
 
         tdoc: dict = {
             "account_id":       account_id,

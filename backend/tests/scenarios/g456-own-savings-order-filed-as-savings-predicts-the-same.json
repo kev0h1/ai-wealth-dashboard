@@ -1,0 +1,124 @@
+{
+  "name": "Own-savings standing order filed as Savings (G456) predicts exactly as the same order filed as Transfer did (G422): 500 spare in another current account",
+  "today": "2026-11-25",
+  "pay_period_config": {
+    "type": "last_friday"
+  },
+  "confirmed_income_streams": [],
+  "accounts": [
+    {
+      "_id": "acc-bc",
+      "name": "Barclays Current",
+      "provider": "barclays",
+      "type": "BANK",
+      "subtype": "TRANSACTION",
+      "balance": 50.0,
+      "currency": "GBP",
+      "status": "connected",
+      "include_in_safe_to_spend": true
+    },
+    {
+      "_id": "acc-mz",
+      "name": "Monzo Current",
+      "provider": "monzo",
+      "type": "BANK",
+      "subtype": "TRANSACTION",
+      "balance": 500.0,
+      "currency": "GBP",
+      "status": "connected",
+      "include_in_safe_to_spend": true
+    },
+    {
+      "_id": "acc-sav",
+      "name": "Barclays Saver",
+      "provider": "barclays",
+      "type": "BANK",
+      "subtype": "SAVINGS",
+      "balance": 1000.0,
+      "currency": "GBP",
+      "status": "connected",
+      "include_in_safe_to_spend": true
+    }
+  ],
+  "manual_accounts": [],
+  "cashflow_cache": {
+    "recurring_spend": [
+      {
+        "key": "SAVER STANDING ORDER",
+        "avg_amount": 250.0,
+        "avg_interval": 30,
+        "next_date": "2026-11-26",
+        "account_id": "acc-bc",
+        "account_name": "Barclays Current",
+        "account_bank": "barclays",
+        "account_balance": 50.0,
+        "is_credit_card": false,
+        "category": "Savings",
+        "dest_account_id": "acc-sav",
+        "dest_account_name": "Barclays Saver",
+        "dest_account_bank": "barclays",
+        "dest_account_spendable": false
+      }
+    ],
+    "recurring_income": [],
+    "bnpl_commitments": [],
+    "avg_daily_spend": 0
+  },
+  "transactions": [],
+  "commitments": [],
+  "allocations": [],
+  "card_terms": [],
+  "expected": {
+    "left_to_spend": 300.0,
+    "spend_from_total": 300.0,
+    "spendable_balance": 550.0,
+    "not_spendable": [
+      "acc-sav"
+    ],
+    "accounts": {
+      "acc-bc": {
+        "spend_from": 10.0,
+        "after_payments": -200.0,
+        "low_point": -200.0,
+        "verdict": "short",
+        "covered_by_move": {
+          "amount": 210.0,
+          "from": [
+            {
+              "account_id": "acc-mz",
+              "amount": 210.0
+            }
+          ]
+        },
+        "short_after_cover": 0.0,
+        "spend_from_requires_move": true
+      },
+      "acc-mz": {
+        "spend_from": 290.0,
+        "after_payments": 500.0,
+        "low_point": 500.0,
+        "verdict": "covered",
+        "earmarked_total": 210.0,
+        "earmarks_out": [
+          {
+            "to": "acc-bc",
+            "amount": 210.0
+          }
+        ]
+      }
+    },
+    "cover_plan": {
+      "moves_total": 210.0,
+      "moves": [
+        {
+          "from": "acc-mz",
+          "to": "acc-bc",
+          "amount": 210.0
+        }
+      ]
+    },
+    "payday_plan": null,
+    "at_risk_count": 1,
+    "notes": "G456 (Kevin 2026-11-11): current to savings is Savings on the paying (current) leg and Transfer on the receiving savings leg, so the series on the current account carries the category Savings where G422 carried Transfer. Savings is a movement kind exactly like Transfer, so nothing may move. Today Wed 25 Nov 2026, pay period last Friday, payday Fri 27 Nov, window 25 and 26 Nov. Barclays Current holds 50 and carries one standing order of 250 into Barclays Saver (savings, in no pool), dated Thu 26 Nov: 50 - 250 = -200 after payments and at the low point, short; at risk count 1. Cover move: ceil5(200) + 10 cushion = 210, Monzo headroom 500 - 10 = 490 covers it alone, so one move of 210 from Monzo to Barclays. Earmarks: Monzo set aside 210, Spend from 500 - 210 = 290; Barclays Spend from is its 10 cushion. Left to spend: pool 50 + 500 = 550, the 250 leaves the pool because its destination is not pooled, 550 - 250 = 300 = 290 + 10. Payday plan null: a habitual transfer is not a plan row (G402). The figures are the G422 figures, by hand, because the category name must not change a figure."
+  }
+}
