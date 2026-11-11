@@ -56,7 +56,7 @@ export function buildSettingsGroups(status: SettingsDirectoryStatus): Group[] {
       { section: "display", label: "Display and privacy", keywords: `display dark mode theme Penny icon outline ink balances privacy hide ${status.tipsEnabled ? "tips " : ""}spend transactions`, value: "Display choices" },
     ] },
     { title: "Notifications", intro: "Permission, delivery and the alerts you receive.", tasks: [
-      { section: "notifications", label: "Notifications", keywords: "notifications push alerts test delivery bills transactions digest insights registration topics", value: status.notificationSummary },
+      { section: "notifications", label: "Notifications", keywords: "notifications push alerts permission delivery bills transactions digest insights registration topics", value: status.notificationSummary },
     ] },
     { title: "Your account", intro: "Your details, access and history.", tasks: [
       { section: "account", label: "Profile, sign-in and data", keywords: "profile name account sign in google apple identity security biometrics face id data history sync set aside", value: status.accountSummary },

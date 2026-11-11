@@ -6,6 +6,7 @@ import { X } from "lucide-react";
 import { TUTORIAL_FLOWS, useTutorialInternal } from "./TutorialContext";
 import { usePreferences } from "./PreferencesContext";
 import TutorialIcon from "./TutorialIcon";
+import { useNotificationPermission } from "@/components/notifications/NotificationPermissionProvider";
 
 function seenKey(flowId: string) {
   return `sorted_tour_seen_${flowId}`;
@@ -18,6 +19,7 @@ function seenKey(flowId: string) {
  * itself from the onboarding-pending flag in TutorialContext.
  */
 export default function TutorialOffer() {
+  const { blocking: notificationIntroduction } = useNotificationPermission();
   const pathname = usePathname();
   const { pennyAppearance, pennyAppearanceResolved } = usePreferences();
   const { isActive, isReady, startFlow } = useTutorialInternal();
@@ -40,7 +42,7 @@ export default function TutorialOffer() {
     // so the card doesn't reappear a moment later from a stale read.
   }, [flowId, isActive, ready, dismissedTick]);
 
-  if (!flow || !visible) return null;
+  if (notificationIntroduction || !flow || !visible) return null;
 
   function dismiss() {
     try { localStorage.setItem(seenKey(flow!.id), "1"); } catch {}

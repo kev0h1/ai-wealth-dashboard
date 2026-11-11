@@ -6,6 +6,7 @@ import { ChevronLeft, ChevronRight, X, Lightbulb } from "lucide-react";
 import { useTutorialInternal } from "./TutorialContext";
 import { usePreferences } from "./PreferencesContext";
 import TutorialIcon from "./TutorialIcon";
+import { useNotificationPermission } from "@/components/notifications/NotificationPermissionProvider";
 
 interface Rect { top: number; left: number; width: number; height: number }
 
@@ -36,6 +37,7 @@ function waitTwoFrames(): Promise<void> {
 }
 
 export default function TutorialOverlay() {
+  const { blocking: notificationIntroduction } = useNotificationPermission();
   const router = useRouter();
   const pathname = usePathname();
   const { pennyAppearance, pennyAppearanceResolved } = usePreferences();
@@ -48,7 +50,7 @@ export default function TutorialOverlay() {
   // One orchestration run per (flow, step). Re-runs when the pathname
   // changes too, since a pending route push needs to see the updated value.
   useEffect(() => {
-    if (!isActive || !flow || !step) {
+    if (notificationIntroduction || !isActive || !flow || !step) {
       setRect(null);
       return;
     }
@@ -236,7 +238,7 @@ export default function TutorialOverlay() {
     // step is looked up by [flow?.id, currentStep] identity; step.target etc.
     // don't need to be listed since they're derived from those two.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isActive, flow?.id, currentStep, pathname]);
+  }, [isActive, flow?.id, currentStep, pathname, notificationIntroduction]);
 
   // ── Card height measurement (replaces the old fixed 220px constant) ────
   useLayoutEffect(() => {
@@ -250,7 +252,7 @@ export default function TutorialOverlay() {
     return () => ro.disconnect();
   }, [flow?.id, currentStep]);
 
-  if (!isActive || !flow || !step) return null;
+  if (notificationIntroduction || !isActive || !flow || !step) return null;
 
   const isFirst = currentStep === 0;
   const isLast = currentStep === total - 1;

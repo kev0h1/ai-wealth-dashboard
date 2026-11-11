@@ -59,6 +59,55 @@ regeneration, same as `setup-android-push.sh` and `apply-icons.sh`.
   merges `ios-privacy/AppDelegate.privacy.swift.txt` into `AppDelegate.swift`.
 - Both sit behind a web-layer cover in `frontend/components/BiometricLock.tsx`.
 
+## Notification permission and settings (G409)
+
+The approved A introduction uses bundled Phosphor regular icons and appears
+after sign-in, before onboarding and the tutorial. Its Continue action is
+the only first-launch permission request. Launch, focus and app resume only
+read permission or repair an existing registration. The device-local,
+per-account attempt marker is written before the request; an interrupted
+request remains uncertain, with manual settings recovery. Existing saved
+topic opt-outs remain saved. New and previously unset topics default on.
+
+`SortedNotifications` is a local Capacitor bridge with two methods:
+`getStatus()` reads the actual app/channel permission, and `openSettings()`
+opens Sorted's Android notification settings or its iOS app settings. It
+never requests permission or registers a push token. Android 12 and earlier
+use the app/channel status without a runtime permission prompt. The Board
+flavour can include this passive bridge without enabling push registration.
+Operational `/ops/*` routes bypass the product permission journey, so signing
+into Board never shows the Sorted introduction or asks for permission.
+
+- Android regeneration: `setup-android-push.sh` calls
+  `setup-android-notifications.sh`. For an existing generated project, run
+  `bash scripts/setup-android-notifications.sh` from `capacitor-spike/`
+  before the normal Android build.
+- iOS regeneration: the shared UAT/production Codemagic privacy step runs
+  `setup-ios-notifications.sh` after `npx cap add ios`. It adds the Swift
+  source to the App group and Sources phase, and binds the storyboard's
+  `SortedBridgeViewController` to the App module. Run the same script after
+  regenerating a local iOS project.
+- Both apps require fresh native builds. Updating web assets alone cannot
+  add this bridge to an installed binary. Older binaries show an honest
+  update/manual-settings message; they never invoke a missing plugin.
+
+On new iOS and Android 13+ builds, check a fresh install after sign-in:
+Continue requests permission once; allow completes registration; deny leaves
+the calm Home reminder below reconnect and transfers. Open settings, return
+unchanged, then enable alerts and return again. Confirm the reminder only
+disappears when permission and registration are ready. Also check Android
+12 without a runtime prompt, a disabled `money_updates` channel, offline
+registration/retry, biometric unlock before the introduction, and sign-out
+during a pending request. These require real devices; fixture tests and a
+Java compile do not establish delivery or substitute for an iOS build.
+
+Browser permission requires the original Continue click. Denied browsers
+show site-settings guidance; iPhone browsers without Home Screen support
+show installation guidance. Explicit browser opt-outs survive registration
+repair and local subscription-cleanup failures. The public Settings test
+push control is removed; `/push/test` retains its existing authenticated,
+rate-limited behaviour for operational checks.
+
 ## Dependency audit (H110, 2026-10-08)
 
 `@capacitor/android`, `@capacitor/ios`, `@capacitor/core` and `@capacitor/cli`

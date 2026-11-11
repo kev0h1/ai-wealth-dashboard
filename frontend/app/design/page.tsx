@@ -32,14 +32,6 @@ type PreviewRoute = {
 
 const ROUTES: PreviewRoute[] = [
   {
-    slug: "g409-notifications",
-    name: "Notifications from first launch · G409",
-    description: "Two introductions and calm Home reminders: A Quiet introduction, B Example first. Interactive, simulated permission requests and phone-settings returns, browser guidance, unsupported devices, setup failures and saved opt-outs. All alert topics start on; the optional tips topic uses neutral copy. Existing Home hero with fictional data, no real permissions, device registration or push messages.",
-    variants: [{ label: "A · Quiet introduction", value: "a" }, { label: "B · Example first", value: "b" }],
-    states: [{ label: "First launch", value: "first-launch" }, { label: "Home, permission off", value: "home-off" }, { label: "Home, permission on", value: "home-on" }, { label: "Settings, permission off", value: "settings-off" }, { label: "Settings, permission on", value: "settings-on" }, { label: "Existing choices kept", value: "saved-choices" }, { label: "Setup incomplete", value: "setup-error" }, { label: "Status unavailable", value: "status-error" }, { label: "Cannot open settings", value: "settings-error" }, { label: "Checking permission", value: "checking" }],
-    group: "current",
-  },
-  {
     slug: "statements-house-ads",
     name: "Statements house ads · B58",
     description:

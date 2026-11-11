@@ -26,6 +26,7 @@ import { buildSettingsGroups } from "../components/settings/SettingsDirectory.ts
 import { MajorityRowView } from "../components/SpendVerdictView.tsx";
 import { TipsLine } from "../components/TipsLine.tsx";
 import { insightsForDisplay, openTipsFor } from "../lib/spendTips.ts";
+import { NotificationTopicsView } from "../components/notifications/NotificationViews.tsx";
 
 const h = React.createElement;
 const noop = () => {};
@@ -65,7 +66,12 @@ assert.ok(/preferencesReady/.test(spotlight) && /onReadyRef\.current\?\.\(\)/.te
 // 4. settings
 const settings = read("../app/settings/SettingsPage.tsx");
 assert.ok(/\{tipsEnabled && \(<>/.test(settings), "Show tips row gated");
-assert.ok(/row\.key !== "insights" \|\| tipsEnabled/.test(settings), "tip notification row gated");
+assert.match(settings, /<NotificationTopicsView preferences=\{notifPrefs\} tipsEnabled=\{tipsEnabled\}/, "Settings passes the actual capability to the production topic controls");
+for (const tipsEnabled of [false, true]) for (const insights of [false, true]) {
+  const html = renderToStaticMarkup(h(NotificationTopicsView, { preferences: { insights }, tipsEnabled, onToggle: noop }));
+  assert.equal(html.includes("Tips and insights notifications"), tipsEnabled, "tip notification row follows capability regardless of saved choice");
+  assert.equal((html.match(/role="switch"/g) ?? []).length, tipsEnabled ? 7 : 6, "other notification topics stay available when tips are off");
+}
 const status = { accountSummary: "", financialSummary: "", notificationSummary: "", planSummary: "", coverSummary: "", payPeriodSummary: "", assistantsVisible: false };
 const display = (tipsEnabled) =>
   buildSettingsGroups({ ...status, tipsEnabled }).flatMap((g) => g.tasks).find((t) => t.section === "display");

@@ -392,7 +392,9 @@ function scanApiTsForUngatedFetches(lines) {
   check("NativePushResync reads the user from useAuth and its effect depends on the email",
     /useAuth\(\)/.test(resync) && /\},\s*\[email\]\)/.test(resync));
   check("NativePushResync re-POSTs the existing browser subscription on sign-in (web resync)",
-    /getSubscription\(\)/.test(resync) && /api\.subscribePush\(/.test(resync) && /if \(email\) resyncWebPush\(\)/.test(resync));
+    /resyncWebPush/.test(resync) && /if \(email\) resyncWebPush\(email\)/.test(resync)
+    && /getSubscription\(\)/.test(strip(readFileSync(path.join(root, "lib", "notificationPermissions.ts"), "utf8")))
+    && /api\.subscribePush\(/.test(strip(readFileSync(path.join(root, "lib", "notificationPermissions.ts"), "utf8"))));
   check("logout() clears its push race timer", /clearTimeout\(pushTimer\)/.test(logoutBody));
   check("unregisterCapacitorPush skips the network DELETE when remote is false", /if \(remote\)/.test(push) && /resyncController\.reset\(\)/.test(push));
 }

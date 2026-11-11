@@ -18,6 +18,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { MajorityRowView } from "../components/SpendVerdictView.tsx";
 import { TipsLine } from "../components/TipsLine.tsx";
 import { insightsForDisplay, openTipsFor } from "../lib/spendTips.ts";
+import { NotificationTopicsView } from "../components/notifications/NotificationViews.tsx";
 
 const h = React.createElement;
 const noop = () => {};
@@ -71,11 +72,15 @@ for (const f of ["../app/components/SpendPage.tsx", "../app/transactions/Transac
 }
 const settings = read("../app/settings/SettingsPage.tsx");
 assert.ok(settings.includes("Show tips on Spend and Transactions"), "Settings has the tips switch");
-assert.ok(settings.includes('title: "Tips and insights notifications"'), "push switch relabelled");
-assert.ok(!settings.includes('title: "Tips & insights"'), "old push label gone");
+assert.match(settings, /<NotificationTopicsView preferences=\{notifPrefs\} tipsEnabled=\{tipsEnabled\}/, "Settings uses the gated production topic controls");
+const pushTopics = renderToStaticMarkup(h(NotificationTopicsView, { preferences: { insights: true }, tipsEnabled: true, onToggle: noop }));
+assert.ok(pushTopics.includes("Tips and insights notifications"), "push switch relabelled");
+assert.ok(pushTopics.includes("New tips about your spending"), "G409 neutral push copy renders");
+assert.ok(!pushTopics.includes("Tips &amp; insights"), "old push label gone");
+assert.ok(!pushTopics.includes("Alerts about ways to save money we spot for you"), "retired savings claim does not render");
 
 // 5. copy
-for (const s of ["Show tips on Spend and Transactions", "Ways to save, shown next to your categories and payments", "Tips and insights notifications", "Alerts about ways to save money we spot for you"]) {
+for (const s of ["Show tips on Spend and Transactions", "Ways to save, shown next to your categories and payments", "Tips and insights notifications", "New tips about your spending"]) {
   assert.ok(!s.includes("—") && !s.includes("!"), s);
 }
 

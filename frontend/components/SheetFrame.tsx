@@ -33,6 +33,7 @@ export function SheetFrame({
   labelledBy,
   themeClass,
   leading,
+  closeIcon,
   onBack,
   backLabel = "Back",
   dismissDisabled = false,
@@ -60,6 +61,7 @@ export function SheetFrame({
   labelledBy?: string;
   themeClass?: string;
   leading?: ReactNode;
+  closeIcon?: ReactNode;
   onBack?: () => void;
   backLabel?: string;
   dismissDisabled?: boolean;
@@ -208,7 +210,7 @@ export function SheetFrame({
             {description ? <p id={`${titleId}-description`} className="mt-1 text-[13px] leading-5 text-slate-500 dark:text-slate-400">{description}</p> : null}
           </div>
           <button type="button" onClick={close} disabled={dismissDisabled} aria-label={`Close ${title}`} className="-mr-2 -mt-1 flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-slate-500 transition-transform active:scale-95 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-slate-300">
-            <X size={20} aria-hidden="true" />
+            {closeIcon ?? <X size={20} aria-hidden="true" />}
           </button>
         </header>
         {bodyHeader != null && <div data-sheet-body-header className="shrink-0">{bodyHeader}</div>}
