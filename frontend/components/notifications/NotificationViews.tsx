@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import NotificationIcon, { type NotificationIconName } from "./NotificationIcon";
 import type { NotificationState } from "@/lib/notificationPermissionController";
 import type { NotificationPrefs } from "@/lib/api";
@@ -57,14 +57,37 @@ export function notificationPresentation(state: NotificationState): { title: str
   return { title: "Notifications allowed", detail: native ? "Your phone allows alerts from Sorted." : "This browser allows alerts from Sorted.", action: native ? "Manage in phone settings" : null, icon: "bell" };
 }
 
-/** Never dismissable. The existing reconnect and transfer rows stay above it. */
-export function NotificationPermissionRowView({ state, onAction }: { state: NotificationState; onAction: () => void }) {
-  if (state.startup || state.permission === "checking" || (state.permission === "granted" && ["ready", "checking"].includes(state.registration))) return null;
+/** G458 B changes Home's copy; Settings keeps the shared device presentation. */
+function homeNotificationPresentation(state: NotificationState): ReturnType<typeof notificationPresentation> {
   const view = notificationPresentation(state);
-  const content = <><NotificationIcon name={view.icon} className="shrink-0 text-slate-500 dark:text-slate-400" /><span className="min-w-0 flex-1"><span className="block text-[13px] font-semibold">{view.title}</span><span className={`mt-0.5 block ${secondary}`}>{view.detail}</span></span>{view.action && <NotificationIcon name="caret-right" size={16} className="shrink-0 text-indigo-600 dark:text-indigo-400" />}</>;
-  return <section data-notification-reminder aria-label="Notification permission" className="border-y border-slate-200 text-slate-900 dark:border-slate-700 dark:text-slate-100">
-    {view.action ? <button type="button" data-notification-action onClick={onAction} disabled={state.busy} aria-busy={state.busy} className="flex min-h-16 w-full items-center gap-3 rounded-lg px-1 py-3 text-left hover:bg-slate-100 active:opacity-70 disabled:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:hover:bg-slate-800">{content}</button> : <div className="flex min-h-16 items-center gap-3 py-3">{content}</div>}
-    {state.error && <p role="status" className={`px-1 pb-3 ${secondary}`}>{state.error}</p>}
+  if (state.busy && state.permission === "granted" && state.registration !== "ready") return view;
+  if (state.permission === "unavailable" && state.unavailable === "old-app") {
+    return { title: "Update to check notifications", detail: "This version of Sorted cannot check your notification settings.", action: "Update Sorted", icon: "arrow-clockwise" };
+  }
+  if (state.permission === "denied") {
+    return { ...view, title: "Notifications are blocked", ...(state.platform !== "web" ? { detail: "Allow alerts for Sorted in your phone’s Settings.", action: "Open phone Settings" } : {}) };
+  }
+  if (state.permission === "prompt" || (state.permission === "granted" && state.registration === "off")) return { ...view, title: "Notifications are off" };
+  return view;
+}
+
+/** Approved G458 B. Never dismissable; reconnect and transfer rows lead. */
+export function NotificationPermissionRowView({ state, onAction }: { state: NotificationState; onAction: () => void }) {
+  const titleId = useId();
+  const helpId = useId();
+  const [showUpdateHelp, setShowUpdateHelp] = useState(false);
+  if (state.startup || state.permission === "checking" || (state.permission === "granted" && ["ready", "checking"].includes(state.registration))) return null;
+  const view = homeNotificationPresentation(state);
+  const oldApp = state.permission === "unavailable" && state.unavailable === "old-app";
+  return <section data-notification-reminder aria-labelledby={titleId} className="rounded-2xl border border-slate-200 bg-white p-4 text-slate-900 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100">
+    <div className="flex items-center gap-2">
+      <NotificationIcon name={view.icon} className="shrink-0 text-slate-500 dark:text-slate-400" />
+      <h2 id={titleId} className="min-w-0 text-pretty text-base font-bold">{view.title}</h2>
+    </div>
+    <p className={`mt-2 ${secondary}`}>{view.detail}</p>
+    {view.action && <button type="button" data-notification-action onClick={oldApp ? () => setShowUpdateHelp(true) : onAction} disabled={state.busy} aria-busy={state.busy} aria-expanded={oldApp ? showUpdateHelp : undefined} aria-controls={oldApp ? helpId : undefined} className="mt-3 inline-flex min-h-11 w-full touch-manipulation items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-[13px] font-semibold text-indigo-700 hover:bg-slate-50 active:opacity-70 disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 dark:border-slate-600 dark:bg-slate-800 dark:text-indigo-300 dark:hover:bg-slate-700 dark:focus-visible:ring-offset-slate-900">{state.busy ? "Checking…" : view.action}</button>}
+    {oldApp && <p id={helpId} role="status" className={showUpdateHelp ? `mt-3 ${secondary}` : "sr-only"}>{showUpdateHelp ? "Update Sorted in the App Store or Google Play, then reopen it. If you installed Sorted through TestFlight, check for a newer build there. If no update is offered, open your phone’s Settings, find Sorted and choose Notifications." : null}</p>}
+    {state.error && <p role="status" className={`mt-3 ${secondary}`}>{state.error}</p>}
   </section>;
 }
 

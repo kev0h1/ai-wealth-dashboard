@@ -208,8 +208,41 @@ for (const glyph of ["bell", "calendar-dots", "list-checks"]) assert.ok(intro.in
 assert.doesNotMatch(intro, /lucide|Send a test notification|bg-gradient/);
 const off = { ...INITIAL_NOTIFICATION_STATE, ...base, permission: "denied", startup: false };
 const row = render(h(NotificationPermissionRowView, { state: off, onAction() {} }));
-assert.match(row, /Turn on notifications/); assert.match(row, /data-phosphor-icon="bell-slash"/);
+assert.match(row, /Notifications are blocked/); assert.match(row, /Open phone Settings/); assert.match(row, /data-phosphor-icon="bell-slash"/);
 assert.doesNotMatch(row, /Dismiss|aria-label="Close|text-red|bg-red|text-rose/);
+for (const platform of ["ios", "android", "web"]) {
+  const prompt = render(h(NotificationPermissionRowView, { state: { ...off, platform, permission: "prompt" }, onAction() {} }));
+  assert.match(prompt, /Notifications are off/);
+  assert.match(prompt, /Turn on notifications/);
+  const denied = render(h(NotificationPermissionRowView, { state: { ...off, platform }, onAction() {} }));
+  assert.match(denied, /Notifications are blocked/);
+  assert.match(denied, platform === "web" ? /How to allow notifications/ : /Open phone Settings/);
+  if (platform === "web") assert.doesNotMatch(denied, /phone’s Settings|Open phone Settings/);
+}
+const oldApp = render(h(NotificationPermissionRowView, { state: { ...off, permission: "unavailable", unavailable: "old-app" }, onAction() {} }));
+assert.match(oldApp, /Update to check notifications/);
+assert.match(oldApp, /cannot check your notification settings/);
+assert.match(oldApp, /Update Sorted/);
+assert.match(oldApp, /data-phosphor-icon="arrow-clockwise"/);
+assert.match(oldApp, /aria-expanded="false"/);
+assert.doesNotMatch(oldApp, /Notifications are off|Notifications are blocked/);
+const busyPrompt = render(h(NotificationPermissionRowView, { state: { ...off, permission: "prompt", busy: true }, onAction() {} }));
+assert.match(busyPrompt, /disabled=""[^>]*aria-busy="true"/);
+assert.match(busyPrompt, /Checking…/);
+const registering = render(h(NotificationPermissionRowView, { state: { ...off, permission: "granted", registration: "off", busy: true }, onAction() {} }));
+assert.match(registering, /Setting up notifications…/);
+assert.doesNotMatch(registering, /Notifications are off|<button/);
+const failed = render(h(NotificationPermissionRowView, { state: { ...off, error: "Open Settings, find Sorted, then choose Notifications." }, onAction() {} }));
+assert.match(failed, /role="status"[^>]*>Open Settings, find Sorted, then choose Notifications\./);
+for (const hiddenState of [
+  { ...off, startup: true },
+  { ...off, permission: "checking" },
+  { ...off, permission: "granted", registration: "checking" },
+  { ...off, permission: "granted", registration: "ready" },
+]) assert.equal(render(h(NotificationPermissionRowView, { state: hiddenState, onAction() {} })), "");
+const settingsDenied = render(h(DeviceNotificationSettingsView, { state: off, onAction() {}, onBrowserToggle() {} }));
+assert.match(settingsDenied, /Open notification settings/);
+assert.doesNotMatch(settingsDenied, /Open phone Settings/);
 for (const permission of ["prompt", "denied", "granted", "unknown", "unavailable"]) {
   const html = render(h(DeviceNotificationSettingsView, { state: { ...off, permission }, onAction() {}, onBrowserToggle() {} }));
   assert.doesNotMatch(html, /Send a test notification|lucide/);
@@ -231,4 +264,5 @@ assert.match(source("../lib/capacitorPush.ts"), /options\.requestPermission === 
 assert.match(source("../lib/notificationPermissions.ts"), /getToken\(\) === session/, "Async work checks the original signed-in session");
 assert.match(source("../lib/nativeNotificationSettings.ts"), /headers\.some\(header => header\.name === "SortedNotifications"\)/);
 assert.ok(!existsSync(new URL("../app/design/g409-notifications", import.meta.url)), "Approved temporary previews retired");
+assert.ok(!existsSync(new URL("../app/design/home-notifications", import.meta.url)), "G458's chosen B retires the temporary comparison");
 console.log("G409: permission flow, no-repeat requests, session/lock races, resume, browser opt-outs, Phosphor icons and accessible production views passed");
