@@ -75,6 +75,13 @@ changed freely, no migration needed).
 
 Real first use: the owner drips daily into a Monzo savings pot ("Saving
 Challenge (2026)", ~£9/day, one clean transaction description).
+
+G461: source-reserved manual set-asides can also have a nested fill_rule.
+That explicit rule matches outgoing debits from the paying account, while
+legacy incoming-credit rules keep their original meaning. Category evidence
+remains informational. Existing goal and incoming-payment claims take
+priority; source-payment set-asides arbitrate each debit once. Unknown
+matching evidence retains the reserve.
 """
 import logging
 from collections import defaultdict
@@ -112,6 +119,7 @@ from app.services.account_plan_sources import (
     source_link_snapshot,
     validate_source_account,
 )
+from app.services.plan_fulfilment import claims_debit, rule_matches as _plan_rule_matches, validate_fill_rule
 
 logger = logging.getLogger(__name__)
 
@@ -343,6 +351,156 @@ async def filled_this_period(
     return round(sum(abs(float(t.get("amount", 0) or 0)) for t in fills), 2)
 
 
+async def matching_source_debits_this_period(
+    uid: str, source_account_id: str, rule: dict, start: date, end: date,
+) -> list[dict]:
+    """Manual plan payment tracking: matching debits from the selected source.
+
+    This deliberately has a different direction from the legacy allocation
+    matcher above. A manual plan reserves money at its paying account, so an
+    outgoing payment is the evidence that releases that reserve. Invalid
+    stored rules fail closed rather than turning an unreadable plan into a
+    broad transaction matcher.
+    """
+    try:
+        checked = validate_fill_rule(rule)
+    except HTTPException:
+        return []
+    end = min(end, timeutil.user_today())
+    if not checked or not source_account_id or start > end:
+        return []
+    start_dt = datetime(start.year, start.month, start.day)
+    end_dt = datetime(end.year, end.month, end.day, 23, 59, 59)
+    query = {
+        "user_id": uid, "account_id": source_account_id,
+        "transaction_type": "debit", "date": {"$gte": start_dt, "$lte": end_dt},
+    }
+    projection = {"amount": 1, "merchant_name": 1, "description": 1, "date": 1, "transaction_id": 1}
+    matches: list[dict] = []
+    seen: set[str] = set()
+    for col in (transactions_col, yapily_transactions_col):
+        for txn in await col.find(query, projection).to_list(None):
+            identity = str(txn.get("transaction_id") or txn.get("_id") or "")
+            if (identity and identity in seen) or not _plan_rule_matches(checked, txn):
+                continue
+            if identity:
+                seen.add(identity)
+            matches.append(txn)
+    return matches
+
+
+async def source_debits_this_period(
+    uid: str, source_account_id: str, rule: dict, start: date, end: date,
+    *, doc: dict | None = None, expected_pence: int = 0, rivals: list[dict] | None = None,
+) -> float:
+    debits = await matching_source_debits_this_period(uid, source_account_id, rule, start, end)
+    if rivals and doc is not None:
+        me = {"doc": doc, "rule": validate_fill_rule(rule), "expected_pence": expected_pence}
+        claimed = []
+        for debit in debits:
+            day = _as_date(debit.get("date"), date.min)
+            live = [r for r in rivals if r.get("start", start) <= day <= r.get("end", end)]
+            if any(r.get("goal_priority") and _plan_rule_matches(r["rule"], debit) for r in live):
+                continue
+            # An existing incoming-payment plan already owns its matched
+            # transfer. Do not release a second reserve from its debit leg.
+            if any(
+                abs(abs(float(credit.get("amount") or 0)) - abs(float(debit.get("amount") or 0))) < .005
+                and abs((_as_date(credit.get("date"), date.min) - day).days) <= 1
+                for r in live for credit in r.get("legacy_credits", [])
+            ):
+                continue
+            allocation_rivals = [r for r in live if not r.get("goal_priority") and "legacy_credits" not in r]
+            if claims_debit(me, allocation_rivals, debit, expected_pence):
+                claimed.append(debit)
+        debits = claimed
+    return round(sum(abs(float(t.get("amount", 0) or 0)) for t in debits), 2)
+
+
+def _allocation_period_amount(doc: dict, period_end: date) -> int:
+    """The authority for a manual allocation's current-period total, in pence."""
+    contribution = _period_contribution_pence(doc, period_end)
+    if contribution is not None:
+        return contribution
+    override = _period_override_pence(doc, period_end)
+    amount = int(round(float(doc.get("amount_per_period") or 0) * 100))
+    return amount if override is None else min(amount, override)
+
+
+def _source_rule_is_live(doc: dict, start: date, end: date) -> bool:
+    if doc.get("active", True) is not True or _tracking_mode(doc.get("tracking_mode")) != "manual":
+        return False
+    if not doc.get("source_account_id") or not doc.get("fill_rule"):
+        return False
+    if doc.get("recurrence") == "once":
+        once_start = _as_date(doc.get("created_period_start"), start)
+        once_end = _as_date(doc.get("created_period_end"), end)
+        if end < once_start or start > once_end:
+            return False
+    return _as_date(doc.get("effective_from"), start) <= end
+
+
+async def _source_debit_rivals(uid: str, doc: dict, start: date, end: date) -> list[dict] | None:
+    """Conservative shared-debit arbitration for new source-rule allocations.
+
+    Goals keep priority. A goal whose source is missing is also a blocker: a
+    stale source lookup must leave the allocation reserved, never let it take
+    a debit the goal may own. Between allocations we retain the established
+    exact-amount then created-order policy from ``claims_debit``.
+    """
+    try:
+        source = str(doc.get("source_account_id") or "")
+        allocation_docs = await allocations_col.find({"user_id": uid, "active": True}).to_list(None)
+        rivals: list[dict] = []
+        for other in allocation_docs:
+            if other.get("_id") == doc.get("_id"):
+                continue
+            if _tracking_mode(other.get("tracking_mode")) == "existing_payment":
+                if other.get("source_account_id") not in (None, source):
+                    continue
+                legacy_start = max(start, _as_date(other.get("effective_from"), start))
+                legacy_end = min(end, timeutil.user_today())
+                if other.get("recurrence") == "once":
+                    legacy_start = max(legacy_start, _as_date(other.get("created_period_start"), start))
+                    legacy_end = min(legacy_end, _as_date(other.get("created_period_end"), end))
+                if legacy_start <= legacy_end and other.get("fill_account_id"):
+                    credits = await matching_fills_this_period(uid, other["fill_account_id"], other.get("match_type"), other.get("match_value", ""), legacy_start, legacy_end)
+                    if credits:
+                        rivals.append({"doc": other, "legacy_credits": credits})
+                continue
+            if str(other.get("source_account_id") or "") != source:
+                continue
+            if not _source_rule_is_live(other, start, end):
+                continue
+            rule = validate_fill_rule(other.get("fill_rule"))
+            if rule:
+                claim_start = max(start, _as_date(other.get("effective_from"), start))
+                claim_end = end
+                period_end = end
+                if other.get("recurrence") == "once":
+                    claim_start = max(claim_start, _as_date(other.get("created_period_start"), start))
+                    claim_end = min(claim_end, _as_date(other.get("created_period_end"), end))
+                    period_end = _as_date(other.get("created_period_end"), end)
+                rivals.append({"doc": other, "rule": rule, "start": claim_start, "end": claim_end, "expected_pence": _allocation_period_amount(other, period_end)})
+        # Goal priority is implemented by a synthetic exact rival for every
+        # matching debit. Explicit same-source goals qualify; unknown sources
+        # deliberately qualify as a fail-closed fallback.
+        goals = await commitments_col.find({"user_id": uid, "status": {"$in": ["active", None]}}).to_list(None)
+        for goal in goals:
+            if goal.get("paused") is True or not goal.get("fill_rule"):
+                continue
+            goal_source = goal.get("source_account_id")
+            if goal_source not in (None, source):
+                continue
+            rule = validate_fill_rule(goal.get("fill_rule"))
+            if rule:
+                rivals.append({"doc": goal, "rule": rule, "expected_pence": 0, "goal_priority": True})
+        return rivals
+    except Exception:
+        logger.exception("allocations: source payment rival lookup failed")
+        return None
+
+
 def _period_override_pence(doc: dict, period_end: date) -> int | None:
     """G217: the per-period override for THIS pay period, in pence, or None.
 
@@ -407,11 +565,32 @@ async def _serialise(doc: dict, start: date, end: date) -> dict:
     # `filled_this_period` is always computed truthfully, completed or not —
     # only `remaining` is forced to 0 for completed/pending allocations (the
     # double-count guard: see module docstring).
-    filled = 0.0 if tracking_mode == "manual" else await filled_this_period(
-        doc["user_id"], doc["fill_account_id"],
-        doc.get("match_type"), doc.get("match_value", ""),
-        window_start, window_end,
-    )
+    if tracking_mode == "manual":
+        if doc.get("fill_rule"):
+            # Rival reads must fail closed. Releasing a reserve on incomplete
+            # arbitration would make the next safe-to-spend figure unsafe.
+            rivals = await _source_debit_rivals(doc["user_id"], doc, window_start, window_end)
+            if rivals is None:
+                filled = 0.0
+            else:
+                expected = _allocation_period_amount(doc, eff_end)
+                try:
+                    filled = await source_debits_this_period(
+                        doc["user_id"], str(doc.get("source_account_id") or ""),
+                        doc.get("fill_rule"), window_start, window_end,
+                        doc=doc, expected_pence=expected, rivals=rivals,
+                    )
+                except Exception:
+                    logger.exception("allocations: source payment lookup failed")
+                    filled = 0.0
+        else:
+            filled = 0.0
+    else:
+        filled = await filled_this_period(
+            doc["user_id"], doc["fill_account_id"],
+            doc.get("match_type"), doc.get("match_value", ""),
+            window_start, window_end,
+        )
     contribution_pence = _period_contribution_pence(doc, eff_end)
     override_pence = _period_override_pence(doc, eff_end)
     # A reduction only: if the recurring amount was lowered below an older
@@ -447,6 +626,7 @@ async def _serialise(doc: dict, start: date, end: date) -> dict:
         "current_period_contribution": current_contribution,
         "fill_account_id":     doc.get("fill_account_id"),
         "source_account_id":   doc.get("source_account_id"),
+        "fill_rule":           doc.get("fill_rule") if tracking_mode == "manual" else None,
         # G350: whether the field is stored at all, so a deliberate null
         # ("Not set") is told apart from a legacy plan that never had one.
         "source_set":          "source_account_id" in doc,
@@ -520,6 +700,7 @@ def _contribution_snapshot(doc: dict) -> dict:
         "created_period_start", "created_period_end", "tracking_mode",
         "fill_account_id", "match_type", "match_value", "source_account_id",
         "source_unset", "category_tracking", "destination_account_id",
+        "fill_rule",
         "period_overrides", "period_contributions",
     )
     return source_link_snapshot(doc, *fields)
@@ -622,7 +803,7 @@ async def list_account_plans(user: dict = Depends(current_user)):
                 "inferred": False,
                 "source_account_name": account_label(account_map.get(source_id)) if source_id else None,
                 "period_amount": serial.get("period_amount", serial["amount_per_period"]),
-                "filled_amount": 0.0,
+                "filled_amount": serial["filled_this_period"],
                 "remaining": serial["remaining"],
                 "active": bool(serial["active"]) and not serial["completed"] and not serial["pending"],
             })
@@ -804,7 +985,11 @@ async def create_allocation(body: dict, user: dict = Depends(current_user)):
     name = _validate_name(body.get("name"))
     amount = _validate_amount(body.get("amount_per_period"))
     tracking_mode = _tracking_mode(body.get("tracking_mode"))
+    if tracking_mode != "manual" and body.get("fill_rule") is not None:
+        raise HTTPException(400, "Source payment tracking requires a manual set-aside.")
     if tracking_mode != "manual" and body.get("category_tracking"):
+        raise HTTPException(400, "Choose payment tracking or category tracking, not both.")
+    if body.get("category_tracking") and body.get("fill_rule"):
         raise HTTPException(400, "Choose payment tracking or category tracking, not both.")
     recurrence = _validate_recurrence(body.get("recurrence"))
     cfg = await _pay_cfg(uid)
@@ -816,6 +1001,9 @@ async def create_allocation(body: dict, user: dict = Depends(current_user)):
         if source_id is None:
             raise HTTPException(400, "source_account_id required for manual tracking")
         tracking = await _category_tracking(body.get("category_tracking"), uid, source_id, sources)
+        # Presence is significant: null clears/omits tracking, while a blank
+        # object is an invalid rule and must not quietly become Not tracking.
+        rule = validate_fill_rule(body.get("fill_rule")) if "fill_rule" in body else None
         tracking_destination = next(iter((tracking or {}).get("destination_account_ids") or []), None)
         destination = _manual_destination(body.get("destination_account_id", tracking_destination), source_id, sources)
         if tracking and set(tracking.get("destination_account_ids") or []) != ({destination} if destination else set()):
@@ -828,6 +1016,7 @@ async def create_allocation(body: dict, user: dict = Depends(current_user)):
             "effective_from": datetime(effective_from.year, effective_from.month, effective_from.day),
             "recurrence": recurrence, "active": True, "created_at": datetime.now(timezone.utc),  # naive-ok: persisted UTC audit timestamp, not a calendar reading
             **({"category_tracking": tracking} if tracking else {}),
+            **({"fill_rule": rule} if rule else {}),
             **({"destination_account_id": destination} if destination else {}),
         }
         if recurrence == "once":
@@ -892,11 +1081,15 @@ async def update_allocation(
     doc = await _get_owned(uid, allocation_id)
     current_mode = _tracking_mode(doc.get("tracking_mode"))
     target_mode = _tracking_mode(body.get("tracking_mode", current_mode))
+    if target_mode != "manual" and body.get("fill_rule") is not None:
+        raise HTTPException(400, "Source payment tracking requires a manual set-aside.")
     if target_mode != "manual" and body.get("category_tracking"):
         raise HTTPException(400, "Choose payment tracking or category tracking, not both.")
+    if body.get("category_tracking") and body.get("fill_rule"):
+        raise HTTPException(400, "Choose payment tracking or category tracking, not both.")
     update_filter = {"_id": doc["_id"], "user_id": uid}
-    if target_mode == "manual" or "source_account_id" in body or "fill_account_id" in body or "category_tracking" in body:
-        update_filter.update(source_link_snapshot(doc, "source_account_id", "fill_account_id", "category_tracking", "destination_account_id"))
+    if target_mode == "manual" or "source_account_id" in body or "fill_account_id" in body or "category_tracking" in body or "fill_rule" in body or "destination_account_id" in body:
+        update_filter.update(source_link_snapshot(doc, "source_account_id", "fill_account_id", "category_tracking", "destination_account_id", "fill_rule"))
 
     updates: dict = {}
     if "name" in body:
@@ -912,6 +1105,10 @@ async def update_allocation(
         )
         if source_id is None:
             raise HTTPException(400, "source_account_id required for manual tracking")
+        route_changed = (
+            source_id != doc.get("source_account_id")
+            or ("destination_account_id" in body and body.get("destination_account_id") != doc.get("destination_account_id"))
+        )
         if "destination_account_id" in body or doc.get("destination_account_id"):
             updates["destination_account_id"] = _manual_destination(body.get("destination_account_id", doc.get("destination_account_id")), source_id, sources)
         updates.update({
@@ -921,8 +1118,20 @@ async def update_allocation(
         })
         if "category_tracking" in body:
             updates["category_tracking"] = await _category_tracking(body["category_tracking"], uid, source_id, sources)
-        elif source_id != doc.get("source_account_id") or ("destination_account_id" in updates and updates["destination_account_id"] != doc.get("destination_account_id")):
+            # Category evidence and an exact payment rule must never both
+            # release the same source reserve. A category selection is an
+            # explicit replacement for the prior payment selection.
+            if "fill_rule" not in body:
+                updates["fill_rule"] = None
+        elif route_changed:
             updates["category_tracking"] = None
+        if "fill_rule" in body:
+            rule = validate_fill_rule(body.get("fill_rule"))
+            if rule and updates.get("category_tracking", doc.get("category_tracking")):
+                raise HTTPException(400, "Choose payment tracking or category tracking, not both.")
+            updates["fill_rule"] = rule
+        elif route_changed:
+            updates["fill_rule"] = None
         effective_tracking = updates.get("category_tracking", doc.get("category_tracking"))
         effective_destination = updates.get("destination_account_id", doc.get("destination_account_id"))
         if effective_tracking and "category_tracking" in body:
@@ -936,6 +1145,7 @@ async def update_allocation(
     elif "tracking_mode" in body:
         updates["tracking_mode"] = "existing_payment"
         updates["category_tracking"] = None
+        updates["fill_rule"] = None
         if doc.get("destination_account_id"):
             updates["destination_account_id"] = None
     if target_mode == "existing_payment" and "fill_account_id" in body:

@@ -1370,6 +1370,7 @@ async def list_commitments(user: dict = Depends(current_user)):
 @router.get("/commitments/fill-candidates")
 async def plan_fill_candidates(
     source_account_id: str, pot_ids: str = "", user: dict = Depends(current_user),
+    include_source_payments: bool = False,
 ):
     """G256: recent (90d) payments leaving the plan's paying account, in the
     shape the shared rule picker reads, plus a rule suggested from the transfers
@@ -1380,7 +1381,7 @@ async def plan_fill_candidates(
     if source_id not in account_map:
         raise HTTPException(400, "account not found")
     pots = [p for p in (x.strip() for x in str(pot_ids or "").split(",")) if p in account_map]
-    return await _plan_fill_candidates(uid, source_id, pots, account_map)
+    return await _plan_fill_candidates(uid, source_id, pots, account_map, include_source_payments=include_source_payments)
 
 
 @router.post("/plans/category-activity")

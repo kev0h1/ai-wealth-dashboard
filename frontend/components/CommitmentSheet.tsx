@@ -29,6 +29,7 @@ import PlanEditorFlow, { PlanEditorActions, PLAN_EDITOR_STEPS, type PlanEditorSt
 import GoalContributionEditor from "@/components/plans/GoalContributionEditor";
 import GoalScheduleEditor from "@/components/plans/GoalScheduleEditor";
 import { GoalScheduleDetails } from "@/components/plans/GoalScheduleDetails";
+import { prioritisePlanFillCandidates } from "@/lib/planPaymentCandidates";
 
 
 // Create/edit sheet for a commitment — a named future big expense (holiday,
@@ -86,12 +87,12 @@ interface CommitmentSheetProps {
   /** Injectable only for deterministic auth-free component fixtures. */
   operations?: CommitmentSheetOperations;
   initialMode?: "view" | "edit" | "contribution";
-  initialStep?: "purpose" | "details";
+  initialStep?: PlanEditorStep;
   /** G329: the server's current pay period from the host page (cashflow.period on Upcoming, verdict.period on Spend). When absent the sheet reads the cached Spend verdict, and only then the client config (fallback). */
   serverPeriod?: ServerPeriodBounds | null;
   embedded?: {
     renderActions(actions: ReactNode): ReactNode;
-    onEdit(step?: "details"): void;
+    onEdit(step?: PlanEditorStep): void;
     onCancel(): void;
     onChangeContribution(): void;
     onBusyChange?(busy: boolean): void;
@@ -198,7 +199,7 @@ export default function CommitmentSheet({
   const [contributionMode, setContributionMode] = useState(Boolean(commitment && initialMode === "contribution"));
   const [scheduleEditing, setScheduleEditing] = useState(false);
   const [contributionFooterHost, setContributionFooterHost] = useState<HTMLDivElement | null>(null);
-  const [reviewEditing, setReviewEditing] = useState(false);
+  const [reviewEditing, setReviewEditing] = useState(Boolean(commitment && ["source", "destination", "tracking"].includes(initialStep)));
   const [sheetHistoryGeneration, setSheetHistoryGeneration] = useState(0);
   const [editorView, setEditorView] = useState<PlanEditorStep>(initialStep);
   const retryCommittedRefresh = normalRequest.retryRefresh;
@@ -278,21 +279,16 @@ export default function CommitmentSheet({
   // G256: candidates are payments leaving the chosen paying account; the
   // suggestion rides along from the same call.
   const potKey = pots.map((p) => p.account_id).join(",");
+  const readPlanCandidates = operations.planFillCandidates ?? api.planFillCandidates;
+  const isExistingGoal = Boolean(commitment);
   const loadFillCandidates = useCallback(
     (accountId: string) =>
-      (operations.planFillCandidates ?? api.planFillCandidates)(accountId, potKey ? potKey.split(",") : [])
-        .then((r) => {
-          // The suggestion is always a row the user can tap, unselected until they do.
-          const s = r.suggestion;
-          const has = s && r.items.some((c) => c.display_name === s.match_value);
-          return s && !has
-            ? [{ series_key: "suggested", display_name: s.match_value, last_amount: s.last_amount, last_date: s.last_date, occurrences_90d: s.occurrences_90d }, ...r.items]
-            : r.items;
-        }),
-    [operations, potKey],
+      readPlanCandidates(accountId, potKey ? potKey.split(",") : [], isExistingGoal)
+        .then(prioritisePlanFillCandidates),
+    [readPlanCandidates, potKey, isExistingGoal],
   );
   // Offered, never preselected: nothing is chosen until the user taps a row.
-  const suggestedActive = Boolean(suggestion && !ruleTouched && !commitment?.fill_rule);
+  const suggestedActive = Boolean(!commitment && suggestion && !ruleTouched);
   const fulfilment = commitment?.fill_rule && !ruleTouched && sourceId === commitment.source_account_id ? commitment.fulfilment ?? null : null;
 
   function togglePot(accountId: string) {
@@ -409,17 +405,17 @@ export default function CommitmentSheet({
   useEffect(() => {
     let stale = false;
     if (!sourceId || !potKey) return;
-    (operations.planFillCandidates ?? api.planFillCandidates)(sourceId, potKey.split(","))
+    readPlanCandidates(sourceId, potKey.split(","))
       .then(result => {
         if (stale) return;
         setSuggestion(result.suggestion);
-        if (!ruleTouched && !commitment?.fill_rule && result.suggestion) {
+        if (!isExistingGoal && !categoryTracking && !ruleTouched && result.suggestion) {
           setRule({ ...result.suggestion, fill_display_name: "Suggested transfer" });
           setPaymentPickerOpen(true);
         }
       }).catch(() => { /* Manual reference and check-yourself remain available. */ });
     return () => { stale = true; };
-  }, [sourceId, potKey, operations, commitment?.fill_rule, ruleTouched]);
+  }, [sourceId, potKey, readPlanCandidates, isExistingGoal, categoryTracking, ruleTouched]);
 
   // Feasibility shown — with the stored pot set, trust the server's verdict
   // (it knows accrued growth the preview can't see), mirroring how
@@ -549,6 +545,14 @@ export default function CommitmentSheet({
     setEditorView("purpose");
     setViewing(false);
   };
+  const startFieldEditing = (step: PlanEditorStep) => {
+    if (saving || needsRefresh) return;
+    if (embedded) { embedded.onEdit(step); return; }
+    setConfirmingCancel(false);
+    setReviewEditing(true);
+    setEditorView(step);
+    setViewing(false);
+  };
   const startScheduleEditing = () => {
     setConfirmingCancel(false);
     setScheduleEditing(true);
@@ -673,6 +677,10 @@ export default function CommitmentSheet({
                   <details className="pt-3"><summary className="min-h-11 cursor-pointer rounded-md py-3 font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500">Plan details</summary>
               <PlanRecordView
                 kind="goal"
+                onEditSource={() => startFieldEditing("source")}
+                onEditDestination={() => startFieldEditing("destination")}
+                onEditTracking={() => startFieldEditing("tracking")}
+                editDisabled={saving || needsRefresh}
                 contribution={commitment.paused ? 0 : commitment.current_period_contribution?.contribution ?? commitment.planned_per_period_slice ?? commitment.usual_slice ?? commitment.per_period_slice}
                 cadence={commitment.current_period_contribution ? "this pay period" : "estimated each pay period"}
                 target={{ amount: commitment.amount, month: new Date(`${commitment.target_date.slice(0, 7)}-01T12:00:00Z`).toLocaleDateString("en-GB", { month: "long", year: "numeric", timeZone: "UTC" }) }}
@@ -701,6 +709,10 @@ export default function CommitmentSheet({
             ) : viewing && commitment ? (
               <PlanRecordView
                 kind="goal"
+                onEditSource={() => startFieldEditing("source")}
+                onEditDestination={() => startFieldEditing("destination")}
+                onEditTracking={() => startFieldEditing("tracking")}
+                editDisabled={saving || needsRefresh}
                 contribution={commitment.paused ? 0 : commitment.current_period_contribution?.contribution ?? commitment.planned_per_period_slice ?? commitment.usual_slice ?? commitment.per_period_slice}
                 cadence={commitment.current_period_contribution ? "this pay period" : "estimated each pay period"}
                 target={{ amount: commitment.amount, month: new Date(`${commitment.target_date.slice(0, 7)}-01T12:00:00Z`).toLocaleDateString("en-GB", { month: "long", year: "numeric", timeZone: "UTC" }) }}
@@ -938,11 +950,12 @@ export default function CommitmentSheet({
                   paying account. A suggestion is prefilled, never applied. */}
               {editorView === "tracking" && sourceOptions.length > 0 && sourceId && (
                 <div data-testid="plan-fill-rule-field" className="space-y-1.5">
-                  <PlanTrackingMethod value={categoryTracking ? "category" : paymentPickerOpen ? "payment" : "none"} onChange={method => { setCategoryTracking(method === "category" ? { category: allCategories.includes("Savings") ? "Savings" : allCategories[0] ?? "Other" } : null); setPaymentPickerOpen(method === "payment"); setRule(EMPTY_RULE); setRuleTouched(true); }} />
+                  <PlanTrackingMethod noneLabel={commitment ? "Not tracking" : undefined} value={categoryTracking ? "category" : paymentPickerOpen ? "payment" : "none"} onChange={method => { setCategoryTracking(method === "category" ? { category: allCategories.includes("Savings") ? "Savings" : allCategories[0] ?? "Other" } : null); setPaymentPickerOpen(method === "payment"); setRule(EMPTY_RULE); setRuleTouched(true); }} />
                   {categoryTracking && <PlanCategoryTracking kind="goal" sourceAccountId={sourceId} destinationAccountIds={pots.map((pot) => pot.account_id)} value={categoryTracking} commitmentId={commitment?.id} onChange={(value) => { setCategoryTracking(value); setPaymentPickerOpen(value === null); setRule(EMPTY_RULE); setRuleTouched(true); }} />}
                   {!categoryTracking && paymentPickerOpen && <>
                   <FillRulePicker
                     accountId={sourceId}
+                    direction="outgoing"
                     value={rule}
                     onChange={(v) => { setRule(v); setRuleTouched(true); setSaveError(false); }}
                     loadCandidates={loadFillCandidates}

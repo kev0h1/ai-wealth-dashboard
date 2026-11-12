@@ -20,13 +20,14 @@ import { CategoryIcon, PlanIcon, detailFocus } from "./detailPrimitives";
 import { useEditorRequest } from "./editorSupport";
 import UpcomingGoalPlan, { type UpcomingGoalServices } from "./UpcomingGoalPlan";
 import { CardBillAmountEdit, type CardBillServices } from "./CardBillAmountEdit";
+import type { PlanEditorStep } from "@/components/plans/PlanEditorFlow";
 
 export type PaymentDetail = { id: string; model: UpcomingRowModel; editor: UpcomingEditItem; planned?: PlannedEditItem; skip?: () => Promise<void>;
   /** The cashflow item this payment was built from, so an account event (UpcomingAccountEvent.source) can open it. */
   source?: object;
   /** G444: set on a defined card bill (statement estimate, entered or unknown); Edit opens its statement amount instead of the prediction editor. */
   cardId?: string };
-export type UpcomingDetailView = { kind: "account"; id: string } | { kind: "plan" | "edit-plan" | "goal-contribution" | "allocation-contribution"; id: string; step?: "details" } | { kind: "payment" | "edit-payment"; id: string };
+export type UpcomingDetailView = { kind: "account"; id: string } | { kind: "plan" | "edit-plan" | "goal-contribution" | "allocation-contribution"; id: string; step?: PlanEditorStep } | { kind: "payment" | "edit-payment"; id: string };
 export type UpcomingDetailServices = {
   upcoming?: UpcomingEditServices;
   planned?: PlannedEditServices;
@@ -154,13 +155,13 @@ export default function UpcomingDetailFlow(props: UpcomingDetailFlowProps) {
     if (view.kind === "plan") {
       if (plan.kind === "allocation" && allocation) return {
         title: plan.name, subtitle: "Your set-aside", leading: <PlanIcon kind={plan.kind} />,
-        body: <AllocationPlanEditor key={`view-${plan.id}`} initialMode="view" onEdit={() => navigation.goTo({ kind: "edit-plan", id: plan.id })} onChangeContribution={() => navigation.goTo({ kind: "allocation-contribution", id: plan.id })} allocation={allocation} accounts={accounts} suggestedSourceId={plan.evidence === "recent-transfers" ? plan.sourceId : null} periodStart={props.periodStart} services={services?.allocation} onCancel={navigation.close} onSaved={allocationSaved} onDeleted={saved} renderActions={actionsInFooter} />,
+        body: <AllocationPlanEditor key={`view-${plan.id}`} initialMode="view" onEdit={step => navigation.goTo({ kind: "edit-plan", id: plan.id, ...(step ? { step } : {}) })} onChangeContribution={() => navigation.goTo({ kind: "allocation-contribution", id: plan.id })} allocation={allocation} accounts={accounts} suggestedSourceId={plan.evidence === "recent-transfers" ? plan.sourceId : null} periodStart={props.periodStart} services={services?.allocation} onCancel={navigation.close} onSaved={allocationSaved} onDeleted={saved} renderActions={actionsInFooter} />,
       };
       return { title: plan.name, subtitle: "Your set-aside", leading: <PlanIcon kind="allocation" />, body: <MissingAllocation onRetry={props.onRefresh} /> };
     }
     return {
       title: allocation ? view.kind === "allocation-contribution" ? "Change this period" : "Edit plan" : "Set-aside unavailable", subtitle: plan.name,
-      body: allocation ? <AllocationPlanEditor key={`${view.kind}-${plan.id}`} initialMode={view.kind === "allocation-contribution" ? "contribution" : "edit"} onChangeContribution={() => navigation.goTo({ kind: "allocation-contribution", id: plan.id })} allocation={allocation} accounts={accounts} suggestedSourceId={plan.evidence === "recent-transfers" ? plan.sourceId : null} periodStart={props.periodStart} services={services?.allocation} onCancel={backToPlan} onSaved={allocationSaved} onDeleted={saved} renderActions={actionsInFooter} />
+      body: allocation ? <AllocationPlanEditor key={`${view.kind}-${plan.id}`} initialMode={view.kind === "allocation-contribution" ? "contribution" : "edit"} initialStep={view.kind === "edit-plan" ? view.step : undefined} onChangeContribution={() => navigation.goTo({ kind: "allocation-contribution", id: plan.id })} allocation={allocation} accounts={accounts} suggestedSourceId={plan.evidence === "recent-transfers" ? plan.sourceId : null} periodStart={props.periodStart} services={services?.allocation} onCancel={backToPlan} onSaved={allocationSaved} onDeleted={saved} renderActions={actionsInFooter} />
         : <MissingAllocation onRetry={props.onRefresh} />,
     };
   }
