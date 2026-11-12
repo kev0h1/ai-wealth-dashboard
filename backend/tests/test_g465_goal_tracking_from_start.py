@@ -151,3 +151,11 @@ def test_end_of_goal_with_a_payment_planned_equals_paid_plus_reserve(monkeypatch
     assert f["expected_pence"] == 1000 and f["matched_pence"] == 500
     assert info["per_period_slice"] == 5.0
     assert f["expected_pence"] == f["matched_pence"] + round(info["per_period_slice"] * 100)
+
+
+def test_end_of_goal_fully_paid_reads_fulfilled_with_no_reserve(monkeypatch):
+    info = _end_of_goal(monkeypatch, 0.0, [_debit(10.0, 14)])  # remaining 10 before, all 10 paid
+    f = info["fulfilment"]
+    assert f["state"] == "fulfilled"
+    assert f["expected_pence"] == 1000 and f["matched_pence"] == 1000
+    assert info["per_period_slice"] == 0

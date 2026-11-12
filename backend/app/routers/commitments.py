@@ -529,6 +529,10 @@ async def _pot_progress_and_slice(
                     fulfilment["expected_pence"],
                     fulfilment["matched_pence"] + int(round(remaining * 100)),
                 )
+                # The status word agrees with the planned figure and the
+                # reserve: once the shown plan is matched, it is fulfilled.
+                if fulfilment["matched_pence"] >= fulfilment["expected_pence"]:
+                    fulfilment["state"] = "fulfilled"
     current_contribution = None
     if manual is not None:
         per_period_slice = round(min(remaining, per_period_slice), 2)
