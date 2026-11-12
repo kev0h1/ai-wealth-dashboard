@@ -1,6 +1,7 @@
 /* eslint-disable @next/next/no-img-element -- Store artboards preserve the exact frozen production proof pixels. */
 import { STORE_ART, STORE_SIZES, type StoreId, type StorePlatform, type StoreTheme } from "./catalog";
 import type { CSSProperties } from "react";
+import MoneyText from "@/components/MoneyText";
 import styles from "./store.module.css";
 
 type Props = { id: StoreId; platform: StorePlatform; theme: StoreTheme };
@@ -17,7 +18,7 @@ export default function StoreCanvas({ id, platform, theme }: Props) {
   </article>;
   return <article data-store-artboard data-store-id={id} style={vars} className={`${styles.canvas} ${styles.store} ${styles[platform]} ${styles[theme]} ${styles[id]}`} aria-label={`${id} store screenshot`}>
     <header><span>Sorted</span><small>{art.kicker}</small></header>
-    <div className={styles.copy}><h1>{art.headline}</h1><p>{art.supporting}</p></div>
+    <div className={styles.copy}><h1>{art.headline}</h1><p><MoneyText text={art.supporting} unmasked /></p></div>
     <figure><img src={proof} alt="" /></figure>
     <footer>{art.qualifier}</footer>
   </article>;

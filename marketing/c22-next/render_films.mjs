@@ -29,6 +29,13 @@ for (const { story, theme } of jobs) {
   const frame = story === "balance" ? "9.5" : "8.5";
   const still = spawnSync("ffmpeg", ["-hide_banner", "-loglevel", "error", "-y", "-ss", frame, "-i", path.join(out, `${story}-${theme}.mp4`), "-frames:v", "1", "-q:v", "2", path.join(out, `${story}-${theme}-poster.jpg`)], { stdio: "inherit" });
   if (still.status !== 0) throw new Error("Poster extraction failed");
+  // JPEG COM metadata preserves the encoded pixels and carries its origin.
+  const posterPath = path.join(out, `${story}-${theme}-poster.jpg`);
+  const movieHash = createHash("sha256").update(readFileSync(path.join(out, `${story}-${theme}.mp4`))).digest("hex");
+  const origin = Buffer.from(`impeccable:prompt\0Origin: FFmpeg poster from ${story}-${theme}.mp4, SHA-256 ${movieHash}. Fictional Sorted production UI; authored campaign film.`);
+  const comment = Buffer.alloc(4); comment[0] = 0xff; comment[1] = 0xfe; comment.writeUInt16BE(origin.length + 2, 2);
+  const posterBytes = readFileSync(posterPath);
+  writeFileSync(posterPath, Buffer.concat([posterBytes.subarray(0, 2), comment, origin, posterBytes.subarray(2)]));
   console.log(`Rendered ${story}-${theme}`);
 }
 if (selected.length) process.exit(0);
@@ -36,8 +43,8 @@ if (selected.length) process.exit(0);
 const metadata = (file) => ({ file, bytes: statSync(path.join(out, file)).size, sha256: createHash("sha256").update(readFileSync(path.join(out, file))).digest("hex") });
 const proof = JSON.parse(readFileSync(path.join(out, "proof-assets.json"), "utf8"));
 const stills = JSON.parse(readFileSync(path.join(out, "still-assets.json"), "utf8"));
-const sources = ["frontend/remotion/c22-next/BalanceStory.tsx", "frontend/remotion/c22-next/AccountStory.tsx", "frontend/remotion/c22-next/index.tsx", "frontend/remotion/style.css", "frontend/app/design/marketing-kit/next/PosterCanvas.tsx", "frontend/app/design/marketing-kit/next/posters.module.css", "marketing/c22-next/export_round.py", "marketing/c22-next/sound_design.py", "marketing/c22-next/render_films.mjs"];
+const sources = ["marketing/c22-capabilities/finalise_provenance.py", "frontend/remotion/c22-next/BalanceStory.tsx", "frontend/remotion/c22-next/AccountStory.tsx", "frontend/remotion/c22-next/index.tsx", "frontend/remotion/style.css", "frontend/app/design/marketing-kit/next/PosterCanvas.tsx", "frontend/app/design/marketing-kit/next/posters.module.css", "marketing/c22-next/export_round.py", "marketing/c22-next/sound_design.py", "marketing/c22-next/render_films.mjs"];
 const movies = jobs.map(({ story, theme }) => ({ ...metadata(`${story}-${theme}.mp4`), kind: "film", story, theme, width: 1080, height: 1920, duration: 15, fps: 30, audio: "original sound design, AAC", source: `frontend/remotion/c22-next/${story === "balance" ? "BalanceStory" : "AccountStory"}.tsx`, status: "creative-review-only", data: "fictional" }));
 const ancillary = [...jobs.map(({ story, theme }) => `${story}-${theme}-poster.jpg`), "balance.vtt", "account.vtt", "balance-sound.wav", "account-sound.wav"].map((file) => ({ ...metadata(file), kind: file.endsWith(".vtt") ? "captions" : file.endsWith(".wav") ? "sound" : "video-poster" }));
-writeFileSync(path.join(out, "manifest.json"), JSON.stringify({ item: "C22", round: "next", date: "2026-11-05", status: "creative-review-only", productionUIRevision: spawnSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).stdout.trim(), sourceDependencies: { ...proof[0].productionUI, ...Object.fromEntries(sources.map(file => [file, createHash("sha256").update(readFileSync(path.join(root, file))).digest("hex")])) }, fonts: { figtree: "../crafted/fonts/Figtree.ttf", mono: "../crafted/fonts/JetBrainsMono.ttf", licences: "../crafted/fonts/" }, assets: [...proof, ...stills, ...movies, ...ancillary] }, null, 2) + "\n");
+writeFileSync(path.join(out, "manifest.json"), JSON.stringify({ item: "C22", round: "next", date: "2026-11-11", status: "creative-review-only", productionUIRevision: spawnSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).stdout.trim(), sourceDependencies: { ...proof[0].productionUI, ...Object.fromEntries(sources.map(file => [file, createHash("sha256").update(readFileSync(path.join(root, file))).digest("hex")])) }, fonts: { figtree: "../crafted/fonts/Figtree.ttf", mono: "../crafted/fonts/JetBrainsMono.ttf", licences: "../crafted/fonts/" }, assets: [...proof, ...stills, ...movies, ...ancillary] }, null, 2) + "\n");
 console.log("Manifest indexed: 12 designed stills, 4 films, 10 production proof captures, sound, captions and posters.");

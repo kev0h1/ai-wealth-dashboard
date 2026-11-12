@@ -22,7 +22,7 @@ function PennyAction({ done }: { done: boolean }) {
   const [status, setStatus] = useState<ProposalMsg["status"]>(done ? "done" : "pending");
   const message: ProposalMsg = { ...PENNY_SET_ASIDE_PROPOSAL, status };
   return <div className="space-y-3">
-    <UserBubble text="Set aside £200 for annual costs." />
+    <UserBubble text="Set aside £250 for groceries." />
     <ProposalConfirmCard
       msg={message}
       onConfirm={() => setStatus("done")}
@@ -74,7 +74,7 @@ export default function ActionProof({ kind, theme }: { kind: ActionProofKind; th
     case "movement":
       return wrap(<MoveCard item={MOVEMENT_SUGGESTION} hideNetWorth={false} maskAmounts={(text) => text} previewMode />);
     case "penny-request":
-      return wrap(<UserBubble text="Set aside £200 for annual costs." />);
+      return wrap(<UserBubble text="Set aside £250 for groceries." />);
     case "penny-proposal":
       return wrap(<PennyAction done={false} />);
     case "penny-done":

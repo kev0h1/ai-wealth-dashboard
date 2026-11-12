@@ -6,11 +6,13 @@ from pathlib import Path
 from PIL import Image, ImageDraw
 
 ROOT = Path(__file__).resolve().parents[2]
-OUT = ROOT / 'frontend/public/design-media/c22/features'
+ORIGINALS = '--originals' in sys.argv
+OUT = ROOT / ('frontend/public/design-media/c22/next' if ORIGINALS else 'frontend/public/design-media/c22/features')
+SELECTED = [arg for arg in sys.argv[1:] if arg != '--originals']
 REVIEW = ROOT / '.impeccable/review/c22-features'
 
-for story in ('movement', 'month', 'spend', 'split', 'penny', 'aside'):
-    if sys.argv[1:] and story not in sys.argv[1:]:
+for story in (('balance', 'account') if ORIGINALS else ('movement', 'month', 'spend', 'split', 'penny', 'aside', 'upcoming', 'plans', 'schedule')):
+    if SELECTED and story not in SELECTED:
         continue
     if not all((OUT / f'{story}-{theme}.mp4').exists() for theme in ('light', 'dark')):
         continue

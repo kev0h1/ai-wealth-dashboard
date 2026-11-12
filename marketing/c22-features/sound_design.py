@@ -1,6 +1,6 @@
 """Original restrained editorial sound, deterministically synthesised locally.
 
-Five soft impacts mark cuts; arithmetic gets small tactile clicks. No voice,
+Five soft impacts mark the five held shots; arithmetic gets small tactile clicks. No voice,
 licensed recording or external service. Render once before freezing the media.
 """
 import math
@@ -18,7 +18,8 @@ DURATION = 15
 
 def render(story):
     audio = [0.0] * (RATE * DURATION)
-    rng = random.Random(22 + ("movement", "month", "spend", "split", "penny", "aside").index(story))
+    stories = ("movement", "month", "spend", "split", "penny", "aside", "upcoming", "plans", "schedule")
+    rng = random.Random(22 + stories.index(story))
     def pluck(at, note, volume=.12, duration=.5):
         start = int(at * RATE)
         for i in range(min(int(duration * RATE), len(audio) - start)):
@@ -34,10 +35,10 @@ def render(story):
             previous = .75 * previous + .25 * rng.uniform(-1, 1)
             audio[start + i] += previous * math.exp(-i / RATE * 65) * volume
     # A single quiet recurring motif, not a relentless UI ping on every element.
-    for at, note in [(0, 164.81), (65/30, 220), (140/30, 246.94), ((260 if story == "penny" else 225)/30, 329.63), (355/30, 164.81)]:
+    for at, note in [(0, 164.81), (90/30, 220), (180/30, 246.94), (270/30, 329.63), (360/30, 164.81)]:
         pluck(at, note, .105, .8)
         click(at, .09)
-    for at in ([76/30, 93/30, 110/30] if story != "penny" else [157/30, 200/30, 260/30]):
+    for at in [106/30, 132/30, 158/30]:
         click(at, .12)
     # Brand resolution: a quiet two-note chord with a soft decay.
     pluck(12.15, 246.94, .045, 1.7)
@@ -54,5 +55,5 @@ def render(story):
 
 if __name__ == "__main__":
     OUT.mkdir(parents=True, exist_ok=True)
-    for story in ("movement", "month", "spend", "split", "penny", "aside"):
+    for story in ("movement", "month", "spend", "split", "penny", "aside", "upcoming", "plans", "schedule"):
         render(story)

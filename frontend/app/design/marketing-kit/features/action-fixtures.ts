@@ -8,7 +8,7 @@ import type { SetAsideItem } from "@/components/upcoming/SetAsideList";
  * on 18 October, leaving Bills £120 short. The suggested move is therefore
  * £120, made by Alex in their bank, never by Sorted.
  */
-export const ACTION_PERIOD = new Date("2026-10-08T12:00:00Z");
+export const ACTION_PERIOD = new Date("2026-11-08T12:00:00Z");
 
 export const ACTION_ACCOUNTS: Account[] = [
   { id: "alex-everyday", name: "Everyday account", provider: "Monzo", type: "bank", subtype: "CURRENT", balance: 542, currency: "GBP", status: "connected" },
@@ -45,13 +45,13 @@ export const PENNY_SET_ASIDE_PROPOSAL: ProposalMsg = {
   kind: "proposal",
   status: "pending",
   proposal: {
-    proposal_id: "fictional-alex-annual-costs",
+    proposal_id: "fictional-alex-groceries",
     kind: "allocation",
-    summary: "Your £200 annual costs envelope",
-    consequence: "This plan reserves £200 every pay period. It does not move money.",
+    summary: "Your £250 groceries envelope",
+    consequence: "This plan reserves £250 every pay period. It does not move money.",
     params: {
-      name: "Annual costs",
-      amount_per_period: 200,
+      name: "Groceries",
+      amount_per_period: 250,
       source_account_id: "alex-everyday",
       tracking_mode: "manual",
       recurrence: "every_period",
@@ -62,12 +62,12 @@ export const PENNY_SET_ASIDE_PROPOSAL: ProposalMsg = {
 /** The exact Allocation-shaped record returned by the fixture-only save.
  * It represents a plan, not a payment or a transfer. */
 export const ANNUAL_COSTS_ALLOCATION: Allocation = {
-  id: "alex-annual-costs",
-  name: "Annual costs",
-  amount_per_period: 200,
-  period_amount: 200,
+  id: "alex-groceries",
+  name: "Groceries",
+  amount_per_period: 250,
+  period_amount: 250,
   filled_this_period: 0,
-  remaining: 200,
+  remaining: 250,
   source_account_id: "alex-everyday",
   fill_account_id: "",
   match_type: "description_contains",
@@ -76,20 +76,20 @@ export const ANNUAL_COSTS_ALLOCATION: Allocation = {
   tracking_mode: "manual",
   recurrence: "every_period",
   active: true,
-  period_start: "2026-10-08",
-  period_end: "2026-10-30",
-  effective_from: "2026-10-08",
+  period_start: "2026-11-08",
+  period_end: "2026-11-30",
+  effective_from: "2026-11-08",
   pending: false,
   completed: false,
 };
 
 export const ANNUAL_COSTS_SET_ASIDE: SetAsideItem = {
   id: ANNUAL_COSTS_ALLOCATION.id,
-  name: "Annual costs",
+  name: "Groceries",
   feedLabel: null,
-  amountPerPeriod: 200,
+  amountPerPeriod: 250,
   filledThisPeriod: 0,
-  remaining: 200,
+  remaining: 250,
   recurrence: "every_period",
   pending: false,
   completed: false,
