@@ -55,7 +55,6 @@ export default function AppLockClient() {
     state,
     failure,
     errorMessage: state === "failed" ? (failure === "timeout" ? SHIPPED_TIMEOUT : SHIPPED_UNCONFIRMED) : null,
-    buildTag: "build 2f3a1c7",
     onUnlock: noop,
     onSignOut: noop,
   };

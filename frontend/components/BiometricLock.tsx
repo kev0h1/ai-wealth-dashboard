@@ -7,7 +7,6 @@ import { App } from "@capacitor/app";
 import LockScreenView, { biometryKindFromType, type LockPlatform } from "@/components/LockScreenView";
 import { isAvailable, authenticate, isLockEnabled, setLockEnabled } from "@/lib/biometrics";
 import { useAuth } from "@/components/AuthProvider";
-import { BUILD_TAG } from "@/lib/buildTag";
 import { setAppLocked } from "@/lib/appLock";
 import { createInertTracker, APP_LOCK_OVERLAY_ATTR } from "@/lib/appLockInert";
 import { isColdStartLocked, shouldRelockOnResume } from "@/lib/appLockTiming";
@@ -621,7 +620,6 @@ export default function BiometricLock({ children }: { children: React.ReactNode 
               state={awaitingAuth ? "prompting" : errorMessage ? "failed" : "idle"}
               errorMessage={errorMessage}
               failure={failure}
-              buildTag={BUILD_TAG}
               onUnlock={() => void attemptUnlock()}
               onSignOut={signOutInstead}
             />
