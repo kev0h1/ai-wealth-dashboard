@@ -29,7 +29,7 @@ export { biometryKindFromType, methodPhrase, lockCopy } from "@/lib/lockScreenCo
 const FOCUS =
   "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 focus-visible:ring-offset-[#f0f2f7] dark:focus-visible:ring-offset-[#0f172a]";
 
-export default function LockScreenView({ platform, biometry, state, failure, buildTag, onUnlock, onSignOut }: LockScreenViewProps) {
+export default function LockScreenView({ platform, biometry, state, failure, onUnlock, onSignOut }: LockScreenViewProps) {
   return (
     <section
       role="dialog"
@@ -81,9 +81,6 @@ export default function LockScreenView({ platform, biometry, state, failure, bui
           </div>
         )}
       </div>
-      {/* Whisper build tag, lets Kevin confirm from the phone itself which
-          build is running. See lib/buildTag.ts. */}
-      <p className="shrink-0 pt-6 text-center text-[10px] tracking-wide text-slate-400/80 dark:text-slate-500">{buildTag}</p>
     </section>
   );
 }

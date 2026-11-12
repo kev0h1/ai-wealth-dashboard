@@ -16,8 +16,6 @@ export interface LockScreenViewProps {
   errorMessage?: string | null;
   /** Only meaningful when state is "failed": why it failed. Defaults to "unconfirmed". */
   failure?: "unconfirmed" | "timeout";
-  /** Whisper build tag (lib/buildTag.ts). */
-  buildTag: string;
   onUnlock: () => void;
   onSignOut: () => void;
 }

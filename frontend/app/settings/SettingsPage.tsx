@@ -44,6 +44,7 @@ import { SettingsDirectory, resolveSettingsSection, type SettingsSection } from 
 import { settingsPayPeriodLabel, settingsPlanLabel, settingsIdentityState } from "@/lib/settingsNavigation";
 import PennyAppearanceSetting from "@/components/settings/PennyAppearanceSetting";
 import { shouldWriteNumericPreference, numericBaselineFromSnapshot } from "@/lib/numericPreferenceWrite";
+import { BUILD_TAG } from "@/lib/buildTag";
 import { CategoryRulesPanel } from "@/components/CategorisationRulesSheet";
 
 // D keeps orientation on the canvas; only related controls share a surface.
@@ -943,6 +944,8 @@ export default function SettingsPage() {
           <button type="button" onClick={() => void logout()} className="flex min-h-11 items-center gap-2 rounded-xl px-1 text-sm font-medium text-slate-700 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-slate-300 dark:hover:bg-slate-800"><LogOut size={16} aria-hidden="true" />Sign out</button>
           <div className="mt-2 border-t border-slate-200 pt-2 dark:border-slate-700"><Link href="/settings?section=delete" className="inline-flex min-h-11 items-center rounded-xl px-1 text-sm text-slate-700 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-slate-300 dark:hover:bg-slate-800">Delete account and all data</Link></div>
         </div>
+        {/* G464: build label, moved off sign-in and the lock screen. Plain muted caption, not interactive. */}
+        <p data-build-label className="mt-6 select-text text-center text-xs text-slate-500 dark:text-slate-400">{BUILD_TAG}</p>
       </aside>
 
       <div className={activeSection ? "min-w-0" : "hidden"}>
