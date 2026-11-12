@@ -6,6 +6,7 @@ import type { Account, Commitment } from "@/lib/api";
 import { api } from "@/lib/api";
 import { UpcomingFlowFooter, useFlowSubmission, type UpcomingFlowNavigation } from "@/components/UpcomingFlowSheet";
 import type { UpcomingDetailView } from "./UpcomingDetailFlow";
+import type { PlanEditorStep } from "@/components/plans/PlanEditorFlow";
 
 export type UpcomingGoalServices = CommitmentSheetOperations & {
   /** The detail route deliberately reads the full goal record. Account-plan
@@ -18,7 +19,7 @@ type Props = {
   id?: string;
   planId: string;
   mode: "view" | "edit" | "contribution";
-  editStep?: "details";
+  editStep?: PlanEditorStep;
   accounts: Account[];
   commitment?: Commitment;
   services?: UpcomingGoalServices;

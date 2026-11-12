@@ -8,7 +8,7 @@ export type PlanEditorStep = typeof PLAN_EDITOR_STEPS[number];
 const labels: Record<PlanEditorStep, string> = {
   purpose: "Purpose", details: "Details", source: "Source", destination: "Destination", tracking: "Tracking", review: "Review",
 };
-const primary = "min-h-11 rounded-xl bg-indigo-600 px-4 text-sm font-semibold text-white hover:bg-indigo-700 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 disabled:opacity-60";
+const primary = "min-h-11 touch-manipulation rounded-xl bg-indigo-600 px-4 text-sm font-semibold text-white hover:bg-indigo-700 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 disabled:opacity-60";
 
 type ActionProps = {
   step: PlanEditorStep;
@@ -29,7 +29,7 @@ type ActionProps = {
 /** One final save action, shared by goal and set-aside edit sheets. */
 export function PlanEditorActions({ step, reviewing = false, busy = false, locked = busy, needsRefresh = false, formId, onBack, onContinue, continueDisabled = false, canSave = true, submitLabel = "Save changes", backLabel = "Back to plan", reviewLabel = "Review changes" }: ActionProps) {
   return <div className="grid grid-cols-2 gap-3">
-    <button type="button" onClick={onBack} disabled={busy} className={editorQuiet}>{backLabel}</button>
+    <button type="button" onClick={onBack} disabled={busy} className={`${editorQuiet} touch-manipulation`}>{backLabel}</button>
     {step === "review"
       ? <button type="submit" form={formId} disabled={busy || !canSave} className={primary}>{needsRefresh ? "Retry refresh" : busy ? "Saving…" : submitLabel}</button>
       : <button type="button" onClick={event => { event.preventDefault(); onContinue(); }} disabled={locked || continueDisabled} className={primary}>{reviewing ? "Return to review" : step === "tracking" ? reviewLabel : "Continue"}</button>}

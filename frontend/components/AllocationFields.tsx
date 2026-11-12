@@ -1,9 +1,10 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { RadioDot } from "@/components/PlanOneOffSheet";
 import { DateField } from "@/components/DatePicker";
 import { AccountRadioPicker as SharedAccountRadioPicker } from "@/components/AccountRadioPicker";
 import { api, Account, FillCandidate } from "@/lib/api";
+import MoneyText from "@/components/MoneyText";
 
 // Shared field components for an envelope (Allocation) — used by both
 // SetAsideSheet.tsx (create, step 2 of the "An envelope" path) and
@@ -65,7 +66,7 @@ export function RhythmToggle({
         </button>
       </div>
       {value === "once" && (
-        <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-1">
+        <p className="text-[11px] text-slate-600 dark:text-slate-300 mt-1">
           Applies to this pay period only, then it&apos;s done.
         </p>
       )}
@@ -119,6 +120,7 @@ export function FillRulePicker({
   suggestedName,
   emptyText = "No money has come into this account in the last 90 days.",
   helperText = "Only payments matching this count toward this set-aside, not everything landing in the account.",
+  direction = "incoming",
 }: {
   accountId: string;
   value: FillRuleValue;
@@ -133,41 +135,47 @@ export function FillRulePicker({
    * empty and helper lines differ. The picker itself is the one shared piece. */
   emptyText?: string;
   helperText?: string;
+  direction?: "incoming" | "outgoing";
 }) {
+  const descriptionId = useId();
   const [candidates, setCandidates] = useState<FillCandidate[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(false);
+  const [retry, setRetry] = useState(0);
   // Manual mode is entered explicitly ("Type it in myself"), or implied on
   // load when the current value doesn't match any candidate (edit mode with
   // a hand-typed rule, or an account with nothing to prefill from).
   const [manual, setManual] = useState(() => value.match_value.trim().length > 0);
 
   useEffect(() => {
-    if (!accountId) { setCandidates(null); return; }
     let cancelled = false;
-    setCandidates(null);
-    setError(false);
-    setLoading(true);
-    loadCandidates(accountId)
-      .then((items) => { if (!cancelled) setCandidates(items); })
-      .catch(() => { if (!cancelled) setError(true); })
-      .finally(() => { if (!cancelled) setLoading(false); });
+    queueMicrotask(() => {
+      if (cancelled) return;
+      setCandidates(null);
+      setError(false);
+      setLoading(Boolean(accountId));
+      if (!accountId) return;
+      loadCandidates(accountId)
+        .then((items) => { if (!cancelled) setCandidates(items); })
+        .catch(() => { if (!cancelled) setError(true); })
+        .finally(() => { if (!cancelled) setLoading(false); });
+    });
     return () => { cancelled = true; };
-  }, [accountId, loadCandidates]);
+  }, [accountId, loadCandidates, retry]);
 
   // Once candidates load, a value that cleanly matches one of them reads
   // best in prefill mode (its row shows selected); anything else (hand-
   // typed text, or no candidates at all) stays/becomes manual.
   useEffect(() => {
     if (!candidates) return;
-    const matchesCandidate = candidates.some((c) => c.display_name === value.match_value);
-    if (matchesCandidate && value.match_type === "description_contains") {
-      setManual(false);
-    } else if (value.match_value.trim().length > 0) {
-      setManual(true);
-    } else if (candidates.length === 0) {
-      setManual(true);
-    }
+    const matchesCandidate = candidates.some((c) => (c.match_value ?? c.display_name) === value.match_value);
+    let stale = false;
+    queueMicrotask(() => {
+      if (stale) return;
+      if (matchesCandidate && value.match_type === "description_contains") setManual(false);
+      else if (value.match_value.trim().length > 0 || candidates.length === 0) setManual(true);
+    });
+    return () => { stale = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [candidates]);
 
@@ -183,12 +191,12 @@ export function FillRulePicker({
       {!manual && (
         <>
           {loading && (
-            <p className="text-[13px] text-slate-400 dark:text-slate-500 px-1 py-2">Loading recent payments…</p>
+            <p className="text-[13px] text-slate-600 dark:text-slate-300 px-1 py-2">Loading recent payments…</p>
           )}
           {!loading && error && (
-            <p className="text-[13px] text-rose-600 dark:text-rose-400 px-1 py-2">
+            <div className="px-1 py-2 text-[13px] text-slate-600 dark:text-slate-300" role="status"><p>
               Couldn&apos;t load recent payments for this account.
-            </p>
+            </p><button type="button" onClick={() => setRetry(value => value + 1)} className="min-h-11 rounded-lg px-2 font-semibold text-indigo-700 hover:bg-indigo-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 active:opacity-70 dark:text-indigo-300 dark:hover:bg-indigo-950/30">Retry payments</button></div>
           )}
           {!loading && !error && candidates && candidates.length > 0 && (
             <div
@@ -201,23 +209,23 @@ export function FillRulePicker({
                   key={c.series_key}
                   type="button"
                   role="radio"
-                  aria-checked={value.match_value === c.display_name && value.match_type === "description_contains"}
-                  onClick={() => onChange({ match_type: "description_contains", match_value: c.display_name, fill_display_name: c.display_name })}
+                  aria-checked={value.match_value === (c.match_value ?? c.display_name) && value.match_type === "description_contains"}
+                  onClick={() => onChange({ match_type: "description_contains", match_value: c.match_value ?? c.display_name, fill_display_name: c.display_name })}
                   className="w-full min-h-[44px] flex items-center gap-3 px-3 py-2.5 text-left active:opacity-70 transition-opacity focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-inset"
                 >
                   <span className="flex-1 min-w-0">
-                    <span className="block text-sm font-medium text-slate-900 dark:text-slate-100 truncate">{c.display_name}{suggestedName && c.display_name === suggestedName && <span className="ml-2 text-[11px] font-semibold text-indigo-600 dark:text-indigo-400">Suggested</span>}</span>
-                    <span className="block text-xs text-slate-400 dark:text-slate-500 truncate">
-                      £{c.last_amount.toFixed(2)} · {c.occurrences_90d} {c.occurrences_90d === 1 ? "time" : "times"} in 90 days
+                    <span className="block text-sm font-medium text-slate-900 dark:text-slate-100 truncate">{c.display_name}{suggestedName && (c.match_value ?? c.display_name) === suggestedName && <span className="ml-2 text-[11px] font-semibold text-indigo-600 dark:text-indigo-400">Suggested</span>}</span>
+                    <span className="block text-xs text-slate-600 dark:text-slate-300 truncate">
+                      <MoneyText text={`${direction === "outgoing" ? "−" : "+"}£${Math.abs(c.last_amount).toFixed(2)}`} /> · {c.occurrences_90d} {c.occurrences_90d === 1 ? "time" : "times"} in 90 days
                     </span>
                   </span>
-                  <RadioDot selected={value.match_value === c.display_name && value.match_type === "description_contains"} />
+                  <RadioDot selected={value.match_value === (c.match_value ?? c.display_name) && value.match_type === "description_contains"} />
                 </button>
               ))}
             </div>
           )}
           {!loading && !error && candidates && candidates.length === 0 && (
-            <p className="text-[13px] text-slate-400 dark:text-slate-500 px-1 py-2">
+            <p className="text-[13px] text-slate-600 dark:text-slate-300 px-1 py-2">
               {emptyText}
             </p>
           )}
@@ -233,7 +241,12 @@ export function FillRulePicker({
 
       {manual && (
         <div className="space-y-2">
+          {!loading && !error && candidates?.length === 0 && <p role="status" className="text-sm text-slate-600 dark:text-slate-300">{emptyText}</p>}
           <input
+            id={descriptionId}
+            name="payment-description"
+            aria-label="Payment description"
+            autoComplete="off"
             type="text"
             value={value.match_value}
             onChange={(e) => onChange({ ...value, match_value: e.target.value, fill_display_name: e.target.value })}
@@ -281,7 +294,7 @@ export function FillRulePicker({
         </div>
       )}
 
-      <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-1">
+      <p className="text-[11px] text-slate-600 dark:text-slate-300 mt-1">
         {helperText}
       </p>
     </div>

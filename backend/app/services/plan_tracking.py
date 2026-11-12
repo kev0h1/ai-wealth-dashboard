@@ -113,7 +113,13 @@ def _in_window(record: dict, day: date) -> bool:
 
 
 def _payment_matches(record: dict, row: dict, partner: dict | None) -> bool:
-    if record.get("_kind") == "goal":
+    # Goals and G461 manual set-asides both use a source-side debit rule.
+    # Legacy set-asides keep their source-of-truth incoming credit matcher.
+    if record.get("_kind") == "goal" or (
+        record.get("_kind") == "set-aside"
+        and record.get("tracking_mode") == "manual"
+        and record.get("fill_rule")
+    ):
         rule = record.get("fill_rule") or {}
         target = row if record.get("source_account_id") == row.get("account_id") and row.get("transaction_type") == "debit" else None
     else:

@@ -30,6 +30,7 @@ import { fmt } from "@/lib/format";
 import { tidyAccountText } from "@/lib/accountDisplay";
 import type { Account } from "@/lib/api";
 import ActionLabel from "@/components/ActionLabel";
+import { MaskedAmount, useBalancesHidden } from "@/lib/balancesHidden";
 
 const SHORTLIST_SIZE = 5;
 const DECLUTTER_THRESHOLD = 5;
@@ -57,11 +58,12 @@ function providerCaption(account: Account): string {
   return brand.label === account.provider ? tidyAccountText(account.provider) : brand.label;
 }
 
-function balanceCaption(account: Account): React.ReactNode {
-  const amount = fmt(account.balance, currencySymbol(account.currency));
+function balanceCaption(account: Account, hidden: boolean): React.ReactNode {
+  const sign = account.balance < 0 ? "−" : "";
+  const amount = `${sign}${fmt(account.balance, currencySymbol(account.currency))}`;
   return (
     <>
-      {providerCaption(account)} · <span className="money">{amount}</span>
+      {providerCaption(account)} · {hidden ? <MaskedAmount text={`${sign}${currencySymbol(account.currency)}••••`} /> : <span className="money">{amount}</span>}
     </>
   );
 }
@@ -76,6 +78,7 @@ function AccountRow({
   onChange: (id: string) => void;
 }) {
   const brand = accountBrand(account);
+  const hidden = useBalancesHidden();
   return (
     <button
       type="button"
@@ -87,7 +90,7 @@ function AccountRow({
       <BankBadge logoSrc={brand.logoSrc} initials={brand.initials} altText={brand.label} brandBg={brand.background} />
       <span className="flex-1 min-w-0">
         <span className="block text-sm font-medium text-slate-900 dark:text-slate-100 truncate">{displayAccountName(account.name)}</span>
-        <span className="block text-xs text-slate-400 dark:text-slate-500 truncate">{balanceCaption(account)}</span>
+        <span className="block text-xs text-slate-600 dark:text-slate-300 truncate">{balanceCaption(account, hidden)}</span>
       </span>
       <RadioDot selected={value === account.id} />
     </button>
@@ -180,7 +183,7 @@ export function AccountRadioPicker({
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search accounts and pots…"
             aria-label={`Search ${(ariaLabel ?? label).toLowerCase()}`}
-            className="w-full min-h-[44px] rounded-xl bg-slate-50 dark:bg-slate-700 pl-9 pr-3 text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 border border-transparent focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            className="w-full min-h-[44px] rounded-xl bg-slate-50 dark:bg-slate-700 pl-9 pr-3 text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-500 dark:placeholder:text-slate-400 border border-transparent focus:outline-none focus:ring-2 focus:ring-indigo-500"
           />
         </div>
       )}
@@ -193,7 +196,7 @@ export function AccountRadioPicker({
         >
           {allowUnset && <UnsetRow label={unsetLabel} selected={value === ""} onSelect={() => onChange("")} />}
           {searchResults.length === 0 ? (
-            <p className="px-3 py-4 text-[13px] text-slate-400 dark:text-slate-500">No accounts match &ldquo;{query.trim()}&rdquo;</p>
+            <p className="px-3 py-4 text-[13px] text-slate-600 dark:text-slate-300">No accounts match &ldquo;{query.trim()}&rdquo;</p>
           ) : (
             searchResults.map((account) => (
               <AccountRow key={account.id} account={account} value={value} onChange={onChange} />
@@ -238,7 +241,7 @@ export function AccountRadioPicker({
         </div>
       )}
 
-      {helperText && <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-1">{helperText}</p>}
+      {helperText && <p className="text-[11px] text-slate-600 dark:text-slate-300 mt-1">{helperText}</p>}
     </div>
   );
 }

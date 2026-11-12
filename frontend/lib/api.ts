@@ -1201,6 +1201,9 @@ export type Allocation = {
   /** Current-period intention only. The recurring amount is unchanged. */
   current_period_contribution?: Omit<AllocationContributionPreview, "preview_token"> | null;
   category_tracking?: PlanCategoryTracking | null;
+  /** An explicitly chosen outgoing payment on the paying account. Legacy
+   * incoming-payment rules retain their separate flat matching fields. */
+  fill_rule?: { match_type: "description_equals" | "description_contains"; match_value: string } | null;
   /** An intended receiving account, not an automatic payment rule. */
   destination_account_id?: string | null;
   /** Explicit paying account. Omitted legacy choices may be suggested separately. */
@@ -1263,6 +1266,8 @@ export type Allocation = {
 export type FillCandidate = {
   series_key: string;
   display_name: string;
+  /** Validated matching text when a cleaned label differs from the feed. */
+  match_value?: string;
   last_amount: number;
   last_date: string;
   occurrences_90d: number;
@@ -3912,8 +3917,8 @@ export const api = {
       .then((d) => d.items),
   // G256: recent payments leaving a plan's paying account, plus a rule
   // suggested from the transfers that reached its pots. Nothing is written.
-  planFillCandidates: (sourceAccountId: string, potIds: string[]) =>
-    get<PlanFillCandidates>(`/commitments/fill-candidates?source_account_id=${encodeURIComponent(sourceAccountId)}&pot_ids=${encodeURIComponent(potIds.join(","))}`),
+  planFillCandidates: (sourceAccountId: string, potIds: string[], includeSourcePayments = false) =>
+    get<PlanFillCandidates>(`/commitments/fill-candidates?source_account_id=${encodeURIComponent(sourceAccountId)}&pot_ids=${encodeURIComponent(potIds.join(","))}${includeSourcePayments ? "&include_source_payments=true" : ""}`),
   planCategoryActivity: (body: {
     preview?: boolean;
     kind: "goal" | "set-aside"; source_account_id: string;
@@ -3921,6 +3926,7 @@ export const api = {
     commitment_id?: string; allocation_id?: string; effective_from?: string;
   }) => post<PlanCategoryActivity>("/plans/category-activity", body),
   createAllocation: (body: {
+    fill_rule?: Allocation["fill_rule"];
     category_tracking?: PlanCategoryTracking | null;
     destination_account_id?: string | null;
     source_account_id?: string | null;
@@ -3938,6 +3944,7 @@ export const api = {
     tracking_mode?: "manual" | "existing_payment";
   }) => post<Allocation>("/allocations", body),
   updateAllocation: (id: string, body: {
+    fill_rule?: Allocation["fill_rule"];
     category_tracking?: PlanCategoryTracking | null;
     destination_account_id?: string | null;
     source_account_id?: string | null;

@@ -206,6 +206,7 @@ async def period_fulfilment(
 
 async def fill_candidates(
     uid: str, source_id: str, pot_ids: list[str], account_map: dict[str, dict],
+    *, include_source_payments: bool = False,
 ) -> dict:
     """Recent debit series that have corroborated own-transfer legs in a pot.
 
@@ -272,7 +273,7 @@ async def fill_candidates(
                 credit = pool.pop(match_index)
                 matched_pots.add(str(credit.get("account_id")))
                 paired += 1
-        if not paired:
+        if not paired and not include_source_payments:
             continue
         item = {
             "series_key": key,
@@ -280,10 +281,23 @@ async def fill_candidates(
             "last_amount": round(abs(float(latest.get("amount") or 0)), 2),
             "last_date": _day(latest).isoformat(),
             "occurrences_90d": len(members),
-            "is_transfer": True,
+            "is_transfer": bool(paired),
             "matched_pot_ids": [pot_id for pot_id in pot_ids if pot_id in matched_pots],
         }
+        if include_source_payments:
+            # Explicit editing can offer other source payments without
+            # claiming they are transfers or suggesting one automatically.
+            value = item["display_name"][:_MAX_MATCH_VALUE]
+            candidate_rule = {"match_type": "description_contains", "match_value": value}
+            if not value or not rule_matches(candidate_rule, latest):
+                value = str(latest.get("description") or "").strip()[:_MAX_MATCH_VALUE]
+                candidate_rule["match_value"] = value
+            if not value or not rule_matches(candidate_rule, latest):
+                continue
+            item["match_value"] = value
         items.append(item)
+        if not paired:
+            continue
         # `pot_ids` preserves the selected pot first. A matching selected
         # sink wins over a more frequent alternate transfer series.
         selected = bool(pot_ids and pot_ids[0] in matched_pots)

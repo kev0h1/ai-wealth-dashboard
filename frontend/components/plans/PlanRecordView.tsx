@@ -1,7 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { Wallet } from "lucide-react";
+import { ChevronRight, Wallet } from "lucide-react";
 import { BankBadge, accountBrand } from "@/components/AccountMiniCard";
 import MoneyText from "@/components/MoneyText";
 import { useBalancesHidden } from "@/lib/balancesHidden";
@@ -18,9 +18,15 @@ function AccountIdentity({ account }: { account: Account }) {
   </span>;
 }
 
-/** The approved G291 record layout. Read-only facts, not an editor disguised
- * as a view. Its host owns actions, navigation and the single physical sheet. */
-export function PlanRecordView({ kind, contribution, cadence, frequency, target, progress, sourceAccount, destinationAccounts = [], nextPeriods, trackingLabel, paused = false, periodNote, currentPeriod, nextContribution, children, sourceUnavailable = false, destinationUnavailable = false, sourceSuggested = false }: {
+function RecordDetailRow({ label, field, onEdit, disabled, children }: { label: string; field: "source" | "destination"; onEdit?: () => void; disabled?: boolean; children: ReactNode }) {
+  const content = <><span className="text-slate-600 dark:text-slate-300">{label}</span><span className="min-w-0 space-y-3">{children}</span>{onEdit && <ChevronRight size={16} className="shrink-0 text-slate-500 dark:text-slate-400" aria-hidden="true" />}</>;
+  const layout = `grid min-h-11 w-full ${onEdit ? "grid-cols-[5rem_minmax(0,1fr)_1rem]" : "grid-cols-[5rem_minmax(0,1fr)]"} items-center gap-3 py-3 text-left`;
+  return <div><dt className="sr-only">{label}</dt><dd>{onEdit ? <button type="button" data-plan-edit={field} onClick={onEdit} disabled={disabled} className={`${layout} rounded-sm touch-manipulation hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500 active:opacity-70 disabled:opacity-60 dark:hover:bg-slate-800`}>{content}</button> : <div className={layout}>{content}</div>}</dd></div>;
+}
+
+/** Saved plan facts. Field links enter the existing draft editor; the host
+ * owns navigation and the single physical sheet. */
+export function PlanRecordView({ kind, contribution, cadence, frequency, target, progress, sourceAccount, destinationAccounts = [], nextPeriods, trackingLabel, paused = false, periodNote, currentPeriod, nextContribution, children, sourceUnavailable = false, destinationUnavailable = false, sourceSuggested = false, onEditSource, onEditDestination, onEditTracking, editDisabled = false }: {
   kind: "goal" | "set-aside";
   contribution: number;
   cadence: string;
@@ -40,6 +46,10 @@ export function PlanRecordView({ kind, contribution, cadence, frequency, target,
   sourceUnavailable?: boolean;
   sourceSuggested?: boolean;
   destinationUnavailable?: boolean;
+  onEditSource?: () => void;
+  onEditDestination?: () => void;
+  onEditTracking?: () => void;
+  editDisabled?: boolean;
 }) {
   const hidden = useBalancesHidden();
   const percent = target && target.amount > 0 ? Math.min(100, Math.max(0, (progress ?? 0) / target.amount * 100)) : 0;
@@ -52,10 +62,10 @@ export function PlanRecordView({ kind, contribution, cadence, frequency, target,
     {target && <section aria-label="Goal progress" className="space-y-2"><div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 text-xs text-slate-600 dark:text-slate-300"><span>Set aside</span><MoneyText text={`${money(progress ?? 0)} of ${money(target.amount)}`} /></div><div role="progressbar" aria-label="Goal progress" aria-valuemin={0} aria-valuemax={hidden ? 100 : target.amount} aria-valuenow={hidden ? undefined : Math.min(progress ?? 0, target.amount)} aria-valuetext={hidden ? "Amount hidden" : `${money(progress ?? 0)} of ${money(target.amount)}`} className="h-1 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-700"><span className="block h-full rounded-full bg-indigo-600" style={{ width: `${hidden ? 0 : percent}%` }} /></div>{periodNote && <p className="text-xs leading-5 text-slate-600 dark:text-slate-300"><MoneyText text={periodNote} /></p>}</section>}
     {currentPeriod && <section aria-label="This pay period" className="border-y border-slate-200 py-3 text-xs leading-5 text-slate-600 dark:border-slate-700 dark:text-slate-300"><p><strong className="text-slate-900 dark:text-slate-100">This pay period</strong> <MoneyText text={`${money(currentPeriod.contribution)} planned`} />.</p><p className="mt-1">{currentPeriod.matched_this_period > 0 && <><MoneyText text={`${money(currentPeriod.matched_this_period)} matched`} />. </>}<MoneyText text={`${money(currentPeriod.reserved)} still to set aside`} />.</p>{kind === "set-aside" && nextContribution !== undefined ? <p className="mt-1"><MoneyText text={`Next pay period returns to ${money(nextContribution ?? contribution)}.`} /></p> : nextPeriods ? (nextPeriods.length > 0 ? <p className="mt-1"><MoneyText text={`Next: ${nextPeriods.map(money).join(", ")}.`} /> Your schedule sets these.</p> : <p className="mt-1">This is the last period on your schedule.</p>) : currentPeriod.covers_remaining ? <p className="mt-1"><MoneyText text="Later periods would be £0." /> This is planned, not cash already saved.</p> : currentPeriod.later_contribution != null && <p className="mt-1"><MoneyText text={`If you set aside ${money(currentPeriod.reserved)} this period, later periods would be about ${money(currentPeriod.later_contribution)} each to aim for your target.`} /></p>}<p className="mt-1">Your choice lasts for this pay period.{kind === "goal" && " The next estimate uses what you have actually saved."}</p></section>}
     <dl className="divide-y divide-slate-200 border-y border-slate-200 text-sm dark:divide-slate-700 dark:border-slate-700">
-      <div className="grid grid-cols-[5rem_minmax(0,1fr)] items-center gap-3 py-3"><dt className="text-slate-600 dark:text-slate-300">Pay from</dt><dd className="min-w-0">{sourceAccount ? <span className="block"><AccountIdentity account={sourceAccount} />{sourceSuggested && <span className="mt-1 block text-xs leading-5 text-slate-600 dark:text-slate-300">Suggested from recent transfers. Edit and save to confirm.</span>}</span> : sourceUnavailable ? "Account details unavailable" : "Paying account not linked"}</dd></div>
-      <div className="grid grid-cols-[5rem_minmax(0,1fr)] items-center gap-3 py-3"><dt className="text-slate-600 dark:text-slate-300">{kind === "goal" ? "Save in" : "Money"}</dt><dd className="min-w-0 space-y-3">{destinationAccounts.map(account => <AccountIdentity key={account.id} account={account} />)}{destinationUnavailable ? <span>Account details unavailable</span> : !destinationAccounts.length && <span className="flex items-center gap-2 font-semibold text-slate-900 dark:text-slate-100"><Wallet size={18} aria-hidden="true" />{kind === "goal" ? "No savings account linked" : "Stays here"}</span>}</dd></div>
+      <RecordDetailRow field="source" label="Pay from" onEdit={onEditSource} disabled={editDisabled}>{sourceAccount ? <span className="block"><AccountIdentity account={sourceAccount} />{sourceSuggested && <span className="mt-1 block text-xs leading-5 text-slate-600 dark:text-slate-300">Suggested from recent transfers. Edit and save to confirm.</span>}</span> : sourceUnavailable ? "Account details unavailable" : "Paying account not linked"}</RecordDetailRow>
+      <RecordDetailRow field="destination" label={kind === "goal" || onEditDestination ? "Save in" : "Money"} onEdit={onEditDestination} disabled={editDisabled}>{destinationAccounts.map(account => <AccountIdentity key={account.id} account={account} />)}{destinationUnavailable ? <span>Account details unavailable</span> : !destinationAccounts.length && <span className="flex items-center gap-2 font-semibold text-slate-900 dark:text-slate-100"><Wallet size={18} aria-hidden="true" />{kind === "goal" ? "No savings account linked" : "Stays here"}</span>}</RecordDetailRow>
     </dl>
-    <section className="space-y-2" aria-label="Plan tracking"><div className="flex min-w-0 items-baseline justify-between gap-3"><h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">Tracking</h3><strong className="min-w-0 break-words text-right text-sm text-slate-900 dark:text-slate-100">{trackingLabel}</strong></div>{children}</section>
+    <section className="space-y-2" aria-label="Plan tracking">{onEditTracking ? <button type="button" data-plan-edit="tracking" onClick={onEditTracking} disabled={editDisabled} className="flex min-h-11 w-full min-w-0 touch-manipulation items-center gap-3 rounded-sm text-left text-sm text-slate-900 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500 active:opacity-70 disabled:opacity-60 dark:text-slate-100 dark:hover:bg-slate-800"><span className="font-semibold">Tracking</span><strong className="min-w-0 flex-1 break-words text-right">{trackingLabel}</strong><ChevronRight size={16} className="shrink-0 text-slate-500 dark:text-slate-400" aria-hidden="true" /></button> : <div className="flex min-w-0 items-baseline justify-between gap-3"><h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">Tracking</h3><strong className="min-w-0 break-words text-right text-sm text-slate-900 dark:text-slate-100">{trackingLabel}</strong></div>}{children}</section>
     <p className="text-xs leading-5 text-slate-600 dark:text-slate-300">This is a plan. You move the money in your bank. Any standing order will keep running.</p>
     {kind === "set-aside" && <p className="text-xs leading-5 text-slate-600 dark:text-slate-300">Check Upcoming to see if it fits before payday.</p>}
   </div>;
