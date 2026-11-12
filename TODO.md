@@ -3811,7 +3811,7 @@ Board: the private page /ops/go-live on UAT reads and edits these files. Session
   - note (2026-11-11, codex): Normal finish gate PASS for approved B commit 04fc4b38e: 8036 backend tests passed (4 skipped), 71 scenario-order tests passed, TypeScript passed and all 241 current check:* gates passed. Feature branch pushed; G458 is in review without the design-round flag, ready for the coordinator to integrate the Home card and close the item. Temporary comparison removed. New bundled phone-app builds are needed for TestFlight/app users.
 - [ ] **G459. Audit every Penny agent conversation for grounding, lost context and wrong tools, and compare models** [owner: claude] [priority: p1]
 - [ ] **G460. Plan details disclosure on the goal sheet uses the browser triangle instead of the app chevron** [owner: codex]
-- [ ] **G461. Tap Pay from, Save in and Tracking on goals and set-asides to change them** [owner: codex]
+- [ ] **G461. Tap Pay from, Save in and Tracking on goals and set-asides to change them** [owner: codex] [priority: p2]
 
 ## H. Repo hygiene
 
