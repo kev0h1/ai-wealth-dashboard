@@ -32,6 +32,14 @@ type PreviewRoute = {
 
 const ROUTES: PreviewRoute[] = [
   {
+    slug: "app-store-creative",
+    name: "App Store Header and Search Results · C41",
+    description: "Two options per placement in the approved C22 style, in light and dark. Current production UI with fictional fixtures, Apple template safe-area close-ups, full artwork and 390px size checks. Exact-size RGB PNG downloads, 1920px search alternatives, provenance manifest and a complete ZIP. Creative review before Kevin's manual upload.",
+    states: [{ label: "Header", value: "header" }, { label: "Search Results", value: "search" }],
+    variants: [{ label: "A · Money, shown plainly", value: "a" }, { label: "B · A clearer picture", value: "b" }],
+    group: "current",
+  },
+  {
     slug: "statements-house-ads",
     name: "Statements house ads · B58",
     description:
