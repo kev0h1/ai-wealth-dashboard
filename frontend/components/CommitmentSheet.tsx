@@ -3,7 +3,7 @@ import { isCountedInLeftToSpend } from "@/lib/accountCounted";
 import { useState, useEffect, useRef, useCallback, useMemo, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
-import { Check, CircleDashed } from "lucide-react";
+import { Check, ChevronDown, CircleDashed } from "lucide-react";
 import { accountBrand, BankBadge } from "@/components/AccountMiniCard";
 import { AccountRadioPicker } from "@/components/AccountRadioPicker";
 import { isPlanSourceAccount } from "@/lib/upcomingPlans";
@@ -197,6 +197,7 @@ export default function CommitmentSheet({
   const [viewing, setViewing] = useState(Boolean(commitment && initialMode === "view"));
   const [contributionMode, setContributionMode] = useState(Boolean(commitment && initialMode === "contribution"));
   const [scheduleEditing, setScheduleEditing] = useState(false);
+  const [planDetailsOpen, setPlanDetailsOpen] = useState(false);
   const [contributionFooterHost, setContributionFooterHost] = useState<HTMLDivElement | null>(null);
   const [reviewEditing, setReviewEditing] = useState(false);
   const [sheetHistoryGeneration, setSheetHistoryGeneration] = useState(0);
@@ -221,6 +222,7 @@ export default function CommitmentSheet({
     setEditorView("purpose");
     setViewing(true);
     setScheduleEditing(false);
+    setPlanDetailsOpen(false);
   };
   const createPrevious = () => {
     setSaveError(false);
@@ -558,6 +560,7 @@ export default function CommitmentSheet({
     if (embedded) { embedded.onCancel(); return; }
     setContributionMode(false);
     setViewing(true);
+    setPlanDetailsOpen(false);
   };
   const contributionServices = useMemo(() => ({
     previewGoalContribution: operations.previewGoalContribution ?? api.previewGoalContribution,
@@ -670,7 +673,7 @@ export default function CommitmentSheet({
                   {commitment.source_account_id && <p>Money comes from {tidyAccountName(accountList.find(account => account.id === commitment.source_account_id)?.name ?? "your selected account")}.</p>}
                   {potsFromCommitment(commitment).length > 0 && <p>Saved in {potsFromCommitment(commitment).map(pot => tidyAccountName(accountList.find(account => account.id === pot.account_id)?.name ?? "your savings pot")).join(", ")}.</p>}
                   {commitment.current_period_contribution && commitment.current_period_contribution.contribution !== commitment.schedule_preview.current_period.amount && <p><MoneyText text={`Your contribution this pay period: £${commitment.current_period_contribution.contribution.toLocaleString("en-GB")}.`} /></p>}
-                  <details className="pt-3"><summary className="min-h-11 cursor-pointer rounded-md py-3 font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500">Plan details</summary>
+                  <details className="group pt-3" onToggle={event => setPlanDetailsOpen(event.currentTarget.open)}><summary aria-expanded={planDetailsOpen} className="flex min-h-11 cursor-pointer list-none touch-manipulation items-center justify-center gap-2 rounded-md py-3 font-semibold hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500 active:opacity-70 dark:hover:bg-slate-700/40 [&::-webkit-details-marker]:hidden">Plan details<ChevronDown size={16} aria-hidden="true" className="shrink-0 group-open:rotate-180" /></summary>
               <PlanRecordView
                 kind="goal"
                 contribution={commitment.paused ? 0 : commitment.current_period_contribution?.contribution ?? commitment.planned_per_period_slice ?? commitment.usual_slice ?? commitment.per_period_slice}
