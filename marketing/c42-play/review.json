@@ -1,0 +1,143 @@
+{
+  "item": "C42",
+  "date": "2026-11-12",
+  "status": "creative-review-only",
+  "independentReview": {
+    "disposition": "ship",
+    "scope": "Full source, exact artwork, film-frame and gallery review, followed by a targeted verdict pass scoring the gallery Money Is Mono fix resolved.",
+    "findingsResolved": [
+      "Promotional chart image framing removed",
+      "Complete chart data points and baseline retained",
+      "Gallery and transcript currency use MoneyText mono/tabular treatment"
+    ],
+    "remainingMaterialFindings": [],
+    "roles": "Fresh standard independent reviewer and documenter substituted for unavailable specialist roles."
+  },
+  "design": {
+    "approach": [
+      "impeccable",
+      "emil-design-eng",
+      "web-design-guidelines"
+    ],
+    "context": "Launcher unavailable; direct PRODUCT.md, DESIGN.md, craft floor and fresh Web Interface Guidelines used.",
+    "system": "Ordinary extension of the approved C22 campaign; governing design and product files preserved."
+  },
+  "assets": {
+    "hashesVerified": 49,
+    "sourceHashesVerified": 76,
+    "films": 2,
+    "secondsEach": 30,
+    "size": [
+      1920,
+      1080
+    ],
+    "framesEach": 900,
+    "audio": {
+      "origin": "Original C22 Penny and movement instrumental motifs",
+      "codec": "AAC stereo",
+      "meanDb": -25.8,
+      "peakDb": -5.0
+    },
+    "captions": {
+      "file": "promo.en-GB.vtt",
+      "cues": 7
+    },
+    "promotionalImages": 6,
+    "imageMode": "RGB, no alpha",
+    "imagePolicy": "No text, wordmarks, outer frame or rounded external corners",
+    "safeArea": {
+      "left": 192,
+      "top": 162,
+      "right": 1728,
+      "bottom": 864
+    },
+    "zipPacks": 2,
+    "fullDecode": "pass",
+    "zipContents": "pass",
+    "provenance": "PNG Source and impeccable:prompt metadata, manifest hashes; fictional data only"
+  },
+  "checks": {
+    "productionBuild": "pass",
+    "typeScript": "pass",
+    "scopedEslint": "pass",
+    "designIndex": "pass",
+    "designStale": "pass",
+    "mediaValidator": "pass",
+    "browserCases": [
+      {
+        "width": 320,
+        "theme": "light",
+        "playback": "passed",
+        "captions": "showing",
+        "seek": 27,
+        "pictureRange": 242
+      },
+      {
+        "width": 320,
+        "theme": "dark",
+        "playback": "passed",
+        "captions": "showing",
+        "seek": 27,
+        "pictureRange": 235
+      },
+      {
+        "width": 390,
+        "theme": "light",
+        "playback": "passed",
+        "captions": "showing",
+        "seek": 27,
+        "pictureRange": 242
+      },
+      {
+        "width": 390,
+        "theme": "dark",
+        "playback": "passed",
+        "captions": "showing",
+        "seek": 27,
+        "pictureRange": 235
+      },
+      {
+        "width": 1440,
+        "theme": "light",
+        "playback": "passed",
+        "captions": "showing",
+        "seek": 27,
+        "pictureRange": 242
+      },
+      {
+        "width": 1440,
+        "theme": "dark",
+        "playback": "passed",
+        "captions": "showing",
+        "seek": 27,
+        "pictureRange": 235
+      }
+    ],
+    "currencyFont": "At least seven gallery currency spans use computed mono family and tabular-nums in each browser case.",
+    "actualCsp": "Production CSP without unsafe-eval; default-src self. No CSP bypass.",
+    "productionRouteStatus": 200,
+    "robots": "noindex, nofollow",
+    "unexpectedApiCalls": 0,
+    "controls": [
+      "native keyboard play",
+      "default showing captions",
+      "actual 27-second seek and decoded non-blank frame",
+      "theme URL and pause/reset",
+      "transcript and event disclosures",
+      "phone crop-safe guides",
+      "direct index state links",
+      "invalid-selector fallback",
+      "seven download resources"
+    ]
+  },
+  "repositoryFinish": "Mandatory backend suite, scenario-order regression and all frontend gates are run by scripts/session.sh finish C42 --uat-review. Its outcome is recorded on the C42 board.",
+  "boundaries": {
+    "productionComponentsChanged": false,
+    "c22AssetsOverwritten": false,
+    "uploads": false,
+    "published": false,
+    "serviceRestarts": false,
+    "eventStatus": "Templates only. Kevin confirms eligibility, real in-app release, destination, dates and audience before scheduling.",
+    "banking": "Open banking is provided by Finexer Ltd, with AURIQ LTD as its agent."
+  }
+}

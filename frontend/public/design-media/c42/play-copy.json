@@ -1,0 +1,112 @@
+{
+  "shots": [
+    {
+      "seconds": 4,
+      "title": "See what changed.\nSee where.",
+      "body": "Eating Out is £120 above usual at the same point in the pay period.",
+      "proof": "spend-insight-still",
+      "qualifier": "Fictional example · 8 to 30 November 2026, through day 10",
+      "caption": "Eating Out is £240 against £120 usual by day 10. Overall spending is £860 against £740 usual."
+    },
+    {
+      "seconds": 4,
+      "title": "The payments\nbehind it.",
+      "body": "Four expenses. One clear comparison.",
+      "proof": "spend-expenses",
+      "qualifier": "Fictional example · £92 + £58 + £48 + £42 = £240",
+      "caption": "The four Eating Out payments are £92, £58, £48 and £42. They total £240."
+    },
+    {
+      "seconds": 4,
+      "title": "Ask Penny.\nSee the picture.",
+      "body": "A chart can put the same spending in context.",
+      "proof": "penny-chart-still",
+      "qualifier": "Fictional example · Same pay period, through day 10",
+      "caption": "Penny compares spending by category with usual spending at the same point in the pay period."
+    },
+    {
+      "seconds": 5,
+      "title": "One plan.\nThree paydays.",
+      "body": "Review £600 for car insurance across three £200 contributions.",
+      "proof": "penny-proposal",
+      "qualifier": "Fictional example · A plan, not a bank transfer",
+      "caption": "Review a £600 car insurance plan: £200 on 30 November, 30 December and 30 January. Confirmation is required."
+    },
+    {
+      "seconds": 4,
+      "title": "Your confirmation.\nYour plan.",
+      "body": "The dates are recorded after you confirm. Money stays in your bank.",
+      "proof": "penny-done",
+      "qualifier": "Fictional example · No money has moved",
+      "caption": "After confirmation, the three payday contributions are scheduled in Sorted. No bank transfer is made."
+    },
+    {
+      "seconds": 4,
+      "title": "One bill.\nTwo sources.",
+      "body": "A suggested £80 from Everyday and £40 from Joint cover a £120 gap.",
+      "proof": "movement-sources-still",
+      "qualifier": "Fictional example · £188 due, £68 already in Bills",
+      "caption": "A £188 Energy payment has £68 in Bills. A suggested £80 from Everyday and £40 from Joint cover the £120 gap."
+    },
+    {
+      "seconds": 5,
+      "title": "See what needs\nmoving.",
+      "body": "Review the suggestion. You make any transfer in your bank.",
+      "proof": "movement",
+      "qualifier": "Fictional example · You stay in control",
+      "caption": "Sorted suggests the route. You decide, and make any transfer in your bank. Fictional examples throughout."
+    }
+  ],
+  "promotions": {
+    "launch": {
+      "name": "Launch template",
+      "tagline": "Sorted launch: your money in one place",
+      "description": "When Sorted launches, connect supported accounts to review your money and ask Penny a question. Open banking is provided by Finexer Ltd, with AURIQ LTD as its agent. Availability depends on your bank and plan.",
+      "condition": "Use for a confirmed launch only, with matching content available in the app. Set the date and audience in Play Console.",
+      "alt": "A production Penny category chart, used as a text-free launch visual with fictional data.",
+      "context": "Category chart artwork from the real Penny renderer. A visual excerpt, rather than a financial summary."
+    },
+    "charts": {
+      "name": "Penny charts example",
+      "tagline": "Penny charts: compare spending with usual",
+      "description": "For a confirmed Penny charts release, ask Penny to chart spending against usual at the same point in your pay period. The comparison could help you see what changed. Availability depends on your plan.",
+      "condition": "Example of a major-update event. Use only if this feature is newly released to the selected audience, with a matching in-app entry point.",
+      "alt": "The plotting area of Penny’s real spending comparison: paired indigo and teal bars, with fictional data.",
+      "context": "Eating Out £240 versus £120 usual; other shown categories match. Overall £860 versus £740. Labels sit outside this artwork crop."
+    },
+    "plans": {
+      "name": "Payday planning example",
+      "tagline": "Penny plans: spread a cost across paydays",
+      "description": "For a confirmed payday-planning release, review a contribution schedule in Penny before confirming it. A dated plan could help you prepare for a future cost. Sorted records the plan and does not move money. Availability depends on your plan.",
+      "condition": "Example of a major-update event. Confirm the release, audience and in-app destination before scheduling. No discount or offer is invented.",
+      "alt": "Penny’s production line-chart renderer illustrates three planned contributions using fictional data.",
+      "context": "A fictional cumulative plan of £200, £400 and £600. This is planned money, rather than savings already made or an investment return."
+    }
+  },
+  "checked": "12 November 2026",
+  "status": "creative-review-only",
+  "locale": "en-GB",
+  "imageSafeArea": {
+    "left": 192,
+    "top": 162,
+    "right": 1728,
+    "bottom": 864
+  },
+  "videoUpload": {
+    "channel": "Sorted YouTube channel, selected by Kevin",
+    "privacy": [
+      "public",
+      "unlisted"
+    ],
+    "embedding": true,
+    "ageRestricted": false,
+    "ads": false,
+    "monetisationClaims": false,
+    "playField": "A single YouTube video URL, not a playlist or channel URL"
+  },
+  "sources": [
+    "https://support.google.com/googleplay/android-developer/answer/9866151?hl=en",
+    "https://support.google.com/googleplay/android-developer/answer/12929944?hl=en"
+  ],
+  "conditions": "Promotional images are templates, subject to app eligibility and a genuine new in-app launch or major update. Confirm release date, audience and discoverable in-app destination before scheduling. No offer terms or discounts are invented."
+}
