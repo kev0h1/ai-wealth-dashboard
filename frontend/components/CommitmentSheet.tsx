@@ -222,6 +222,7 @@ export default function CommitmentSheet({
     setEditorView("purpose");
     setViewing(true);
     setScheduleEditing(false);
+    setPlanDetailsOpen(false);
   };
   const createPrevious = () => {
     setSaveError(false);
@@ -559,6 +560,7 @@ export default function CommitmentSheet({
     if (embedded) { embedded.onCancel(); return; }
     setContributionMode(false);
     setViewing(true);
+    setPlanDetailsOpen(false);
   };
   const contributionServices = useMemo(() => ({
     previewGoalContribution: operations.previewGoalContribution ?? api.previewGoalContribution,
