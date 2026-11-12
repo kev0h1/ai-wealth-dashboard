@@ -127,6 +127,7 @@ Step 2 (H142), numbers are the board's scenario numbers:
   current account (stored source). Slices reserved at their source in the positions and the payday plan's source
   needs, no goal pot is a plan destination. Headroom and the payday plan read the schedule through
   `_goal_source_slices` (G375), so the daily goal is 354.48 on every surface.
+- G465 `g465-daily-goal-counts-only-payments-from-its-start`: a daily rising goal (12.12, +4p a day) starting mid-period with matching payments before and after the start; only the later ones count, the reserve is planned less paid (136.84), and Left to spend deducts it.
 - 8 `set-aside-in-a-pot-reserved-at-its-source`: an allocation filling a savings pot, its source learned from a
   same-day paired transfer; the unfilled 150 is reserved at the source in Left to spend, headroom and positions,
   the pot is never spendable.

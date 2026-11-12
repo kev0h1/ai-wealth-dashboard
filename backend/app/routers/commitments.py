@@ -455,8 +455,10 @@ async def _pot_progress_and_slice(
     sched = doc.get("schedule")
     scheduled = goal_schedule.is_scheduled(sched)
     scheduled_later_pence = None
+    sched_due_uncapped = None
     if scheduled:
         due_pence = goal_schedule.period_amount(sched, _start, _end, cfg)
+        sched_due_uncapped = due_pence / 100
         per_period_slice = round(min(remaining, due_pence / 100), 2)
         nxt = goal_schedule.next_periods(sched, today, cfg, 1)
         scheduled_later_pence = nxt[0]["amount"] if nxt else 0
@@ -497,6 +499,13 @@ async def _pot_progress_and_slice(
         eased_this_period = None
     planned_per_period_slice = per_period_slice
     fulfilment_expected = per_period_slice
+    # G465: a scheduled goal's reserve is what the schedule asks for this
+    # period (not yet capped at what is left, since pot progress already holds
+    # the payments) minus what was paid, penny-exact, floored at 0. The cap at
+    # `remaining` is applied after the payments come off.
+    sched_exact = bool(scheduled and entry is None and manual is None)
+    if sched_exact:
+        fulfilment_expected = sched_due_uncapped
     # G256: a matched OUTGOING transfer from the paying account releases the
     # slice (whole when fulfilled, the matched part when partial). Applied after
     # easing, so `usual_slice` and every easing figure above are untouched, and
@@ -504,7 +513,10 @@ async def _pot_progress_and_slice(
     # Penny all follow. Any failure keeps the full reservation (fail closed).
     fulfilment = None
     if claim and doc.get("fill_rule") and doc.get("user_id") and per_period_slice >= 0:
-        fulfilment = await _plan_fulfilment(doc, per_period_slice, _start, _end, **({"exact": True} if manual else {}))
+        fulfilment = await _plan_fulfilment(
+            doc, fulfilment_expected, _start, _end,
+            **({"exact": True} if (manual or sched_exact) else {}),
+        )
         if fulfilment is not None:
             per_period_slice = min(per_period_slice, fulfilment["unmet"])
     current_contribution = None

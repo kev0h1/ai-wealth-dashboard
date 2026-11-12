@@ -1,0 +1,160 @@
+{
+  "name": "A daily rising goal starting mid-period counts only the payments made from its start date, and each payment reduces what is still reserved (G465)",
+  "today": "2026-11-16",
+  "pay_period_config": {
+    "type": "last_friday"
+  },
+  "accounts": [
+    {
+      "_id": "acc-mz",
+      "name": "Monzo Current",
+      "provider": "monzo",
+      "type": "BANK",
+      "subtype": "TRANSACTION",
+      "balance": 400.0,
+      "currency": "GBP",
+      "status": "connected",
+      "include_in_safe_to_spend": true
+    },
+    {
+      "_id": "acc-pot",
+      "name": "Monzo Challenge Pot",
+      "provider": "monzo",
+      "type": "BANK",
+      "subtype": "SAVINGS",
+      "balance": 60.56,
+      "currency": "GBP",
+      "status": "connected",
+      "include_in_safe_to_spend": true
+    }
+  ],
+  "cashflow_cache": {
+    "recurring_spend": [
+      {
+        "key": "GYM",
+        "avg_amount": 30.0,
+        "avg_interval": 30,
+        "next_date": "2026-11-20",
+        "account_id": "acc-mz",
+        "account_name": "Monzo Current",
+        "account_bank": "monzo",
+        "account_balance": 400.0,
+        "is_credit_card": false,
+        "category": "Bills"
+      }
+    ],
+    "recurring_income": [],
+    "bnpl_commitments": [],
+    "avg_daily_spend": 0
+  },
+  "transactions": [
+    {
+      "account_id": "acc-mz",
+      "date": "2026-11-05",
+      "amount": 12.0,
+      "transaction_type": "debit",
+      "description": "Saving Challenge (2026)",
+      "merchant_name": "Saving Challenge (2026)",
+      "category": "Savings"
+    },
+    {
+      "account_id": "acc-mz",
+      "date": "2026-11-10",
+      "amount": 12.08,
+      "transaction_type": "debit",
+      "description": "Saving Challenge (2026)",
+      "merchant_name": "Saving Challenge (2026)",
+      "category": "Savings"
+    },
+    {
+      "account_id": "acc-mz",
+      "date": "2026-11-13",
+      "amount": 12.12,
+      "transaction_type": "debit",
+      "description": "Saving Challenge (2026)",
+      "merchant_name": "Saving Challenge (2026)",
+      "category": "Savings"
+    },
+    {
+      "account_id": "acc-mz",
+      "date": "2026-11-14",
+      "amount": 12.16,
+      "transaction_type": "debit",
+      "description": "Saving Challenge (2026)",
+      "merchant_name": "Saving Challenge (2026)",
+      "category": "Savings"
+    },
+    {
+      "account_id": "acc-mz",
+      "date": "2026-11-15",
+      "amount": 12.2,
+      "transaction_type": "debit",
+      "description": "Saving Challenge (2026)",
+      "merchant_name": "Saving Challenge (2026)",
+      "category": "Savings"
+    }
+  ],
+  "commitments": [
+    {
+      "_id": "goal-chal",
+      "name": "Saving Challenge",
+      "amount": 2671.8,
+      "target_date": "2027-11-13",
+      "status": "active",
+      "source": "manual",
+      "contributed": 0.0,
+      "created_at": "2026-11-01",
+      "funding_pots": [
+        {
+          "account_id": "acc-pot",
+          "kind": "connected",
+          "baseline": 0.0,
+          "count_existing": true
+        }
+      ],
+      "source_account_id": "acc-mz",
+      "fill_rule": {
+        "match_type": "description_contains",
+        "match_value": "Saving Challenge"
+      },
+      "schedule": {
+        "type": "arithmetic",
+        "start_pence": 1212,
+        "step_pence": 4,
+        "step_unit": "day",
+        "start_date": "2026-11-13",
+        "count": 365,
+        "end_date": null
+      }
+    }
+  ],
+  "expected": {
+    "left_to_spend": 233.16,
+    "plans_reserved": 136.84,
+    "not_spendable": [
+      "acc-pot"
+    ],
+    "accounts": {
+      "acc-mz": {
+        "spend_from": 233.16,
+        "after_payments": 370.0,
+        "low_point": 370.0,
+        "plans_reserved": 136.84,
+        "headroom": 223.16,
+        "after_payments_and_plans": 233.16,
+        "verdict": "covered"
+      }
+    },
+    "cover_plan": {
+      "moves_total": 0,
+      "moves": []
+    },
+    "payday_plan": null,
+    "at_risk_count": 0,
+    "notes": "Today is Mon 16 Nov 2026, mid pay period (last Friday: Fri 30 Oct to Thu 26 Nov, next payday Fri 27 Nov). One current account, Monzo Current, balance 400, and a savings pot, Monzo Challenge Pot (balance 60.56, never spendable). One scheduled daily goal, the invented 'Saving Challenge': a daily rising schedule of 12.12 on day one rising 4p a day, starting Fri 13 Nov 2026 (mid-period), drawn from Monzo Current, tracking payments whose description contains 'Saving Challenge'. One bill: gym 30 on Fri 20 Nov at Monzo. No salary falls inside this period (the next is 27 Nov). Plan for this period: the schedule asks for 14 daily blocks inside the period, 13 to 26 Nov. Day amounts 12.12 + 0.04 x k for k = 0..13, so the sum is 14 x 12.12 + 0.04 x (0+1+...+13) = 169.68 + 0.04 x 91 = 169.68 + 3.64 = 173.32 (the remaining target, 2,671.80 less the 60.56 already in the pot, is far larger, so the cap never binds). Payments on the paying account matching the rule: two BEFORE the schedule starts, 5 Nov 12.00 and 10 Nov 12.08 (24.08 together), and three AFTER it starts, 13 Nov 12.12, 14 Nov 12.16, 15 Nov 12.20 (36.48 together). G465: only payments from the schedule's start date count, so paid this period = 36.48, NOT 60.56. The reserve is the plan less the paid, penny-exact with no 85% snap: 173.32 - 36.48 = 136.84 (before the fix the pre-start 24.08 counted, matched 60.56, and the reserve read 112.76). Monzo walk: balance 400, gym -30 on 20 Nov, so closing and low point 370 (after payments 370). Plans reserved at Monzo (the goal's source) 136.84, so after payments and plans 370 - 136.84 = 233.16, Spend from 233.16 (its own Available, G436). The pot is savings and in no pool. Left to spend is the one counted current account: 233.16, with no buffer or other line. Headroom: lowest running balance 370 less the 136.84 reserved less the 10 every source keeps = 223.16. Nobody is short, so no cover move; the payday plan is not yet due (it shows from five days before payday, 22 Nov); at risk 0. The account stays in Upcoming By account because the plan still draws 136.84."
+  },
+  "manual_accounts": [],
+  "confirmed_income_streams": [],
+  "allocations": [],
+  "card_terms": []
+}
