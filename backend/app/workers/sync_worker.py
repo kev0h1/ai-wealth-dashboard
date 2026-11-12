@@ -498,6 +498,40 @@ def _expiring_copy(bank: str, expires_at: datetime, now: datetime) -> tuple[str,
     return title, body
 
 
+async def finexer_consent_needs_attention(fx: dict) -> bool:
+    """G462: whether a Finexer consent is still worth a reconnect or
+    reconfirmation reminder.
+
+    False when the consent owns no account (a reconnect re-keys the account
+    docs onto the new consent, A184, leaving the old consent empty), or when
+    a newer authorised consent for the same user and provider has replaced it.
+    Reads only; the old consent doc is never changed.
+
+    Newer-ness is `authed_at`, else `created_at`; a consent with neither sorts
+    oldest. Equal stamps are not "newer", so two consents can never silence
+    each other."""
+    owns = await accounts_col.count_documents({"connection_id": fx["_id"]}, limit=1)
+    if not owns:
+        return False
+    uid, provider = fx.get("user_id"), fx.get("provider")
+    if not uid or not provider:
+        return True
+
+    def _stamp(d: dict) -> datetime:
+        v = d.get("authed_at") or d.get("created_at")
+        return v if isinstance(v, datetime) else datetime.min
+
+    mine = _stamp(fx)
+    siblings = await finexer_consents_col.find(
+        {"user_id": uid, "provider": provider, "status": "authorized"},
+        {"_id": 1, "authed_at": 1, "created_at": 1},
+    ).to_list(None)
+    for other in siblings:
+        if other["_id"] != fx["_id"] and _stamp(other) > mine:
+            return False
+    return True
+
+
 async def task_consent_watch(ctx):
     """Daily nudge for bank connections whose consent is dead or expiring soon.
 
@@ -585,6 +619,10 @@ async def task_consent_watch(ctx):
         if isinstance(last_nag, datetime) and last_nag > throttle_cutoff:
             continue
 
+        # G462: an emptied or superseded consent is not the user's problem.
+        if not await finexer_consent_needs_attention(fx):
+            continue
+
         is_dead = fx.get("status") != "authorized"
         expiry_date = fx.get("expiry_date")
         is_expiring = (
@@ -635,6 +673,8 @@ async def task_consent_watch(ctx):
     for fx in rc_consents:
         uid = fx.get("user_id")
         if not uid or not reconfirm_push_due(fx, now):
+            continue
+        if not await finexer_consent_needs_attention(fx):
             continue
         reconfirm_due += 1
         due = consent_next_reconfirm_by(fx)
