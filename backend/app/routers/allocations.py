@@ -920,6 +920,10 @@ async def list_account_plans(user: dict = Depends(current_user)):
             # Manual intent can exceed the remaining target. The gross raw
             # expectation stays stable for debit ownership, while the display
             # total reconciles matched money plus the capped goal reservation.
+            # G465: for a scheduled goal `fulfilment.expected_pence` is capped
+            # at paid this period + remaining to goal, so planned = matched +
+            # reserved near the end of a goal (the reserve itself is computed
+            # from the uncapped schedule amount in commitments.py).
             "period_amount": (slice_info["current_period_contribution"]["contribution"]
                               if slice_info.get("current_period_contribution") else
                               slice_info["fulfilment"]["expected_pence"] / 100

@@ -519,6 +519,16 @@ async def _pot_progress_and_slice(
         )
         if fulfilment is not None:
             per_period_slice = min(per_period_slice, fulfilment["unmet"])
+            if sched_exact:
+                # The reserve above used the uncapped schedule amount. What the
+                # sheets show as "planned" is capped so that planned equals
+                # matched plus reserved: never more than the goal still needs
+                # (paid this period + remaining to goal). `claims_debit` and
+                # rivals keep reading the uncapped `fulfilment_expected`.
+                fulfilment["expected_pence"] = min(
+                    fulfilment["expected_pence"],
+                    fulfilment["matched_pence"] + int(round(remaining * 100)),
+                )
     current_contribution = None
     if manual is not None:
         per_period_slice = round(min(remaining, per_period_slice), 2)

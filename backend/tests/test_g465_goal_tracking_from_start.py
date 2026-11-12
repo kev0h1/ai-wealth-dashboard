@@ -110,3 +110,44 @@ def test_upcoming_keeps_the_account_while_the_plan_draws_and_the_reserve_is_dedu
     monkeypatch.setattr(commitments, "_pay_cfg", cfg)
     total, n = asyncio.run(commitments.total_reserved_slices(UID))
     assert (total, n) == (200.0, 1)
+
+
+def _end_of_goal(monkeypatch, remaining, txns):
+    """A scheduled goal whose remaining target is below the period's due amount
+    (224.28). `remaining` is what is left AFTER the payments (the pot already
+    holds them), so the ledger claims the rest of the target."""
+    goal = _sched_goal()
+    goal["amount"] = 1000.0
+    claimed = 1000.0 - remaining
+    monkeypatch.setattr(commitments, "commitments_col", _Collection([goal]))
+
+    async def _ledger(uid, docs=None, balances=None):
+        return {"commitments": {}}
+    monkeypatch.setattr(commitments, "compute_pot_ledger", _ledger)
+
+    async def _cfg(_): return CFG
+    monkeypatch.setattr(commitments, "_pay_cfg", _cfg)
+    pf.transactions_col = _Txns(txns)
+    pf.yapily_transactions_col = _Txns()
+    import app.services.account_plan_sources as sources
+    from tests.test_g176_account_plan_sources import _accounts
+
+    async def amap(_): return _accounts()
+    monkeypatch.setattr(sources, "owned_account_map", amap)
+    ledger = {"commitments": {str(goal["_id"]): {"total_claimed": claimed, "claims": {}}}}
+    return asyncio.run(commitments._pot_progress_and_slice(goal, CFG, ledger, TODAY))
+
+
+def test_end_of_goal_planned_and_reserve_both_show_the_remaining(monkeypatch):
+    info = _end_of_goal(monkeypatch, 10.0, [])
+    assert info["per_period_slice"] == 10.0
+    f = info["fulfilment"]
+    assert f["expected_pence"] == 1000 and f["matched_pence"] == 0
+
+
+def test_end_of_goal_with_a_payment_planned_equals_paid_plus_reserve(monkeypatch):
+    info = _end_of_goal(monkeypatch, 5.0, [_debit(5.0, 14)])  # 5 paid, 5 still to go
+    f = info["fulfilment"]
+    assert f["expected_pence"] == 1000 and f["matched_pence"] == 500
+    assert info["per_period_slice"] == 5.0
+    assert f["expected_pence"] == f["matched_pence"] + round(info["per_period_slice"] * 100)
