@@ -1719,3 +1719,29 @@ def test_backend_suite_is_gated_on_memory(monkeypatch):
     monkeypatch.setattr(integrate, "_sh", lambda *a, **k: pytest.fail("suite must not start"))
     with pytest.raises(integrate.IntegrateError, match="refusing to run the backend suite"):
         integrate._run_backend_tests()
+
+
+def test_backend_suite_timeout_default_and_env_override(monkeypatch):
+    """H152: the suite timeout defaults to 1500s and honours INTEGRATE_SUITE_TIMEOUT_S."""
+    monkeypatch.delenv("INTEGRATE_SUITE_TIMEOUT_S", raising=False)
+    assert _load_integrate_module().BACKEND_SUITE_TIMEOUT_S == 1500
+    monkeypatch.setenv("INTEGRATE_SUITE_TIMEOUT_S", "2400")
+    assert _load_integrate_module().BACKEND_SUITE_TIMEOUT_S == 2400
+
+
+def test_backend_suite_passes_timeout_and_reports_it(monkeypatch, capsys):
+    monkeypatch.setattr(integrate.host_memory, "available_mb", lambda *a, **k: 10**9)
+    seen = {}
+
+    def fake_sh(cmd, **kw):
+        seen.update(kw)
+        return 0, ""
+
+    monkeypatch.setattr(integrate, "_sh", fake_sh)
+    integrate._run_backend_tests()
+    assert seen["timeout"] == integrate.BACKEND_SUITE_TIMEOUT_S
+    assert "[suite] backend tests passed in" in capsys.readouterr().out
+
+    monkeypatch.setattr(integrate, "_sh", lambda *a, **k: (124, "timed out"))
+    with pytest.raises(integrate.IntegrateError, match=f"timeout {integrate.BACKEND_SUITE_TIMEOUT_S}s"):
+        integrate._run_backend_tests()
