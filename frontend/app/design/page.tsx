@@ -32,6 +32,13 @@ type PreviewRoute = {
 
 const ROUTES: PreviewRoute[] = [
   {
+    slug: "play-extras",
+    name: "Google Play extras · C42",
+    description: "A 30-second landscape C22 product film with original sound and English captions, plus a launch template and two text-free promotional image examples. Both themes, exact-size downloads, crop-safe guides and event conditions. Fictional production UI; review before upload.",
+    states: [{ label: "Light", value: "light" }, { label: "Dark", value: "dark" }],
+    group: "current",
+  },
+  {
     slug: "app-store-creative",
     name: "App Store Header and Search Results · C41",
     description: "Two options per placement in the approved C22 style, in light and dark. Current production UI with fictional fixtures, Apple template safe-area close-ups, full artwork and 390px size checks. Exact-size RGB PNG downloads, 1920px search alternatives, provenance manifest and a complete ZIP. Creative review before Kevin's manual upload.",
