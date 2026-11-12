@@ -38,13 +38,13 @@ const shortSummary = short.match(/<summary[\s\S]*?<\/summary>/)[0].replace(/<[^>
 assert.ok(shortSummary.includes("£289 short") && !/£289\.\d\d/.test(shortSummary) && short.includes("−£289.40"), "short summary whole pounds, ledger pence");
 console.log("g418-whole-pounds ok");
 
-// F1: the Accounts list overdraft line is whole pounds too, visible and spoken.
+// F1 (G463): the Accounts list no longer renders the overdraft line at all.
 {
   const React = (await import("react")).default;
   const { default: Row } = await import("../components/AccountLedgerRow.tsx");
   const { bankToRow } = await import("../lib/accountsEstate.ts");
   const acc = { id: "a", name: "Account", type: "bank", subtype: "TRANSACTION", balance: 100.4, currency: "GBP", provider: "Bank", status: "connected", overdraft_limit: 500, available: 600.37 };
   const html = renderToStaticMarkup(React.createElement(Row, { row: bankToRow(acc, []) }));
-  assert.match(html, /Available with overdraft about £600(?!\.)/);
-  assert.ok(!/£600\.\d\d/.test(html), "no pence in the overdraft line or its aria label");
+  assert.doesNotMatch(html, /with overdraft/i);
+  assert.ok(!/£600/.test(html), "the bank's available figure is not shown on the row");
 }

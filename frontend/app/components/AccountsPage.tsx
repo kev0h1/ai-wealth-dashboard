@@ -57,7 +57,6 @@ import { connectionSyncInfos, pendingConnectionInfos, pollDelayMs, shouldPollTic
 import type { SyncStatus } from "@/lib/api";
 import { writeHomePinnedAccounts } from "@/lib/homePinnedAccounts";
 import MoneyText from "@/components/MoneyText";
-import { availableWithOverdraftText, overdraftAvailable } from "@/lib/accountOverdraft";
 import { accountAvailability, formatAvailabilityAmount, type AccountAvailabilitySnapshot } from "@/lib/accountAvailability";
 import { formatConsentExpiry } from "@/lib/consentExpiry";
 import { connectionNotes } from "@/lib/reconfirm";
@@ -2414,12 +2413,6 @@ export default function AccountsPage() {
           {detailBalanceReady && isCredit && balance > 0 && <p className="mt-1 text-[11px] text-slate-400 dark:text-slate-500">in credit</p>}
           {detailBalanceReady && isDebt && balance < 0 && <p className="mt-1 text-[11px] text-slate-400 dark:text-slate-500">owed</p>}
           {detailBalanceReady && !isCredit && !isDebt && balance < 0 && <p className="mt-1 text-[11px] text-slate-400 dark:text-slate-500">overdrawn</p>}
-
-          {detailBalanceReady && overdraftAvailable(selectedAccount) !== null && (
-            <p data-a181-overdraft className="mt-1 text-[12.5px] text-slate-500 dark:text-slate-400">
-              <MoneyText text={availableWithOverdraftText(hideNetWorth ? "£••••" : formatAvailabilityAmount(overdraftAvailable(selectedAccount) as number))} />
-            </p>
-          )}
 
             </>}
             forecast={connectionEnded(selectedAccount) && !isManual && !isStatement && !isCredit && !isDebt ? (
