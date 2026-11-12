@@ -112,6 +112,10 @@ HEALTH_URLS = ["http://localhost:8000/health", "http://127.0.0.1:3030/"]
 # before treating the service as genuinely down.
 HEALTH_CHECK_TIMEOUT_S = 60
 HEALTH_CHECK_INTERVAL_S = 2
+# Wall-clock cap for the full backend pytest run (H152). The suite took ~777s
+# at 8072 tests on 2026-11-12, so the old hardcoded 600s blocked every pass.
+# Override with INTEGRATE_SUITE_TIMEOUT_S.
+BACKEND_SUITE_TIMEOUT_S = int(os.environ.get("INTEGRATE_SUITE_TIMEOUT_S", "1500"))
 
 
 class IntegrateError(RuntimeError):
@@ -755,17 +759,23 @@ def _run_backend_tests() -> None:
     finish` (or another integrate pass) can never collide with it."""
     _require_memory(host_memory.SUITE_REQUIRED_MB, "the backend suite")
     venv_python = REPO_ROOT / "backend" / ".venv" / "bin" / "python"
+    started = time.monotonic()
     rc, out = _sh(
         [
             str(venv_python), "-m", "pytest", "-q", "-x",
             "tests",
         ],
         cwd=REPO_ROOT / "backend",
-        timeout=600,
+        timeout=BACKEND_SUITE_TIMEOUT_S,
         env={"MONGO_DB": _fresh_test_db_name()},
     )
+    elapsed = int(time.monotonic() - started)
     if rc != 0:
-        raise IntegrateError(f"backend test suite failed:\n{out}")
+        raise IntegrateError(
+            f"backend test suite failed after {elapsed}s "
+            f"(timeout {BACKEND_SUITE_TIMEOUT_S}s):\n{out}"
+        )
+    print(f"[suite] backend tests passed in {elapsed}s (timeout {BACKEND_SUITE_TIMEOUT_S}s)", flush=True)
 
 
 def _find_worktree_for_branch(branch: str) -> Optional[str]:

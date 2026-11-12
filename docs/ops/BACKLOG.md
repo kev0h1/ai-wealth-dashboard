@@ -943,7 +943,8 @@ plain `merge origin/main` into the branch resolves the conflict with new
 commits instead of rewriting old ones, so the next `session.sh finish`
 push is a normal fast-forward. After a clean merge it reinstalls dependencies if the
 merge changed a lockfile (`pip install -r backend/requirements.txt` into the
-shared venv, `npm ci` in `frontend/`), then runs the backend suite,
+shared venv, `npm ci` in `frontend/`), then runs the backend suite
+(capped at 1500s by default, override with `INTEGRATE_SUITE_TIMEOUT_S`; the run time is printed as a `[suite]` line, H152),
 rebuilds the frontend and restarts `wealth-frontend` if `frontend/` or
 `shared/` changed, restarts `wealth-api` and `wealth-worker` if `backend/`
 changed at all (the worker imports services and core modules under
