@@ -503,18 +503,27 @@ async def finexer_consent_needs_attention(fx: dict) -> bool:
     reconfirmation reminder.
 
     False when the consent owns no account (a reconnect re-keys the account
-    docs onto the new consent, A184, leaving the old consent empty), or when
-    a newer authorised consent for the same user and provider has replaced it.
-    Reads only; the old consent doc is never changed.
+    docs onto the new consent, A184, leaving the old consent empty).
+
+    Also False when it is superseded: every account it still owns has the same
+    A184 fingerprint as an account owned by a newer authorised consent of the
+    same user and provider. One unfingerprinted or unmatched account keeps the
+    consent needing attention, so a second login at the same bank is never
+    silenced. Reads only; the old consent doc is never changed.
 
     Newer-ness is `authed_at`, else `created_at`; a consent with neither sorts
-    oldest. Equal stamps are not "newer", so two consents can never silence
-    each other."""
-    owns = await accounts_col.count_documents({"connection_id": fx["_id"]}, limit=1)
-    if not owns:
+    oldest. Equal stamps are not "newer". Three batched reads, no per-account
+    queries."""
+    owned = await accounts_col.find(
+        {"connection_id": fx["_id"]}, {"_id": 1, "fingerprint": 1},
+    ).to_list(None)
+    if not owned:
         return False
     uid, provider = fx.get("user_id"), fx.get("provider")
     if not uid or not provider:
+        return True
+    prints = {a.get("fingerprint") for a in owned}
+    if not all(isinstance(p, str) and p for p in prints):
         return True
 
     def _stamp(d: dict) -> datetime:
@@ -526,10 +535,15 @@ async def finexer_consent_needs_attention(fx: dict) -> bool:
         {"user_id": uid, "provider": provider, "status": "authorized"},
         {"_id": 1, "authed_at": 1, "created_at": 1},
     ).to_list(None)
-    for other in siblings:
-        if other["_id"] != fx["_id"] and _stamp(other) > mine:
-            return False
-    return True
+    newer = [o["_id"] for o in siblings if o["_id"] != fx["_id"] and _stamp(o) > mine]
+    if not newer:
+        return True
+    covering = await accounts_col.find(
+        {"connection_id": {"$in": newer}, "fingerprint": {"$in": list(prints)}},
+        {"_id": 1, "fingerprint": 1},
+    ).to_list(None)
+    covered = {a.get("fingerprint") for a in covering}
+    return not prints <= covered
 
 
 async def task_consent_watch(ctx):

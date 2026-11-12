@@ -9,6 +9,8 @@ import app.workers.sync_worker as sw
 
 NOW = datetime.utcnow()
 UID = "tester.person@example.com"
+FP1 = "A" * 24
+FP2 = "B" * 24
 
 
 class Col:
@@ -25,6 +27,10 @@ class Col:
                     continue
                 if "$ne" in v:
                     if d.get(k) == v["$ne"]:
+                        return False
+                    continue
+                if "$in" in v:
+                    if d.get(k) not in v["$in"]:
                         return False
                     continue
                 return False
@@ -86,14 +92,16 @@ def _run(monkeypatch, consents, accounts, tl_conns=None, tl_accounts=None):
 def test_old_expired_consent_with_newer_authorized_sends_nothing(monkeypatch):
     # Even if the old consent still owns an account doc, the newer one wins.
     consents = [fx("old", "expired", 120), fx("new", "authorized", 2)]
-    accounts = [{"_id": "a1", "connection_id": "old"}, {"_id": "a2", "connection_id": "new"}]
+    accounts = [{"_id": "a1", "connection_id": "old", "fingerprint": FP1},
+                {"_id": "a2", "connection_id": "new", "fingerprint": FP1}]
     out, pushes = _run(monkeypatch, consents, accounts)
     assert pushes == [] and out["nagged"] == 0 and out["reconfirm_nagged"] == 0
 
 
 def test_superseded_authorized_consent_gets_no_reconfirmation(monkeypatch):
     consents = [fx("old", "authorized", 86), fx("new", "authorized", 1)]
-    accounts = [{"_id": "a1", "connection_id": "old"}, {"_id": "a2", "connection_id": "new"}]
+    accounts = [{"_id": "a1", "connection_id": "old", "fingerprint": FP1},
+                {"_id": "a2", "connection_id": "new", "fingerprint": FP1}]
     out, pushes = _run(monkeypatch, consents, accounts)
     assert out["reconfirm_due"] == 0 and pushes == []
 
@@ -142,3 +150,55 @@ def test_truelayer_behaviour_unchanged(monkeypatch):
     out, pushes = _run(monkeypatch, consents, [{"_id": "f1", "connection_id": "new"}],
                        tl_conns=tl, tl_accounts=[{"_id": "t1", "connection_id": "tl_dead"}])
     assert out["nagged"] == 1 and len(pushes) == 1
+
+
+def test_two_logins_dead_one_with_accounts_still_nags(monkeypatch):
+    # Login A dies while owning accounts; login B (same provider) is newer and
+    # authorized but shares no fingerprint with A.
+    consents = [fx("a", "expired", 120), fx("b", "authorized", 2)]
+    accounts = [{"_id": "a1", "connection_id": "a", "fingerprint": FP1},
+                {"_id": "b1", "connection_id": "b", "fingerprint": FP2}]
+    out, pushes = _run(monkeypatch, consents, accounts)
+    assert out["nagged"] == 1 and len(pushes) == 1
+
+
+def test_two_logins_authorized_old_one_still_reconfirmed(monkeypatch):
+    consents = [fx("a", "authorized", 86), fx("b", "authorized", 1)]
+    accounts = [{"_id": "a1", "connection_id": "a", "fingerprint": FP1},
+                {"_id": "b1", "connection_id": "b", "fingerprint": FP2}]
+    out, pushes = _run(monkeypatch, consents, accounts)
+    assert out["reconfirm_due"] == 1 and out["reconfirm_nagged"] == 1
+
+
+def test_legacy_unfingerprinted_accounts_still_nag(monkeypatch):
+    consents = [fx("old", "expired", 120), fx("new", "authorized", 2)]
+    accounts = [{"_id": "a1", "connection_id": "old"},
+                {"_id": "b1", "connection_id": "new", "fingerprint": FP1}]
+    out, pushes = _run(monkeypatch, consents, accounts)
+    assert out["nagged"] == 1
+
+
+def test_partly_covered_old_consent_still_nags(monkeypatch):
+    consents = [fx("old", "expired", 120), fx("new", "authorized", 2)]
+    accounts = [{"_id": "a1", "connection_id": "old", "fingerprint": FP1},
+                {"_id": "a2", "connection_id": "old", "fingerprint": FP2},
+                {"_id": "b1", "connection_id": "new", "fingerprint": FP1}]
+    out, pushes = _run(monkeypatch, consents, accounts)
+    assert out["nagged"] == 1
+
+
+def test_equal_stamps_not_superseded(monkeypatch):
+    t = NOW - timedelta(days=30)
+    consents = [fx("old", "expired", 0, authed_at=t), fx("new", "authorized", 0, authed_at=t)]
+    accounts = [{"_id": "a1", "connection_id": "old", "fingerprint": FP1},
+                {"_id": "b1", "connection_id": "new", "fingerprint": FP1}]
+    out, pushes = _run(monkeypatch, consents, accounts)
+    assert out["nagged"] == 1
+
+
+def test_missing_provider_nags(monkeypatch):
+    consents = [fx("old", "expired", 120, provider=None), fx("new", "authorized", 2, provider=None)]
+    accounts = [{"_id": "a1", "connection_id": "old", "fingerprint": FP1},
+                {"_id": "b1", "connection_id": "new", "fingerprint": FP1}]
+    out, pushes = _run(monkeypatch, consents, accounts)
+    assert out["nagged"] == 1
