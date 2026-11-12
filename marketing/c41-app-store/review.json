@@ -1,0 +1,177 @@
+{
+  "item": "C41",
+  "reviewed": "2026-11-12",
+  "status": "creative-review-only",
+  "publication": "No store upload, submission or publication performed.",
+  "specificationEvidence": "specs.json; official PSD safe layers re-read and hashes verified by verify_apple_templates.py",
+  "assets": {
+    "deliverablePngs": 12,
+    "productionProofPngs": 4,
+    "downloadZip": "sorted-app-store-creative-options.zip",
+    "validation": "passed",
+    "sourceFreshness": "passed",
+    "opaqueRgb": "passed",
+    "safeAreaContainmentAndOverlap": "passed",
+    "fictionalFinancialReconciliation": "passed"
+  },
+  "browser": {
+    "item": "C41",
+    "galleryCaptures": [
+      {
+        "file": "header-light-320.png",
+        "theme": "light",
+        "width": 320,
+        "slot": "header",
+        "view": "safe",
+        "overflow": false
+      },
+      {
+        "file": "search-light-320.png",
+        "theme": "light",
+        "width": 320,
+        "slot": "search",
+        "view": "safe",
+        "overflow": false
+      },
+      {
+        "file": "header-light-390.png",
+        "theme": "light",
+        "width": 390,
+        "slot": "header",
+        "view": "safe",
+        "overflow": false
+      },
+      {
+        "file": "search-light-390.png",
+        "theme": "light",
+        "width": 390,
+        "slot": "search",
+        "view": "safe",
+        "overflow": false
+      },
+      {
+        "file": "header-light-1440.png",
+        "theme": "light",
+        "width": 1440,
+        "slot": "header",
+        "view": "safe",
+        "overflow": false
+      },
+      {
+        "file": "search-light-1440.png",
+        "theme": "light",
+        "width": 1440,
+        "slot": "search",
+        "view": "safe",
+        "overflow": false
+      },
+      {
+        "file": "header-dark-320.png",
+        "theme": "dark",
+        "width": 320,
+        "slot": "header",
+        "view": "safe",
+        "overflow": false
+      },
+      {
+        "file": "search-dark-320.png",
+        "theme": "dark",
+        "width": 320,
+        "slot": "search",
+        "view": "safe",
+        "overflow": false
+      },
+      {
+        "file": "header-dark-390.png",
+        "theme": "dark",
+        "width": 390,
+        "slot": "header",
+        "view": "safe",
+        "overflow": false
+      },
+      {
+        "file": "search-dark-390.png",
+        "theme": "dark",
+        "width": 390,
+        "slot": "search",
+        "view": "safe",
+        "overflow": false
+      },
+      {
+        "file": "header-dark-1440.png",
+        "theme": "dark",
+        "width": 1440,
+        "slot": "header",
+        "view": "safe",
+        "overflow": false
+      },
+      {
+        "file": "search-dark-1440.png",
+        "theme": "dark",
+        "width": 1440,
+        "slot": "search",
+        "view": "safe",
+        "overflow": false
+      }
+    ],
+    "downloads": [
+      "/design-media/c41-app-store/manifest.json",
+      "/design-media/c41-app-store/sorted-app-store-creative-options.zip",
+      "/design-media/c41-app-store/sorted-header-a-dark-3840x1646.png",
+      "/design-media/c41-app-store/sorted-header-a-light-3840x1646.png",
+      "/design-media/c41-app-store/sorted-header-b-dark-3840x1646.png",
+      "/design-media/c41-app-store/sorted-header-b-light-3840x1646.png",
+      "/design-media/c41-app-store/sorted-search-a-dark-1920x1280.png",
+      "/design-media/c41-app-store/sorted-search-a-dark-3840x2560.png",
+      "/design-media/c41-app-store/sorted-search-a-light-1920x1280.png",
+      "/design-media/c41-app-store/sorted-search-a-light-3840x2560.png",
+      "/design-media/c41-app-store/sorted-search-b-dark-1920x1280.png",
+      "/design-media/c41-app-store/sorted-search-b-dark-3840x2560.png",
+      "/design-media/c41-app-store/sorted-search-b-light-1920x1280.png",
+      "/design-media/c41-app-store/sorted-search-b-light-3840x2560.png"
+    ],
+    "controls": [
+      "placement",
+      "theme",
+      "safe-area/full/390px view",
+      "refresh",
+      "history",
+      "design-index state links",
+      "keyboard focus",
+      "44px targets"
+    ],
+    "api": "shell fixtures only; unexpected API and external requests refused",
+    "exportAssets": 12
+  },
+  "visualReview": {
+    "root": "All eight safe-area detail views and all twelve gallery captures inspected in both themes; clipping and initial theme timing corrected in one batch, then confirmed.",
+    "evidenceDirectory": ".impeccable/review/c41/",
+    "rounds": 2
+  },
+  "independentReview": {
+    "disposition": "ship",
+    "role": "Fresh normal implementation agent; specialist Impeccable finish reviewer unavailable.",
+    "scope": "Twelve gallery captures available, mobile/desktop theme samples and all four safe-area crop pairings inspected; source and fixture contract reviewed.",
+    "persistence": "Evidence present; exact RGB export dimensions and provenance explicit.",
+    "fidelity": "TYPE: C22 Figtree hierarchy. MATERIAL: production UI pixels and hand-set typography. GROUND: Mist and Midnight slate.",
+    "ceiling": "Approved C22 extension with distinct options, complete chart context and semantic URL-backed review controls.",
+    "material_fixes": [],
+    "keep": "Independent slot choice, safe-area/full/390px views, opaque RGB provenance and restrained composition."
+  },
+  "designSystemRecord": "system-fit.md; ordinary extension, governing files preserved; normal-agent documenter substitute.",
+  "webInterfaceGuidelines": {
+    "source": "https://raw.githubusercontent.com/vercel-labs/web-interface-guidelines/main/command.md",
+    "fetched": "2026-11-12",
+    "result": "No outstanding scoped findings after image dimensions, lazy secondary artwork, focus, theme synchronisation and capture-layout fixes."
+  },
+  "impeccableCli": "Launcher unavailable: permission denied. Context read directly; no automated detector verdict claimed.",
+  "checks": {
+    "scopedEslint": "passed",
+    "designIndex": "passed",
+    "designStale": "passed",
+    "typeScript": "passed",
+    "productionBuild": "passed",
+    "productionBrowserSmoke": "Four gallery slot/theme states and ZIP HTTP 200; no hydration, console or page errors; no overflow.",
+    "mandatoryRepositoryFinish": "The backend suite and all frontend gates are run by scripts/session.sh finish C41 --uat-review; consult the C41 board note for the recorded result."
+  }
+}

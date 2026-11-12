@@ -1,0 +1,25 @@
+{
+  "checked": "2026-11-12",
+  "locale": "en-GB",
+  "sources": {
+    "specifications": "https://developer.apple.com/help/app-store-connect/reference/app-information/creative-assets-specifications/",
+    "guidance": "https://developer.apple.com/app-store/asset-best-practices/",
+    "management": "https://developer.apple.com/help/app-store-connect/manage-app-information/manage-your-app-store-assets/"
+  },
+  "header": {
+    "size": [3840, 1646],
+    "safe": {"x": 1097, "y": 493, "width": 1646, "height": 661},
+    "template": "https://devimages-cdn.apple.com/design/resources/download/app-store/creative_assets-product_page_header_template-static.psd",
+    "templateSha256": "4200f416adcf3affb70d5847c1d0554fc39b7405110ec527bdea92bfb82f93b0"
+  },
+  "search": {
+    "size": [3840, 2560],
+    "alternativeSize": [1920, 1280],
+    "safe": {"x": 836, "y": 765, "width": 2168, "height": 1030},
+    "template": "https://devimages-cdn.apple.com/design/resources/download/app-store/creative_assets-search_results_template-static.psd",
+    "templateSha256": "7bb57a3c33cc4402d1c82e85a0211cf0f2f2b1c05cf7f36e4710092226dea056"
+  },
+  "measurement": "Read the Art Safe Area layer rectangle from each official 16-bit PSD's Lr16 layer records. Coordinates are in full-resolution pixels, with a top-left origin. verify_apple_templates.py reproduces this measurement.",
+  "export": {"format": "PNG", "mode": "RGB", "alpha": false},
+  "scope": "Separate static Header and Search Results compositions. The optional 5244x2950 universal format is supported by Apple but is not needed by this pack. One selected theme and option per placement."
+}
