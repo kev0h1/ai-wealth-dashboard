@@ -498,6 +498,54 @@ def _expiring_copy(bank: str, expires_at: datetime, now: datetime) -> tuple[str,
     return title, body
 
 
+async def finexer_consent_needs_attention(fx: dict) -> bool:
+    """G462: whether a Finexer consent is still worth a reconnect or
+    reconfirmation reminder.
+
+    False when the consent owns no account (a reconnect re-keys the account
+    docs onto the new consent, A184, leaving the old consent empty).
+
+    Also False when it is superseded: every account it still owns has the same
+    A184 fingerprint as an account owned by a newer authorised consent of the
+    same user and provider. One unfingerprinted or unmatched account keeps the
+    consent needing attention, so a second login at the same bank is never
+    silenced. Reads only; the old consent doc is never changed.
+
+    Newer-ness is `authed_at`, else `created_at`; a consent with neither sorts
+    oldest. Equal stamps are not "newer". Three batched reads, no per-account
+    queries."""
+    owned = await accounts_col.find(
+        {"connection_id": fx["_id"]}, {"_id": 1, "fingerprint": 1},
+    ).to_list(None)
+    if not owned:
+        return False
+    uid, provider = fx.get("user_id"), fx.get("provider")
+    if not uid or not provider:
+        return True
+    prints = {a.get("fingerprint") for a in owned}
+    if not all(isinstance(p, str) and p for p in prints):
+        return True
+
+    def _stamp(d: dict) -> datetime:
+        v = d.get("authed_at") or d.get("created_at")
+        return v if isinstance(v, datetime) else datetime.min
+
+    mine = _stamp(fx)
+    siblings = await finexer_consents_col.find(
+        {"user_id": uid, "provider": provider, "status": "authorized"},
+        {"_id": 1, "authed_at": 1, "created_at": 1},
+    ).to_list(None)
+    newer = [o["_id"] for o in siblings if o["_id"] != fx["_id"] and _stamp(o) > mine]
+    if not newer:
+        return True
+    covering = await accounts_col.find(
+        {"connection_id": {"$in": newer}, "fingerprint": {"$in": list(prints)}},
+        {"_id": 1, "fingerprint": 1},
+    ).to_list(None)
+    covered = {a.get("fingerprint") for a in covering}
+    return not prints <= covered
+
+
 async def task_consent_watch(ctx):
     """Daily nudge for bank connections whose consent is dead or expiring soon.
 
@@ -585,6 +633,10 @@ async def task_consent_watch(ctx):
         if isinstance(last_nag, datetime) and last_nag > throttle_cutoff:
             continue
 
+        # G462: an emptied or superseded consent is not the user's problem.
+        if not await finexer_consent_needs_attention(fx):
+            continue
+
         is_dead = fx.get("status") != "authorized"
         expiry_date = fx.get("expiry_date")
         is_expiring = (
@@ -635,6 +687,8 @@ async def task_consent_watch(ctx):
     for fx in rc_consents:
         uid = fx.get("user_id")
         if not uid or not reconfirm_push_due(fx, now):
+            continue
+        if not await finexer_consent_needs_attention(fx):
             continue
         reconfirm_due += 1
         due = consent_next_reconfirm_by(fx)

@@ -46,6 +46,10 @@ class Col:
     async def find_one(self, q=None, projection=None):
         return next((d for d in self.docs if self._m(d, q)), None)
 
+    async def count_documents(self, q=None, limit=0):
+        n = sum(1 for d in self.docs if self._m(d, q))
+        return min(n, limit) if limit else n
+
     def find(self, q=None, projection=None):
         rows = [d for d in self.docs if self._m(d, q)]
 
@@ -308,10 +312,11 @@ def _watch_setup(monkeypatch, on):
     _gate(monkeypatch, on)
     now = datetime.utcnow()
     col = Col([consent(_id="a", authed_at=now - timedelta(days=85)),
-               consent(_id="b", authed_at=now - timedelta(days=10))])
+               consent(_id="b", provider="ob-monzo", authed_at=now - timedelta(days=10))])
     monkeypatch.setattr(sw, "finexer_consents_col", col)
     monkeypatch.setattr(sw, "connections_col", Col())
-    monkeypatch.setattr(sw, "accounts_col", Col())
+    monkeypatch.setattr(sw, "accounts_col", Col([{"_id": "acc_a", "connection_id": "a"},
+                                                  {"_id": "acc_b", "connection_id": "b"}]))
     pushes = []
 
     async def push(uid, title, body, url=None):
@@ -336,11 +341,12 @@ def test_watch_flags_and_pushes_for_consents_due_within_seven_days(monkeypatch):
     _gate(monkeypatch, True)
     now = datetime.utcnow()
     due_soon = consent(_id="a", authed_at=now - timedelta(days=85))
-    not_due = consent(_id="b", authed_at=now - timedelta(days=10))
+    not_due = consent(_id="b", provider="ob-monzo", authed_at=now - timedelta(days=10))
     col = Col([due_soon, not_due])
     monkeypatch.setattr(sw, "finexer_consents_col", col)
     monkeypatch.setattr(sw, "connections_col", Col())
-    monkeypatch.setattr(sw, "accounts_col", Col())
+    monkeypatch.setattr(sw, "accounts_col", Col([{"_id": "acc_a", "connection_id": "a"},
+                                                  {"_id": "acc_b", "connection_id": "b"}]))
     pushes = []
 
     async def push(uid, title, body, url=None):
