@@ -1,3 +1,4 @@
+// G463: intentionally unused. The "Available with overdraft" line is hidden everywhere until it has a correct rule; kept so it can return.
 // A181: what a current account can reach with its arranged overdraft, for
 // display only. The balance stays the headline and the only figure Left to
 // spend uses; this is never added to cash anywhere.

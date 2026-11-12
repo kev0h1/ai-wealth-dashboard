@@ -53,10 +53,9 @@ assert.doesNotMatch(loanHtml, /overdrawn/);
 assert.match(loanHtml, /owed/);
 assert.match(renderRow(acc({ balance: -50 })), /rose-/, "an overdrawn current account is unchanged");
 assert.match(renderRow(acc({ balance: -50 })), /overdrawn/);
-// Item 5: with the overdraft line shown there is no third caption, but the aria-label keeps the state.
+// G463: the overdraft line is hidden; the overdrawn state still reads on the row.
 const odHtml = renderRow(acc({ balance: -50, overdraft_limit: 500, available: 450 }));
-assert.match(odHtml, /data-a181-overdraft/);
-assert.doesNotMatch(odHtml, /<p class="text-\[10px\][^>]*>overdrawn<\/p>/);
+assert.doesNotMatch(odHtml, /data-a181-overdraft/);
 assert.match(odHtml, /aria-label="[^"]*overdrawn/);
 assert.equal(sourceClass(loan), "none");
 assert.equal(sourceClass(acc()), "current");

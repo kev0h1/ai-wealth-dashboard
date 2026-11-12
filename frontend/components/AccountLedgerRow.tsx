@@ -15,7 +15,6 @@ import { accountKindLabel, isBusinessAccount } from "@/lib/accountKind";
 import type { EstateRow } from "@/lib/accountsEstate";
 import type { Account } from "@wealth/shared";
 import { MaskedAmount } from "@/lib/balancesHidden";
-import { availableWithOverdraftText, overdraftAvailable } from "@/lib/accountOverdraft";
 import { formatAvailabilityAmount, type AccountAvailabilityReading } from "@/lib/accountAvailability";
 import { SyncGlyph, asOfLabel, syncBank, syncPhase, type SyncingInfo } from "./SyncNote";
 import ActionLabel from "@/components/ActionLabel";
@@ -215,10 +214,6 @@ export default function AccountLedgerRow({
   // updating, and excluded accounts never surface a spendable reading.
   const availabilityReading =
     row.source === "bank" && row.kind === "Current" && !notCounted && !ended && !sync && !balancePending ? availability : undefined;
-  // A181: with an arranged overdraft the current balance stays the headline and
-  // the reach with the overdraft is a hedged secondary line. Never cash.
-  const overdraftReading =
-    row.source === "bank" && !sync && !balancePending && !availabilityReading ? overdraftAvailable(row.raw as Account) : null;
   const availabilityAria = availabilityReading
     ? availabilityReading.kind === "ready"
       ? `, available: ${hideAmount ? "amount hidden" : formatAvailabilityAmount(availabilityReading.value)}${
@@ -239,7 +234,7 @@ export default function AccountLedgerRow({
         data-account-row-id={focusKey}
         disabled={!onClick}
         onClick={(event) => onClick?.(row, event.currentTarget)}
-        aria-label={`${row.name}, ${balancePending ? "balance not available yet" : hideAmount ? "balance hidden" : moneyStr(row.balance)}${stateCaption ? ` ${stateCaption}` : ""}${row.attention ? ", connection needs attention" : ""}${isBusiness ? ", business account" : ""}${overdraftReading !== null ? `, ${availableWithOverdraftText(hideAmount ? "amount hidden" : formatAvailabilityAmount(overdraftReading))}` : ""}${ended ? ", connection ended, not counted in Left to spend" : notCounted ? ", not counted towards Left to spend" : ""}${sync ? `, ${syncRowLine}${syncAsOf ? `, balance as of ${syncAsOf}` : ""}` : ""}${availabilityAria}`}
+        aria-label={`${row.name}, ${balancePending ? "balance not available yet" : hideAmount ? "balance hidden" : moneyStr(row.balance)}${stateCaption ? ` ${stateCaption}` : ""}${row.attention ? ", connection needs attention" : ""}${isBusiness ? ", business account" : ""}${ended ? ", connection ended, not counted in Left to spend" : notCounted ? ", not counted towards Left to spend" : ""}${sync ? `, ${syncRowLine}${syncAsOf ? `, balance as of ${syncAsOf}` : ""}` : ""}${availabilityAria}`}
         className="absolute inset-0 z-10 rounded-[inherit] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500"
       />
       <BankIcon identity={brandAccountFor(row)} altText={brand.label} />
@@ -320,17 +315,12 @@ export default function AccountLedgerRow({
             )}
           </p>
         ) : null}
-        {overdraftReading !== null ? (
-          <p data-a181-overdraft className="max-w-[10rem] text-right text-[10px] leading-4 text-slate-500 dark:text-slate-400">
-            {availableWithOverdraftText(hideAmount ? "£••••" : formatAvailabilityAmount(overdraftReading))}
-          </p>
-        ) : null}
         {/* Visual "owed"/"in credit" caption is gone on credit rows per
             Variant B — the minus sign above plus the terms chip below carry
             that meaning instead, so the right column never stacks three
             deep. The compact Available caption uses the same slot on current rows;
             overdrawn remains in the row’s accessible name and bank sign/tone. */}
-        {!isCredit && stateCaption && !availabilityReading && overdraftReading === null && <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5">{stateCaption}</p>}
+        {!isCredit && stateCaption && !availabilityReading && <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5">{stateCaption}</p>}
 
         {/* Card-terms pill / Add-rates affordance — mirrors AccountMiniCard's
             calm-variant treatment. APR is information, not alarm (muted
