@@ -626,7 +626,7 @@ async def _serialise(doc: dict, start: date, end: date) -> dict:
         "current_period_contribution": current_contribution,
         "fill_account_id":     doc.get("fill_account_id"),
         "source_account_id":   doc.get("source_account_id"),
-        "fill_rule":           doc.get("fill_rule") if tracking_mode == "manual" else None,
+        **({"fill_rule": doc["fill_rule"]} if tracking_mode == "manual" and "fill_rule" in doc else {}),
         # G350: whether the field is stored at all, so a deliberate null
         # ("Not set") is told apart from a legacy plan that never had one.
         "source_set":          "source_account_id" in doc,
