@@ -920,3 +920,18 @@ html[data-penny-typing="true"] [data-penny-navigation] {
 @media print {
   main.legal-doc { min-height: 0; padding-top: 0; padding-bottom: 0; }
 }
+
+/* G467: the Penny composer placeholder is one fixed line and never wraps or
+   clips. text-overflow on ::placeholder alone is not honoured by every WebKit
+   build, so the same rules sit on the empty textarea itself (while the
+   placeholder shows there is no typed text, so nowrap cannot affect input). */
+[data-penny-input]::placeholder {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+[data-penny-input]:placeholder-shown {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
