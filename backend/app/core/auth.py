@@ -103,6 +103,13 @@ async def current_user(request: Request) -> dict:
     except (SignatureExpired, BadSignature):
         raise HTTPException(401, "Session expired")
 
+    # C43: the App Review demo identity can never reach a bank provider, delete
+    # the account or start a purchase. One central list, so a new route cannot
+    # forget it (service-level guards sit behind this one).
+    from app.core.demo import demo_blocked, demo_restricted_error
+    if demo_blocked(result.get("email"), request.method, request.url.path):
+        raise demo_restricted_error()
+
     # A84: a session token is a stateless signature with no id of its own,
     # so revocation works by cutoff, not by blocklisting individual tokens
     # — `is_revoked` is true when this token was ISSUED before the email's

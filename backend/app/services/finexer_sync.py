@@ -945,6 +945,8 @@ async def get_or_create_customer(user: dict, *, force_new: bool = False) -> str:
     `force_new` (A178) ignores and replaces the cached record: used when
     Finexer says the cached customer no longer exists."""
     user_id = user["email"]
+    from app.core.demo import assert_not_demo  # C43: the demo identity never reaches a bank provider
+    assert_not_demo(user_id)
     if not force_new:
         doc = await finexer_customers_col.find_one({"_id": user_id})
         if doc:
@@ -1020,6 +1022,8 @@ async def create_consent(
     bank's own maximum still applies. If Finexer answers the first attempt with a
     400 or 422 the consent is retried once without it. The date asked for rides on the
     returned dict as `.retro_date_requested`."""
+    from app.core.demo import assert_not_demo  # C43: the demo identity never reaches a bank provider
+    assert_not_demo(user_id)
     from app.services.finexer_consent import retro_date_for, retro_months_setting
     retro = retro_date_for(await retro_months_setting())
 
@@ -1726,6 +1730,12 @@ async def sync_finexer_consent(
     the consent's own `last_synced` bookkeeping is left alone. Default None
     leaves the consent path unchanged.
     """
+    # C43: the demo identity has synthetic data only and never syncs from a bank.
+    from app.core.demo import is_demo_user
+    if is_demo_user(user_id):
+        logger.warning("Finexer sync skipped for the demo identity")
+        return [], 0
+
     # ── Guard: do not sync a consent that was locally deleted/revoked ────────
     local_consent = await finexer_consents_col.find_one({"_id": consent_id})
     if not local_consent or local_consent.get("status") != "authorized":
@@ -2351,6 +2361,9 @@ async def finexer_sync_pipeline(
     """
     from app.services.categorisation import apply_rules_bulk, categorise_others_bg
     from app.services.manual_account_rules import apply_rules as apply_mirror_rules
+    from app.core.demo import is_demo_user  # C43: never sync the demo identity
+    if is_demo_user(user_id):
+        return {"ok": False, "skipped": "demo"}
 
     try:
         async with sync_in_progress(finexer_consents_col, consent_id):

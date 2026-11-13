@@ -56,9 +56,10 @@ async def reconcile(client, customers_col, consents_col, accounts_col, *, apply:
               "consents_flagged": 0, "accounts_expired": 0}
     counter: dict = {"requests": 0, "429s": 0}
     missing: list = []
+    from app.core.demo import is_demo_user  # C43: the demo identity never talks to Finexer
     async for doc in customers_col.find({}):
         cid = doc.get("customer_id")
-        if not cid:
+        if not cid or is_demo_user(doc.get("_id")):
             continue
         counts["checked"] += 1
         status = await customer_status(client, cid, counter)

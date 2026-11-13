@@ -148,11 +148,16 @@ async def load_local(consents_col, customers_col) -> tuple[dict, dict]:
     """Returns ({consent_id: doc}, {customer_id: sorted list of user ids}).
     Customer ids come from finexer_customers (_id = user email) and from the
     customer_id on consent docs."""
+    from app.core.demo import is_demo_user  # C43: the demo identity never talks to Finexer
     consents: dict = {}
     async for d in consents_col.find({}):
+        if is_demo_user(d.get("user_id")):
+            continue
         consents[d["_id"]] = d
     cust: dict[str, set] = {}
     async for d in customers_col.find({}):
+        if is_demo_user(d.get("_id")):
+            continue
         if d.get("customer_id"):
             cust.setdefault(d["customer_id"], set()).add(d["_id"])
     for d in consents.values():

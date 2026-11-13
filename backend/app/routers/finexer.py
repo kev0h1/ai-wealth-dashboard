@@ -190,6 +190,8 @@ async def finexer_link(
     """Initiate a Finexer consent flow; return the redirect URL. `native` marks a
     native-app connect so the callback hands back to the app (A68); web and old
     app binaries omit it and get a plain redirect."""
+    from app.core.demo import assert_not_demo  # C43
+    assert_not_demo(user["email"])
     if not FINEXER_API_KEY:
         raise HTTPException(500, "Finexer not configured")
     await check_open_banking_allowed(user["email"])
@@ -280,6 +282,8 @@ async def finexer_reconfirm(consent_id: str, user: dict = Depends(current_user))
     reconfirmation shown in our own interface is a consent screen whose exact
     wording needs Finexer's written approval first. Off, this answers 404. The
     A6.3 fallback is Finexer's hosted reconfirmation, which needs no approval."""
+    from app.core.demo import assert_not_demo  # C43
+    assert_not_demo(user["email"])
     if not await reconfirm_enabled():
         raise HTTPException(status_code=404, detail="Not found")
     doc = await finexer_consents_col.find_one({"_id": consent_id})

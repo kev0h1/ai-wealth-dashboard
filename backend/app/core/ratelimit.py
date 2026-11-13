@@ -27,6 +27,7 @@ RULES = [
     # design (that's the point of "dynamic"), so it needs its own tighter
     # cap ahead of the generic "/auth/" rule below (which would otherwise
     # win first and give it the ordinary 30/60 login-attempt budget).
+    ("/auth/demo/login", 5, 60),   # C43: password endpoint, tighter than the generic /auth/ rule
     ("/auth/oauth/register", 10, 60),
     # F7: the token and authorize legs of the OAuth 2.1 flow are also
     # unauthenticated by design (that's what makes them the *authorisation*

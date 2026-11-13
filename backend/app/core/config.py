@@ -237,6 +237,15 @@ MCP_CONNECTOR_ENABLED = _parse_flag(os.getenv("MCP_CONNECTOR_ENABLED"))
 # `tips_enabled` on GET /preferences, so no app rebuild is needed.
 TIPS_ENABLED = _parse_flag(os.getenv("TIPS_ENABLED"))
 
+# C43: Apple App Review demo sign-in. Off unless explicitly turned on. One
+# fixed synthetic identity (DEMO_LOGIN_EMAIL) signs in with a password that is
+# only ever held as a salted scrypt hash (DEMO_PASSWORD_HASH, never plaintext).
+# The demo identity can never reach a bank provider, delete an account or
+# start a purchase (see app/core/demo.py). docs/ops/APP_REVIEW_DEMO.md.
+DEMO_LOGIN_ENABLED = _parse_flag(os.getenv("DEMO_LOGIN_ENABLED"))
+DEMO_LOGIN_EMAIL = (os.getenv("DEMO_LOGIN_EMAIL") or "appreview@auriqltd.co.uk").strip().lower()
+DEMO_PASSWORD_HASH = (os.getenv("DEMO_PASSWORD_HASH") or "").strip()
+
 # B48: optional LLM phrasing of a composed savings tip. Off by default: the
 # tip is composed deterministically from the shared research plus the user's
 # own figures. When on, one OpenRouter call per tip rewords that text (no

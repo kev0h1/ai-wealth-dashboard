@@ -223,6 +223,9 @@ async def sync_connection(connection_id: str, user_id: Optional[str] = None, fro
     a first sync that dies is reported as failed rather than syncing forever;
     the exception still propagates exactly as before.
     """
+    from app.core.demo import is_demo_user  # C43: never sync the demo identity
+    if is_demo_user(user_id):
+        return [], 0
     try:
         async with sync_in_progress(connections_col, connection_id):
             result = await _sync_connection(connection_id, user_id, from_date)

@@ -6,6 +6,7 @@ import { isNativePlatform, isIOSNative, nativeGoogleLogin, nativeAppleLogin, can
 import { AGENT_DISCLOSURE, SUPPORT_EMAIL, TRADING_NAME_DISCLOSURE } from "@/lib/regulatoryCopy";
 import { createRunGuard, derivePhase, type LoginPhase, type ResumingLogin } from "@/lib/signInPhase";
 import { FailedNotice, SigningInPanel, UnreachablePanel } from "@/components/SignInProgress";
+import DemoSignIn from "@/components/DemoSignIn";
 
 export type { LoginPhase, ResumingLogin } from "@/lib/signInPhase";
 
@@ -132,6 +133,16 @@ export default function LoginScreen({ error, onSignedIn, resuming, onCancelResum
     onCancelResume?.(true); // A135: the user chose another account, so drop the kept token
   }
 
+  // C43: the demo form shares the host's post-login flow with Google and Apple.
+  async function demoEstablish(): Promise<"ok" | "rejected" | "unreachable"> {
+    if (!onSignedIn) {
+      window.location.reload();
+      return "ok";
+    }
+    userAttemptRef.current = true;
+    return onSignedIn(undefined, true);
+  }
+
   async function handleGoogleClick(e: React.MouseEvent<HTMLAnchorElement>) {
     if (!isNativePlatform()) return; // web: let the href redirect happen as before
     e.preventDefault();
@@ -255,6 +266,7 @@ export default function LoginScreen({ error, onSignedIn, resuming, onCancelResum
             <>
               {phase.kind === "failed" && <FailedNotice key={noticeSeq} reason={phase.reason} />}
               {signInButtons}
+              <DemoSignIn onSignedIn={demoEstablish} />
             </>
           )}
         </div>

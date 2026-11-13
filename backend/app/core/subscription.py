@@ -851,6 +851,8 @@ async def check_open_banking_allowed(email: str) -> None:
     tier today). Called at the top of every bank-connect link endpoint,
     immediately before `check_connection_limit`, so a Statements-tier user
     is turned away before we spend a round trip talking to the provider."""
+    from app.core.demo import assert_not_demo  # C43: demo identity never connects a bank
+    assert_not_demo(email)
     sub = await get_subscription(email)
     if sub.limit("open_banking") is False:
         raise HTTPException(
