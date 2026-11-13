@@ -9,6 +9,7 @@ from arq import ArqRedis, cron, func as arq_func
 from arq.connections import RedisSettings
 
 from app.core import timeutil
+from app.core.demo import is_demo_user  # C43: the demo identity never syncs from a bank
 from app.core.config import (
     REDIS_URL, RECONCILE_SPREAD_MINUTES, RECONCILE_MAX_PER_MINUTE,
     RECONCILE_MIN_GAP_SECONDS,
@@ -126,6 +127,8 @@ async def _warm_after_sync(user_id: str) -> None:
 async def task_sync_truelayer(ctx, connection_id: str, user_id: str):
     # B45: webhook-driven and retried jobs reach here without passing the
     # reconcile cron's tier check, so the pause is enforced at the task too.
+    if is_demo_user(user_id):
+        return {"skipped": "demo"}
     if await open_banking_paused(user_id, fail_closed=True):
         return {"skipped": "open_banking_paused"}
     ids, new_count = await sync_connection(connection_id, user_id)
@@ -150,6 +153,8 @@ async def task_sync_truelayer(ctx, connection_id: str, user_id: str):
 async def task_sync_finexer(ctx, consent_id: str, user_id: str, event_id: str | None = None, event_account_id: str | None = None):
     # B45: webhook-driven and retried jobs reach here without passing the
     # reconcile cron's tier check, so the pause is enforced at the task too.
+    if is_demo_user(user_id):
+        return {"skipped": "demo"}
     if await open_banking_paused(user_id, fail_closed=True):
         return {"skipped": "open_banking_paused"}
     # A176: never request_bank_sync here. The reconcile cron and webhook syncs
@@ -299,7 +304,7 @@ async def task_reconcile_truelayer(ctx):
     tl_candidates = []
     for conn in all_conns:
         uid = conn.get("user_id")
-        if not uid:
+        if not uid or is_demo_user(uid):  # C43: the demo identity never syncs
             continue
         # Skip connections that own no accounts — they're pending cull
         owns = await accounts_col.count_documents({"connection_id": conn["_id"]}, limit=1)
@@ -334,6 +339,7 @@ async def task_reconcile_truelayer(ctx):
     retry_ordered = [
         ev for ev in failed_events
         if (ev.get("resolved_connection_id") or ev.get("connection_id"))
+        and not is_demo_user(ev.get("user_id"))
     ]
 
     # Re-sync authorized Finexer consents whose last_synced is stale for
@@ -351,7 +357,7 @@ async def task_reconcile_truelayer(ctx):
     fx_candidates = []
     for fx in fx_conns:
         uid = fx.get("user_id")
-        if not uid:
+        if not uid or is_demo_user(uid):  # C43: the demo identity never syncs
             continue
         window = await _window_for_user(uid)
         if window is None:
@@ -576,7 +582,7 @@ async def task_consent_watch(ctx):
 
     for conn in tl_conns:
         uid = conn.get("user_id")
-        if not uid:
+        if not uid or is_demo_user(uid):
             continue
         owns = await accounts_col.count_documents({"connection_id": conn["_id"]}, limit=1)
         if owns == 0:
@@ -626,7 +632,7 @@ async def task_consent_watch(ctx):
 
     for fx in fx_consents:
         uid = fx.get("user_id")
-        if not uid:
+        if not uid or is_demo_user(uid):
             continue
 
         last_nag = fx.get("last_connection_nag")
@@ -686,7 +692,7 @@ async def task_consent_watch(ctx):
     ).to_list(None)
     for fx in rc_consents:
         uid = fx.get("user_id")
-        if not uid or not reconfirm_push_due(fx, now):
+        if not uid or is_demo_user(uid) or not reconfirm_push_due(fx, now):
             continue
         if not await finexer_consent_needs_attention(fx):
             continue

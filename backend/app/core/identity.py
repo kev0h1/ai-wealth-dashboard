@@ -66,6 +66,12 @@ async def resolve_signin_email(
     "apple-native", "google-mobile", "google-web") — see the module
     docstring for the resolution order.
     """
+    # C43: no Google/Apple sign-in may ever resolve to the demo identity.
+    from app.core.demo import is_demo_user
+    if is_demo_user(verified_email):
+        logging.warning("Sign-in refused: provider=%s tried the demo identity", provider)
+        return None
+
     is_apple = provider.startswith(_APPLE_PREFIX) and bool(subject)
     candidate: str | None = None
     via_explicit_link = False
@@ -89,6 +95,10 @@ async def resolve_signin_email(
     allowed = await resolve_allowed_signup(candidate)
     if allowed:
         candidate = allowed
+
+    if is_demo_user(candidate):  # C43: also via an alias or an Apple link
+        logging.warning("Sign-in refused: provider=%s resolved to the demo identity", provider)
+        return None
 
     if not allowed:
         from app.services import runtime_settings

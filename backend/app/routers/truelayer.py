@@ -43,6 +43,8 @@ async def truelayer_providers(user: dict = Depends(current_user)):
 
 @router.get("/auth/truelayer/link")
 async def truelayer_link(provider: str = "", native: bool = False, user: dict = Depends(current_user)):
+    from app.core.demo import assert_not_demo  # C43
+    assert_not_demo(user["email"])
     if not TRUELAYER_CLIENT_ID:
         raise HTTPException(500, "TrueLayer not configured")
     await check_open_banking_allowed(user["email"])

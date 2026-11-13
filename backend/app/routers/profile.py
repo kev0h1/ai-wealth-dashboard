@@ -56,6 +56,8 @@ async def delete_account(body: dict, user: dict = Depends(current_user)):
     The erasure itself lives in app.services.retention.erase_user so the
     nightly dormant-account sweep (SECURITY.md section 6) runs the exact
     same routine."""
+    from app.core.demo import assert_not_demo  # C43: the demo account is never deleted by its session
+    assert_not_demo(user["email"])
     if body.get("confirm") != "DELETE":
         raise HTTPException(400, "Confirmation required")
     # A84: session tokens are revoked BEFORE erasing (inside erase_account),

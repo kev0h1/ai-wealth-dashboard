@@ -317,6 +317,46 @@ async def apple_native(body: dict):
     return {"session_token": session_token, "ok": True}
 
 
+class DemoLoginBody(BaseModel):
+    username: str = ""
+    email: str = ""
+    password: str = ""
+
+
+@router.get("/auth/demo/enabled")
+async def demo_login_enabled_status():
+    """C43: lets the sign-in screen show the quiet Demo sign-in form only when
+    the backend has it switched on. Reveals nothing else."""
+    from app.core.demo import demo_login_enabled
+    return {"enabled": demo_login_enabled()}
+
+
+@router.post("/auth/demo/login")
+async def demo_login(body: DemoLoginBody, request: Request):
+    """C43: Apple App Review demo sign-in. Off (404) unless DEMO_LOGIN_ENABLED
+    and DEMO_PASSWORD_HASH are set. Rate limited per IP by the /auth/demo/login
+    rule (app.core.ratelimit) plus a global ceiling on attempts here; every
+    failure is the same generic 401 after the same single scrypt verification.
+    On success it mints the same session token the native sign-ins do."""
+    from app.core import config as _config
+    from app.core import ratelimit
+    from app.core.demo import check_demo_credentials, demo_login_enabled
+    if not demo_login_enabled():
+        raise HTTPException(404, "Not found")
+    # One fixed account, so this IS the per-email ceiling: 60 attempts an hour
+    # across every IP, on top of the per-IP 5 a minute in ratelimit.RULES.
+    retry = await ratelimit.check_keyed_limit("demo-login-global", 60, 3600)
+    if retry is not None:
+        raise HTTPException(429, "Too many requests", headers={"Retry-After": str(retry)})
+    if not check_demo_credentials(body.username or body.email, body.password):
+        logging.warning("Demo sign-in failed")
+        raise HTTPException(401, "Those details didn't work.")
+    email = _config.DEMO_LOGIN_EMAIL
+    session_token = serializer.dumps({"email": email, "name": "App Review"})
+    logging.info("Demo sign-in succeeded")
+    return {"session_token": session_token, "ok": True}
+
+
 @router.get("/auth/identities")
 async def list_linked_identities(user: dict = Depends(current_user)):
     """List provider identities linked to the caller's account (Phase 1:

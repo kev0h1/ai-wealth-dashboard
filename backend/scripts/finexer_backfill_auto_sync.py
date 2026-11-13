@@ -54,7 +54,9 @@ async def run(apply: bool = False, limit: int | None = None, hours: int | None =
 
     if hours is None:
         hours = int(await runtime_settings.asetting("FINEXER_AUTO_SYNC_HOURS"))
-    consent_ids = [d["_id"] async for d in finexer_consents_col.find({"status": "authorized"}, {"_id": 1})]
+    from app.core.demo import is_demo_user  # C43: the demo identity never talks to Finexer
+    consent_ids = [d["_id"] async for d in finexer_consents_col.find({"status": "authorized"}, {"_id": 1, "user_id": 1})
+                   if not is_demo_user(d.get("user_id"))]
     now = datetime.utcnow()  # naive-ok: compared with Mongo's naive UTC datetimes
     todo = []
     # A185: the same selection and 60-minute rule as sync_finexer_consent
