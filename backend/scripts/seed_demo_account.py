@@ -6,7 +6,7 @@ Idempotent: it deletes and rebuilds ONLY documents belonging to the demo user
 app.db.collections.ERASURE_MANIFEST, then writes a realistic invented UK
 account dated relative to today (Europe/London, app.core.timeutil):
 
-* an everyday current account, an easy-access saver and a credit card;
+* an everyday current account, a bills account, an easy-access saver and a credit card;
 * about three months of transactions: monthly salary, rent, council tax,
   energy, water, phone, broadband, three subscriptions, groceries, eating out,
   transport, card repayments, a monthly transfer to the saver, interest and
@@ -53,9 +53,12 @@ HISTORY_DAYS = 92
 PAY_DAY = 28
 SALARY = 2650.00
 CURRENT_ID = "demo-acc-current"
+BILLS_ID = "demo-acc-bills"
+BILLS_TRANSFER = 1620.00
 SAVER_ID = "demo-acc-saver"
 CARD_ID = "demo-acc-card"
-CURRENT_BALANCE = 330.00
+CURRENT_BALANCE = 700.00
+BILLS_BALANCE = 240.00
 SAVER_BALANCE = 4215.60
 
 # Collections in ERASURE_MANIFEST that are shared or operational: nothing in
@@ -124,13 +127,18 @@ def build_transactions(today: date) -> tuple[list[dict], dict]:
 
     # Income and fixed bills, current account.
     monthly(PAY_DAY, CURRENT_ID, SALARY, "credit", "BRIGHTWATER SOLUTIONS LTD", "Income", "BRIGHTWATER SOLUTIONS LTD SALARY")
-    monthly(1, CURRENT_ID, 925.00, "debit", "FOXGLOVE LETTINGS", "Rent", "FOXGLOVE LETTINGS RENT")
-    monthly(2, CURRENT_ID, 148.00, "debit", "ELMBRIDGE BOROUGH COUNCIL", "Bills", "ELMBRIDGE BOROUGH COUNCIL COUNCIL TAX")
-    monthly(5, CURRENT_ID, 96.40, "debit", "SPARKWELL ENERGY", "Bills", "SPARKWELL ENERGY DIRECT DEBIT")
-    monthly(8, CURRENT_ID, 31.00, "debit", "CLEARBROOK WATER", "Bills", "CLEARBROOK WATER DIRECT DEBIT")
-    monthly(15, CURRENT_ID, 24.00, "debit", "BLUEWAVE MOBILE", "Bills", "BLUEWAVE MOBILE DIRECT DEBIT")
-    monthly(17, CURRENT_ID, 29.99, "debit", "FIBREHOME BROADBAND", "Bills", "FIBREHOME BROADBAND DIRECT DEBIT")
-    monthly(10, CURRENT_ID, 32.00, "debit", "FORMFIT GYM", "Health", "FORMFIT GYM MEMBERSHIP")
+    monthly(1, BILLS_ID, 925.00, "debit", "FOXGLOVE LETTINGS", "Rent", "FOXGLOVE LETTINGS RENT")
+    monthly(2, BILLS_ID, 148.00, "debit", "ELMBRIDGE BOROUGH COUNCIL", "Bills", "ELMBRIDGE BOROUGH COUNCIL COUNCIL TAX")
+    monthly(5, BILLS_ID, 96.40, "debit", "SPARKWELL ENERGY", "Bills", "SPARKWELL ENERGY DIRECT DEBIT")
+    monthly(8, BILLS_ID, 31.00, "debit", "CLEARBROOK WATER", "Bills", "CLEARBROOK WATER DIRECT DEBIT")
+    monthly(15, BILLS_ID, 24.00, "debit", "BLUEWAVE MOBILE", "Bills", "BLUEWAVE MOBILE DIRECT DEBIT")
+    monthly(17, BILLS_ID, 29.99, "debit", "FIBREHOME BROADBAND", "Bills", "FIBREHOME BROADBAND DIRECT DEBIT")
+    monthly(10, BILLS_ID, 32.00, "debit", "FORMFIT GYM", "Health", "FORMFIT GYM MEMBERSHIP")
+
+    # Each payday the main account tops up the bills account, both legs.
+    for d in monthly_dates(PAY_DAY + 1, today, start):
+        t.add(CURRENT_ID, d, BILLS_TRANSFER, "debit", "BILLS ACCOUNT", "Transfer", "STANDING ORDER BILLS ACCOUNT")
+        t.add(BILLS_ID, d, BILLS_TRANSFER, "credit", "FROM EVERYDAY CURRENT", "Transfer", "STANDING ORDER FROM EVERYDAY CURRENT")
 
     # The regular transfer to the saver, both legs, and the saver's interest.
     for d in monthly_dates(PAY_DAY + 1, today, start):
@@ -176,7 +184,7 @@ def build_transactions(today: date) -> tuple[list[dict], dict]:
         owed = round(sum(r["amount"] for r in card_spend if prev_close < r["date"] <= close), 2)
         if owed < 50:
             continue
-        t.add(CURRENT_ID, pay, owed, "debit", "RAINBOW CARD PAYMENT", "Debt", "RAINBOW CARD PAYMENT DIRECT DEBIT")
+        t.add(BILLS_ID, pay, owed, "debit", "RAINBOW CARD PAYMENT", "Debt", "RAINBOW CARD PAYMENT DIRECT DEBIT")
         t.add(CARD_ID, pay, owed, "credit", "PAYMENT RECEIVED", "Transfer", "PAYMENT RECEIVED THANK YOU")
 
     # The card balance is what has been spent since the last statement paid.
@@ -242,6 +250,8 @@ async def seed(uid: str | None = None, today: date | None = None) -> dict:
         {"_id": CURRENT_ID, "name": "Everyday Current", "type": "BANK", "subtype": "TRANSACTION",
          "balance": CURRENT_BALANCE, "include_in_safe_to_spend": True, "overdraft_limit": 250.0,
          "balance_as_of": now_utc, **common},
+        {"_id": BILLS_ID, "name": "Bills Account", "type": "BANK", "subtype": "TRANSACTION",
+         "balance": BILLS_BALANCE, "include_in_safe_to_spend": True, "balance_as_of": now_utc, **common},
         {"_id": SAVER_ID, "name": "Easy Access Saver", "type": "BANK", "subtype": "SAVINGS",
          "balance": SAVER_BALANCE, "include_in_safe_to_spend": True, "balance_as_of": now_utc, **common},
         {"_id": CARD_ID, "name": "Rainbow Credit Card", "type": "CREDIT", "subtype": "CREDIT_CARD",
@@ -274,7 +284,7 @@ async def seed(uid: str | None = None, today: date | None = None) -> dict:
     await dbc.card_terms_col.insert_one({
         "user_id": uid, "account_id": CARD_ID, "status": "confirmed", "apr_pct": 21.9, "promos": [],
         "bt_offers": [], "statement_close_day": 5, "payment_due_day": 22, "payment_due_days_after_close": None,
-        "payment_method": "full", "payment_account_id": CURRENT_ID, "fixed_payment_amount": None,
+        "payment_method": "full", "payment_account_id": BILLS_ID, "fixed_payment_amount": None,
         "usage": "clear_monthly",
     })
     await dbc.commitments_col.insert_one({
@@ -307,7 +317,7 @@ async def seed(uid: str | None = None, today: date | None = None) -> dict:
     await data_version.bump(uid)
 
     return {
-        "removed": removed, "accounts": 3, "transactions": len(docs), "goals": 1, "plans": 1,
+        "removed": removed, "accounts": 4, "transactions": len(docs), "goals": 1, "plans": 1,
         "warmed": len(warmed.get("warmed", [])), "failed": len(warmed.get("failed", [])),
     }
 

@@ -114,7 +114,7 @@ def test_seeded_account_is_complete_and_computed(bystander):
     assert _seed("--confirm", db_name=config.MONGO_DB).returncode == 0
     db = bystander
     accounts = {a["_id"]: a for a in db.accounts.find({"user_id": DEMO})}
-    assert {a["subtype"] for a in accounts.values()} == {"TRANSACTION", "SAVINGS", "CREDIT_CARD"}
+    assert sorted(a["subtype"] for a in accounts.values()) == ["CREDIT_CARD", "SAVINGS", "TRANSACTION", "TRANSACTION"]
     assert all(a["provider"] == "Demo" and "connection_id" not in a for a in accounts.values()), "no sync marker path"
     assert db.finexer_consents.count_documents({"user_id": DEMO}) == 0
     assert db.connections.count_documents({"user_id": DEMO}) == 0
@@ -133,9 +133,19 @@ def test_seeded_account_is_complete_and_computed(bystander):
     assert sub["tier"] == "plus" and sub["status"] == "active"
 
     sts = db.response_cache.find_one({"user_id": DEMO, "name": "safe_to_spend"})["payload"]
-    assert isinstance(sts["safe_to_spend"], (int, float)) and sts["calculation_status"] == "complete"
+    assert sts["calculation_status"] == "complete"
+    # A reviewer's first screen is calm: comfortably positive, never "Short".
+    assert 300 <= sts["safe_to_spend"] <= 600, sts["safe_to_spend"]
+    assert sts["state"] in ("comfortable", "tight"), sts["state"]
     today = db.response_cache.find_one({"user_id": DEMO, "name": "today"})["payload"]
     assert any(i.get("type") == "move" for i in today["items"]), "a suggested move is part of the demo"
+    elig = today["account_eligibility"]
+    short = [k for k, v in elig.items() if v.get("short")]
+    assert short == ["demo-acc-bills"], "exactly one current account is short before payday"
+    cover = elig["demo-acc-bills"]["covered_by_move"]
+    assert cover and cover["from"][0]["account_id"] == "demo-acc-current", "another CURRENT account covers it"
+    assert cover["from"][0].get("source_kind") != "savings"
+    assert elig["demo-acc-bills"]["short_after_cover"] == 0 if "short_after_cover" in elig["demo-acc-bills"] else True
 
     # No real-looking identity leaked into the seed.
     blob = " ".join(str(a) for a in accounts.values()) + desc
