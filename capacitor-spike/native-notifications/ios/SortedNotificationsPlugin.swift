@@ -46,6 +46,12 @@ public class SortedNotificationsPlugin: CAPPlugin, CAPBridgedPlugin {
 public final class SortedBridgeViewController: CAPBridgeViewController {
     public override func capacitorDidLoad() {
         super.capacitorDidLoad()
-        bridge?.registerPluginInstance(SortedNotificationsPlugin())
+        // G466: the plugin is normally registered at startup through
+        // packageClassList (added by setup-ios-notifications.sh), which is
+        // what puts it in Capacitor.PluginHeaders the same way the npm
+        // plugins are. Only fall back to a manual registration if that did
+        // not happen, so it is never registered (and exported) twice.
+        guard let bridge = bridge, bridge.plugin(withName: "SortedNotifications") == nil else { return }
+        bridge.registerPluginInstance(SortedNotificationsPlugin())
     }
 }
