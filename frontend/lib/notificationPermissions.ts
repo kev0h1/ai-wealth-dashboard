@@ -3,7 +3,7 @@ import { api } from "@/lib/api";
 import { getToken } from "@/lib/auth";
 import { isAppLocked } from "@/lib/appLock";
 import { awaitPushTokenPost, getCapacitorPushRegistration, initCapacitorPush, PUSH_REGISTRATION_EVENT } from "@/lib/capacitorPush";
-import { hasNativeNotificationSettings, openNativeNotificationSettings, readNativeNotificationSettings } from "@/lib/nativeNotificationSettings";
+import { hasNativeNotificationSettings, reportMissingNotificationBridge, openNativeNotificationSettings, readNativeNotificationSettings } from "@/lib/nativeNotificationSettings";
 import type { NotificationDependencies, NotificationPlatform, NotificationReading } from "@/lib/notificationPermissionController";
 
 const askedInMemory = new Set<string>();
@@ -88,7 +88,7 @@ export function notificationDependencies(account: string, session = getToken()):
       return deadline((async (): Promise<NotificationReading> => {
       requireActive();
       if (platform !== "web") {
-        if (!hasNativeNotificationSettings()) return { platform, permission: "unavailable", registration: "unknown", unavailable: "old-app" };
+        if (!hasNativeNotificationSettings()) { reportMissingNotificationBridge(); return { platform, permission: "unavailable", registration: "unknown", unavailable: "old-app" }; }
         const { PushNotifications } = await import("@capacitor/push-notifications");
         requireActive();
         const [settings, runtime] = await Promise.all([readNativeNotificationSettings(), PushNotifications.checkPermissions()]);

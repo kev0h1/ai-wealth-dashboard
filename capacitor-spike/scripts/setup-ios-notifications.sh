@@ -58,8 +58,8 @@ open(storyboard, "w").write(story)
 
 # G466: list the plugin class in packageClassList, the same list `cap sync`
 # writes for the npm plugins (StoreKit, push, ...). The bridge instantiates
-# every class in it before the web view loads, so SortedNotifications is in
-# Capacitor.PluginHeaders at startup. Run after `cap sync`, which rewrites it.
+# every class in it at bridge start, so SortedNotifications is also in
+# Capacitor.PluginHeaders (belt-and-braces with the runtime fallback). Run after `cap sync`, which rewrites it.
 cfg = json.load(open(cap_config))
 classes = cfg.setdefault("packageClassList", [])
 if "SortedNotificationsPlugin" not in classes:

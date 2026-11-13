@@ -1,11 +1,13 @@
-// G466: the iOS SortedNotifications plugin must be in Capacitor.PluginHeaders
-// at startup, the way the npm plugins (StoreKit's NativePurchases, push) are:
-// through packageClassList in the generated capacitor.config.json. Without it
-// the web layer's header check (hasNativeNotificationSettings) is false and
-// Home says "Update to check notifications" on a current build.
-// No Xcode here, so this runs the real setup script against a fake ios/
-// tree and reads the Swift and TS sources.
+// G466: belt-and-braces. The iOS SortedNotifications plugin is also registered
+// at bridge start through packageClassList in the generated
+// capacitor.config.json (the way npm plugins like StoreKit's NativePurchases
+// are); the runtime registerPluginInstance fallback remains. The proven root
+// cause of "Update to check notifications" is NOT established; this change is
+// harmless either way, and the on-device diagnostic below captures the cause.
+// No Xcode here, so this runs the real setup script against a fake ios/ tree
+// and reads the Swift and TS sources.
 import assert from "node:assert/strict";
+import { reportMissingNotificationBridge } from "../lib/nativeNotificationSettings";
 import { readFileSync, mkdirSync, writeFileSync, mkdtempSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
@@ -62,6 +64,29 @@ ok("setup script adds SortedNotificationsPlugin to packageClassList, idempotentl
   const cfg = JSON.parse(readFileSync(join(app, "capacitor.config.json"), "utf8"));
   assert.deepEqual(cfg.packageClassList, ["NativePurchasesPlugin", "PushNotificationsPlugin", "SortedNotificationsPlugin"]);
   assert.equal(cfg.appId, "x");
+});
+
+ok("diagnostic: fires once, only on native iOS with the header missing, plugin names only", () => {
+  const mk = (platform, headers, native = true) => ({
+    isNativePlatform: () => native, getPlatform: () => platform, PluginHeaders: headers, registerPlugin: () => {},
+    isPluginAvailable: () => false,
+  });
+  const run = (cap) => { const sent = []; reportMissingNotificationBridge({ cap, build: "b1", send: (...a) => { sent.push(a); } }); return sent; };
+  assert.deepEqual(run(mk("android", [{ name: "App" }])), []);
+  assert.deepEqual(run(mk("ios", [{ name: "App" }], false)), []);
+  assert.deepEqual(run(mk("ios", [{ name: "SortedNotifications" }])), []);
+  const sent = run(mk("ios", [{ name: "PushNotifications" }, { name: "App", secret: "x" }]));
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0][0], "notification-bridge-missing");
+  assert.equal(sent[0][1], "plugin_headers=[App,PushNotifications] platform=ios app=b1 registerPlugin=function");
+  assert.equal(sent[0][2], "ios");
+  assert.deepEqual(run(mk("ios", [{ name: "App" }])), [], "once per launch");
+});
+
+ok("Swift logs the registration state on device", () => {
+  assert.match(swift, /NSLog\("\[G466\] capacitorDidLoad/);
+  assert.match(swift, /registered before fallback/);
+  assert.match(swift, /registered after fallback/);
 });
 
 console.log(`g466: ${n} checks passed`);
