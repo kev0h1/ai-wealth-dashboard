@@ -1,0 +1,203 @@
+{
+  "account_eligibility": {
+    "acc-mz": {
+      "after_payments": 370.0,
+      "after_payments_and_money_in": 370.0,
+      "after_payments_and_plans": 233.16,
+      "estimated": false,
+      "headroom": 223.16,
+      "is_current_account": true,
+      "low_point": 370.0,
+      "low_point_and_plans": 233.16,
+      "plans_reserved": 136.84,
+      "short": false,
+      "spend_from_headroom": 233.16,
+      "uncertain": false
+    },
+    "acc-pot": {
+      "account_headroom_raw": 50.56,
+      "after_payments": 60.56,
+      "after_payments_and_money_in": 60.56,
+      "after_payments_and_plans": 60.56,
+      "estimated": false,
+      "headroom": 50.56,
+      "is_current_account": false,
+      "low_point": 60.56,
+      "low_point_and_plans": 60.56,
+      "plans_reserved": 0.0,
+      "short": false,
+      "spend_from_headroom": 0.0,
+      "uncertain": false
+    }
+  },
+  "account_plans": [
+    {
+      "active": true,
+      "destination": "Monzo Challenge Pot",
+      "destination_account_ids": [
+        "acc-pot"
+      ],
+      "filled_amount": 36.48,
+      "fulfilment": {
+        "expected_pence": 17332,
+        "matched": [
+          {
+            "amount": 12.12,
+            "date": "2026-11-13",
+            "label": "Saving Challenge (2026)"
+          },
+          {
+            "amount": 12.16,
+            "date": "2026-11-14",
+            "label": "Saving Challenge (2026)"
+          },
+          {
+            "amount": 12.2,
+            "date": "2026-11-15",
+            "label": "Saving Challenge (2026)"
+          }
+        ],
+        "matched_pence": 3648,
+        "seen_in_sink": false,
+        "state": "partial",
+        "unmet": 136.84,
+        "unmet_pence": 13684
+      },
+      "id": "goal:goal-chal",
+      "inferred": false,
+      "kind": "goal",
+      "name": "Saving Challenge",
+      "paid_amount": 36.48,
+      "paid_this_period": false,
+      "period_amount": 173.32,
+      "record_id": "goal-chal",
+      "remaining": 136.84,
+      "source_account_id": "acc-mz",
+      "source_account_name": "Monzo Current",
+      "source_basis": "chosen"
+    }
+  ],
+  "accounts": [
+    {
+      "balance": 400.0,
+      "currency": "GBP",
+      "id": "acc-mz",
+      "include_in_safe_to_spend": true,
+      "name": "Monzo Current",
+      "provider": "monzo",
+      "status": "connected",
+      "subtype": "TRANSACTION",
+      "type": "BANK"
+    },
+    {
+      "balance": 60.56,
+      "currency": "GBP",
+      "id": "acc-pot",
+      "include_in_safe_to_spend": true,
+      "name": "Monzo Challenge Pot",
+      "provider": "monzo",
+      "status": "connected",
+      "subtype": "SAVINGS",
+      "type": "BANK"
+    }
+  ],
+  "at_risk_count": 0,
+  "cashflow": {
+    "internal_inflows": [],
+    "next_payday": "2026-11-27",
+    "observed_pending_bills": [],
+    "period": {
+      "day_number": 18,
+      "end": "2026-11-26",
+      "label": "30 Oct to 26 Nov",
+      "length_days": 28,
+      "payday": "2026-11-27",
+      "payday_observed": null,
+      "start": "2026-10-30",
+      "type": "last_friday"
+    },
+    "plans_count": 1,
+    "plans_reserved": 136.84,
+    "spendable_balance": 400.0,
+    "upcoming_bills": [
+      {
+        "account_balance": 400.0,
+        "account_bank": "Monzo",
+        "account_id": "acc-mz",
+        "account_name": "Monzo Current",
+        "amount": 30.0,
+        "amount_basis": null,
+        "card_dest_account_bank": null,
+        "card_dest_account_id": null,
+        "card_dest_account_name": null,
+        "category": "Bills",
+        "days_away": 4,
+        "days_past_due": 0,
+        "dest_account_bank": null,
+        "dest_account_id": null,
+        "dest_account_name": null,
+        "dest_account_spendable": null,
+        "edited": false,
+        "expected_date": "2026-11-20",
+        "is_card_repayment": false,
+        "is_credit_card": false,
+        "kind": "commitment",
+        "name": "GYM",
+        "observed_pending": false,
+        "original_date": null,
+        "pending": false,
+        "rule_label": null
+      },
+      {
+        "account_balance": 400.0,
+        "account_bank": "Monzo",
+        "account_id": "acc-mz",
+        "account_name": "Monzo Current",
+        "amount": 30.0,
+        "amount_basis": null,
+        "card_dest_account_bank": null,
+        "card_dest_account_id": null,
+        "card_dest_account_name": null,
+        "category": "Bills",
+        "days_away": 35,
+        "days_past_due": 0,
+        "dest_account_bank": null,
+        "dest_account_id": null,
+        "dest_account_name": null,
+        "dest_account_spendable": null,
+        "edited": false,
+        "expected_date": "2026-12-21",
+        "is_card_repayment": false,
+        "is_credit_card": false,
+        "kind": "commitment",
+        "name": "GYM",
+        "observed_pending": false,
+        "original_date": "2026-12-20",
+        "pending": false,
+        "rule_label": null
+      }
+    ],
+    "upcoming_income": []
+  },
+  "days_to_payday": 11,
+  "items": [],
+  "name": "A daily rising goal starting mid-period counts only the payments made from its start date, and each payment reduces what is still reserved (G465)",
+  "period": {
+    "end": "2026-11-26",
+    "start": "2026-10-30"
+  },
+  "safe_to_spend": {
+    "allocations_reserved": 0.0,
+    "calculation_status": "complete",
+    "commitments_reserved": 136.84,
+    "left_to_spend_lines": {
+      "accounts_total": 370.0,
+      "buffer": 0.0,
+      "plans_total": 136.84
+    },
+    "lowest_projected_balance": 370.0,
+    "safe_to_spend": 233.16,
+    "safe_to_spend_cash": 233.16
+  },
+  "today": "2026-11-16"
+}

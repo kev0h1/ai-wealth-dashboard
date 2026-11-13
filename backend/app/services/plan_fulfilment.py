@@ -14,6 +14,11 @@ Rules (all derived on read, nothing about a period is stored):
     counts. A rise in the destination balance is never the trigger; a
     same-period credit of about the same size in the sink is reported as
     `seen_in_sink`, confirmation only.
+  * G465: only payments from the plan's start count: the schedule's
+    start_date for a scheduled goal, else the day the goal was created
+    (tracking_start). A scheduled goal's reserve is the period's planned
+    amount minus what was paid, penny-exact, floored at 0 (exact=True): no
+    15% snap to zero, so every tracked payment reduces what is reserved.
   * Matched amounts sum. Fulfilled when the sum reaches 85% of the slice due
     (tolerance 15%, the same PLAN_OVERLAP_TOLERANCE G235 uses to decide a
     transfer could be the contribution). Why a tolerance at all: the slice is
@@ -80,6 +85,34 @@ def rule_matches(rule: dict, txn: dict) -> bool:
 
 def display_name(txn: dict) -> str:
     return clean_name((txn.get("merchant_name") or "").strip() or (txn.get("description") or ""))
+
+
+def tracking_start(doc: dict) -> date | None:
+    """G465: the first calendar day a plan's payments may count.
+
+    A scheduled goal counts from its schedule's `start_date`: a matching
+    payment made before the schedule asks for anything is not a payment
+    towards it. A plain goal (no schedule) counts from the day it was created
+    (`created_at`, a stored UTC instant, read as the user's London calendar
+    day through timeutil.to_user_date). None when neither is readable, which
+    leaves the pay-period start in force."""
+    sched = doc.get("schedule")
+    if isinstance(sched, dict) and sched.get("start_date"):
+        try:
+            return date.fromisoformat(str(sched["start_date"])[:10])
+        except ValueError:
+            return None
+    created = doc.get("created_at")
+    if isinstance(created, datetime):
+        return timeutil.to_user_date(created)
+    if isinstance(created, date):
+        return created
+    if isinstance(created, str) and created:
+        try:
+            return date.fromisoformat(created[:10])
+        except ValueError:
+            return None
+    return None
 
 
 def _day(t: dict):
@@ -162,7 +195,11 @@ async def period_fulfilment(
     *, exact: bool = False,
 ) -> dict | None:
     """Fulfilment of this period's slice, or None when the plan has no rule or
-    no known paying account (it then reserves its full slice, as before)."""
+    no known paying account (it then reserves its full slice, as before).
+
+    G465: only payments from `tracking_start(doc)` count. `exact_reserve` makes
+    the reserve (`unmet`) exactly planned minus paid, floored at 0, with no
+    tolerance snap; `state` (the status word) keeps the 15% tolerance."""
     rule = validate_fill_rule(doc.get("fill_rule")) if doc.get("fill_rule") else None
     if rule is None or not source_id:
         return None
@@ -171,6 +208,9 @@ async def period_fulfilment(
         raise ValueError("expected_pounds must be finite")
     expected_pence = max(0, int(round(expected_value * 100)))
     window_end = min(end, timeutil.user_today())
+    begin = tracking_start(doc)
+    if begin is not None and begin > start:
+        start = begin
     debits = await _load(uid, [source_id], "debit", start, window_end)
     hits = sorted((t for t in debits if rule_matches(rule, t)), key=lambda t: t["date"])
     if rivals:
@@ -179,6 +219,7 @@ async def period_fulfilment(
     matched_pence = sum(int(round(abs(float(t.get("amount") or 0)) * 100)) for t in hits)
     matched = matched_pence / 100
     verdict = assess(expected_pence, matched_pence, exact=exact)
+    reserve_pence = verdict["unmet_pence"]
     seen = False
     if matched_pence:
         pots = [str(p["account_id"]) for p in (doc.get("funding_pots") or []) if p.get("account_id")]
@@ -191,8 +232,8 @@ async def period_fulfilment(
         "state": verdict["state"],
         "expected_pence": expected_pence,
         "matched_pence": matched_pence,
-        "unmet_pence": verdict["unmet_pence"],
-        "unmet": verdict["unmet_pence"] / 100 if exact else math.ceil(verdict["unmet_pence"] / 100),
+        "unmet_pence": reserve_pence,
+        "unmet": reserve_pence / 100 if exact else math.ceil(reserve_pence / 100),
         "seen_in_sink": seen,
         "matched": [
             {"date": _day(t).isoformat(), "amount": round(abs(float(t.get("amount") or 0)), 2),
