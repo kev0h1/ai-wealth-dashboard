@@ -29,8 +29,22 @@ def _demo_email(monkeypatch):
     monkeypatch.setattr(config, "DEMO_LOGIN_EMAIL", DEMO)
 
 
+_FULL = []
+
+
+def _full_app():
+    """A deterministic build with EVERY optional router mounted (OAuth and MCP,
+    TrueLayer, UAT admin), whatever the ambient environment says. The shared
+    tree's backend/.env turns the MCP connector on, a production-like env turns
+    it off, and the module-level `app` follows that env, so no walk may use it."""
+    if not _FULL:
+        from app.main import build_app
+        _FULL.append(build_app(True, mcp_only=False, truelayer_enabled=True, uat_admin_enabled=True))
+    return _FULL[0]
+
+
 def _routes():
-    from app.main import app
+    app = _full_app()
     out = set()
     for r in app.routes:
         p, ms = getattr(r, "path", None), getattr(r, "methods", None)
@@ -93,6 +107,17 @@ REVIEWED_OPEN = {
     ("GET", "/investment/accounts/{account_id}/holdings"), ("GET", "/investment/accounts/{account_id}/notes"),
     ("POST", "/investment/accounts/{account_id}/notes/upload"), ("POST", "/investment/accounts/{account_id}/refresh"),
     ("POST", "/investment/notes/upload"), ("DELETE", "/investment/notes/{note_id}"), ("POST", "/investment/upload"),
+    # Only mounted when an optional router is on (MCP connector, TrueLayer, UAT admin); the walks build
+    # every optional router so these are checked whatever the ambient environment is.
+    ("GET", "/.well-known/oauth-authorization-server"), ("GET", "/.well-known/oauth-protected-resource"),
+    ("GET", "/.well-known/oauth-protected-resource/{resource_path:path}"),  # public OAuth metadata
+    ("GET", "/auth/oauth/authorize"),  # protocol start; granting needs /oauth/decision, refused for the demo user
+    ("GET", "/oauth/request/{req_id}"),  # a pending authorisation request, only reachable via the step above
+    ("GET", "/oauth/connections"), ("GET", "/mcp/audit"),  # the caller's own connector rows (none can exist)
+    ("GET", "/mcp"), ("DELETE", "/mcp"), ("POST", "/mcp"), ("DELETE", "/oauth/connections/{client_id}"),
+    ("POST", "/auth/oauth/register"), ("POST", "/auth/oauth/revoke"), ("POST", "/auth/oauth/token"),  # protocol endpoints
+    ("GET", "/auth/truelayer/callback"), ("POST", "/webhooks/truelayer/{secret}"),  # unauthenticated provider callback and webhook
+    ("POST", "/subscription/admin/uat-trial-reset"),  # owner only (_require_owner) and non-production only
 }
 
 
@@ -149,6 +174,8 @@ _R15 = "the session's own validity check"
 _R16 = "unauthenticated provider webhook, no session involved"
 
 DEMO_ALLOWED = {
+    ("POST", "/subscription/admin/uat-trial-reset"): _R10,
+    ("POST", "/webhooks/truelayer/{secret}"): _R16,
     ("DELETE", "/accounts/{account_id}"): _R6,
     ("PATCH", "/accounts/{account_id}"): _R6,
     ("PUT", "/accounts/{account_id}/rate"): _R6,
@@ -337,8 +364,7 @@ def _mutating_unlisted(apps):
 
 
 def _apps():
-    from app.main import app, build_app
-    return [app, build_app(True, mcp_only=False)]  # the second mounts the OAuth and MCP routers
+    return [_full_app()]
 
 
 def _mounted_mutating(apps):
@@ -360,7 +386,7 @@ def test_demo_allowed_has_no_stale_entries():
 
 def test_an_unlisted_mutating_route_fails_the_walk():
     from app.main import build_app
-    app = build_app(True, mcp_only=False)
+    app = build_app(True, mcp_only=False, truelayer_enabled=True, uat_admin_enabled=True)  # a throwaway, not the cached one
 
     async def _dummy():
         return {}
