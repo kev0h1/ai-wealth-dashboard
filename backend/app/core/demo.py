@@ -53,6 +53,9 @@ _BLOCKED = [
     ("POST", r"^/billing/(checkout|portal)$"),
     ("POST", r"^/billing/apple/verify$"),
     ("GET", r"^/billing/apple/account-token$"),
+    # A one-time migration that flips every card transaction's direction for
+    # the caller, with no owner gate: it would corrupt the shared demo data.
+    ("POST", r"^/admin/fix-card-transactions$"),
     ("POST", r"^/billing/play/purchase$"),
     ("POST", r"^/subscription/select-free$"),
 ]

@@ -121,17 +121,75 @@ def test_flag_defaults_off():
     assert config._parse_flag("true") is True
 
 
-def test_global_attempt_ceiling(monkeypatch):
+def _count_ceiling(monkeypatch, tripped):
     calls = []
 
-    async def _limited(key, limit, window):
+    async def _limit(key, limit, window):
         calls.append((key, limit, window))
-        return 42
-    monkeypatch.setattr(ratelimit, "check_keyed_limit", _limited)
-    with pytest.raises(HTTPException) as exc:
+        return 42 if tripped else None
+    monkeypatch.setattr(ratelimit, "check_keyed_limit", _limit)
+    return calls
+
+
+def test_tripped_ceiling_still_lets_the_right_password_in(monkeypatch):
+    calls = _count_ceiling(monkeypatch, tripped=True)
+    assert _login(DEMO_EMAIL, _PASSWORD)["ok"] is True
+    assert calls == [], "a success never touches the ceiling"
+
+
+def test_tripped_ceiling_429s_a_wrong_password_and_warns_once_per_window(monkeypatch, caplog):
+    import logging
+    calls = _count_ceiling(monkeypatch, tripped=True)
+    monkeypatch.setattr(auth_module, "_demo_ceiling_warned_window", -1)
+    with caplog.at_level(logging.WARNING):
+        for _ in range(3):
+            with pytest.raises(HTTPException) as exc:
+                _login(DEMO_EMAIL, "wrong")
+            assert exc.value.status_code == 429
+    warned = [r for r in caplog.records if "ceiling reached" in r.getMessage()]
+    assert len(warned) == 1
+    assert _PASSWORD not in caplog.text and "wrong" not in caplog.text.replace("Demo sign-in", "")
+    assert calls and calls[0][0] == "demo-login-failures" and calls[0][1] == 60
+
+
+def test_only_failures_consume_the_ceiling(monkeypatch):
+    calls = _count_ceiling(monkeypatch, tripped=False)
+    for _ in range(4):
         _login(DEMO_EMAIL, _PASSWORD)
-    assert exc.value.status_code == 429
-    assert calls and calls[0][0] == "demo-login-global"
+    assert calls == []
+    with pytest.raises(HTTPException) as exc:
+        _login(DEMO_EMAIL, "nope")
+    assert exc.value.status_code == 401 and len(calls) == 1
+
+
+# ---- logout ------------------------------------------------------------------
+
+def _logout(email, monkeypatch):
+    seen = {"revoked": [], "push": []}
+
+    async def _revoke(e):
+        seen["revoked"].append(e)
+
+    async def _drop(e):
+        seen["push"].append(e)
+    monkeypatch.setattr(auth_module, "revoke_sessions", _revoke)
+    monkeypatch.setattr(auth_module, "drop_user_push_registrations", _drop)
+    out = _run(auth_module.logout(user={"email": email, "name": "x"}))
+    return out, seen
+
+
+def test_demo_logout_succeeds_without_signing_other_reviewers_out(monkeypatch):
+    out, seen = _logout(DEMO_EMAIL, monkeypatch)
+    assert out == {"ok": True}
+    assert seen == {"revoked": [], "push": []}
+    second = serializer.dumps({"email": DEMO_EMAIL, "name": "App Review"})
+    assert serializer.loads(second)["email"] == DEMO_EMAIL, "a second demo session is untouched"
+
+
+def test_normal_logout_still_revokes_everything(monkeypatch):
+    out, seen = _logout("someone.real@example.com", monkeypatch)
+    assert out == {"ok": True}
+    assert seen == {"revoked": ["someone.real@example.com"], "push": ["someone.real@example.com"]}
 
 
 def test_per_ip_rule_is_tighter_than_the_generic_auth_rule():

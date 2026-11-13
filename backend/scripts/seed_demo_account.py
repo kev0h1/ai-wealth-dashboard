@@ -128,7 +128,7 @@ def build_transactions(today: date) -> tuple[list[dict], dict]:
     # Income and fixed bills, current account.
     monthly(PAY_DAY, CURRENT_ID, SALARY, "credit", "BRIGHTWATER SOLUTIONS LTD", "Income", "BRIGHTWATER SOLUTIONS LTD SALARY")
     monthly(1, BILLS_ID, 925.00, "debit", "FOXGLOVE LETTINGS", "Rent", "FOXGLOVE LETTINGS RENT")
-    monthly(2, BILLS_ID, 148.00, "debit", "ELMBRIDGE BOROUGH COUNCIL", "Bills", "ELMBRIDGE BOROUGH COUNCIL COUNCIL TAX")
+    monthly(2, BILLS_ID, 148.00, "debit", "WILLOWMERE DISTRICT COUNCIL", "Bills", "WILLOWMERE DISTRICT COUNCIL COUNCIL TAX")
     monthly(5, BILLS_ID, 96.40, "debit", "SPARKWELL ENERGY", "Bills", "SPARKWELL ENERGY DIRECT DEBIT")
     monthly(8, BILLS_ID, 31.00, "debit", "CLEARBROOK WATER", "Bills", "CLEARBROOK WATER DIRECT DEBIT")
     monthly(15, BILLS_ID, 24.00, "debit", "BLUEWAVE MOBILE", "Bills", "BLUEWAVE MOBILE DIRECT DEBIT")

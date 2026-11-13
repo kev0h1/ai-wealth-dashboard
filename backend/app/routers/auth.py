@@ -157,6 +157,12 @@ async def logout(user: dict = Depends(current_user)):
     """
     if not user.get("email"):
         raise HTTPException(403, "Bot credentials cannot log out")
+    from app.core.demo import is_demo_user
+    if is_demo_user(user["email"]):
+        # C43: the one demo account is shared by every App Review tester, so a
+        # sign-out must not revoke the others' sessions or push registrations.
+        # The client still clears its own token.
+        return {"ok": True}
     try:
         await drop_user_push_registrations(user["email"])
     except Exception as exc:
@@ -323,6 +329,9 @@ class DemoLoginBody(BaseModel):
     password: str = ""
 
 
+_demo_ceiling_warned_window = -1
+
+
 @router.get("/auth/demo/enabled")
 async def demo_login_enabled_status():
     """C43: lets the sign-in screen show the quiet Demo sign-in form only when
@@ -343,12 +352,20 @@ async def demo_login(body: DemoLoginBody, request: Request):
     from app.core.demo import check_demo_credentials, demo_login_enabled
     if not demo_login_enabled():
         raise HTTPException(404, "Not found")
-    # One fixed account, so this IS the per-email ceiling: 60 attempts an hour
-    # across every IP, on top of the per-IP 5 a minute in ratelimit.RULES.
-    retry = await ratelimit.check_keyed_limit("demo-login-global", 60, 3600)
-    if retry is not None:
-        raise HTTPException(429, "Too many requests", headers={"Retry-After": str(retry)})
+    # Credentials are verified first. Only FAILED attempts count towards the
+    # global ceiling (one fixed account, so this is the per-email ceiling: 60
+    # failures an hour across every IP, on top of the per-IP 5 a minute in
+    # ratelimit.RULES), so a correct password always signs in and one noisy IP
+    # cannot lock the real reviewer out.
     if not check_demo_credentials(body.username or body.email, body.password):
+        retry = await ratelimit.check_keyed_limit("demo-login-failures", 60, 3600)
+        if retry is not None:
+            global _demo_ceiling_warned_window
+            window = int(time.time() // 3600)
+            if _demo_ceiling_warned_window != window:
+                _demo_ceiling_warned_window = window
+                logging.warning("Demo sign-in failure ceiling reached for this hour")
+            raise HTTPException(429, "Too many requests", headers={"Retry-After": str(retry)})
         logging.warning("Demo sign-in failed")
         raise HTTPException(401, "Those details didn't work.")
     email = _config.DEMO_LOGIN_EMAIL

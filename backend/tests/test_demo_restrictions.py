@@ -129,6 +129,268 @@ def test_demo_identity_is_not_the_owner_and_admin_routes_refuse_it():
     assert e.value.status_code == 403
 
 
+# One-line reasons, shared by the routes below.
+_R0 = "MCP read connector, off in production; no connector can be authorised because /oauth/decision is blocked"
+_R1 = "PATCH /preferences: the demo's own settings"
+_R2 = "PUT /profile: the demo's own display name"
+_R3 = "Penny on the demo's own data, metered by the Plus allowance (consent and proposals are own-data writes only)"
+_R4 = "Penny-style answer on own data, metered"
+_R5 = "a saved basket the reviewer made, own data"
+_R6 = "edits to the demo's own synthetic accounts, card terms and holdings"
+_R7 = "manual accounts and rules the reviewer adds themselves"
+_R8 = "own upload, metered parse of the reviewer's own file or receipt"
+_R9 = "own-data goal, plan, rule, category, correction or dismissal write"
+_R10 = "owner or bot only, gated in the handler (checked by test_owner_only_routes_gate_in_the_handler)"
+_R11 = "price lookup for the demo's own holdings, no bank provider"
+_R12 = "sign-in or OAuth protocol endpoint, no per-user data"
+_R13 = "sign-out: the demo identity gets ok without revoking other reviewers' sessions"
+_R14 = "the reviewer's own device registration and test push"
+_R15 = "the session's own validity check"
+_R16 = "unauthenticated provider webhook, no session involved"
+
+DEMO_ALLOWED = {
+    ("DELETE", "/accounts/{account_id}"): _R6,
+    ("PATCH", "/accounts/{account_id}"): _R6,
+    ("PUT", "/accounts/{account_id}/rate"): _R6,
+    ("POST", "/admin/allowlist"): _R10,
+    ("DELETE", "/admin/allowlist/{key}"): _R10,
+    ("POST", "/admin/broadcast/preview"): _R10,
+    ("POST", "/admin/broadcast/{broadcast_id}/send"): _R10,
+    ("POST", "/admin/finexer/providers/refresh"): _R10,
+    ("POST", "/admin/sync-all"): _R10,
+    ("POST", "/allocations"): _R9,
+    ("DELETE", "/allocations/{allocation_id}"): _R9,
+    ("PATCH", "/allocations/{allocation_id}"): _R9,
+    ("PUT", "/allocations/{allocation_id}/contribution"): _R9,
+    ("DELETE", "/allocations/{allocation_id}/period-override"): _R9,
+    ("PUT", "/allocations/{allocation_id}/period-override"): _R9,
+    ("POST", "/auth/apple/native"): _R12,
+    ("POST", "/auth/demo/login"): _R12,
+    ("POST", "/auth/google/native"): _R12,
+    ("POST", "/auth/logout"): _R13,
+    ("POST", "/auth/mobile/poll"): _R12,
+    ("POST", "/auth/oauth/register"): _R12,
+    ("POST", "/auth/oauth/revoke"): _R12,
+    ("POST", "/auth/oauth/token"): _R12,
+    ("POST", "/auth/session/validate"): _R15,
+    ("POST", "/baskets/scan-receipt"): _R8,
+    ("DELETE", "/baskets/{basket_id}"): _R5,
+    ("POST", "/can-i"): _R4,
+    ("DELETE", "/card-terms/{account_id}"): _R6,
+    ("POST", "/card-terms/{account_id}"): _R6,
+    ("POST", "/card-terms/{account_id}/lookup"): _R6,
+    ("POST", "/card-terms/{account_id}/payment"): _R6,
+    ("POST", "/card-terms/{account_id}/payment-history"): _R6,
+    ("POST", "/card-terms/{account_id}/payment-match-preview"): _R6,
+    ("POST", "/card-terms/{account_id}/rates"): _R6,
+    ("DELETE", "/card-terms/{account_id}/statement-amount"): _R6,
+    ("POST", "/card-terms/{account_id}/statement-amount"): _R6,
+    ("POST", "/cashflow/apply-rule"): _R9,
+    ("POST", "/cashflow/clear-override"): _R9,
+    ("POST", "/cashflow/clear-rule"): _R9,
+    ("POST", "/cashflow/dismiss-recurring"): _R9,
+    ("POST", "/cashflow/edit-upcoming"): _R9,
+    ("POST", "/cashflow/preview-rule"): _R9,
+    ("POST", "/cashflow/restore-recurring"): _R9,
+    ("POST", "/cashflow/skip-occurrence"): _R9,
+    ("POST", "/categories"): _R9,
+    ("PATCH", "/categories/group"): _R9,
+    ("POST", "/categories/groups/reset"): _R9,
+    ("PATCH", "/categories/icon"): _R9,
+    ("DELETE", "/categories/{name}"): _R9,
+    ("POST", "/chat/tax"): _R4,
+    ("POST", "/checkpoints"): _R9,
+    ("DELETE", "/checkpoints/{checkpoint_id}"): _R9,
+    ("PATCH", "/checkpoints/{checkpoint_id}"): _R9,
+    ("POST", "/checkpoints/{checkpoint_id}/nudge-dismiss"): _R9,
+    ("POST", "/commitments"): _R9,
+    ("POST", "/commitments/preview"): _R9,
+    ("POST", "/commitments/schedule-preview"): _R9,
+    ("DELETE", "/commitments/{commitment_id}"): _R9,
+    ("PATCH", "/commitments/{commitment_id}"): _R9,
+    ("PUT", "/commitments/{commitment_id}/contribution"): _R9,
+    ("PUT", "/commitments/{commitment_id}/ease"): _R9,
+    ("POST", "/dismissed-series/hide"): _R9,
+    ("POST", "/dismissed-series/override"): _R9,
+    ("POST", "/income/confirm-payday"): _R9,
+    ("POST", "/income/streams/confirm"): _R9,
+    ("POST", "/income/streams/manual"): _R9,
+    ("POST", "/income/streams/reject"): _R9,
+    ("DELETE", "/income/streams/{key}"): _R9,
+    ("DELETE", "/investment/accounts/{account_id}"): _R6,
+    ("POST", "/investment/accounts/{account_id}/notes/upload"): _R8,
+    ("POST", "/investment/accounts/{account_id}/refresh"): _R11,
+    ("POST", "/investment/notes/upload"): _R8,
+    ("DELETE", "/investment/notes/{note_id}"): _R6,
+    ("POST", "/investment/upload"): _R8,
+    ("POST", "/manual-account-rules"): _R7,
+    ("DELETE", "/manual-account-rules/{rule_id}"): _R7,
+    ("PATCH", "/manual-account-rules/{rule_id}"): _R7,
+    ("POST", "/manual-accounts"): _R7,
+    ("DELETE", "/manual-accounts/{acc_id}"): _R7,
+    ("PATCH", "/manual-accounts/{acc_id}"): _R7,
+    ("POST", "/manual-accounts/{acc_id}/transactions"): _R7,
+    ("DELETE", "/manual-accounts/{acc_id}/transactions/{tx_id}"): _R7,
+    ("PATCH", "/manual-accounts/{acc_id}/transactions/{tx_id}"): _R7,
+    ("DELETE", "/mcp"): _R0,
+    ("POST", "/mcp"): _R0,
+    ("POST", "/mirror/choice"): _R9,
+    ("DELETE", "/oauth/connections/{client_id}"): _R0,
+    ("POST", "/offers/{receipt_id}/dismiss"): _R9,
+    ("POST", "/ops/go-live/items/{item_id}"): _R10,
+    ("POST", "/ops/go-live/questions/{q}"): _R10,
+    ("POST", "/ops/health/alerts/test"): _R10,
+    ("POST", "/ops/health/finexer-events/reconcile"): _R10,
+    ("POST", "/ops/people/backfill"): _R10,
+    ("POST", "/ops/people/invite"): _R10,
+    ("POST", "/ops/people/{pid}/allow"): _R10,
+    ("POST", "/ops/people/{pid}/erase"): _R10,
+    ("POST", "/ops/people/{pid}/restore"): _R10,
+    ("POST", "/ops/people/{pid}/revoke"): _R10,
+    ("POST", "/ops/people/{pid}/subscription/cancel-grant"): _R10,
+    ("POST", "/ops/people/{pid}/subscription/reset-trial"): _R10,
+    ("POST", "/ops/people/{pid}/subscription/set-tier"): _R10,
+    ("POST", "/ops/people/{pid}/subscription/topup"): _R10,
+    ("DELETE", "/ops/settings/{key}"): _R10,
+    ("PUT", "/ops/settings/{key}"): _R10,
+    ("DELETE", "/penny/agent-consent"): _R3,
+    ("POST", "/penny/agent-consent"): _R3,
+    ("POST", "/penny/chip"): _R3,
+    ("POST", "/penny/conversations"): _R3,
+    ("DELETE", "/penny/conversations/{conversation_id}"): _R3,
+    ("POST", "/penny/conversations/{conversation_id}/turns"): _R3,
+    ("POST", "/penny/proposals/{proposal_id}/cancel"): _R3,
+    ("POST", "/penny/proposals/{proposal_id}/execute"): _R3,
+    ("POST", "/penny/proposals/{proposal_id}/scheduled-goal-revision"): _R3,
+    ("POST", "/planned"): _R9,
+    ("DELETE", "/planned/{planned_id}"): _R9,
+    ("PATCH", "/planned/{planned_id}"): _R9,
+    ("POST", "/plans/category-activity"): _R9,
+    ("PATCH", "/preferences"): _R1,
+    ("PUT", "/profile"): _R2,
+    ("DELETE", "/push/apns/register"): _R14,
+    ("POST", "/push/apns/register"): _R14,
+    ("POST", "/push/client-diagnostic"): _R14,
+    ("DELETE", "/push/fcm/register"): _R14,
+    ("POST", "/push/fcm/register"): _R14,
+    ("DELETE", "/push/subscribe"): _R14,
+    ("POST", "/push/subscribe"): _R14,
+    ("POST", "/push/test"): _R14,
+    ("POST", "/rules"): _R9,
+    ("POST", "/rules/parse"): _R9,
+    ("DELETE", "/rules/{rule_id}"): _R9,
+    ("POST", "/savings-insights/label"): _R9,
+    ("DELETE", "/savings-insights/labels/{merchant_key}"): _R9,
+    ("POST", "/savings-insights/mark-viewed"): _R9,
+    ("POST", "/savings-insights/refresh"): _R9,
+    ("POST", "/savings-insights/{insight_id}/context"): _R9,
+    ("POST", "/savings-insights/{insight_id}/dismiss"): _R9,
+    ("POST", "/savings-insights/{insight_id}/opened"): _R9,
+    ("PATCH", "/savings-insights/{insight_id}/pin"): _R9,
+    ("DELETE", "/savings/goal"): _R9,
+    ("PUT", "/savings/goal"): _R9,
+    ("POST", "/savings/manual-account"): _R7,
+    ("DELETE", "/savings/manual-account/{acc_id}"): _R7,
+    ("PATCH", "/savings/manual-account/{acc_id}"): _R7,
+    ("POST", "/spend/intent-preview"): _R9,
+    ("DELETE", "/spend/intent/{category}"): _R9,
+    ("POST", "/spend/verdict/dismiss-unresolved"): _R9,
+    ("POST", "/statement/upload"): _R8,
+    ("PATCH", "/subscription/admin/set-tier"): _R10,
+    ("POST", "/subscription/admin/topup"): _R10,
+    ("POST", "/today/dismiss"): _R9,
+    ("POST", "/transactions/auto-categorise"): _R9,
+    ("POST", "/transactions/confirm-transfer-pair"): _R9,
+    ("POST", "/transactions/dismiss-miscategorised-series"): _R9,
+    ("POST", "/transactions/dismiss-transfer-pair"): _R9,
+    ("POST", "/transactions/filed-transfers/undo"): _R9,
+    ("POST", "/transactions/finish-transfer-review"): _R9,
+    ("POST", "/transactions/undo-ai-transfer"): _R9,
+    ("PATCH", "/transactions/{transaction_id}"): _R9,
+    ("POST", "/transactions/{transaction_id}/correction-scope"): _R9,
+    ("POST", "/transactions/{transaction_id}/correction-scope/refresh"): _R9,
+    ("POST", "/transactions/{transaction_id}/correction-scope/undo"): _R9,
+    ("PATCH", "/transactions/{transaction_id}/planned"): _R9,
+    ("POST", "/transactions/{transaction_id}/resolve-movement"): _R9,
+    ("POST", "/transactions/{txn_id}/dismiss-miscategorised"): _R9,
+    ("POST", "/trends/intent"): _R9,
+    ("POST", "/webhooks/apple"): _R16,
+    ("POST", "/webhooks/finexer/{secret}"): _R16,
+    ("POST", "/webhooks/google-play"): _R16,
+    ("POST", "/webhooks/stripe"): _R16,
+}
+
+
+def _mutating_unlisted(apps):
+    """Every POST/PUT/PATCH/DELETE route mounted on `apps` that is neither
+    refused for the demo user nor listed in DEMO_ALLOWED."""
+    found = set()
+    for app in apps:
+        for r in app.routes:
+            p, ms = getattr(r, "path", None), getattr(r, "methods", None)
+            if not p or not ms:
+                continue
+            for m in ms & {"POST", "PUT", "PATCH", "DELETE"}:
+                if not demo.demo_blocked(DEMO, m, _concrete(p)) and (m, p) not in DEMO_ALLOWED:
+                    found.add((m, p))
+    return sorted(found)
+
+
+def _apps():
+    from app.main import app, build_app
+    return [app, build_app(True, mcp_only=False)]  # the second mounts the OAuth and MCP routers
+
+
+def _mounted_mutating(apps):
+    return {(m, r.path) for a in apps for r in a.routes if getattr(r, "methods", None)
+            for m in r.methods & {"POST", "PUT", "PATCH", "DELETE"}}
+
+
+def test_every_mutating_route_is_guarded_or_explicitly_allowed():
+    unlisted = _mutating_unlisted(_apps())
+    assert unlisted == [], (
+        "decide whether the demo user may call each of these: add it to app.core.demo._BLOCKED "
+        f"or to DEMO_ALLOWED with a reason: {unlisted}")
+
+
+def test_demo_allowed_has_no_stale_entries():
+    mounted = _mounted_mutating(_apps())
+    assert sorted(k for k in DEMO_ALLOWED if k not in mounted) == []
+
+
+def test_an_unlisted_mutating_route_fails_the_walk():
+    from app.main import build_app
+    app = build_app(True, mcp_only=False)
+
+    async def _dummy():
+        return {}
+    app.post("/zz-c43-dummy-unlisted")(_dummy)
+    app.patch("/zz-c43-dummy-unlisted/{x}")(_dummy)
+    assert ("POST", "/zz-c43-dummy-unlisted") in _mutating_unlisted([app])
+    assert ("PATCH", "/zz-c43-dummy-unlisted/{x}") in _mutating_unlisted([app])
+
+
+def test_owner_only_routes_gate_in_the_handler():
+    """The routes DEMO_ALLOWED lists as owner-only really check for the owner or a bot."""
+    import inspect
+    tokens = ("_require_owner", "_require_admin", "is_owner", "_require_owner_session")
+    ungated = []
+    for app in _apps():
+        for r in app.routes:
+            p, ms = getattr(r, "path", ""), getattr(r, "methods", None) or set()
+            if p.startswith(("/ops", "/admin", "/subscription/admin")) and ms & {"POST", "PUT", "PATCH", "DELETE"}:
+                if demo.demo_blocked(DEMO, sorted(ms)[0], _concrete(p)):
+                    continue
+                if not any(t in inspect.getsource(r.endpoint) for t in tokens):
+                    ungated.append((sorted(ms), p))
+    assert ungated == []
+
+
+def test_demo_cannot_run_the_card_direction_migration():
+    assert demo.demo_blocked(DEMO, "POST", "/admin/fix-card-transactions")
+    assert not demo.demo_blocked(OTHER, "POST", "/admin/fix-card-transactions")
+
+
 # ---- the worker loops --------------------------------------------------------
 
 
