@@ -137,8 +137,8 @@ def test_statement_upload_gate_counts_only_current_month(monkeypatch):
 
 
 def test_statements_tier_limit_is_ten_uploads_a_month():
-    from app.core.subscription import TIER_LIMITS
-    assert TIER_LIMITS["statements"]["statement_uploads_per_month"] == 10
+    from app.core.subscription import TIER_LIMITS, Tier
+    assert TIER_LIMITS[Tier.STATEMENTS]["statement_uploads_per_month"] == 10
 
 
 def test_statement_upload_gate_allows_10th_and_refuses_11th(monkeypatch):
