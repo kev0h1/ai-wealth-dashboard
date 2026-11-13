@@ -6,6 +6,7 @@ import { isNativePlatform, isIOSNative, nativeGoogleLogin, nativeAppleLogin, can
 import { AGENT_DISCLOSURE, SUPPORT_EMAIL, TRADING_NAME_DISCLOSURE } from "@/lib/regulatoryCopy";
 import { createRunGuard, derivePhase, type LoginPhase, type ResumingLogin } from "@/lib/signInPhase";
 import { FailedNotice, SigningInPanel, UnreachablePanel } from "@/components/SignInProgress";
+import DemoSignIn from "@/components/DemoSignIn";
 
 export type { LoginPhase, ResumingLogin } from "@/lib/signInPhase";
 
@@ -142,6 +143,16 @@ export default function LoginScreen({ error, onSignedIn, resuming, onCancelResum
     await runNative("apple");
   }
 
+  // C43: the demo form shares the host's post-login flow with Google and Apple.
+  async function demoEstablish(): Promise<"ok" | "rejected" | "unreachable"> {
+    if (!onSignedIn) {
+      window.location.reload();
+      return "ok";
+    }
+    userAttemptRef.current = true;
+    return onSignedIn(undefined, true);
+  }
+
   const isInviteOnly = (error === "invite_only" || nativeInviteOnly) && !inviteOnlyDismissed;
 
   if (isInviteOnly) {
@@ -255,6 +266,7 @@ export default function LoginScreen({ error, onSignedIn, resuming, onCancelResum
             <>
               {phase.kind === "failed" && <FailedNotice key={noticeSeq} reason={phase.reason} />}
               {signInButtons}
+              <DemoSignIn onSignedIn={demoEstablish} />
             </>
           )}
         </div>
