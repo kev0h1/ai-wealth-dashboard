@@ -88,22 +88,22 @@ def test_open_banking_gate_is_noop_for_paid_tiers(monkeypatch, tier_name):
 
 # --- check_statement_upload_allowed ---------------------------------------
 
-def test_statement_upload_gate_allows_third_upload_in_month(monkeypatch):
+def test_statement_upload_gate_allows_tenth_upload_in_month(monkeypatch):
     _set_tier(monkeypatch, "statements")
     ym = _current_ym()
     fake = _FakeUploadsCollection([
-        {"user_id": "capped@example.com", "year_month": ym} for _ in range(2)
+        {"user_id": "capped@example.com", "year_month": ym} for _ in range(9)
     ])
     monkeypatch.setattr(collections_module, "statement_uploads_col", fake)
 
     asyncio.run(check_statement_upload_allowed("capped@example.com"))
 
 
-def test_statement_upload_gate_raises_402_on_fourth_upload(monkeypatch):
+def test_statement_upload_gate_raises_402_on_eleventh_upload(monkeypatch):
     _set_tier(monkeypatch, "statements")
     ym = _current_ym()
     fake = _FakeUploadsCollection([
-        {"user_id": "capped@example.com", "year_month": ym} for _ in range(3)
+        {"user_id": "capped@example.com", "year_month": ym} for _ in range(10)
     ])
     monkeypatch.setattr(collections_module, "statement_uploads_col", fake)
 
@@ -114,8 +114,8 @@ def test_statement_upload_gate_raises_402_on_fourth_upload(monkeypatch):
     detail = exc_info.value.detail
     assert detail["code"] == "STATEMENT_UPLOAD_LIMIT_REACHED"
     assert detail["current_tier"] == "statements"
-    assert detail["limit"] == 3
-    assert detail["used"] == 3
+    assert detail["limit"] == 10
+    assert detail["used"] == 10
     assert detail["kind"] == "statement_uploads"
     assert "resets_on" in detail
 
@@ -123,17 +123,41 @@ def test_statement_upload_gate_raises_402_on_fourth_upload(monkeypatch):
 def test_statement_upload_gate_counts_only_current_month(monkeypatch):
     _set_tier(monkeypatch, "statements")
     ym = _current_ym()
-    # Three uploads logged against a different month must not count
-    # against this month's cap of 3.
+    # Ten uploads logged against a different month must not count
+    # against this month's cap of 10.
     fake = _FakeUploadsCollection([
-        {"user_id": "seasonal@example.com", "year_month": "2000-01"} for _ in range(3)
+        {"user_id": "seasonal@example.com", "year_month": "2000-01"} for _ in range(10)
     ] + [
         {"user_id": "seasonal@example.com", "year_month": ym} for _ in range(1)
     ])
     monkeypatch.setattr(collections_module, "statement_uploads_col", fake)
 
-    # 1 used this month, limit 3 — must not raise.
+    # 1 used this month, limit 10 — must not raise.
     asyncio.run(check_statement_upload_allowed("seasonal@example.com"))
+
+
+def test_statements_tier_limit_is_ten_uploads_a_month():
+    from app.core.subscription import TIER_LIMITS, Tier
+    assert TIER_LIMITS[Tier.STATEMENTS]["statement_uploads_per_month"] == 10
+
+
+def test_statement_upload_gate_allows_10th_and_refuses_11th(monkeypatch):
+    _set_tier(monkeypatch, "statements")
+    ym = _current_ym()
+    docs = [{"user_id": "ten@example.com", "year_month": ym} for _ in range(9)]
+    fake = _FakeUploadsCollection(docs)
+    monkeypatch.setattr(collections_module, "statement_uploads_col", fake)
+
+    # Nine used: the tenth upload is allowed.
+    asyncio.run(check_statement_upload_allowed("ten@example.com"))
+    fake.docs.append({"user_id": "ten@example.com", "year_month": ym})
+
+    # Ten used: the eleventh is refused.
+    with pytest.raises(HTTPException) as exc_info:
+        asyncio.run(check_statement_upload_allowed("ten@example.com"))
+    assert exc_info.value.status_code == 402
+    assert exc_info.value.detail["limit"] == 10
+    assert exc_info.value.detail["used"] == 10
 
 
 def test_statement_upload_gate_is_noop_when_limit_none(monkeypatch):

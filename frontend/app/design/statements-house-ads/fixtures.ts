@@ -113,18 +113,18 @@ export const COPY: Record<Placement, Record<TrialState, AdCopy>> = {
   },
   limit: {
     available: {
-      title: "That is your 3 uploads for this month",
+      title: "That is your 10 uploads for this month",
       body: "Everything you have imported stays here to look at. Lite connects your banks instead, so there is nothing to upload. Try Lite free for 14 days.",
       cta: "Try Lite free for 14 days",
       fine: FINE_AVAILABLE,
-      compare: { upload: "3 uploads a month", live: "Connected, no uploads" },
+      compare: { upload: "10 uploads a month", live: "Connected, no uploads" },
     },
     used: {
-      title: "That is your 3 uploads for this month",
+      title: "That is your 10 uploads for this month",
       body: "Everything you have imported stays here to look at, and your uploads reset on 1 November. Subscribe to Lite to connect your banks instead.",
       cta: "See plans",
       fine: FINE_USED,
-      compare: { upload: "3 uploads a month", live: "Connected, no uploads" },
+      compare: { upload: "10 uploads a month", live: "Connected, no uploads" },
     },
   },
 };

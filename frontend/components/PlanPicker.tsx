@@ -37,7 +37,7 @@ const TIERS: Tier[] = [
     id: "statements",
     name: "Statements",
     lead: "A clear money view from uploaded statements.",
-    includes: ["3 statement uploads a month", "90 days of history", "10 Penny messages a month"],
+    includes: ["10 statement uploads a month", "90 days of history", "10 Penny messages a month"],
     icon: FileText,
   },
   {

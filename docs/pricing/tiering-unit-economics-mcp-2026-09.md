@@ -68,7 +68,7 @@ Users understand "messages", not tokens. Sell Penny in messages, meter tokens in
 
 | Tier | Price | Bank connections | Refresh | Penny messages / month | MCP connector | History | Notes |
 |---|---|---|---|---|---|---|---|
-| Statements (free) | £0 | none; statement upload only | on upload | 10 | no | 90 days | 3 uploads a month; no Finexer cost |
+| Statements (free) | £0 | none; statement upload only | on upload | 10 | no | 90 days | 10 uploads a month; no Finexer cost |
 | Lite | £5.99 | up to 10 accounts | 4-hourly | 40 | yes, 5,000 tool calls | full | every paid tier has every feature |
 | Standard | £9.99 | up to 25 accounts | 4-hourly | 150 | yes, 5,000 tool calls | full | every paid tier has every feature |
 | Plus | £12.99 | unlimited (fair use 40 accounts) | 4-hourly | 300 | yes, 5,000 tool calls | full | every paid tier has every feature |

@@ -172,7 +172,7 @@ TIER_LIMITS = {
         "penny_messages_per_month":    10,
         "mcp_tool_calls_per_month":    0,
         "history_days":                90,
-        "statement_uploads_per_month": 3,
+        "statement_uploads_per_month": 10,
     },
     Tier.LITE: {
         "open_banking":                True,
