@@ -133,16 +133,6 @@ export default function LoginScreen({ error, onSignedIn, resuming, onCancelResum
     onCancelResume?.(true); // A135: the user chose another account, so drop the kept token
   }
 
-  async function handleGoogleClick(e: React.MouseEvent<HTMLAnchorElement>) {
-    if (!isNativePlatform()) return; // web: let the href redirect happen as before
-    e.preventDefault();
-    await runNative("google");
-  }
-
-  async function handleAppleClick() {
-    await runNative("apple");
-  }
-
   // C43: the demo form shares the host's post-login flow with Google and Apple.
   async function demoEstablish(): Promise<"ok" | "rejected" | "unreachable"> {
     if (!onSignedIn) {
@@ -151,6 +141,16 @@ export default function LoginScreen({ error, onSignedIn, resuming, onCancelResum
     }
     userAttemptRef.current = true;
     return onSignedIn(undefined, true);
+  }
+
+  async function handleGoogleClick(e: React.MouseEvent<HTMLAnchorElement>) {
+    if (!isNativePlatform()) return; // web: let the href redirect happen as before
+    e.preventDefault();
+    await runNative("google");
+  }
+
+  async function handleAppleClick() {
+    await runNative("apple");
   }
 
   const isInviteOnly = (error === "invite_only" || nativeInviteOnly) && !inviteOnlyDismissed;
