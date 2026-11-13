@@ -8,6 +8,7 @@
     "check:g461-plan-payments": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g461-plan-payments.test.mjs",
     "check:g457-zero-headroom": "node --no-warnings --experimental-strip-types scripts/g457-zero-headroom.test.mjs",
     "check:g409-notification-adapter": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g409-notification-adapter.test.mjs",
+    "check:g466-ios-notifications-plugin": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g466-ios-notifications-plugin.test.mjs",
     "check:g409-notifications": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g409-notifications.test.mjs",
     "check:g450-category-icons": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g450-category-icons.test.mjs",
     "check:g381-card-payment-option": "node scripts/g381-card-payment-option.test.mjs",

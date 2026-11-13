@@ -7,15 +7,16 @@ IOS_DIR="${IOS_DIR:-${SPIKE_DIR}/ios}"
 APP_DIR="${IOS_DIR}/App/App"
 PROJECT="${IOS_DIR}/App/App.xcodeproj/project.pbxproj"
 STORYBOARD="${APP_DIR}/Base.lproj/Main.storyboard"
+CAP_CONFIG="${APP_DIR}/capacitor.config.json"
 SRC="${SPIKE_DIR}/native-notifications/ios/SortedNotificationsPlugin.swift"
 DEST="${APP_DIR}/SortedNotificationsPlugin.swift"
 
-[[ -f "${PROJECT}" && -f "${STORYBOARD}" ]] || { echo "ERROR: Capacitor iOS project missing. Run 'npx cap add ios' first." >&2; exit 1; }
+[[ -f "${PROJECT}" && -f "${STORYBOARD}" && -f "${CAP_CONFIG}" ]] || { echo "ERROR: Capacitor iOS project missing. Run 'npx cap add ios' first." >&2; exit 1; }
 cp "${SRC}" "${DEST}"
 
-python3 - "${PROJECT}" "${STORYBOARD}" <<'PY'
-import hashlib, re, sys
-project, storyboard = sys.argv[1:]
+python3 - "${PROJECT}" "${STORYBOARD}" "${CAP_CONFIG}" <<'PY'
+import hashlib, json, re, sys
+project, storyboard, cap_config = sys.argv[1:]
 s = open(project).read()
 story = open(storyboard).read()
 name = "SortedNotificationsPlugin.swift"
@@ -54,8 +55,20 @@ else:
     tag = tag[:-2] + ' customModuleProvider="target"/>'
 story = story[:controller.start()] + tag + story[controller.end():]
 open(storyboard, "w").write(story)
+
+# G466: list the plugin class in packageClassList, the same list `cap sync`
+# writes for the npm plugins (StoreKit, push, ...). The bridge instantiates
+# every class in it at bridge start, so SortedNotifications is also in
+# Capacitor.PluginHeaders (belt-and-braces with the runtime fallback). Run after `cap sync`, which rewrites it.
+cfg = json.load(open(cap_config))
+classes = cfg.setdefault("packageClassList", [])
+if "SortedNotificationsPlugin" not in classes:
+    classes.append("SortedNotificationsPlugin")
+json.dump(cfg, open(cap_config, "w"), indent="\t")
+open(cap_config, "a").write("\n")
 PY
 
 grep -q "SortedNotificationsPlugin.swift in Sources" "${PROJECT}" || { echo "ERROR: notification Swift source was not added to the Xcode Sources phase" >&2; exit 1; }
 grep -q 'customClass="SortedBridgeViewController".*customModule="App".*customModuleProvider="target"' "${STORYBOARD}" || { echo "ERROR: notification bridge controller is not bound to the App target" >&2; exit 1; }
+python3 -c 'import json,sys; sys.exit(0 if "SortedNotificationsPlugin" in json.load(open(sys.argv[1])).get("packageClassList", []) else 1)' "${CAP_CONFIG}" || { echo "ERROR: SortedNotificationsPlugin is not in packageClassList" >&2; exit 1; }
 echo "SortedNotifications iOS plugin installed, added to Sources and registered."
