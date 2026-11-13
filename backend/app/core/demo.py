@@ -52,6 +52,7 @@ _BLOCKED = [
     ("GET", r"^/penny/conversations/export$"),
     ("POST", r"^/billing/(checkout|portal)$"),
     ("POST", r"^/billing/apple/verify$"),
+    ("GET", r"^/billing/apple/account-token$"),
     ("POST", r"^/billing/play/purchase$"),
     ("POST", r"^/subscription/select-free$"),
 ]
