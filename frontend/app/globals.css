@@ -924,13 +924,15 @@ html[data-penny-typing="true"] [data-penny-navigation] {
 /* G467: the Penny composer placeholder is one fixed line and never wraps or
    clips. text-overflow on ::placeholder alone is not honoured by every WebKit
    build, so the same rules sit on the empty textarea itself (while the
-   placeholder shows there is no typed text, so nowrap cannot affect input). */
-[data-penny-input]::placeholder {
+   placeholder shows there is no typed text, so nowrap cannot affect input). The at-cap resting line is
+   excluded (data-penny-resting) so it keeps wrapping and the return time
+   is never cut off. */
+[data-penny-input]:not([data-penny-resting])::placeholder {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
-[data-penny-input]:placeholder-shown {
+[data-penny-input]:not([data-penny-resting]):placeholder-shown {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;

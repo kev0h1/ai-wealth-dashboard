@@ -24,12 +24,15 @@ const rule = (sel) => {
   const m = css.match(new RegExp(`${sel.replace(/[[\]():]/g, "\\$&")}\\s*\\{([^}]*)\\}`));
   return m ? m[1] : "";
 };
-for (const sel of ["[data-penny-input]::placeholder", "[data-penny-input]:placeholder-shown"]) {
+for (const sel of ["[data-penny-input]:not([data-penny-resting])::placeholder", "[data-penny-input]:not([data-penny-resting]):placeholder-shown"]) {
   const body = rule(sel);
   ok(`${sel} has white-space: nowrap`, /white-space:\s*nowrap/.test(body));
   ok(`${sel} has overflow: hidden`, /overflow:\s*hidden/.test(body));
   ok(`${sel} has text-overflow: ellipsis`, /text-overflow:\s*ellipsis/.test(body));
 }
+
+ok("composer marks the at-cap textarea data-penny-resting", /data-penny-resting=\{disabled \? "" : undefined\}/.test(read("components/PennyComposer.tsx")));
+ok("no unscoped nowrap placeholder rule", !/\[data-penny-input\](::placeholder|:placeholder-shown)\s*\{/.test(css));
 
 if (failures) { console.error(`${failures} check(s) failed`); process.exit(1); }
 console.log("g467-penny-placeholder: ok");
