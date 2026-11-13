@@ -46,6 +46,15 @@ public class SortedNotificationsPlugin: CAPPlugin, CAPBridgedPlugin {
 public final class SortedBridgeViewController: CAPBridgeViewController {
     public override func capacitorDidLoad() {
         super.capacitorDidLoad()
-        bridge?.registerPluginInstance(SortedNotificationsPlugin())
+        // G466: belt-and-braces. The plugin is also registered via
+        // packageClassList at bridge start (setup-ios-notifications.sh); this
+        // runtime fallback remains, and only runs if that did not happen so
+        // it is never registered twice. The NSLog lines are on-device
+        // evidence for the next TestFlight build (device console / Xcode).
+        NSLog("[G466] capacitorDidLoad controller=%@ isSortedBridge=%@", String(describing: type(of: self)), String(self is SortedBridgeViewController))
+        NSLog("[G466] SortedNotifications registered before fallback: %@", String(bridge?.plugin(withName: "SortedNotifications") != nil))
+        defer { NSLog("[G466] SortedNotifications registered after fallback: %@", String(bridge?.plugin(withName: "SortedNotifications") != nil)) }
+        guard let bridge = bridge, bridge.plugin(withName: "SortedNotifications") == nil else { return }
+        bridge.registerPluginInstance(SortedNotificationsPlugin())
     }
 }

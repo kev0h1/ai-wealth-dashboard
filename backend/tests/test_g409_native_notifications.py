@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import subprocess
@@ -100,10 +101,15 @@ def test_ios_notification_setup_wires_sources_and_registers_on_reinstall(tmp_pat
         '<viewController id="BYZ-38-t0r" customClass="CAPBridgeViewController" '
         'customModule="Capacitor" sceneMemberID="viewController"/>\n'
     )
+    cap_config = app / "capacitor.config.json"
+    cap_config.write_text(json.dumps({"packageClassList": ["SomeOtherPlugin"]}))
     script = SPIKE / "scripts/setup-ios-notifications.sh"
     environment = {**os.environ, "IOS_DIR": str(ios)}
     subprocess.run(["bash", str(script)], check=True, env=environment)
     subprocess.run(["bash", str(script)], check=True, env=environment)
+    class_list = json.loads(cap_config.read_text())["packageClassList"]
+    assert class_list.count("SortedNotificationsPlugin") == 1
+    assert "SomeOtherPlugin" in class_list
 
     contents = project.read_text()
     assert (app / "SortedNotificationsPlugin.swift").exists()
