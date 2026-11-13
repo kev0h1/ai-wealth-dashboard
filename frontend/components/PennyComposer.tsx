@@ -45,7 +45,7 @@ function PennyComposerField({ inputRef, value, onChange, onKeyDown, placeholder,
     el.style.overflowY = full > max ? "auto" : "hidden";
   }, [value, inputRef]);
   return <textarea
-    ref={inputRef} data-penny-input rows={1} value={value}
+    ref={inputRef} data-penny-input data-penny-resting={disabled ? "" : undefined} rows={1} value={value}
     onChange={(event) => onChange(event.target.value)}
     onKeyDown={onKeyDown}
     placeholder={placeholder} aria-label="Ask Penny a spending question" maxLength={PENNY_MAX_CHARS}

@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "check:g467-penny-placeholder": "node scripts/g467-penny-placeholder.test.mjs",
     "check:c43-demo-signin": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/c43-demo-signin.test.mjs",
     "check:g464-build-label": "node scripts/g464-build-label.test.mjs",
     "check:g461-plan-payments": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g461-plan-payments.test.mjs",

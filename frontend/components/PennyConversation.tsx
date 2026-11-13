@@ -132,7 +132,6 @@ import { usePennyKeyboard } from "@/lib/usePennyKeyboard";
 import { applyPennyTypingAttribute, pennyNextEngaged } from "@/lib/pennyTyping";
 import MoneyText from "@/components/MoneyText";
 import { AGENT_DISCLOSURE, TRADING_NAME_DISCLOSURE } from "@/lib/regulatoryCopy";
-import { maskMoneyText, useBalancesHidden } from "@/lib/balancesHidden";
 import PennyReplyText from "@/components/PennyMarkdown";
 import PennyTable from "@/components/PennyTable";
 import PennyChart from "@/components/PennyChart";
@@ -159,7 +158,7 @@ const BankPickerSheet = lazy(() => import("@/components/BankPickerSheet"));
 
 const BG = BRAND_GRADIENT;
 const HISTORY_CAP = 6;
-const DEFAULT_PLACEHOLDER = "Ask Penny: Can I spend £45 this weekend?";
+const DEFAULT_PLACEHOLDER = "Ask Penny about your money";
 // How long a bucket's thread survives with no activity before that bucket
 // becoming visible again (an open, or a screen switch — see this file's
 // header comment, "PER-SCREEN THREADS") silently resets it (see the
@@ -941,8 +940,6 @@ export default function PennyConversation({
   chat?: PennyChatSession;
 }) {
   const router = useRouter();
-  // B56: the personalised placeholder (seeded from a £ chip) follows Hide balances; the fixed example stays.
-  const balancesHidden = useBalancesHidden();
   // Only used by config `link` chips below (navigate + close, see
   // lib/pennyScreenConfig.tsx's header comment) — safe to call
   // unconditionally: PennySheetProvider wraps the whole app (app/layout.tsx),
@@ -1002,7 +999,6 @@ export default function PennyConversation({
   // up as an option on Home.
   const [chips, setChips] = useState<CanISuggestionChip[]>([]);
   const [dismissedChips, setDismissedChips] = useState<Set<string>>(new Set());
-  const [placeholder, setPlaceholder] = useState(DEFAULT_PLACEHOLDER);
   // Penny message-allowance usage (2026-09-06) — shared with the sheet
   // header's ring via PennySheetProvider's module-level singleton (see that
   // file's own comment); this component never fetches /subscription
@@ -1100,10 +1096,6 @@ export default function PennyConversation({
         const c = s?.chips ?? [];
         setChips(c);
         onContextLine?.(s?.context_line ?? null);
-        // Seed the composer placeholder from the first £-bearing chip so it
-        // reflects the user's own numbers; static fallback otherwise.
-        const seeded = c.find((chip) => /£\s?\d/.test(chip.label));
-        if (seeded) setPlaceholder(`Ask Penny: ${seeded.label}`);
       })
       .catch(() => onContextLine?.(null));
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1921,15 +1913,15 @@ export default function PennyConversation({
   // `inputRef`; only one shell ever mounts it at a time, so there's no
   // duplicate-instance risk.
   // Resting-state placeholder (2026-09-06, usage ring round) — the
-  // capped-tier equivalent of `placeholder` above, taking over the input
-  // entirely rather than competing with the seeded-from-suggestions text.
+  // capped-tier equivalent of DEFAULT_PLACEHOLDER (G467: a fixed line), taking
+  // over the input entirely.
   // Chips stay tappable regardless (they render outside this input, and a
   // `chipId` chip's own `sendChip` never touches `loading`/`atCap` disabling
   // — see that function's own comment).
   const restingPlaceholder = `Penny is resting until ${formatPennyResetDate(usage.resetsOn)}`;
   const composerContent = <PennyComposer
     inputRef={inputRef} value={input} onChange={setInput} onSend={() => send(input)}
-    placeholder={atCap ? restingPlaceholder : placeholder === DEFAULT_PLACEHOLDER ? placeholder : maskMoneyText(placeholder, balancesHidden)} loading={loading} atCap={atCap}
+    placeholder={atCap ? restingPlaceholder : DEFAULT_PLACEHOLDER} loading={loading} atCap={atCap}
     onMoreMessages={inSheet ? openMoreMessagesSheet : undefined}
     chatFull={chat?.full ? { notice: PENNY_FULL_NOTICE, actionLabel: PENNY_FULL_ACTION, onAction: chat.newChat } : undefined}
   />;
