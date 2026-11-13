@@ -46,7 +46,7 @@ const VARIANTS: { key: Variant; label: string; note: string }[] = [
 const PLACEMENTS: { key: Placement; label: string }[] = [
   { key: "home", label: "Statements Home" },
   { key: "upload", label: "After an upload" },
-  { key: "limit", label: "At the 3-uploads limit" },
+  { key: "limit", label: "At the 10-uploads limit" },
 ];
 
 const MONEY_SPLIT = /(£\d+(?:\.\d+)?)/g;
@@ -227,11 +227,11 @@ function UploadScreen(p: { variant: Variant; account: HouseAdAccount; risk: bool
 
 function LimitScreen(p: { variant: Variant; account: HouseAdAccount; risk: boolean }) {
   return (
-    <Screen label="At the 3-uploads limit">
+    <Screen label="At the 10-uploads limit">
       <SheetShell title="Upload Bank Statement" footer={<button type="button" disabled className={`${ACTION_BASE} w-full bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300`}><Upload size={16} aria-hidden="true" className="mr-1" />Upload another statement</button>}>
         <div>
-          <div className="flex items-baseline justify-between"><p className="text-sm font-semibold text-slate-900 dark:text-slate-100">Uploads this month</p><p className="text-sm text-slate-700 dark:text-slate-200">3 of 3</p></div>
-          <div className="mt-2 h-2 rounded-full bg-slate-100 dark:bg-slate-700" role="img" aria-label="3 of 3 uploads used"><div className="h-2 w-full rounded-full bg-indigo-500" /></div>
+          <div className="flex items-baseline justify-between"><p className="text-sm font-semibold text-slate-900 dark:text-slate-100">Uploads this month</p><p className="text-sm text-slate-700 dark:text-slate-200">10 of 10</p></div>
+          <div className="mt-2 h-2 rounded-full bg-slate-100 dark:bg-slate-700" role="img" aria-label="10 of 10 uploads used"><div className="h-2 w-full rounded-full bg-indigo-500" /></div>
         </div>
         <AdSlot placement="limit" {...p} />
         <div>

@@ -4,7 +4,7 @@ export type Platform = "web" | "ios" | "android";
 export type PlanState = "paid" | "free" | "trial" | "cancelled" | "past-due" | "checkout-closed" | "loading" | "error";
 
 const LIMITS: Record<SubscriptionTier, SubscriptionLimits> = {
-  statements: { open_banking: false, max_banks: 0, max_accounts: 0, refresh: "on_upload", penny_messages_per_month: 10, mcp_tool_calls_per_month: 0, history_days: 90, statement_uploads_per_month: 3 },
+  statements: { open_banking: false, max_banks: 0, max_accounts: 0, refresh: "on_upload", penny_messages_per_month: 10, mcp_tool_calls_per_month: 0, history_days: 90, statement_uploads_per_month: 10 },
   lite: { open_banking: true, max_banks: null, max_accounts: 10, refresh: "4h", penny_messages_per_month: 40, mcp_tool_calls_per_month: 5000, history_days: null, statement_uploads_per_month: null },
   standard: { open_banking: true, max_banks: null, max_accounts: 25, refresh: "4h", penny_messages_per_month: 150, mcp_tool_calls_per_month: 5000, history_days: null, statement_uploads_per_month: null },
   plus: { open_banking: true, max_banks: null, max_accounts: null, refresh: "4h", penny_messages_per_month: 300, mcp_tool_calls_per_month: 5000, history_days: null, statement_uploads_per_month: null },
