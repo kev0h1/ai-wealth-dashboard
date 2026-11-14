@@ -147,7 +147,10 @@ class _Collection:
         return _Cursor([row for row in self.rows if matches(row)])
     async def find_one(self, query, _projection=None):
         return next((row for row in self.rows if all(row.get(key) == val for key, val in query.items())), None)
-    async def update_one(self, query, update):
+    async def update_one(self, query, update, upsert=False):  # G468: reconcile may upsert a learned series pair
+        if upsert and not any(all(c.get(k) == v for k, v in query.items()) for c in self.rows):
+            self.rows.append({**query, **(update.get("$setOnInsert") or {}), **(update.get("$set") or {})})
+            return _Result(True)
         for current in self.rows:
             if all(current.get(key) == val for key, val in query.items()):
                 before = dict(current)
