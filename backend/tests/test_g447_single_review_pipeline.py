@@ -153,7 +153,7 @@ def test_every_pair_the_review_offers_is_one_the_builder_yields(monkeypatch):
     rows = [_row("a-d", "debit", 41.0, "natw", D0, "JORDAN HARTLEY HSBC STO"),
             _row("a-c", "credit", 41.0, "hsbc", D0, "HARTLEY J E HSBC"),
             _row("b-d", "debit", 42.0, "natw", D0, "PAIRREF OUT"),
-            _row("b-c", "credit", 42.0, "hsbc", D0 + timedelta(days=3), "PAIRREF IN", category="Transfer")]  # G468: beyond the next business day
+            _row("b-c", "credit", 42.0, "hsbc", D0 + timedelta(days=1), "PAIRREF IN", category="Transfer")]
 
     async def run():
         async with mongo_env(monkeypatch, rows, accounts=ACCTS):
@@ -195,7 +195,7 @@ def test_same_day_current_to_current_is_a_candidate_and_next_day_is_not():
     assert [(x["_id"], y["_id"]) for x, y in got] == [("c", "d")]
     assert [(x["_id"], y["_id"]) for x, y, _ in oat._same_amount_pairs(
         [c, d], BY_ID, {"Transfer"}, consumed=set(), exclude_ids=frozenset())] == [("c", "d")]
-    c2, d2 = _named(D0 + timedelta(days=3), D0)  # G468: Thu to Sun, beyond the next business day
+    c2, d2 = _named(D0 + timedelta(days=1), D0)
     assert oat.ai_candidate_pairs([c2, d2], BY_ID, TOKENS, set(), movement_categories={"Transfer"}) == []
     assert list(oat._same_amount_pairs([c2, d2], BY_ID, {"Transfer"}, consumed=set(), exclude_ids=frozenset())) == []
     assert oat.select_unique_pairs([c2, d2], BY_ID, TOKENS, set(), movement_categories={"Transfer"}) == []
@@ -265,7 +265,7 @@ def test_series_singles_and_the_judge_window_still_work():
 # ── e: the invariant under the new rules ────────────────────────────────────
 
 def test_nothing_is_hidden_and_unasked_for_same_day_and_next_day_pairs(monkeypatch):
-    cases = [(D0, D0), (D0 + timedelta(days=3), D0), (D0 + timedelta(days=4), D0)]  # G468: past the next business day
+    cases = [(D0, D0), (D0 + timedelta(days=1), D0), (D0 + timedelta(days=3), D0)]
     for c_at, d_at in cases:
         for credit_cat in ("Transfer", "Income"):
             c = _row("c", "credit", 55.5, "hsbc", c_at, "HARTLEY J E HSBC", category=credit_cat)

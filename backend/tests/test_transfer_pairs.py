@@ -199,7 +199,7 @@ def test_one_day_apart_pair_is_not_suggested(monkeypatch):
     txns = [
         _t("c1", ttype="credit", amount=50.0, date=D0, account_id="accA",
            merchant="Acme Rail", desc="ACME RAIL TRANSFER IN PAIRREF", category="Income"),
-        _t("d1", ttype="debit", amount=50.0, date=datetime(2026, 8, 13), account_id="accB",
+        _t("d1", ttype="debit", amount=50.0, date=D1, account_id="accB",
            merchant=None, desc="BETA PAYMENTS OUT PAIRREF", category="Other"),
     ]
     assert _run_suggestions(monkeypatch, txns) == []

@@ -68,7 +68,7 @@ def test_named_pair_on_the_same_day_by_timestamp_is_automatic():
 
 def test_the_next_day_is_not_a_pair_even_when_named_and_even_within_24_hours():
     # 22:10 and 20:00 next day is under 24 hours but two calendar days: G447 says no pair
-    credit, debit = _pair(1885.0, "barclays", "hsbc", datetime(2026, 11, 3, 22, 10), datetime(2026, 11, 5, 20, 0))  # G468: Tue to Thu is beyond the next business day
+    credit, debit = _pair(1885.0, "barclays", "hsbc", datetime(2026, 11, 3, 22, 10), datetime(2026, 11, 4, 20, 0))
     pairs, own, pending = _classify(credit, debit)
     assert pairs == [] and own == set() and pending == set()
     assert is_spending(debit, SpendingContext.from_docs([debit, credit], KINDS, IDENTITY))
@@ -84,7 +84,7 @@ def test_two_and_three_days_apart_get_no_offer(monkeypatch):
 
 
 def test_date_only_legs_one_day_apart_are_not_a_pair(monkeypatch):
-    credit, debit = _pair(110.0, "hsbc", "barclays", datetime(2026, 11, 3), datetime(2026, 11, 5))  # G468: Tue to Thu
+    credit, debit = _pair(110.0, "hsbc", "barclays", datetime(2026, 11, 3), datetime(2026, 11, 4))
     assert not within_auto_window(debit["date"], credit["date"])
     pairs, own, pending = _classify(credit, debit)
     assert pairs == [] and own == set() and pending == set()
@@ -95,24 +95,22 @@ def test_date_only_legs_one_day_apart_are_not_a_pair(monkeypatch):
 
 def test_a_one_day_gap_never_hides_a_row_unasked(monkeypatch):
     # the G438 invariant under the new rule: nothing next-day is left out of Spend either
-    credit, debit = _pair(60.0, "barclays", "monzo", datetime(2026, 8, 1), datetime(2026, 8, 4))  # G468: Sat to Tue is beyond the next business day (Mon)
+    credit, debit = _pair(60.0, "barclays", "monzo", datetime(2026, 8, 1), datetime(2026, 8, 2))
     assert find_pending_transfer_ids([debit, credit], KINDS, IDENTITY) == set()
     assert is_spending(debit, SpendingContext.from_docs([debit, credit], KINDS, IDENTITY))
 
 
 def test_same_day_edges_use_the_london_calendar_day():
     # stored naive UTC. Summer (BST = UTC+1): 23:30 UTC on 3 Aug is 00:30 London on 4 Aug
-    # G468: within_ask_window also takes the next business day, so the strict same-day edges use within_auto_window
-    assert within_auto_window(datetime(2026, 8, 3, 23, 30), datetime(2026, 8, 4, 8, 0))
-    assert not within_auto_window(datetime(2026, 8, 3, 22, 30), datetime(2026, 8, 4, 8, 0))
+    assert within_ask_window(datetime(2026, 8, 3, 23, 30), datetime(2026, 8, 4, 8, 0))
+    assert not within_ask_window(datetime(2026, 8, 3, 22, 30), datetime(2026, 8, 4, 8, 0))
     # winter (GMT): the UTC date is the London date
-    assert not within_auto_window(datetime(2026, 11, 3, 23, 30), datetime(2026, 11, 4, 0, 10))
+    assert not within_ask_window(datetime(2026, 11, 3, 23, 30), datetime(2026, 11, 4, 0, 10))
     assert within_ask_window(datetime(2026, 11, 3, 0, 0), datetime(2026, 11, 3, 23, 59))
     # a date-only (midnight) leg keeps the bank's own date in both seasons
     assert within_ask_window(datetime(2026, 8, 3), datetime(2026, 8, 3, 21, 0))
     assert within_ask_window(datetime(2026, 11, 3), datetime(2026, 11, 3, 23, 0))
-    assert not within_auto_window(datetime(2026, 11, 3), datetime(2026, 11, 4))
-    assert not within_ask_window(datetime(2026, 11, 3), datetime(2026, 11, 5))  # G468: Tue to Thu
+    assert not within_ask_window(datetime(2026, 11, 3), datetime(2026, 11, 4))
     assert within_auto_window(datetime(2026, 11, 3), datetime(2026, 11, 3, 5)) and not within_auto_window(None, datetime(2026, 11, 3))
 
 
@@ -158,7 +156,7 @@ def test_review_offers_a_same_day_pair_with_no_name_and_not_a_next_day_one(monke
     _review_fakes(monkeypatch, [credit, debit], NO_ONE)
     items = asyncio.run(analytics._transfer_pair_suggestions(UID))
     assert [(i["credit"]["id"], i["debit"]["id"]) for i in items] == [("c1", "d1")]
-    late = {**credit, "date": datetime(2026, 11, 6, 12, 0)}  # G468: Tue to Fri
+    late = {**credit, "date": datetime(2026, 11, 4, 12, 0)}
     _review_fakes(monkeypatch, [late, debit], NO_ONE)
     assert asyncio.run(analytics._transfer_pair_suggestions(UID)) == []
 

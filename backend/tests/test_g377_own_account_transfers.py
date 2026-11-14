@@ -85,7 +85,7 @@ def test_only_the_same_calendar_day_pairs_between_current_accounts():
     # account's sort code and number in the text must be on the same day.
     credit = row("credit", "credit", "natwest", text="TO 11-22-33 12345678")
     same_day = row("same", "debit", "hsbc", text="TO 44-55-66 87654321", days=0)
-    next_day = row("next", "debit", "hsbc", text="TO 44-55-66 87654321", days=3)  # G468: NOW is a Saturday, so Mon 2 Nov is the next business day; Tue 3 Nov is beyond it
+    next_day = row("next", "debit", "hsbc", text="TO 44-55-66 87654321", days=1)
     at_five = row("five", "debit", "hsbc", text="TO 44-55-66 87654321", days=5)
     assert pairs([credit, same_day]) == [(credit, same_day)]
     assert pairs([credit, next_day]) == []
