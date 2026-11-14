@@ -1147,7 +1147,32 @@ def _auto_timing_flags(built: list[tuple[dict, dict, str | None]]) -> dict:
             for c, d, _ in built}
 
 
-async def _learn_repeated_series(pair_collection, user_id: str, series_seen: dict, learned_pairs: set) -> int:
+async def _dismissed_series_keys(preference_collection, user_id: str, by_id: dict) -> set:
+    """G468: the model-normaliser key pairs (prefixed, sorted, as `_learn_repeated_series`
+    sees them) of every pair the user dismissed in the review, from the same sources the
+    review reads: `dismissed_transfer_pairs` (ids, resolved through the rows in hand) and
+    the `separate_transfer_pair_reviews` snapshots (which carry the legs' descriptions)."""
+    prefs = await preference_collection.find_one(
+        {"user_id": user_id}, {"dismissed_transfer_pairs": 1, "separate_transfer_pair_reviews": 1}) or {}
+    out: set = set()
+
+    def add(credit: dict, debit: dict) -> None:
+        out.add(tuple(sorted(AI_KEY_PREFIX + k for k in ai_pair_keys(credit, debit))))
+    for pair_key in prefs.get("dismissed_transfer_pairs") or []:
+        ids = str(pair_key).split(":")
+        if len(ids) == 2 and ids[0] in by_id and ids[1] in by_id:
+            add(by_id[ids[0]], by_id[ids[1]])
+    snapshots = prefs.get("separate_transfer_pair_reviews") or []
+    if isinstance(snapshots, dict):
+        snapshots = [v for v in snapshots.values() if isinstance(v, dict)]
+    for snap in snapshots:
+        if isinstance(snap, dict) and isinstance(snap.get("credit"), dict) and isinstance(snap.get("debit"), dict):
+            add(snap["credit"], snap["debit"])
+    return out
+
+
+async def _learn_repeated_series(pair_collection, user_id: str, series_seen: dict, learned_pairs: set,
+                                 *, dismissed_keys: frozenset | set = frozenset(), blocked: frozenset = frozenset()) -> int:
     """G468 (Kevin 2026-11-14): a series the rules have filed twice becomes a learned
     pair, so every later occurrence matches at any date (nearest first, one to one)
     instead of needing the same-day or 24 hour window again. Written under the
@@ -1159,6 +1184,11 @@ async def _learn_repeated_series(pair_collection, user_id: str, series_seen: dic
     for pair_keys, members in series_seen.items():
         if len(members) < 2 or pair_keys in learned_pairs:
             continue
+        if pair_keys in dismissed_keys:
+            continue  # the user dismissed this series in the review: never learned, whenever more pairs appear
+        if blocked and any(pair_ids(c, d) in blocked or series_signature(c, d) in blocked
+                           or history_series_signature(c, d) in blocked for c, d in members):
+            continue  # a not_transfer or unclear verdict, or the user's undo, covers any member
         credit, debit = members[0]
         ka, kb = sorted(ai_pair_keys(credit, debit))
         if not learnable_pair_keys(ka, kb):
@@ -1594,7 +1624,9 @@ async def reconcile_own_account_transfers(
             if getattr(result, "modified_count", 0):
                 changed += 1
     if not confirmed_only:
-        await _learn_repeated_series(pair_collection, user_id, series_seen, learned_pairs)
+        dismissed_keys = await _dismissed_series_keys(preference_collection, user_id, by_id)
+        await _learn_repeated_series(pair_collection, user_id, series_seen, learned_pairs,
+                                     dismissed_keys=dismissed_keys, blocked=named_blocked)
     changed += await _apply_card_repayment_rules(transaction_collection, user_id, rows, rule_hits, selected_ids)
     for row, category in singles:
         prior = row.get("own_transfer_match") or {}

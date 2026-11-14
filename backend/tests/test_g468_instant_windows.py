@@ -221,6 +221,33 @@ def test_a_series_learned_pair_is_held_like_a_judged_pair_and_never_called_ai(mo
     _arun(run())
 
 
+def test_a_dismissed_series_is_never_learned_even_when_rule_filed_twice_later(monkeypatch):
+    rows = []
+    for m in range(3):
+        day = datetime(2026, 10, 1) + timedelta(days=7 * m)
+        rows.append(_row(f"d{m}", "debit", 90.0, "natw", day, "JORDAN HARTLEY HSBC STO"))
+        rows.append(_row(f"c{m}", "credit", 90.0, "hsbc", day, "HARTLEY J E HSBC"))
+
+    async def run():
+        async with mongo_env(monkeypatch, rows, accounts=ACCTS) as cols:
+            # the user dismissed the first occurrence in the review (what dismiss_transfer_pair writes)
+            await cols["preferences"].update_one(
+                {"user_id": UID}, {"$addToSet": {"dismissed_transfer_pairs": "c0:d0"}}, upsert=True)
+            await oat.reconcile_own_account_transfers(UID)
+            assert await cols["confirmed_transfer_pairs"].count_documents({}) == 0
+            # and by snapshot alone (the row no longer in the window)
+            await cols["preferences"].update_one(
+                {"user_id": UID}, {"$unset": {"dismissed_transfer_pairs": ""},
+                                   "$set": {"separate_transfer_pair_reviews": [{"pair_key": "x:y", "credit": dict(rows[1]), "debit": dict(rows[0])}]}})
+            await oat.reconcile_own_account_transfers(UID)
+            assert await cols["confirmed_transfer_pairs"].count_documents({}) == 0
+            # control: with no dismissal the same rows are learned
+            await cols["preferences"].update_one({"user_id": UID}, {"$unset": {"separate_transfer_pair_reviews": ""}})
+            await oat.reconcile_own_account_transfers(UID)
+            assert await cols["confirmed_transfer_pairs"].count_documents({"source": "series"}) == 1
+    _arun(run())
+
+
 def test_a_series_filed_once_is_not_learned(monkeypatch):
     rows = [_row("d0", "debit", 90.0, "natw", datetime(2026, 10, 1), "JORDAN HARTLEY HSBC STO"),
             _row("c0", "credit", 90.0, "hsbc", datetime(2026, 10, 1), "HARTLEY J E HSBC")]

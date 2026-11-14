@@ -259,3 +259,20 @@ def test_g451_newer_confirmation_survives_undo_unlearning_race(monkeypatch):
             assert all(row["category"] == "Transfer" and row["own_transfer_match"]["confirmed"] for row in actual)
             assert await cols["own_transfer_judgements"].count_documents({"kind": {"$in": ["pair", "undo"]}}) == 0
     asyncio.run(run())
+
+
+def test_g468_undo_removes_a_series_learned_pair_and_keeps_others(monkeypatch):
+    """The learned-pair delete query is `source in ["ai", "series"]`: a pair the rules learned
+    from a series filed twice (`source: "series"`) is unlearned with the series it came from."""
+    async def run():
+        rows = pair(0) + pair(1)
+        signature = oat.series_signature(rows[0], rows[1])
+        async with environment(monkeypatch, rows) as (cols, _):
+            aa, ab = oat.ai_pair_keys(rows[0], rows[1])
+            await cols["confirmed_transfer_pairs"].insert_one({"_id": "series-rule", "user_id": UID, "key_a": aa, "key_b": ab, "source": "series"})
+            await cols["confirmed_transfer_pairs"].insert_one({"_id": "unrelated", "user_id": UID, "key_a": "other incoming", "key_b": "other outgoing", "source": "series"})
+            out = await undo.undo_filed_series(UID, f"sorted:{signature}")
+            assert out["undone"] == 2
+            assert await cols["confirmed_transfer_pairs"].find_one({"_id": "series-rule"}) is None
+            assert await cols["confirmed_transfer_pairs"].find_one({"_id": "unrelated"})
+    asyncio.run(run())
