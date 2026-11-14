@@ -723,7 +723,7 @@ async def undo_series(uid: str, series_key: str) -> dict:
         if credit and debit:
             ka, kb = ai_pair_keys(credit, debit)
             await confirmed_transfer_pairs_col.delete_many(
-                {"user_id": uid, "key_a": ka, "key_b": kb, "source": "ai"})
+                {"user_id": uid, "key_a": ka, "key_b": kb, "source": {"$in": ["ai", "series"]}})
     await reconcile_own_account_transfers(uid)
     return {"undone": len(item["pairs"])}
 

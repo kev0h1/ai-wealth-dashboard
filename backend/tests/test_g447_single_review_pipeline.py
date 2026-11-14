@@ -229,23 +229,25 @@ def test_a_card_repayment_two_days_apart_is_still_matched_and_not_asked(monkeypa
     assert not oat.pair_timing_ok(far, rows[0], BY_ID)
 
 
-def test_a_learned_series_matches_on_any_date_nearest_first_one_to_one():
+def test_a_learned_series_matches_within_five_days_nearest_first_one_to_one():  # G468: capped at 5 days
     start = datetime(2026, 6, 1)
     rows = []
     for m in range(4):  # a monthly standing order whose credit lands a few days after the debit
         rows.append(_row(f"d{m}", "debit", 150.0, "natw", start + timedelta(days=30 * m), "JORDAN HARTLEY HSBC STO"))
-        rows.append(_row(f"c{m}", "credit", 150.0, "hsbc", start + timedelta(days=30 * m + (7 if m % 2 else 0)), "HARTLEY J E HSBC"))
+        rows.append(_row(f"c{m}", "credit", 150.0, "hsbc", start + timedelta(days=30 * m + (4 if m % 2 else 0)), "HARTLEY J E HSBC"))
     key = tuple(sorted((categorisation.canonical_merchant_key("", "HARTLEY J E HSBC"),
                         categorisation.canonical_merchant_key("", "JORDAN HARTLEY HSBC STO"))))
-    # no learned pair: only the same-day months pair, and the seven day ones do not
+    # no learned pair: only the same-day months pair, and the four day ones do not (beyond 3 days)
     plain = oat.select_unique_pairs(rows, BY_ID, TOKENS, set(), movement_categories={"Transfer"})
     assert sorted((c["_id"], d["_id"]) for c, d in plain) == [("c0", "d0"), ("c2", "d2")]
     learned = oat.select_unique_pairs(rows, BY_ID, TOKENS, {key}, movement_categories={"Transfer"})
     assert sorted((c["_id"], d["_id"]) for c, d in learned) == [(f"c{m}", f"d{m}") for m in range(4)]
-    # and a single credit weeks after its debit still matches once the pair is learned
+    # a single credit four days after its debit matches once the pair is learned, six days does not
     lone = [_row("ld", "debit", 99.0, "natw", start, "JORDAN HARTLEY HSBC STO"),
-            _row("lc", "credit", 99.0, "hsbc", start + timedelta(days=40), "HARTLEY J E HSBC")]
+            _row("lc", "credit", 99.0, "hsbc", start + timedelta(days=4), "HARTLEY J E HSBC")]
     assert [(c["_id"], d["_id"]) for c, d in oat.select_unique_pairs(lone, BY_ID, TOKENS, {key}, movement_categories={"Transfer"})] == [("lc", "ld")]
+    far = [lone[0], {**lone[1], "date": start + timedelta(days=6)}]
+    assert oat.select_unique_pairs(far, BY_ID, TOKENS, {key}, movement_categories={"Transfer"}) == []
     assert oat.select_unique_pairs(lone, BY_ID, TOKENS, set(), movement_categories={"Transfer"}) == []
 
 

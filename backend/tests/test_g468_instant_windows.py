@@ -142,6 +142,30 @@ def test_the_24_hour_window_is_exact_elapsed_time_in_bst_and_gmt():
     assert oat.within_auto_window(datetime(2026, 10, 24, 12, 0), datetime(2026, 10, 25, 12, 0))
 
 
+def test_learned_pairs_are_capped_at_five_days():
+    c = _row("c", "credit", 150.0, "hsbc", datetime(2026, 11, 9), "HARTLEY J E HSBC")
+    key = tuple(sorted((categorisation.canonical_merchant_key("", "HARTLEY J E HSBC"),
+                        categorisation.canonical_merchant_key("", "JORDAN HARTLEY HSBC STO"))))
+    five = _row("d", "debit", 150.0, "natw", datetime(2026, 11, 14), "JORDAN HARTLEY HSBC STO")
+    six = {**five, "date": datetime(2026, 11, 15, 1)}
+    assert oat.pair_timing_ok(c, five, BY_ID, {key})
+    assert not oat.pair_timing_ok(c, six, BY_ID, {key})
+    # a user-confirmed, a model-learned (prefixed) and a series pair are all in the same set and all capped
+    ai_key = tuple(sorted((oat.AI_KEY_PREFIX + oat.transfer_text_key(None, "HARTLEY J E HSBC"),
+                           oat.AI_KEY_PREFIX + oat.transfer_text_key(None, "JORDAN HARTLEY HSBC STO"))))
+    assert oat.pair_timing_ok(c, five, BY_ID, {ai_key}) and not oat.pair_timing_ok(c, six, BY_ID, {ai_key})
+
+
+def test_which_short_keys_may_be_learned():
+    ok = oat.learnable_pair_keys
+    assert ok("test", "k monzo test")                     # one short but specific key (prod shape)
+    assert not ok("test", "ft")                            # both generic
+    assert not ok("transfer", "ft") and not ok("to", "k monzo test") and not ok("pot", "k monzo test")
+    assert not ok("sto", "k monzo test") and not ok("from", "k monzo test") and not ok("savings", "k monzo test")
+    assert not ok("from savings", "k monzo test")          # only generic words
+    assert ok("acme rail", "hartley j e hsbc")             # ordinary long keys, as before
+
+
 def test_a_learned_series_matches_a_four_day_gap_and_card_repayments_keep_their_window():
     c = _row("c", "credit", 150.0, "hsbc", datetime(2026, 11, 9), "HARTLEY J E HSBC")
     d = _row("d", "debit", 150.0, "natw", datetime(2026, 11, 13), "JORDAN HARTLEY HSBC STO")
@@ -168,9 +192,32 @@ def test_a_series_filed_twice_by_rule_becomes_a_learned_pair(monkeypatch):
             assert await cols["confirmed_transfer_pairs"].count_documents({}) == 0
             await oat.reconcile_own_account_transfers(UID)
             learned = await cols["confirmed_transfer_pairs"].find({}).to_list(None)
-            assert len(learned) == 1 and learned[0]["source"] == "ai"
+            assert len(learned) == 1 and learned[0]["source"] == "series"  # never "ai": the model did not judge it
             await oat.reconcile_own_account_transfers(UID)  # idempotent
             assert await cols["confirmed_transfer_pairs"].count_documents({}) == 1
+    _arun(run())
+
+
+def test_a_series_learned_pair_is_held_like_a_judged_pair_and_never_called_ai(monkeypatch):
+    rows = []
+    for m in range(2):
+        day = datetime(2026, 10, 1) + timedelta(days=7 * m)
+        rows.append(_row(f"d{m}", "debit", 90.0, "natw", day, "JORDAN HARTLEY HSBC STO"))
+        rows.append(_row(f"c{m}", "credit", 90.0, "hsbc", day, "HARTLEY J E HSBC"))
+
+    async def run():
+        async with mongo_env(monkeypatch, rows, accounts=ACCTS) as cols:
+            await oat.reconcile_own_account_transfers(UID)
+            docs = await cols["confirmed_transfer_pairs"].find({}).to_list(None)
+            keys = oat._learned_pair_keys(docs)
+            assert all(k[0].startswith(oat.AI_KEY_PREFIX) for k in keys)   # held under the model's normaliser
+            # the rows it files are not stamped as the model's
+            stamped = await cols["transactions"].find({"own_transfer_match": {"$exists": True}}).to_list(None)
+            assert stamped and all((r["own_transfer_match"].get("source") in (None,)) for r in stamped)
+            # a user confirmation of the same pair removes it (like a judged pair)
+            ka, kb = oat.ai_pair_keys(rows[1], rows[0])
+            await cols["confirmed_transfer_pairs"].delete_many({"key_a": ka, "key_b": kb, "source": {"$in": ["ai", "series"]}})
+            assert await cols["confirmed_transfer_pairs"].count_documents({}) == 0
     _arun(run())
 
 

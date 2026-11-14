@@ -640,7 +640,7 @@ def _learned_pair_keys(rows: Iterable[dict]) -> set[tuple[str, str]]:
         a, b = str(row.get("key_a") or ""), str(row.get("key_b") or "")
         if not (a and b):
             continue
-        if row.get("source") == "ai":
+        if row.get("source") in ("ai", "series"):  # G468: a series-learned pair is held under the model's normaliser too
             a, b = AI_KEY_PREFIX + a, AI_KEY_PREFIX + b
         out.add(tuple(sorted((a, b))))
     return out
@@ -752,8 +752,7 @@ def pair_timing_ok(credit: dict, debit: dict, accounts: dict | None = None, lear
       automatically, everything else is an ask;
     - either leg on a credit card account: a repayment may span CARD_REPAY_DAYS
       calendar days (the G381 routes keep their own window), unchanged;
-    - a learned pair (the user's, the model's, or a confirmed series): any date,
-      unchanged.
+    - a learned pair (the user's, the model's, or a series): within PAIR_DAYS (5) days.
     `accounts` maps account id to an account-like dict; `learned` is the learned
     pair-key set; `keys` is an optional per-call cache for learned lookups."""
     c_date, d_date = credit.get("date"), debit.get("date")
@@ -766,7 +765,10 @@ def pair_timing_ok(credit: dict, debit: dict, accounts: dict | None = None, lear
     if (_is_card_account(accounts.get(credit.get("account_id"))) or _is_card_account(accounts.get(debit.get("account_id")))):
         if pair_gap_days(c_date, d_date) <= CARD_REPAY_DAYS:
             return True
-    return bool(learned) and learned_match(learned, credit, debit, keys)
+    # G468 (Kevin 2026-11-14): a learned pair (the user's, the model's, a series) matches
+    # within PAIR_DAYS days of the legs' earliest known instants, no longer on any date.
+    gap = pair_gap(credit, debit)
+    return bool(learned) and gap is not None and gap <= timedelta(days=PAIR_DAYS) and learned_match(learned, credit, debit, keys)
 
 
 def pair_is_named(credit: dict, debit: dict, identity: dict) -> bool:
@@ -805,6 +807,27 @@ def ai_verdict_for(identity: dict | None, credit: dict, debit: dict) -> str | No
 def pair_ids(credit: dict, debit: dict) -> frozenset:
     """The identity of one candidate pair: both stable transaction ids."""
     return frozenset((str(credit.get("_id")), str(debit.get("_id"))))
+
+
+SERIES_SOURCE = "series"  # G468: confirmed_transfer_pairs.source for a pair learned from a series the rules filed twice
+GENERIC_SHORT_WORDS = frozenset({"transfer", "payment", "ft", "fps", "bp", "so", "dd", "tfr", "trf", "from", "to", "savings", "pot"})
+
+
+def learnable_pair_keys(ka: str, kb: str) -> bool:
+    """G468: may this key pair be learned? `learned_match` compares the two normalised
+    keys ONLY (amount and account pair are checked by the pair builder, not by the
+    learned rule), so the rule is deliberately narrow: not both keys generic, and a key
+    the 6-character rule calls generic is allowed only when it is a short but specific
+    word (at least 3 characters, no channel code), and no key may be made only of generic
+    words (transfer, payment, from, to, savings, pot...)."""
+    if too_generic_to_learn(ka) and too_generic_to_learn(kb):
+        return False
+    for key in (ka, kb):
+        if all(w in GENERIC_SHORT_WORDS for w in key.lower().split()):
+            return False  # a key made only of generic words (transfer, payment, savings, pot...) never identifies a pair
+        if too_generic_to_learn(key) and (len(key) < 3 or key.upper() in _CHANNEL_CODES):
+            return False
+    return True
 
 
 def too_generic_to_learn(key: str) -> bool:
@@ -1128,9 +1151,9 @@ async def _learn_repeated_series(pair_collection, user_id: str, series_seen: dic
     """G468 (Kevin 2026-11-14): a series the rules have filed twice becomes a learned
     pair, so every later occurrence matches at any date (nearest first, one to one)
     instead of needing the same-day or 24 hour window again. Written under the
-    model's own keys with `source: "ai"`, exactly like a judged pair, so Undo and the
-    filed list already handle it. A pair whose two keys are both generic is never
-    learned (one specific key is enough: the pair is what is learned). Returns the
+    model's own keys with its own `source: "series"` (never "ai": the model did not judge
+    it); `_learned_pair_keys`, Undo and the confirm/judge overrides treat it like a judged
+    pair. See `learnable_pair_keys` for which keys may be learned. Returns the
     number of series written."""
     written = 0
     for pair_keys, members in series_seen.items():
@@ -1138,11 +1161,11 @@ async def _learn_repeated_series(pair_collection, user_id: str, series_seen: dic
             continue
         credit, debit = members[0]
         ka, kb = sorted(ai_pair_keys(credit, debit))
-        if too_generic_to_learn(ka) and too_generic_to_learn(kb):
+        if not learnable_pair_keys(ka, kb):
             continue
         await pair_collection.update_one(
             {"user_id": user_id, "key_a": ka, "key_b": kb},
-            {"$setOnInsert": {"user_id": user_id, "key_a": ka, "key_b": kb, "source": "ai",
+            {"$setOnInsert": {"user_id": user_id, "key_a": ka, "key_b": kb, "source": SERIES_SOURCE,
                               "created_at": datetime.utcnow()}},  # naive-ok: matches the confirm path's created_at
             upsert=True,
         )
@@ -1487,7 +1510,8 @@ async def reconcile_own_account_transfers(
     ai_same = frozenset(k for k, v in ai_verdicts.items() if v.get("verdict") == "same_transfer")
     named_blocked = frozenset() if confirmed_only else await load_ai_blocked(user_id, ai_verdicts, collection=judgement_collection)
     learned_pairs = _learned_pair_keys(learned_rows)
-    ai_learned = {k for k in learned_pairs if k[0].startswith(AI_KEY_PREFIX)}
+    series_learned = _learned_pair_keys([r for r in learned_rows if r.get("source") == "series"])
+    ai_learned = {k for k in learned_pairs if k[0].startswith(AI_KEY_PREFIX)} - series_learned  # G468: a series pair is the rules', not the model's
     # An unmarked confirmed_transfer_pairs record is the user's durable answer
     # (the confirm endpoint deliberately removes an old `source: ai`).  Keep
     # that provenance when it matches later occurrences, without treating any

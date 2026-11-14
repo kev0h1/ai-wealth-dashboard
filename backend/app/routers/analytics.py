@@ -7085,7 +7085,8 @@ async def confirm_transfer_pair(body: dict, user: dict = Depends(current_user)):
     key_b = canonical_merchant_key(debit_txn.get("merchant_name") or "", debit_txn.get("description") or "")
 
     learned = False
-    if not (_too_generic_to_learn(key_a) and _too_generic_to_learn(key_b)):  # G468: one specific key is enough, the pair is what is learned
+    from app.services.own_account_transfers import learnable_pair_keys
+    if learnable_pair_keys(key_a, key_b):  # G468: one short but specific key is allowed, see learnable_pair_keys
         ka, kb = sorted((key_a, key_b))
         await confirmed_transfer_pairs_col.update_one(
             {"user_id": uid, "key_a": ka, "key_b": kb},
@@ -7103,7 +7104,7 @@ async def confirm_transfer_pair(body: dict, user: dict = Depends(current_user)):
     # are stamped as the user's confirmation, never as the model's.
     from app.services.own_account_transfers import ai_pair_keys
     ai_a, ai_b = ai_pair_keys(credit_txn, debit_txn)
-    await confirmed_transfer_pairs_col.delete_many({"user_id": uid, "key_a": ai_a, "key_b": ai_b, "source": "ai"})
+    await confirmed_transfer_pairs_col.delete_many({"user_id": uid, "key_a": ai_a, "key_b": ai_b, "source": {"$in": ["ai", "series"]}})
 
     # A successful decision must be visible to the very next read, including
     # another API process or the shared response cache.
