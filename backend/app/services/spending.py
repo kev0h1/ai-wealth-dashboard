@@ -79,7 +79,7 @@ from app.services.categories import (
 from app.services.categorisation import canonical_merchant_key, own_transfer_evidence, user_identity
 from app.services.transfer_pruning import pair_pruned_reason
 from app.services.own_account_transfers import (
-    account_name_in_text, counterparty_key, is_direct_debit, pair_is_named, pair_timing_ok, user_set_movement, within_auto_window,
+    account_name_in_text, counterparty_key, is_direct_debit, pair_gap_days, pair_is_named, pair_timing_ok, user_set_movement, within_auto_window,
 )
 
 logger = logging.getLogger(__name__)
@@ -304,7 +304,7 @@ def _scan_own_moves(docs: list[dict], kinds, identity: dict | None = None) -> tu
                     continue
                 if not pair_timing_ok(cr, d, account_meta, learned_pairs, learned_keys):  # G447: same calendar day (card repayments a few days, learned pairs any date)
                     continue
-                gap = abs((cr["date"].date() - d["date"].date()).days)
+                gap = pair_gap_days(cr["date"], d["date"])  # G468: London days, so a same-day partner beats a next-business-day one
                 if named_income_only and not (
                     kind_of(kinds, _effective_category(cr)) == INCOME and pair_named(d, cr)
                 ):

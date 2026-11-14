@@ -79,13 +79,7 @@ _ai_recurring_cache: dict[str, tuple[datetime, list, str]] = {}
 def _ai_candidate_sig(candidates: list[dict]) -> str:
     return hashlib.sha256("\n".join(sorted(str(c.get("key")) for c in candidates)).encode()).hexdigest()
 
-# England & Wales bank holidays (static set; extend when new years published)
-UK_BANK_HOLIDAYS_EW: frozenset = frozenset({
-    "2026-01-01", "2026-04-03", "2026-04-06", "2026-05-04", "2026-05-25",
-    "2026-08-31", "2026-12-25", "2026-12-28",
-    "2027-01-01", "2027-03-26", "2027-03-29", "2027-05-03", "2027-05-31",
-    "2027-08-30", "2027-12-27", "2027-12-28",
-})
+from app.core.bank_days import UK_BANK_HOLIDAYS_EW  # G468: one England & Wales bank-holiday set
 PENDING_GIVE_UP_DAYS = 10       # unmatched bills stay visible past-due long enough for the day-5 ask to be seen and acted on before auto-drop
 ASK_PAST_DUE_DAYS = 5           # past-due bills escalate from quiet notice to an explicit ask at this age
 OBSERVATION_LOOKBACK_DAYS = 6   # real bills land up to 5 days before their anchor; 3 days caused paid bills to sit "pending" then be silently skipped

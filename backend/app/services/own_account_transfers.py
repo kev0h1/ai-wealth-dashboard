@@ -30,12 +30,13 @@ from app.services.card_names import last_four
 from app.services.categorisation import NUMERIC_DATE_RE, _CHANNEL_CODES, _NOT_INITIALS, _text_has_account_pair, canonical_merchant_key, name_matches_owner, own_transfer_evidence, series_key as _base_series_key, word_matches_name_token
 from app.services.categories import BUILTIN_CATEGORY_KINDS, MOVEMENT, get_category_kinds
 from app.core.timeutil import to_user_date
+from app.core.bank_days import next_business_day_after
 from app.services.transfer_pruning import pair_pruned_reason
 
 OWN_TRANSFER_MATCH_VERSION = 2
 # G447: bump whenever a pair rule changes (timing, pruning, verdict order, evidence), so the
 # stored transfers review (transfer_review_store) is rebuilt by the worker after the deploy.
-REVIEW_RULES_VERSION = 2  # G451: a whole-history Undo also covers later variable amounts.
+REVIEW_RULES_VERSION = 3  # G451: a whole-history Undo also covers later variable amounts. G468: 3 = the next-business-day cross-day timing window.
 logger = logging.getLogger(__name__)
 # G443: one history window for everything that reads pairs (reconcile, the model's
 # candidates). It was 90 days, which left a pair imported at the start of history
@@ -700,11 +701,26 @@ def same_calendar_day(a, b) -> bool:
     return to_user_date(a) == to_user_date(b)
 
 
+def next_business_day_window(a, b) -> bool:
+    """G468: the two legs fall on different London days but the later one is no
+    later than the next England & Wales business day after the earlier one (a
+    faster payment booked on Friday evening at one bank and posted with Monday's
+    date at the other; a Saturday booking and a Monday posting; the day before a
+    bank holiday and the next working day). Tuesday and Thursday is NOT ok."""
+    if not isinstance(a, datetime) or not isinstance(b, datetime):
+        return False
+    da, db = to_user_date(a), to_user_date(b)
+    early, late = (da, db) if da <= db else (db, da)
+    return late <= next_business_day_after(early)
+
+
 def pair_timing_ok(credit: dict, debit: dict, accounts: dict | None = None, learned=frozenset(),
                    keys: dict | None = None) -> bool:
     """G447 (Kevin 2026-11-09): may these two legs be a pair by DATE?
 
     - same London calendar day: yes (current to current);
+    - G468: or the later leg is no later than the next UK business day after the
+      earlier leg's London day (`next_business_day_window`);
     - either leg on a credit card account: a repayment may span CARD_REPAY_DAYS
       calendar days (the G381 routes keep their own window);
     - a learned pair (the user's, the model's, or a confirmed series): any date.
@@ -713,7 +729,7 @@ def pair_timing_ok(credit: dict, debit: dict, accounts: dict | None = None, lear
     c_date, d_date = credit.get("date"), debit.get("date")
     if not isinstance(c_date, datetime) or not isinstance(d_date, datetime):
         return False
-    if same_calendar_day(c_date, d_date):
+    if next_business_day_window(c_date, d_date):  # includes the same London day
         return True
     from app.services.transfer_pruning import _is_card_account
     accounts = accounts or {}
@@ -724,11 +740,12 @@ def pair_timing_ok(credit: dict, debit: dict, accounts: dict | None = None, lear
 
 
 def within_ask_window(a, b) -> bool:
-    """G447: the review's date test between current accounts is the same
-    calendar day. Kept under this name for callers that only have two dates
-    (it supersedes G440's three day window). Card repayments and learned series
-    use `pair_timing_ok`."""
-    return same_calendar_day(a, b)
+    """G447/G468: the review's date test between current accounts: the same
+    calendar day, or (G468) the next UK business day. Kept under this name for
+    callers that only have two dates. Card repayments and learned series use
+    `pair_timing_ok`. Automatic filing by name alone stays same-day only
+    (`within_auto_window`), so a cross-day name-only pair is asked."""
+    return next_business_day_window(a, b)
 
 
 def within_auto_window(a, b) -> bool:
@@ -1041,6 +1058,7 @@ def _same_amount_pairs(
         if issuer_key:
             cards_by_issuer.setdefault(issuer_key, []).append(account_id)
     learned_keys: dict = {}
+    found: list[tuple[dict, dict, str | None]] = []
     amount_rows: dict[tuple[str, Decimal], list[dict]] = {}
     for row in rows:
         key = _pair_key(row)
@@ -1067,7 +1085,20 @@ def _same_amount_pairs(
                     and not counterparty_matches_account(debit, accounts.get(credit.get("account_id")))
                     and not counterparty_matches_account(credit, accounts.get(debit.get("account_id")))):
                 continue  # G443: bank facts rule it out (a card purchase, a business, a third institution)
-            yield credit, debit, issuer
+            found.append((credit, debit, issuer))
+    # G468: a same-day candidate outranks a cross-day one. A cross-day pair (not a
+    # card repayment, not a learned any-date match) is dropped when either of its
+    # legs has a same-day candidate, so the later leg never makes the pair ambiguous.
+    same_day_ids: set = set()
+    for credit, debit, issuer in found:
+        if same_calendar_day(credit.get("date"), debit.get("date")):
+            same_day_ids.update((credit["_id"], debit["_id"]))
+    for credit, debit, issuer in found:
+        if (issuer is None and not same_calendar_day(credit.get("date"), debit.get("date"))
+                and (credit["_id"] in same_day_ids or debit["_id"] in same_day_ids)
+                and not (learned and learned_match(learned, credit, debit, learned_keys))):
+            continue
+        yield credit, debit, issuer
 
 
 def _unique_only(candidates: list[tuple[dict, dict, str | None]]) -> list[tuple[dict, dict, str | None]]:
