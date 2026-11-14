@@ -1434,7 +1434,8 @@ async def apply_rules_bulk(user_id: str, structural: bool = False) -> int:
             {"description": 1, "merchant_name": 1, "amount": 1, "currency": 1,
              "transaction_type": 1, "date": 1, "category": 1,
              "account_id": 1, "custom_category": 1, "own_transfer_match": 1,
-             "bank_code": 1},
+             "bank_code": 1,
+             "first_seen": 1, "activity_date": 1},  # G468: the earliest known instant times a leg
         ).to_list(None)
         all_txns = [{**row, "currency": str(row.get("currency") or pair_accounts.get(row.get("account_id"), {}).get("currency") or "").upper()} for row in all_txns]
         learned_docs = await confirmed_transfer_pairs_col.find(

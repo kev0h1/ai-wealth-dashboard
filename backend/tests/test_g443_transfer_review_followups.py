@@ -413,7 +413,7 @@ def test_series_single_legs_pure_rule_near_start_only():
     # a possible counterpart on the SAME DAY (G447) hands the leg to the pair rules
     counterpart = _row("cp", "credit", 50.0, "hsbc", edge["date"], "ANYTHING")
     # ... while one on another day is no pair, so the leg is still filed as a single
-    off_day = _row("od", "credit", 50.0, "hsbc", edge["date"] + timedelta(days=1), "ANYTHING")
+    off_day = _row("od", "credit", 50.0, "hsbc", edge["date"] + timedelta(days=4), "ANYTHING")  # G468: beyond 3 days
     assert [r["_id"] for r, _ in oat.series_single_legs(ev, {"barc": [edge], "hsbc": [off_day]})] == ["edge"]
     assert [r["_id"] for r, _ in oat.series_single_legs(ev, {"barc": [edge], "hsbc": [counterpart]})] == []
     # a direct debit is never filed here

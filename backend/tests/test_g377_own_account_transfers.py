@@ -81,11 +81,12 @@ def test_zero_nan_infinite_and_unknown_currency_values_never_form_pair():
 
 
 def test_only_the_same_calendar_day_pairs_between_current_accounts():
-    # G447 (Kevin 2026-11-09) replaced the five day window: even a pair with the other
-    # account's sort code and number in the text must be on the same day.
+    # G468 (Kevin 2026-11-14) replaced G447's same-day rule: counterparty evidence files a
+    # pair only within 24 hours of the earliest known instants (and as the single candidate);
+    # beyond that up to 3 days it is an ask, and beyond 3 days there is no pair.
     credit = row("credit", "credit", "natwest", text="TO 11-22-33 12345678")
     same_day = row("same", "debit", "hsbc", text="TO 44-55-66 87654321", days=0)
-    next_day = row("next", "debit", "hsbc", text="TO 44-55-66 87654321", days=1)
+    next_day = row("next", "debit", "hsbc", text="TO 44-55-66 87654321", days=2)  # 48 h: an ask, not automatic
     at_five = row("five", "debit", "hsbc", text="TO 44-55-66 87654321", days=5)
     assert pairs([credit, same_day]) == [(credit, same_day)]
     assert pairs([credit, next_day]) == []

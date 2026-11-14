@@ -95,7 +95,7 @@ ALLOWED_LEG_FIELDS = frozenset({
 _PROJECTION = {
     "account_id": 1, "amount": 1, "currency": 1, "date": 1, "transaction_type": 1,
     "merchant_name": 1, "description": 1, "category": 1, "custom_category": 1,
-    "is_pending": 1, "own_transfer_match": 1,
+    "is_pending": 1, "own_transfer_match": 1, "first_seen": 1, "activity_date": 1,
     "party_name": 1, "party_sort_code": 1, "party_number": 1, "reference": 1, "bank_code": 1,
 }
 
