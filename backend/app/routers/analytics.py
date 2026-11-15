@@ -6699,7 +6699,36 @@ def _has_pair_evidence(c: dict, d: dict, identity: dict, credit_claims_move: boo
         return True
     if (c_evidence or d_evidence) and _is_distinctive_amount(c.get("amount")):
         return True
+    # G469 (Kevin 2026-11-14): Kevin's rule on its own is a question, however plain the text:
+    # current accounts, the same London day, opposite directions, the same amount, and the
+    # model has not answered (capped, skipped, or not yet run). Never left silently as income;
+    # still an ask, never automatic. A not_transfer verdict returned False above.
+    if verdict is None and _unjudged_same_day_current_pair(c, d, identity):
+        return True
     return False
+
+
+_NOT_CURRENT_WORDS = ("saving", "isa", "pot", "card", "credit", "loan", "mortgage", "debt", "invest", "pension")
+
+
+def _is_current_like(meta: dict | None) -> bool:
+    """A known account that is not a card, savings, pot, loan or investment."""
+    if not meta:
+        return False
+    values = " ".join(str(meta.get(k) or "").lower() for k in ("type", "subtype", "account_type"))
+    return not any(w in values for w in _NOT_CURRENT_WORDS)
+
+
+def _unjudged_same_day_current_pair(c: dict, d: dict, identity: dict) -> bool:
+    from app.services.own_account_transfers import leg_instant, same_calendar_day
+    meta = identity.get("account_meta") or {}
+    if str(c.get("account_id")) == str(d.get("account_id")):
+        return False
+    if not (_is_current_like(meta.get(str(c.get("account_id")))) and _is_current_like(meta.get(str(d.get("account_id"))))):
+        return False
+    if c.get("transaction_type") != "credit" or d.get("transaction_type") != "debit":
+        return False
+    return same_calendar_day(leg_instant(c), leg_instant(d))
 
 
 def _has_named_bank_transfer_reference(credit: dict, debit: dict, accounts: dict) -> bool:
