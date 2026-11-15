@@ -161,3 +161,39 @@ def distinct_account_label(acc: dict, all_accounts: list[dict], user_tokens: lis
     if kind.lower() in label.lower() or kind == "account":
         return label
     return f"{label} {kind}"
+
+
+def is_holder_named_account(acc: dict, user_tokens: list[str] | None = None) -> bool:
+    """G473: True when the account's own name is a person's name: a leading
+    title (Mr, Mrs, Ms, Miss, Dr and the like followed by a name), the user's
+    own saved name, or surname plus initials. With no saved name tokens it
+    falls back to the token-free look-alike test."""
+    from app.services.companion import _is_holder_named
+    from app.services.penny_consolidation import _looks_like_person
+
+    display = display_account_name(acc.get("name"))
+    if not display:
+        return False
+    return _is_holder_named(display, user_tokens) or (not user_tokens and _looks_like_person(display))
+
+
+def holder_safe_name(acc: dict, user_tokens: list[str] | None = None) -> str | None:
+    """G473: THE name for a holder-named account anywhere a person's name must
+    not be printed (move pushes, Home and Upcoming move cards). Returns None
+    when the account is not named after a person, so callers keep its own
+    name. Otherwise: the user's nickname for it when one is set (and is not
+    itself a person's name), else "<Bank> <kind>", for example "Barclays
+    current account". Capitalised, for use as a name or after "to" or "from";
+    a sentence that needs "your" builds on `distinct_account_label`."""
+    from app.services.companion import _bank_name_of
+
+    if not is_holder_named_account(acc, user_tokens):
+        return None
+    nick = " ".join(str(acc.get("nickname") or "").split())
+    if nick:
+        probe = {"name": nick}
+        if not is_holder_named_account(probe, user_tokens):
+            return nick
+    bank = _bank_name_of(acc.get("provider") or acc.get("institution_id"))
+    kind = _kind_word(acc)
+    return f"{bank} {kind}" if bank else kind[:1].upper() + kind[1:]

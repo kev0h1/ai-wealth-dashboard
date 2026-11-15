@@ -26,6 +26,8 @@ import json
 import logging
 from datetime import datetime, timedelta, timezone
 
+from types import SimpleNamespace
+
 import pytest
 from fastapi import HTTPException
 from pymongo.errors import DuplicateKeyError
@@ -105,12 +107,13 @@ class _FakeCol:
                 d.update(update.get("$set") or {})
                 for key in (update.get("$unset") or {}):
                     d.pop(key, None)
-                return
+                return SimpleNamespace(matched_count=1, modified_count=1)
         if upsert:
             new_doc = dict(filt)
             new_doc.update(update.get("$set") or {})
             new_doc.update(update.get("$setOnInsert") or {})
             self.docs.append(new_doc)
+        return SimpleNamespace(matched_count=0, modified_count=0)
 
     async def find_one_and_update(self, filt, update, upsert=False, return_document=None):
         for d in self.docs:

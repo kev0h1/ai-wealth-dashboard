@@ -1,5 +1,6 @@
 import { Capacitor } from "@capacitor/core";
 import { getToken } from "./auth";
+import { getInstallId } from "./installId";
 import { isAppLocked } from "./appLock";
 import { invalidateEndpoint, TRANSACTIONS_CHANGED_KEYS } from "./endpointCache";
 import { LEGACY_BANK_AVAILABLE, LEGACY_BANK_ID } from "./legacyBankProvider";
@@ -4547,7 +4548,7 @@ export const api = {
     fetch(`${API_BASE}/push/apns/register`, {
       method: "POST",
       headers: { "Content-Type": "application/json", ...authHeaders() },
-      body: JSON.stringify({ token, platform }),
+      body: JSON.stringify({ token, platform, install_id: getInstallId() ?? undefined }),
     }).then((r) => toJson<{ ok: boolean }>(r)),
 
   unregisterApnsToken: (token: string) =>
@@ -4564,7 +4565,7 @@ export const api = {
     fetch(`${API_BASE}/push/fcm/register`, {
       method: "POST",
       headers: { "Content-Type": "application/json", ...authHeaders() },
-      body: JSON.stringify({ token, platform }),
+      body: JSON.stringify({ token, platform, install_id: getInstallId() ?? undefined }),
     }).then((r) => toJson<{ ok: boolean }>(r)),
 
   unregisterFcmToken: (token: string) =>

@@ -36,7 +36,7 @@ from app.routers.analytics import (
     stamp_credit_basis,
 )
 from app.routers.allocations import list_active_allocations
-from app.services.account_names import display_account_name, distinct_account_label
+from app.services.account_names import display_account_name, distinct_account_label, holder_safe_name
 from app.services.counted_accounts import is_excluded
 from app.services.account_kinds import (
     is_credit_card_account,
@@ -2750,9 +2750,28 @@ async def compute_today_items(
     # footnote and as `display_label` on the card's route endpoints.
     _label_accounts = all_uk_accounts + offline_accounts
 
+    # G473: the user's own name words, so an account named after its holder is
+    # recognised even without a title, and so every surface labels it the same.
+    _holder_tokens: list[str] = []
+    try:
+        _holder_prof = await user_profiles_col.find_one(
+            {"_id": uid}, {"name_tokens": 1, "full_name": 1}
+        ) or {}
+        _holder_tokens = list(_holder_prof.get("name_tokens") or [])
+        if not _holder_tokens:
+            _holder_tokens = re.findall(r"[a-z']+", str(_holder_prof.get("full_name") or "").lower())
+    except Exception as _ht_exc:  # profile is optional; titles still work
+        log.warning("holder name tokens lookup failed for %s: %s", uid, type(_ht_exc).__name__)
+
     def _dl(acct_id: str | None) -> str | None:
         _acc = _account_map.get(str(acct_id or ""))
-        return distinct_account_label(_acc, _label_accounts) if _acc else None
+        if not _acc:
+            return None
+        # A holder-named account with a nickname is its nickname everywhere.
+        _safe = holder_safe_name(_acc, _holder_tokens)
+        if _safe and " ".join(str(_acc.get("nickname") or "").split()) == _safe:
+            return _safe
+        return distinct_account_label(_acc, _label_accounts, _holder_tokens or None)
     reserved_by_source = await _reserved_for_allocations(uid, resp["internal_inflows"], _account_map)
     # No guess when there is no salary account: an assumed goal (no stored or
     # inferred source) then reserves nowhere, like `_plan_source_needs` where
@@ -3286,7 +3305,7 @@ async def compute_today_items(
             return out
 
         def _make_leg(sid, acc, leg_amount):
-            src_name = _clean_name(acc.get("name"), sid)
+            src_name = holder_safe_name(acc, _holder_tokens) or _clean_name(acc.get("name"), sid)
             src_balance = live_balances.get(sid, float(acc.get("balance") or 0))
             src_provider = _provider_of(acc)
             src_own_bills = acct_bills_total.get(sid, 0.0)
@@ -3458,7 +3477,7 @@ async def compute_today_items(
         dest_balance = live_balances.get(dest_acct, 0.0)
         for acc in all_uk_accounts:
             if acc["_str_id"] == dest_acct:
-                dest_name = _clean_name(acc.get("name"), dest_name)
+                dest_name = holder_safe_name(acc, _holder_tokens) or _clean_name(acc.get("name"), dest_name)
                 dest_provider = _provider_of(acc)
                 dest_balance = live_balances.get(dest_acct, float(acc.get("balance") or 0))
                 break

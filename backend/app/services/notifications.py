@@ -12,12 +12,15 @@ longer send their own push — they return what's newly true, and
 one plain push (only one fired), or nothing, all landing on "/" (home, where
 both the payday plan and the move recommendation cards live).
 """
+import hashlib
 import logging
 import math
 import os
 import re
 from datetime import datetime, timedelta
 from datetime import date as _date
+
+from pymongo.errors import DuplicateKeyError
 
 from app.core import timeutil
 
@@ -94,6 +97,82 @@ NOTIF_DEFAULTS = {
 # considered Penny feature — not built now.
 
 
+
+# ---------------------------------------------------------------------
+# G473: atomic push claims.
+#
+# Overlapping syncs (per-consent reconciles finishing in the same second) used
+# to read notification_state, send, and only then write the dedupe marker, so
+# both runs sent. A claim is taken BEFORE sending with one conditional write
+# whose filter requires the key to be absent; Mongo applies it atomically, so
+# exactly one concurrent caller sees it succeed and only that caller sends.
+#
+# Claims live in notification_state.<user>.claims.<sha1 of the key>, so they
+# need no new collection or index and are erased with the user's state doc
+# (notification_state is already in the erasure manifest). The key is hashed
+# because category names and ids can contain dots, which are path separators
+# in a Mongo update.
+# ---------------------------------------------------------------------
+
+
+def _claim_field(key: str) -> str:
+    return "claims." + hashlib.sha1(key.encode("utf-8")).hexdigest()[:24]
+
+
+async def claim_push(user_id: str, key: str) -> bool:
+    """Atomically claim the right to send the push identified by `key` for this
+    user. True for exactly one caller per (user, key) until it is released."""
+    field = _claim_field(key)
+    try:
+        res = await notification_state_col.update_one(
+            {"_id": user_id, field: {"$exists": False}},
+            {"$set": {field: datetime.utcnow().isoformat()}},
+            upsert=True,
+        )
+    except DuplicateKeyError:
+        # The state doc exists and already carries the claim: with upsert, a
+        # non-matching filter turns into an insert that collides on _id.
+        return False
+    return bool(getattr(res, "modified_count", 0) or getattr(res, "upserted_id", None))
+
+
+async def release_push_claim(user_id: str, key: str) -> None:
+    """Give a claim back so a later run can retry the push."""
+    await notification_state_col.update_one(
+        {"_id": user_id}, {"$unset": {_claim_field(key): ""}},
+    )
+
+
+def _hard_failure(result) -> bool:
+    """True when a send was attempted at one or more devices and none got it."""
+    if not isinstance(result, dict):
+        return False
+    attempted = delivered = 0
+    for ch in result.values():
+        if isinstance(ch, dict):
+            attempted += int(ch.get("attempted") or 0)
+            delivered += int(ch.get("delivered") or 0)
+    return attempted > 0 and delivered == 0
+
+
+async def send_claimed(user_id: str, claim_keys: list[str], title: str, body: str, url: str) -> bool:
+    """Send a push whose `claim_keys` the caller already holds. A hard failure
+    (the send raised, or every attempted device failed) releases the claims so
+    the next run retries; a success, or a user with no devices to try, keeps
+    them. Returns True when the claims were kept."""
+    try:
+        result = await send_push_to_user(user_id, title, body, url)
+    except Exception:
+        for k in claim_keys:
+            await release_push_claim(user_id, k)
+        raise
+    if _hard_failure(result):
+        for k in claim_keys:
+            await release_push_claim(user_id, k)
+        return False
+    return True
+
+
 async def notif_pref(user_id: str, key: str) -> bool:
     doc = await preferences_col.find_one({"user_id": user_id}, {"notification_prefs": 1})
     prefs = (doc or {}).get("notification_prefs") or {}
@@ -138,8 +217,25 @@ async def notify_after_sync(user_id: str, new_txns: list) -> None:
 
 
 async def _maybe_transactions(user_id: str, new_txns: list) -> None:
-    if new_txns and await notif_pref(user_id, "transactions"):
+    if not (new_txns and await notif_pref(user_id, "transactions")):
+        return
+    # G473: claim on the exact set of transaction ids so a re-delivered batch
+    # (an overlapping sync reporting the same new rows) is pushed once. A batch
+    # with any row lacking an id is sent unclaimed, as before.
+    ids = [str(t.get("_id") or t.get("transaction_id") or t.get("id") or "") for t in new_txns]
+    if not all(ids):
         await notify_new_transactions(user_id, new_txns)
+        return
+    claim = "txns:" + hashlib.sha1("|".join(sorted(ids)).encode("utf-8")).hexdigest()
+    if not await claim_push(user_id, claim):
+        return
+    try:
+        result = await notify_new_transactions(user_id, new_txns)
+    except Exception:
+        await release_push_claim(user_id, claim)
+        raise
+    if _hard_failure(result):
+        await release_push_claim(user_id, claim)
 
 
 async def _maybe_goal_funded(user_id: str) -> None:
@@ -170,12 +266,17 @@ async def _maybe_goal_funded(user_id: str) -> None:
     # scheme from (no category/merchant evidence, just a SavingsGoal), so it
     # lands on home instead, the same "/" every other money-movement push in
     # this file already uses.
-    await send_push_to_user(
-        user_id,
+    claim = f"goal_funded:{target_key}"
+    if not await claim_push(user_id, claim):
+        return  # G473: a concurrent run already holds this push
+    kept = await send_claimed(
+        user_id, [claim],
         "Savings goal reached",
         f"You've hit your {sym}{target:,.0f} safety-net target. Nicely done.",
         "/",
     )
+    if not kept:
+        return  # hard failure: claim released, no state, the next run retries
     await notification_state_col.update_one(
         {"_id": user_id}, {"$set": {"goal_funded": target_key}}, upsert=True,
     )
@@ -203,6 +304,14 @@ async def _maybe_new_insights(user_id: str) -> None:
 
     seen = set(state.get("seen_insights") or [])
     fresh = [i for i in insights if i.id not in seen]
+    # G473: claim each fresh insight before sending; only the claimant sends.
+    claims: list[str] = []
+    claimed_fresh = []
+    for i in fresh:
+        if await claim_push(user_id, f"insight:{i.id}"):
+            claims.append(f"insight:{i.id}")
+            claimed_fresh.append(i)
+    fresh = claimed_fresh
     if fresh:
         top = max(fresh, key=lambda i: i.impact)
         title = "New money insight" if len(fresh) == 1 else f"{len(fresh)} new money insights"
@@ -212,7 +321,8 @@ async def _maybe_new_insights(user_id: str) -> None:
         # or merchant evidence to build that link from, so it can't point
         # at the tip the way HomeInsightSpotlight.tsx's own SavingsInsight
         # deep link does.
-        await send_push_to_user(user_id, title, top.title, "/spend")
+        if not await send_claimed(user_id, claims, title, top.title, "/spend"):
+            return  # hard failure: claims released, baseline untouched, retry next run
     await notification_state_col.update_one(
         {"_id": user_id}, {"$set": {"seen_insights": current_ids}}, upsert=True,
     )
@@ -278,7 +388,19 @@ async def _maybe_move_recommendation(
     already = set(state.get("move_recommended") or [])
     current_ids = {m["id"] for m in moves}
 
-    new_moves = [m for m in moves if m["id"] not in already]
+    new_moves = []
+    for m in moves:
+        if m["id"] in already:
+            continue
+        # G473: only the run that wins the claim reports this move as new.
+        if await claim_push(user_id, f"move:{m['id']}"):
+            new_moves.append(m)
+
+    # A move that stopped being emitted may legitimately come back later and
+    # be new again (state below is replaced, not appended to), so its claim
+    # goes with it.
+    for gone in already - current_ids:
+        await release_push_claim(user_id, f"move:{gone}")
 
     if current_ids != already:
         await notification_state_col.update_one(
@@ -368,6 +490,8 @@ async def _maybe_bill_shortfall(user_id: str, covered_dest_accts: set[str] | Non
         name = b["name"]
         if name in already:
             continue
+        if not await claim_push(user_id, f"bill:{period_key}:{name}"):
+            continue  # G473: a concurrent run is sending this one
         new_bills.append({**b, "body": _bill_shortfall_body(b, sym)})
         newly.append(name)
 
@@ -522,6 +646,8 @@ async def _maybe_plan_shortfall(
     for sid, gap in gaps.items():
         if sid in already:
             continue
+        if not await claim_push(user_id, f"plan:{period_key}:{sid}"):
+            continue  # G473: a concurrent run is sending this one
         try:
             name, bank = await _plan_shortfall_label(sid)
         except Exception:
@@ -700,8 +826,18 @@ async def _maybe_category_pace(user_id: str) -> None:
             continue
         line = _pace_line(multiple, excess, days_elapsed, sym)
         body = line[0].upper() + line[1:]
-        await send_push_to_user(user_id, f"{cat} is running hot", body, "/spend")
-        newly.append(cat)
+        # G473: claim BEFORE sending. Two overlapping syncs both read `already`
+        # above, so the read is only a cheap pre-filter; the claim decides.
+        claim = f"pace:{period_key}:{cat}"
+        if not await claim_push(user_id, claim):
+            continue
+        try:
+            kept = await send_claimed(user_id, [claim], f"{cat} is running hot", body, "/spend")
+        except Exception as e:
+            log.warning("category pace push failed for %s: %s", user_id, e)
+            continue
+        if kept:
+            newly.append(cat)
 
     if not newly:
         return
@@ -846,7 +982,18 @@ async def _maybe_classification_attention(user_id: str) -> None:
         return
 
     body = _classification_body(new_unplaced, new_miscategorised, new_pairs)
-    await send_push_to_user(user_id, "Some payments need a look", body, "/spend")
+    # G473: the claim is keyed on exactly what this push is about, so two runs
+    # that both see the same new items collide and one of them sends.
+    digest = hashlib.sha1(
+        "|".join(
+            ["u"] + sorted(new_unplaced) + ["m"] + sorted(new_miscategorised) + ["p"] + sorted(new_pairs)
+        ).encode("utf-8")
+    ).hexdigest()
+    claim = f"classification:{digest}"
+    if not await claim_push(user_id, claim):
+        return
+    if not await send_claimed(user_id, [claim], "Some payments need a look", body, "/spend"):
+        return  # hard failure: claim released and the seen sets untouched, retry next run
 
     if new_unplaced or new_miscategorised:
         updates[seen_key] = sorted(seen | all_current)
@@ -897,7 +1044,11 @@ async def send_period_digest(user_id: str) -> None:
     body = " · ".join(parts)
     if len(body) > 175:
         body = body[:172] + "…"
-    await send_push_to_user(user_id, "New pay period: fresh start", body, "/")
+    claim = f"digest:{start.isoformat()}"
+    if not await claim_push(user_id, claim):
+        return  # G473: a concurrent run is sending this period's digest
+    if not await send_claimed(user_id, [claim], "New pay period: fresh start", body, "/"):
+        return
     await notification_state_col.update_one(
         {"_id": user_id}, {"$set": {"last_digest_period": start.isoformat()}}, upsert=True,
     )
@@ -926,7 +1077,13 @@ async def send_period_digest(user_id: str) -> None:
             if push_body and len(push_body) > 130:
                 push_body = push_body[:127] + "…"
             if push_body:
-                await send_push_to_user(user_id, push_headline, push_body, "/month/story?which=last")
+                needle_claim = f"needle:{needle_id}"
+                if not await claim_push(user_id, needle_claim):
+                    return  # G473: a concurrent run is sending it
+                if not await send_claimed(
+                    user_id, [needle_claim], push_headline, push_body, "/month/story?which=last",
+                ):
+                    return
             await needle_history_col.update_one(
                 {"_id": needle_id},
                 {"$set": {"pushed": True, "pushed_at": datetime.utcnow().isoformat()}},

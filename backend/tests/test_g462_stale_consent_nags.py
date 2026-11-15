@@ -25,6 +25,11 @@ class Col:
                     if (k in d) != v["$exists"]:
                         return False
                     continue
+                if "$not" in v:  # G473: {"$not": {"$gt": x}} matches missing, null or <= x
+                    cur = d.get(k)
+                    if cur is not None and cur > v["$not"].get("$gt", cur):
+                        return False
+                    continue
                 if "$ne" in v:
                     if d.get(k) == v["$ne"]:
                         return False
