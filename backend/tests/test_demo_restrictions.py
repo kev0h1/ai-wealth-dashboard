@@ -66,6 +66,8 @@ MOUNTED_GUARDED = [
     ("POST", "/auth/identities/apple"), ("DELETE", "/auth/identities/apple"), ("DELETE", "/connections/{connection_id}"),
     ("POST", "/billing/checkout"), ("POST", "/billing/portal"), ("POST", "/billing/apple/verify"),
     ("GET", "/billing/apple/account-token"), ("POST", "/billing/play/purchase"), ("POST", "/subscription/select-free"),
+    # G470: a paid model reads an uploaded document; the demo identity has none of its own.
+    ("POST", "/card-terms/extract"),
 ]
 
 
@@ -210,6 +212,7 @@ DEMO_ALLOWED = {
     ("POST", "/card-terms/{account_id}/payment-history"): _R6,
     ("POST", "/card-terms/{account_id}/payment-match-preview"): _R6,
     ("POST", "/card-terms/{account_id}/rates"): _R6,
+    ("POST", "/card-terms/{account_id}/offers/confirm"): _R6,  # G470: writes the demo's own synthetic card terms
     ("DELETE", "/card-terms/{account_id}/statement-amount"): _R6,
     ("POST", "/card-terms/{account_id}/statement-amount"): _R6,
     ("POST", "/cashflow/apply-rule"): _R9,

@@ -161,6 +161,8 @@ EXPENSIVE_PREFIXES = (
     # wrong order would give sync-history no budget of its own, silently
     # folding it into plain sync's bucket instead.
     "/accounts/sync-history", "/accounts/sync",
+    # G470: a paid model reads each uploaded document.
+    "/card-terms/extract",
 )
 EXPENSIVE_USER_LIMIT = (30, 60)
 
