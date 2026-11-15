@@ -6699,7 +6699,36 @@ def _has_pair_evidence(c: dict, d: dict, identity: dict, credit_claims_move: boo
         return True
     if (c_evidence or d_evidence) and _is_distinctive_amount(c.get("amount")):
         return True
+    # Same-day, same-amount coincidences between two current accounts are accepted as asks by Kevin's rule (G469); dismissal is permanent.
+    # G469 (Kevin 2026-11-14): Kevin's rule on its own is a question, however plain the text:
+    # current accounts, the same London day, opposite directions, the same amount, and the
+    # model has not answered (capped, skipped, or not yet run). Never left silently as income;
+    # still an ask, never automatic. A not_transfer verdict returned False above.
+    if verdict is None and _unjudged_same_day_current_pair(c, d, identity):
+        return True
     return False
+
+
+def _is_current_like(meta: dict | None) -> bool:
+    """A positive current-account signal from the shared classifier (services/account_kinds.py,
+    the one G456 and G438 use): empty metadata never qualifies, and never a card, savings or loan."""
+    if not meta:
+        return False
+    from app.services.account_kinds import is_credit_card_account, is_current_account, is_debt_account, is_savings_account
+    return (is_current_account(meta) and not is_credit_card_account(meta)
+            and not is_savings_account(meta) and not is_debt_account(meta))
+
+
+def _unjudged_same_day_current_pair(c: dict, d: dict, identity: dict) -> bool:
+    from app.services.own_account_transfers import leg_instant, same_calendar_day
+    meta = identity.get("account_meta") or {}
+    if str(c.get("account_id")) == str(d.get("account_id")):
+        return False
+    if not (_is_current_like(meta.get(str(c.get("account_id")))) and _is_current_like(meta.get(str(d.get("account_id"))))):
+        return False
+    if c.get("transaction_type") != "credit" or d.get("transaction_type") != "debit":
+        return False
+    return same_calendar_day(leg_instant(c), leg_instant(d))
 
 
 def _has_named_bank_transfer_reference(credit: dict, debit: dict, accounts: dict) -> bool:

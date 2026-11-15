@@ -161,7 +161,7 @@ async def _enrich(uid: str, now: datetime) -> dict:
     out: dict = {
         "plan": None, "plan_status": None, "trial_ends_at": None, "on_trial": False,
         "banks_connected": None, "accounts": None, "last_sync": None,
-        "penny_messages_this_month": None,
+        "penny_messages_this_month": None, "transfer_matcher": None,
     }
     try:
         from app.core.subscription import get_subscription
@@ -190,6 +190,11 @@ async def _enrich(uid: str, now: datetime) -> dict:
         out["penny_messages_this_month"] = int((await penny_allowance(uid, persist=False)).get("used") or 0)
     except Exception:
         logger.warning("ops_people: penny usage lookup failed for %s", mask_email(uid))
+    try:
+        from app.services.own_transfer_judge import matcher_state
+        out["transfer_matcher"] = await matcher_state(uid)  # G469: counts and dates only
+    except Exception:
+        logger.warning("ops_people: transfer matcher lookup failed for %s", mask_email(uid))
     return out
 
 
@@ -257,7 +262,7 @@ async def _rows(cursor: str | None) -> tuple[list[dict], str | None]:
         else:
             row.update({"plan": None, "plan_status": None, "trial_ends_at": None, "on_trial": False,
                         "banks_connected": None, "accounts": None, "last_sync": None,
-                        "penny_messages_this_month": None})
+                        "penny_messages_this_month": None, "transfer_matcher": None})
         return row
 
     return list(await asyncio.gather(*(build(k) for k in page))), next_cursor

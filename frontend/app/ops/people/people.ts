@@ -200,3 +200,13 @@ export function planLabel(p: OpsPerson): string {
   if (!p.signed_up || !p.plan) return "None";
   return p.on_trial ? `${p.plan}, on trial` : p.plan;
 }
+
+// G469: one line for the transfer matcher, counts and dates only.
+export function matcherLabel(p: OpsPerson): string {
+  const m = p.transfer_matcher;
+  if (!m) return "None";
+  const run = m.last_run;
+  const sent = `${m.sent_this_month} of ${m.monthly_cap} pairs sent this month`;
+  if (!run) return `${sent}, no run yet`;
+  return `${sent}, last run ${run.status} (${run.candidates} candidates, ${run.judged} judged), ${m.waiting} waiting`;
+}
