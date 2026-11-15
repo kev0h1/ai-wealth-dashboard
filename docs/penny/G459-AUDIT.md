@@ -63,6 +63,7 @@ Location: `backend/tests/penny_eval/` (`world.py` fixtures and fake executor, `h
 | Group | Cases |
 | --- | --- |
 | The challenge thread | `chal-01-maths` (first amount and total), `chal-02-yes-after-long-reply` (short Yes, closing question cut), `chal-03-track-payment-out-of-pot` (no such tool), `chal-04a/b/c` (the "already tracks" claim when tracking is hidden, shown as off, shown as on; 04c is the positive control), `chal-05-full-thread-live` (all three turns on the model's own replies) |
+| Card rates and offers (G472) | `card-01-set-purchase-rate`, `card-02-add-one-offer`, `card-03-update-offer-by-id`, `card-04-remove-offer-by-id` (one small tool each, never a whole-list save), `card-05-never-invents-a-rate` (no recorded rate, none stated), `card-06-add-offer-without-a-rate-asks` (asks, proposes nothing) |
 | Grounding | `grd-01` invented card values, `grd-02` pending read as done, `grd-03` total from tools, `grd-04` degraded figure, `grd-05` no data no figure |
 | Context | `ctx-01` fourth item of a list cut at 300, `ctx-02` pronoun control, `ctx-03` do not re-ask what was given |
 | Tools | `tool-01` custom category, `tool-02` edit not create, `tool-03` no tool changes the pay-from account, `tool-04` money answer needs a tool, `tool-05` next bill |
