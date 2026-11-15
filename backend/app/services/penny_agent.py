@@ -86,7 +86,7 @@ from app.core.llm import LLMCeilingReached, openrouter_chat
 from app.services import penny_chart, penny_focus, penny_move_plan, penny_period, penny_reply_guards, penny_table
 from app.db.collections import preferences_col
 from app.services.penny_tools import (
-    PROPOSE_TOOL_NAMES, PROPOSE_TOOL_SCHEMAS, TOOL_SCHEMAS, execute_tool,
+    CARD_OFFER_TOOL_NAMES, PROPOSE_TOOL_NAMES, PROPOSE_TOOL_SCHEMAS, TOOL_SCHEMAS, execute_tool,
     revoke_agent_consent, visible_tool_schemas,
 )
 
@@ -665,7 +665,16 @@ _WRITE_TOOLS_ADDENDUM = (
     "or kind in the user's words ('my Monzo current account') is a valid account reference: pass it "
     "as it was said. Never choose the source account yourself and never say the user chose something "
     "they did not say. When the tool returns `convert_decision` or `existing_match`, offer to convert "
-    "the existing set-aside (or change the existing goal) and wait for the answer before calling again."
+    "the existing set-aside (or change the existing goal) and wait for the answer before calling again.\n"
+    "23. Card rates and offers: never state a card's rate, an offer's rate, the balance on an offer or "
+    "its end date unless get_accounts returned it for that card (card_terms) or the user typed it in this "
+    "conversation. If it is not there, say it is not recorded and ask for it, never fill it in from what "
+    "is typical. To change ONE thing use propose_set_card_rates (purchase and cash rate), "
+    "propose_add_card_offer, propose_update_card_offer or propose_remove_card_offer, never a whole-list "
+    "propose_set_card_terms for a single change. Update and remove need the offer's id exactly as "
+    "get_accounts shows it, never one you made up. A card is named by its name, bank or last 4 digits, and "
+    "if more than one card could match, ask which. Every rate and balance you pass must be a number the "
+    "user typed; the tools refuse any other and ask for it."
 )
 
 # Date grounding, 2026-08-30 (found while verifying the elliptical-follow-up
@@ -1216,7 +1225,7 @@ async def run_penny_agent(
                                 name, uid,
                             )
                             return {"consent_required": True}
-                        if name == "propose_set_card_apr":
+                        if name == "propose_set_card_apr" or name in CARD_OFFER_TOOL_NAMES:  # G472: rates must be the user's own typed numbers
                             # Owner doctrine amendment #2, 2026-08-30
                             # (verbatim-provenance rule, see
                             # PENNY_TOOLS.md): the builder in penny_tools.py

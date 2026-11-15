@@ -278,6 +278,51 @@ CASES = [
          ])]),
 ]
 
+CARD_CASES = [
+    # ---- G472: one card rate or offer at a time (Skyline Card and Northbank are invented) ----
+    dict(id="card-01-set-purchase-rate", tags=["tools", "grounding", "card"], screen="accounts", world={},
+         description="A typed rate on a named card uses the small rates tool, not a whole-terms save.",
+         turns=[dict(user="Set my Skyline Card purchase rate to 23.2%", checks=[
+             tools_all("tools", "proposes the rate change", "propose_set_card_rates"),
+             tools_none("tools", "does not resend the whole terms", "propose_set_card_terms", "propose_set_card_apr"),
+             figures("every figure was typed by the user or returned by a tool", extra=[23.2]),
+         ])]),
+    dict(id="card-02-add-one-offer", tags=["tools", "card"], screen="accounts", world={},
+         description="Adding one offer uses the add tool, never a replacement of the whole promo list.",
+         turns=[dict(user="Add a 0% balance transfer of £1,455 on my Skyline Card ending 1 June 2028", checks=[
+             tools_all("tools", "proposes one new offer", "propose_add_card_offer"),
+             tools_none("tools", "does not replace the list", "propose_set_card_terms"),
+             figures("every figure was typed by the user or returned by a tool", extra=[1455, 0, 2028]),
+         ])]),
+    dict(id="card-03-update-offer-by-id", tags=["tools", "card"], screen="accounts", world={"card_offers": True},
+         description="Changing a balance reads the card for the offer id first, then updates that one offer by id.",
+         turns=[dict(user="The balance on my Skyline Card 0% balance transfer is down to £1,200 now", checks=[
+             tools_all("tools", "reads the card then updates the offer", "get_accounts", "propose_update_card_offer"),
+             tools_none("tools", "does not resend the whole list", "propose_set_card_terms", "propose_add_card_offer"),
+             figures("every figure was typed by the user or returned by a tool", extra=[1200]),
+         ])]),
+    dict(id="card-04-remove-offer-by-id", tags=["tools", "card"], screen="accounts", world={"card_offers": True},
+         description="Removing an offer reads the card for its id and removes only that offer.",
+         turns=[dict(user="Remove the balance transfer offer from my Skyline Card", checks=[
+             tools_all("tools", "reads the card then removes the offer", "get_accounts", "propose_remove_card_offer"),
+             tools_none("tools", "does not resend the whole list", "propose_set_card_terms"),
+         ])]),
+    dict(id="card-05-never-invents-a-rate", tags=["grounding", "card"], screen="accounts", world={},
+         description="The card has no recorded rate. Penny says it is not recorded and never offers a typical figure.",
+         turns=[dict(user="What is the purchase rate on my Skyline Card?", checks=[
+             tools_all("tools", "reads the card", "get_accounts"),
+             figures("no rate that no tool returned"),
+             rx_any("grounding", "says it is not recorded", r"not recorded|no rate|isn.?t (recorded|set|saved)|don.?t (have|see)|haven.?t (got|been)|not (set|saved|shown)|can.?t see"),
+         ])]),
+    dict(id="card-06-add-offer-without-a-rate-asks", tags=["grounding", "needless_question", "card"], screen="accounts", world={},
+         description="The user gave no rate for the new offer. Penny asks for it and proposes nothing.",
+         turns=[dict(user="Add a balance transfer offer to my Skyline Card", checks=[
+             tools_none("grounding", "does not propose an offer with an invented rate", "propose_add_card_offer"),
+             rx_any("needless_question", "asks for the missing rate", r"\?"),
+         ])]),
+]
+CASES.extend(CARD_CASES)
+
 
 def live_turn_count() -> int:
     return sum(1 for c in CASES for t in c["turns"] if t.get("checks"))

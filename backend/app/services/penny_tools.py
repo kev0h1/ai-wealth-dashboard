@@ -8596,6 +8596,9 @@ async def execute_tool(uid: str, name: str, args: dict) -> dict:
         if name == "propose_connect_bank":
             from app.services.penny_connect_bank import exec_propose_connect_bank
             return await exec_propose_connect_bank(uid, args.get("bank"))
+        if name in CARD_OFFER_TOOL_NAMES:  # G472: one card rate or offer at a time
+            from app.services.penny_card_offers import PROPOSE_EXECUTORS as _CARD_OFFER_EXECUTORS
+            return await _CARD_OFFER_EXECUTORS[name](uid, args)
         if name == "get_pay_split":
             from app.services.penny_pay_split import exec_get_pay_split
             return await exec_get_pay_split(uid, args.get("reference"))
@@ -8828,6 +8831,15 @@ def visible_tool_schemas(schemas: list) -> list:
         return list(schemas)
     return [t for t in schemas if t["function"]["name"] not in TIP_TOOL_NAMES]
 
+
+# G472: four small card rate and offer tools, appended last so no line above moves.
+from app.services.penny_card_offers import (  # noqa: E402
+    CARD_OFFER_SCHEMAS, CARD_OFFER_TOOL_NAMES, add_offer_fields_to_whole_list_schema,
+)
+
+PROPOSE_TOOL_SCHEMAS.extend(CARD_OFFER_SCHEMAS)
+add_offer_fields_to_whole_list_schema(next(t for t in PROPOSE_TOOL_SCHEMAS if t["function"]["name"] == "propose_set_card_terms"))
+PROPOSE_TOOL_NAMES = frozenset(t["function"]["name"] for t in PROPOSE_TOOL_SCHEMAS)  # rebuilt after the G472 append
 
 _execute_tool_unguarded = execute_tool
 

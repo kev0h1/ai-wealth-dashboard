@@ -43,6 +43,14 @@ def bills_list():
             ("Council tax", 138.00, "2026-11-18"), ("Gym", 32.00, "2026-11-19"), ("Phone", 19.50, "2026-11-20")]
 
 
+# G472: what get_accounts shows for a card with one recorded offer (ids as the server assigns them).
+CARD_TERMS = {
+    "apr_pct": 22.9, "cash_apr_pct": 27.9, "rates_as_of": "2026-11-01", "status": "confirmed",
+    "promos": [{"id": "pa1b2c3d4e", "kind": "balance_transfer", "offer_type": "balance_transfer", "apr_pct": 0.0,
+                "balance": 1455.0, "until": "2028-06-01", "revert_apr_pct": 24.9, "as_of": "2026-11-01"}],
+}
+
+
 def base_fixtures(opts: dict) -> dict:
     degraded = bool(opts.get("degraded"))
     return {
@@ -58,7 +66,8 @@ def base_fixtures(opts: dict) -> dict:
             {"id": "n1", "name": f"{BANK} Current", "kind": "Current", "balance": _m(1840.20)},
             {"id": "n2", "name": f"{BANK} Savings", "kind": "Savings", "balance": _m(3200.00)},
             {"id": "n3", "name": GOAL, "kind": "Savings pot", "parent": f"{BANK} Current", "balance": _m(468.00)},
-            {"id": "n4", "name": "Skyline Card", "kind": "Credit", "balance": _m(-640.00)},
+            {"id": "n4", "name": "Skyline Card", "kind": "Credit", "balance": _m(-640.00),
+             **({"card_terms": CARD_TERMS} if opts.get("card_offers") else {})},
         ]},
         "get_set_asides": {"set_asides": [
             {"id": "sa1", "name": GARDEN, "target": _m(35), "filled": _m(0), "remaining": _m(35), "status": "active"},
