@@ -131,7 +131,7 @@ export default function CardOffersClient() {
     timerRef.current = setTimeout(() => { setBusy(false); navigate("review"); }, 650);
   }
 
-  function confirm() {
+  function confirmDetails() {
     const errors: Record<string, string> = {};
     const validRate = (value: string | number) => /^\d+(\.\d{1,2})?$/.test(String(value)) && Number(value) <= 100;
     if (!validRate(purchaseApr)) errors.purchase = "Enter a purchase APR from 0 to 100%.";
@@ -247,7 +247,7 @@ export default function CardOffersClient() {
             <button type="button" className={styles.button} onClick={() => fileName ? beginReview(sourceKind) : fileRef.current?.click()}>{fileName ? "Preview with example values" : "Choose a file"}<ArrowRight size={16} aria-hidden="true" /></button>
           </>}
         </section><div className={styles.examplePanel}><h2>Try the fictional examples</h2><p>Explore the review without uploading anything. The example always contains two separate balance-transfer offers.</p><button type="button" className={styles.exampleButton} disabled={busy} onClick={() => beginReview("pdf")}><FileText size={22} aria-hidden="true" /><span><strong>Statement PDF</strong><small>Two offers and standard rates</small></span><ArrowRight size={16} aria-hidden="true" /></button><button type="button" className={styles.exampleButton} disabled={busy} onClick={() => beginReview("image")}><ImageIcon size={22} aria-hidden="true" /><span><strong>Card-app screenshot</strong><small>Balance and exact end dates</small></span><ArrowRight size={16} aria-hidden="true" /></button></div></div>}
-        {isReview && <form className={styles.reviewForm} noValidate onSubmit={event => { event.preventDefault(); confirm(); }}>
+        {isReview && <form className={styles.reviewForm} noValidate onSubmit={event => { event.preventDefault(); confirmDetails(); }}>
           <div className={styles.reviewSourceHeader}><FileText size={21} aria-hidden="true" /><div><strong>{sourceFile}</strong><span>Example source · {drafts.length} offers found · not saved</span></div></div>
           <div className={variant === "b" ? styles.reviewBeside : styles.reviewStack}>
             <div className={styles.sourcePanel}><details open={variant === "b"}><summary>Read the source extract<ChevronDown size={16} aria-hidden="true" /></summary><div className={styles.sourcePaper}><span className={styles.sourceStamp}>FICTIONAL EXAMPLE</span><h2>Harbour Platinum</h2><p>Card ending 4826 · 12 November 2026</p>{hidden ? <p>Source amounts are hidden. Use Show figures to read the extract.</p> : <><div className={styles.sourceTable}><div><span>Promotional offers</span><span>Balance</span><span>Ends</span></div><div><span>Balance transfer · 0%</span><span className={styles.money}>{formatGBP(OFFERS[0].balance)}</span><span>{screen === "needs-check" ? "Not shown" : formatDate(OFFERS[0].endDate)}</span></div><div><span>Balance transfer · 0%</span><span className={styles.money}>{formatGBP(OFFERS[1].balance)}</span><span>{formatDate(OFFERS[1].endDate)}</span></div></div><p>Purchase APR 23.9% · Cash APR 29.9%</p><p>After the promotion: {screen === "needs-check" ? "not shown for the first offer" : "23.9% APR"}.</p></>}<p>{sourceKind === "pdf" ? "Recreated text from page 2 of the fictional statement." : "Recreated text from image 1 of the fictional card app."} The original upload is not retained.</p></div></details></div>
