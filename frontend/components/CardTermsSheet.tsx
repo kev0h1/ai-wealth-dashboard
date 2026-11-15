@@ -9,6 +9,7 @@ import Spinner from "@/components/Spinner";
 import MoneyText from "@/components/MoneyText";
 import { SheetFrame } from "@/components/SheetFrame";
 import { DateField } from "@/components/DatePicker";
+import { preserveCardPromo } from "@/lib/cardOfferReview";
 
 interface CardTermsSheetProps {
   /** All the user's credit cards, from GET /card-terms */
@@ -114,7 +115,7 @@ function parseMonthValue(v: string, base: 0 | 1): { year: number | null; month: 
 type Phase = "loading" | "found" | "candidates" | "manual";
 type ManualPrompt = "notfound" | "different" | "candidates" | "edit";
 type BtOfferDraft = { month: number | null; year: number | null; fee: string; note: string; originalEnds?: string | null };
-type PromoDraft = { kind: CardPromoKind | null; month: number | null; year: number | null; rate: string; originalUntil?: string };
+type PromoDraft = { kind: CardPromoKind | null; month: number | null; year: number | null; rate: string; originalUntil?: string; original?: CardPromo };
 
 function buildBtOffers(rows: BtOfferDraft[], btOffer: boolean | null): BtOffer[] {
   if (btOffer !== true) return [];
@@ -169,7 +170,7 @@ function draftFor(card: CardTermsCard | null): CardDraft {
       promoOn: promos.length > 0 ? true : null,
       promoRows: promos.map((p: CardPromo) => {
         const d = new Date(`${p.until}T00:00:00`);
-        return { kind: p.kind, originalUntil: p.until, month: d.getMonth() + 1, year: d.getFullYear(), rate: p.apr_pct === 0 ? "" : String(p.apr_pct) };
+        return { kind: p.kind, originalUntil: p.until, original: p, month: d.getMonth() + 1, year: d.getFullYear(), rate: p.apr_pct === 0 ? "" : String(p.apr_pct) };
       }),
       btOffer: existingOffers.length > 0 ? true : null,
       btOffers: existingOffers.map((o: BtOffer) => {
@@ -330,8 +331,9 @@ export default function CardTermsSheet({ cards, ready, startAccountId, onClose, 
         }
         if (r.rate.trim()) {
           const rv = parseFloat(r.rate);
-          if (!isFinite(rv) || rv < 0 || rv > 30) {
-            setError("Deal rates are small, enter 0 to 30.");
+          const maximum = r.original && [r.original.offer_type, r.original.balance, r.original.revert_apr_pct, r.original.as_of].some(value => value != null) ? 100 : 30;
+          if (!isFinite(rv) || rv < 0 || rv > maximum) {
+            setError(`Enter a deal rate from 0 to ${maximum}%.`);
             return;
           }
         }
@@ -340,9 +342,10 @@ export default function CardTermsSheet({ cards, ready, startAccountId, onClose, 
       const seen = new Set<string>();
       for (const r of nonBlankRows) {
         if (r.kind != null && r.month != null && r.year != null) {
-          const key = `${r.kind}|${r.year}-${r.month}`;
+          const end = r.originalUntil && monthValue(r.year, r.month, 1) === r.originalUntil.slice(0, 7) ? r.originalUntil : endOfMonthIso(r.year, r.month - 1);
+          const key = `${r.kind}|${end}|${r.original?.offer_type ?? ""}|${r.original?.balance ?? ""}`;
           if (seen.has(key)) {
-            setError("Two deals of the same kind need different end dates.");
+            setError("Two identical deals cannot be saved. Update one of them instead.");
             return;
           }
           seen.add(key);
@@ -352,7 +355,7 @@ export default function CardTermsSheet({ cards, ready, startAccountId, onClose, 
 
     const builtPromos: CardPromo[] = nonBlankRows
       .filter(r => r.kind != null && r.month != null && r.year != null)
-      .map(r => ({
+      .map(r => preserveCardPromo(r.original, {
         kind: r.kind!,
         apr_pct: r.rate.trim() ? Math.round(parseFloat(r.rate) * 100) / 100 : 0,
         until: r.originalUntil && monthValue(r.year, r.month, 1) === r.originalUntil.slice(0, 7) ? r.originalUntil : endOfMonthIso(r.year!, r.month! - 1),

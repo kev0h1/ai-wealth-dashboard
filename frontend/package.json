@@ -250,6 +250,7 @@
     "check:g444-card-bill-edit": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g444-card-bill-edit.test.mjs",
     "check:g441-card-bill-unknown": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g441-card-bill-unknown.test.mjs",
     "check:g419-card-payment": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g419-card-payment.test.mjs",
+    "check:g471-card-offers": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g471-card-offers.test.mjs",
     "check:g448-no-move-lines": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g448-no-move-lines.test.mjs",
     "check:g411-home-skeleton": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g411-home-skeleton.test.mjs",
     "check:g407-account-detail": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g407-account-detail.test.mjs",

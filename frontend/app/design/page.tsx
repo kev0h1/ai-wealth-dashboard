@@ -32,14 +32,6 @@ type PreviewRoute = {
 
 const ROUTES: PreviewRoute[] = [
   {
-    slug: "card-offers",
-    name: "Card offers: upload, check and expiry · G471",
-    description: "Two design directions: A Expiry cards, B Expiry diary. Each includes the Rates and deals upload entry, PDF or screenshot examples, editable values with source evidence, explicit confirmation and offers per card or across cards in expiry order. Missing dates stay unknown. Fictional data fixed at 15 November 2026; local interactions only, no files read or stored and no live card changes.",
-    variants: [{ label: "A · Expiry cards", value: "a" }, { label: "B · Expiry diary", value: "b" }],
-    states: [{ label: "Offers", value: "offers" }, { label: "Rates and deals", value: "rates" }, { label: "Upload", value: "upload" }, { label: "Review", value: "review" }, { label: "Missing date", value: "needs-check" }, { label: "No offers", value: "empty" }, { label: "Upload problem", value: "error" }, { label: "Ended offer", value: "expired" }, { label: "Reading file", value: "loading" }],
-    group: "current",
-  },
-  {
     slug: "play-extras",
     name: "Google Play extras · C42",
     description: "A 30-second landscape C22 product film with original sound and English captions, plus a launch template and two text-free promotional image examples. Both themes, exact-size downloads, crop-safe guides and event conditions. Fictional production UI; review before upload.",

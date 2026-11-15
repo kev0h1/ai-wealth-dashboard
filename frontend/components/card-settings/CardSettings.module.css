@@ -93,3 +93,23 @@
 .working summary { justify-content:space-between; gap:12px; }
 .working summary svg { flex-shrink:0; }
 .working[open] summary svg { transform:rotate(180deg); }
+.ratesOverview { gap:28px; }
+.overviewHeading { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; }
+.overviewHeading .link { flex:0 0 auto; }
+.rateReadouts { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }
+.rateReadouts>div,.overviewOffer { border:1px solid var(--line); border-radius:12px; padding:12px; background:var(--field); }
+.rateReadouts span,.overviewOffer span,.overviewOffer small { display:block; color:var(--secondary); font-size:12px; }
+.rateReadouts strong { display:block; margin-top:3px; font-size:15px; font-weight:700; }
+.offerList { display:flex; flex-direction:column; gap:8px; }
+.overviewOffer strong { display:block; font-size:13px; font-weight:700; }
+.overviewOffer span { margin-top:3px; }
+.overviewOffer small { margin-top:6px; overflow-wrap:anywhere; }
+.hiddenAmount { min-height:48px; display:flex; align-items:center; padding:10px 12px; border-radius:12px; background:var(--field); color:var(--secondary); font-size:13px; }
+.uploadEntry { width:100%; min-height:68px; display:flex; align-items:center; gap:12px; padding:12px; text-align:left; border:1px solid var(--line); border-radius:12px; color:var(--accent); }
+.uploadEntry svg { flex:0 0 auto; }
+.uploadEntry span { min-width:0; flex:1; }
+.uploadEntry strong,.uploadEntry small { display:block; }
+.uploadEntry strong { font-size:14px; font-weight:700; }
+.uploadEntry small { margin-top:3px; color:var(--secondary); font-size:12px; line-height:1.4; }
+.uploadEntry:disabled { color:var(--muted); cursor:not-allowed; opacity:.8; }
+@media (max-width:359px) { .rateReadouts { grid-template-columns:1fr; } }
