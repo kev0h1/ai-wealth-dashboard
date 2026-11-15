@@ -112,7 +112,7 @@ def test_pdf_extraction_parses_the_fake_model_reply(fake_model):
     assert (p["issuer"], p["last4"], p["statement_date"]) == ("Zenith Bank", "7788", "2026-11-01")
     assert (p["purchase_apr_pct"], p["cash_apr_pct"]) == (23.9, 29.9)
     assert p["offers"][0] == {"offer_type": "balance_transfer", "apr_pct": 0.0, "balance": 1234.5,
-                              "ends": "2030-08-01", "revert_apr_pct": 23.9}
+                              "ends": "2030-08-01", "revert_apr_pct": 23.9, "match": None}
     assert out["match"]["status"] == "matched" and out["match"]["account_id"] == "c1"
     body, kw = calls[0]
     assert body["model"] == "google/gemini-2.5-flash" and kw["pipeline"] == "card_offer_extract"
@@ -275,8 +275,8 @@ def test_extract_endpoint_size_and_monthly_cap(stores, fake_model):
         asyncio.run(card_terms.extract_card_offers(_Upload(b"x" * (extract.MAX_BYTES + 1)), "", USER))
     assert e.value.status_code == 413
     from datetime import datetime, timezone
-    ym = datetime.now(timezone.utc).strftime("%Y-%m")
-    usage.docs.extend({"user_id": UID, "pipeline": "card_offer_extract", "year_month": ym}
+    now = datetime.now(timezone.utc)
+    usage.docs.extend({"user_id": UID, "pipeline": "card_offer_extract", "ts": now}
                       for _ in range(extract.MONTHLY_EXTRACT_CAP))
     with pytest.raises(HTTPException) as e:
         asyncio.run(card_terms.extract_card_offers(_Upload(_png()), "", USER))
@@ -331,7 +331,6 @@ def test_confirm_rejects_bad_top_level_fields(stores, over, field):
 @pytest.mark.parametrize("offer", [
     dict(offer_type="purchase", apr_pct=120, ends="@200"),
     dict(offer_type="purchase", apr_pct=0, balance=-1, ends="@200"),
-    dict(offer_type="purchase", apr_pct=0, ends="2020-01-01"),
     dict(offer_type="purchase", apr_pct=0, ends="2030-02-31"),
     dict(offer_type="purchase", apr_pct=0, ends="@200", revert_apr_pct=101),
 ])
@@ -362,15 +361,20 @@ def test_old_documents_still_read(stores):
            "promos": [{"kind": "purchases", "apr_pct": 0.0, "until": "2030-01-01"}],
            "bt_offers": [{"ends": "2030-01-01", "fee_pct": 3.0, "note": None}], "status": "confirmed"}
     t = card_terms._serialize_terms(old)
-    assert t["promos"] == old["promos"] and t["bt_offers"] == old["bt_offers"]
+    assert [{k: v for k, v in p.items() if k != "id"} for p in t["promos"]] == old["promos"]
+    assert t["bt_offers"] == old["bt_offers"]
+    assert t["promos"][0]["id"] == card_terms._serialize_terms(old)["promos"][0]["id"]  # stable across reads
     assert t["cash_apr_pct"] is None and t["rates_as_of"] is None
     legacy = card_terms._serialize_terms({"on_promo": True, "promo_kind": "purchases", "promo_end": "2030-01-01"})
-    assert legacy["promos"] == [{"kind": "purchases", "apr_pct": 0.0, "until": "2030-01-01"}]
+    assert [{k: v for k, v in p.items() if k != "id"} for p in legacy["promos"]] == [
+        {"kind": "purchases", "apr_pct": 0.0, "until": "2030-01-01"}]
 
 
 def test_old_style_promo_normalises_to_the_same_shape_as_before():
     body = card_terms.CardTermsBody(promos=[card_terms.CardPromo(kind="purchases", apr_pct=0, until=_end(30))])
-    assert card_terms._normalise_promos(body) == [{"kind": "purchases", "apr_pct": 0.0, "until": _end(30)}]
+    out = card_terms._normalise_promos(body)
+    assert [{k: v for k, v in p.items() if k != "id"} for p in out] == [{"kind": "purchases", "apr_pct": 0.0, "until": _end(30)}]
+    assert out[0]["id"]
     with pytest.raises(HTTPException):
         card_terms._normalise_promos(card_terms.CardTermsBody(
             promos=[card_terms.CardPromo(kind="purchases", apr_pct=31, until=_end(30))]))
@@ -394,3 +398,161 @@ def test_readers_ignore_the_extra_offer_fields(stores):
     segs, std = debt_plan._compute_rate_schedule(timeutil.user_today(), terms.docs[0], flags)
     assert std == 23.9
     assert segs[0]["source"] == "promo" and segs[0]["kind"] == "balance_transfer" and segs[-1]["source"] == "standard"
+
+
+# ---- merge, ids, ended offers, caps (review round) -------------------------------
+
+def _seed(terms, promos):
+    terms.docs.append({"_id": f"{UID}:c1", "user_id": UID, "account_id": "c1", "apr_pct": 20.0,
+                       "promos": promos, "bt_offers": [], "status": "confirmed"})
+
+
+def _p(kind, until, apr=0.0, **extra):
+    return {"kind": kind, "apr_pct": apr, "until": until, **extra}
+
+
+def _ids(terms):
+    return [p["id"] for p in terms.docs[0]["promos"]]
+
+
+def test_a_single_offer_confirm_keeps_the_other_existing_promos(stores):
+    terms, *_ = stores
+    _seed(terms, [_p("purchases", _end(100)), _p("balance_transfer", _end(300))])
+    one = card_terms.OfferConfirm(offer_type="money_transfer", apr_pct=0, balance=50, ends=_end(500))
+    out = _confirm(_body(offers=[one], purchase_apr_pct=None, cash_apr_pct=None, statement_date=None))
+    assert len(out["terms"]["promos"]) == 3
+    assert {p["until"] for p in terms.docs[0]["promos"]} >= {_end(100), _end(300), _end(500)}
+
+
+def test_update_by_id_changes_only_that_promo(stores):
+    terms, *_ = stores
+    _seed(terms, [_p("purchases", _end(100)), _p("balance_transfer", _end(300))])
+    target = card_terms._serialize_terms(terms.docs[0])["promos"][1]["id"]
+    upd = card_terms.OfferConfirm(id=target, offer_type="balance_transfer", apr_pct=0, balance=999, ends=_end(310))
+    _confirm(_body(offers=[upd]))
+    promos = terms.docs[0]["promos"]
+    assert len(promos) == 2 and promos[1]["id"] == target and promos[1]["balance"] == 999 and promos[1]["until"] == _end(310)
+    assert promos[0]["until"] == _end(100)
+
+
+def test_explicit_removal_only(stores):
+    terms, *_ = stores
+    _seed(terms, [_p("purchases", _end(100)), _p("balance_transfer", _end(300))])
+    first, second = [p["id"] for p in card_terms._serialize_terms(terms.docs[0])["promos"]]
+    _confirm(card_terms.OffersConfirmBody(remove_ids=[first]))
+    assert _ids(terms) == [second]
+
+
+def test_a_foreign_or_unknown_id_is_rejected(stores):
+    terms, *_ = stores
+    _seed(terms, [_p("purchases", _end(100))])
+    bad = card_terms.OfferConfirm(id="pnotmine", offer_type="purchase", apr_pct=0, ends=_end(50))
+    with pytest.raises(HTTPException) as e:
+        _confirm(card_terms.OffersConfirmBody(offers=[bad]))
+    assert e.value.status_code == 400
+    with pytest.raises(HTTPException) as e:
+        _confirm(card_terms.OffersConfirmBody(remove_ids=["pnotmine"]))
+    assert e.value.status_code == 400
+    assert len(terms.docs[0]["promos"]) == 1
+
+
+def test_exceeding_four_promos_is_a_400_not_a_truncation(stores):
+    terms, *_ = stores
+    _seed(terms, [_p("purchases", _end(100)), _p("balance_transfer", _end(200)), _p("balance_transfer", _end(300))])
+    two = [card_terms.OfferConfirm(offer_type="cash", apr_pct=0, ends=_end(400)),
+           card_terms.OfferConfirm(offer_type="money_transfer", apr_pct=0, ends=_end(500))]
+    with pytest.raises(HTTPException) as e:
+        _confirm(_body(offers=two))
+    assert e.value.status_code == 400 and "4" in e.value.detail
+    assert len(terms.docs[0]["promos"]) == 3
+
+
+def test_ids_stay_stable_across_reads_and_a_whole_list_save(stores):
+    terms, *_ = stores
+    _seed(terms, [_p("purchases", _end(100)), _p("balance_transfer", _end(300), offer_type="balance_transfer", balance=10)])
+    before = [p["id"] for p in card_terms._serialize_terms(terms.docs[0])["promos"]]
+    assert before == [p["id"] for p in card_terms._serialize_terms(terms.docs[0])["promos"]]
+    # Penny's path: the existing raw promos (no ids stored) go back through a whole save.
+    body = card_terms.CardTermsBody(apr_pct=21.0, promos=[card_terms.CardPromo(**p) for p in terms.docs[0]["promos"]])
+    asyncio.run(card_terms.save_card_terms("c1", body, USER))
+    assert _ids(terms) == before
+    asyncio.run(card_terms.save_card_terms("c1", card_terms.CardTermsBody(
+        apr_pct=22.0, promos=[card_terms.CardPromo(**p) for p in terms.docs[0]["promos"]]), USER))
+    assert _ids(terms) == before
+
+
+def test_ended_offers_are_listed_apart_and_skipped_on_confirm(stores, fake_model):
+    terms, *_ = stores
+    fake_model(_model_reply(offers=[
+        {"offer_type": "purchase", "apr_pct": 0, "ends": "2020-01-01"},
+        {"offer_type": "balance_transfer", "apr_pct": 0, "balance": 5, "ends": "2030-08-01"}]))
+    out = asyncio.run(extract.extract_proposal(UID, _png(), "", _cards()))
+    assert [o["ends"] for o in out["proposal"]["ended"]] == ["2020-01-01"]
+    assert [o["ends"] for o in out["proposal"]["offers"]] == ["2030-08-01"]
+    old = card_terms.OfferConfirm(offer_type="purchase", apr_pct=0, ends="2020-01-01")
+    res = _confirm(card_terms.OffersConfirmBody(offers=[old]))
+    assert res["warnings"] and terms.docs[0].get("promos", []) == []
+
+
+def test_more_than_eight_offers_warns(fake_model):
+    rows = [{"offer_type": "purchase", "apr_pct": 0, "ends": f"20{30 + i}-01-01"} for i in range(10)]
+    fake_model(_model_reply(offers=rows))
+    p = asyncio.run(extract.extract_proposal(UID, _png(), "", _cards()))["proposal"]
+    assert len(p["offers"]) == 8 and any("10 offers" in w for w in p["warnings"])
+
+
+def test_suggested_matches_and_existing_in_the_extract_response(stores, fake_model):
+    terms, *_ = stores
+    _seed(terms, [_p("balance_transfer", "2030-08-03"), _p("purchases", "2030-02-01")])
+    fake_model(_model_reply())
+    out = asyncio.run(card_terms.extract_card_offers(_Upload(_png()), "", USER))
+    existing = out["match"]["existing"]
+    assert [e["ends"] for e in existing] == ["2030-08-03", "2030-02-01"]
+    # BT ends 2030-08-01 is within 7 days of 2030-08-03; the purchase offer matches on type and date.
+    assert [o["match"] for o in out["proposal"]["offers"]] == [existing[0]["id"], existing[1]["id"]]
+    assert terms.docs[0]["promos"][0].get("id") is None  # reading never writes
+
+
+def test_a_new_offer_has_no_suggested_match():
+    promos = [{"id": "pa", "kind": "purchases", "until": "2030-01-01"}]
+    far = {"offer_type": "balance_transfer", "ends": "2030-01-01"}
+    assert extract.suggest_matches([far], promos) == [None]
+
+
+def test_oversized_uploads_are_refused_before_parsing():
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    app = FastAPI()
+    hit = []
+
+    from fastapi import UploadFile
+
+    async def up(file: UploadFile):
+        hit.append(1)
+        return {"n": len(await file.read())}
+
+    from fastapi import APIRouter
+    r = APIRouter()
+    r.add_api_route("/up", up, methods=["POST"], route_class_override=extract.CappedUploadRoute)
+    app.include_router(r)
+
+    c = TestClient(app)
+    assert c.post("/up", files={"file": ("a.png", b"x" * 1000)}).status_code == 200
+    r = c.post("/up", files={"file": ("a.png", b"x" * (extract.MAX_REQUEST_BYTES + 10))})
+    assert r.status_code == 413 and len(hit) == 1
+    # No Content-Length: a streamed body is still capped.
+    def gen():
+        yield b"x" * (extract.MAX_REQUEST_BYTES + 10)
+    r = c.post("/up", content=gen(), headers={"content-type": "multipart/form-data; boundary=zz"})
+    assert r.status_code == 413 and len(hit) == 1
+
+
+def test_the_monthly_count_uses_the_london_month(stores):
+    _t, _u, usage, _r = stores
+    from datetime import datetime, timezone
+    first = timeutil.user_today().replace(day=1)
+    start = datetime.combine(first, datetime.min.time(), tzinfo=timeutil.LONDON).astimezone(timezone.utc)
+    # Just before London midnight on the 1st does not count toward this month.
+    usage.docs.extend({"user_id": UID, "pipeline": "card_offer_extract", "ts": start - timedelta(minutes=1)}
+                      for _ in range(extract.MONTHLY_EXTRACT_CAP))
+    asyncio.run(extract.check_extract_allowed(UID))

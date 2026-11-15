@@ -25,6 +25,7 @@ from app.core import timeutil
 from app.db.collections import accounts_col, card_terms_col
 from app.services.account_kinds import is_credit_card_account
 from app.services.counted_accounts import is_excluded
+from app.services.card_offer_extract import CappedUploadRoute
 from app.services.card_statements import mask_long_digits as _mask_long_digits, normalise_match_rule as _normalise_match_rule
 from app.services.card_rates import (
     derive_product_identity,
@@ -85,6 +86,29 @@ class CardPromo(BaseModel):
     balance: Optional[float] = None          # outstanding on this offer, GBP
     revert_apr_pct: Optional[float] = None   # rate after the offer ends
     as_of: Optional[str] = None              # ISO statement date the figures are from
+    id: Optional[str] = Field(default=None, max_length=40)  # G470: stable reference, assigned when absent
+
+
+def _promo_id(p: dict) -> str:
+    """A stable short id for a promo that has none stored. Derived from its own
+    content, so the same stored promo always reads with the same id, and the id
+    written on the next save equals the one that was read."""
+    import hashlib
+    basis = "|".join(str(x) for x in (
+        p.get("kind"), p.get("until"), round(float(p.get("apr_pct") or 0), 2),
+        p.get("offer_type") or "", round(float(p["balance"]), 2) if p.get("balance") is not None else "",
+    ))
+    return "p" + hashlib.sha1(basis.encode()).hexdigest()[:9]
+
+
+def _promos_with_ids(promos: list) -> list[dict]:
+    """The promos as stored, each carrying its id (lazily assigned on read)."""
+    out = []
+    for p in promos:
+        if not isinstance(p, dict):
+            continue
+        out.append(p if p.get("id") else {**p, "id": _promo_id(p)})
+    return out
 
 
 async def _user_credit_cards(uid: str) -> list[dict]:
@@ -129,6 +153,7 @@ def _serialize_terms(doc: dict | None) -> dict | None:
         promos = _promos_from_legacy(
             doc.get("on_promo"), doc.get("promo_kind"), doc.get("promo_end")
         )
+    promos = _promos_with_ids(promos)
     return {
         "apr_pct": doc.get("apr_pct"),
         # G470: absent on older documents, which reads as not known.
@@ -521,7 +546,7 @@ def _normalise_promos(body: "CardTermsBody") -> list[dict]:
         # Validate apr_pct (statement offers may carry any rate up to 100)
         apr = p.apr_pct
         if not (0 <= apr <= (100 if extended else 30)):
-            raise HTTPException(400, "promo apr_pct must be between 0 and 30")
+            raise HTTPException(400, f"promo apr_pct must be between 0 and {100 if extended else 30}")
         apr = round(apr, 2)
 
         # Validate until — required
@@ -564,6 +589,7 @@ def _normalise_promos(body: "CardTermsBody") -> list[dict]:
             raise HTTPException(400, "two promos of the same kind must end on different dates")
         seen.add(key)
 
+        item["id"] = p.id or _promo_id(item)
         result.append(item)
 
     return result
@@ -636,6 +662,8 @@ def _clip_note(s: Optional[str]) -> Optional[str]:
 
 class OfferConfirm(BaseModel):
     model_config = ConfigDict(extra="forbid")
+    # With an id this updates that promo on the card; without one it is added.
+    id: Optional[str] = Field(default=None, max_length=40)
     offer_type: Literal["purchase", "balance_transfer", "money_transfer", "cash"]
     apr_pct: float
     balance: Optional[float] = None
@@ -649,22 +677,24 @@ class OffersConfirmBody(BaseModel):
     statement_date: Optional[str] = None
     purchase_apr_pct: Optional[float] = None
     cash_apr_pct: Optional[float] = None
-    # Non-empty replaces the card's promos with these offers (a statement is a
-    # full snapshot). Empty leaves the stored promos as they are.
+    # Merged into the card's existing promos: an offer with an id updates that
+    # promo, one without is added. Nothing is removed unless its id is listed in
+    # remove_ids.
     offers: list[OfferConfirm] = []
+    remove_ids: list[str] = []
 
 
-@router.post("/card-terms/extract")
 async def extract_card_offers(
     file: UploadFile,
     password: str = Form(default=""),
     user: dict = Depends(current_user),
 ):
     """G470: read a card statement PDF or a bank-app screenshot and PROPOSE the
-    card's rates and offers. Saves nothing and keeps no file. Not counted in the
-    Statements tier's upload cap; metered as an LLM call (see
-    services/card_offer_extract.py). Declared before /card-terms/{account_id}
-    so the path is not read as an account id."""
+    card's rates and offers. Saves nothing and this code keeps no file (see the
+    module docstring of services/card_offer_extract.py for what the framework
+    may spool). Not counted in the Statements tier's upload cap; metered as an
+    LLM call. Declared before /card-terms/{account_id} so the path is not read
+    as an account id."""
     from app.core.demo import assert_not_demo
     from app.services import card_offer_extract as extract
     uid = user["email"]
@@ -675,13 +705,23 @@ async def extract_card_offers(
         raise HTTPException(422, "That file is empty.")
     if len(content) > extract.MAX_BYTES:
         raise HTTPException(413, "That file is larger than 10 MB. Upload a smaller copy.")
-    return await extract.extract_proposal(uid, content, password, await _user_credit_cards(uid))
+    cards = await _user_credit_cards(uid)
+    ids = [str(c["_id"]) for c in cards]
+    promos_by_account = {}
+    async for doc in card_terms_col.find({"user_id": uid, "account_id": {"$in": ids}}):
+        promos_by_account[str(doc.get("account_id"))] = _serialize_terms(doc)["promos"]
+    return await extract.extract_proposal(uid, content, password, cards, promos_by_account)
+
+
+# Registered with a route class that refuses an oversized body before parsing it.
+router.add_api_route("/card-terms/extract", extract_card_offers, methods=["POST"], route_class_override=CappedUploadRoute)
 
 
 @router.post("/card-terms/{account_id}/offers/confirm")
 async def confirm_card_offers(account_id: str, body: OffersConfirmBody, user: dict = Depends(current_user)):
-    """G470: write the confirmed proposal to this card's terms. Every field is
-    validated here, whatever the client sent."""
+    """G470: merge the confirmed proposal into this card's terms. Every field is
+    validated here, whatever the client sent. Existing promos are kept unless
+    updated by id or listed in remove_ids."""
     uid = user["email"]
     await _owned_card_or_404(uid, account_id)
     today = timeutil.user_today()
@@ -697,17 +737,55 @@ async def confirm_card_offers(account_id: str, body: OffersConfirmBody, user: di
     for label, v in (("purchase_apr_pct", body.purchase_apr_pct), ("cash_apr_pct", body.cash_apr_pct)):
         if v is not None and (not isfinite(v) or not 0 <= v <= 100):
             raise HTTPException(400, f"{label} must be between 0 and 100")
-    promos = []
+
+    existing_doc = await card_terms_col.find_one({"_id": f"{uid}:{account_id}"}) or {}
+    existing = _serialize_terms(existing_doc)["promos"] if existing_doc else []
+    own_ids = {p["id"] for p in existing}
+    remove = set(body.remove_ids)
+    named = {o.id for o in body.offers if o.id}
+    if (remove | named) - own_ids:
+        raise HTTPException(400, "One of those offers is not on this card")
+    if remove & named:
+        raise HTTPException(400, "An offer cannot be both updated and removed")
+    if len(named) != len([o for o in body.offers if o.id]):
+        raise HTTPException(400, "An offer id appears twice")
+
+    warnings: list[str] = []
+    incoming: dict[str, dict] = {}   # id -> normalised promo
+    added: list[dict] = []
     for o in body.offers:
         if not isfinite(o.apr_pct) or not 0 <= o.apr_pct <= 100:
             raise HTTPException(400, "apr_pct must be between 0 and 100")
-        promos.append(CardPromo(
-            kind=_OFFER_TYPE_KIND[o.offer_type], apr_pct=o.apr_pct, until=o.ends,
-            offer_type=o.offer_type, balance=o.balance, revert_apr_pct=o.revert_apr_pct, as_of=as_of,
-        ))
+        try:
+            ends_d = date.fromisoformat(o.ends)
+        except ValueError:
+            raise HTTPException(400, "ends must be an ISO date (YYYY-MM-DD)")
+        if ends_d < today:
+            warnings.append(f"The offer that ended on {ends_d.isoformat()} was not saved.")
+            continue
+        promo = _normalise_promos(CardTermsBody(promos=[CardPromo(
+            kind=_OFFER_TYPE_KIND[o.offer_type], apr_pct=o.apr_pct, until=o.ends, offer_type=o.offer_type,
+            balance=o.balance, revert_apr_pct=o.revert_apr_pct, as_of=as_of, id=o.id,
+        )]))[0]
+        if o.id:
+            incoming[o.id] = promo
+        else:
+            added.append(promo)
+
+    merged = [incoming.get(p["id"], p) for p in existing if p["id"] not in remove] + added
+    if len(merged) > 4:
+        raise HTTPException(400, "A card can hold 4 offers. Remove one first, or update an existing offer instead of adding.")
+    seen = set()
+    for p in merged:
+        if p["id"] in seen:
+            added_ids = [a["id"] for a in added]
+            if p["id"] in added_ids:
+                raise HTTPException(400, "That offer is already on this card. Update it instead of adding it again.")
+        seen.add(p["id"])
+
     updates: dict = {"status": "confirmed", "confirmed_at": datetime.now(timezone.utc)}  # naive-ok: persisted UTC confirmation audit timestamp, not a calendar decision.
-    if promos:
-        updates["promos"] = _normalise_promos(CardTermsBody(promos=promos))
+    if body.offers or remove:
+        updates["promos"] = merged
     if body.purchase_apr_pct is not None:
         updates["apr_pct"] = round(body.purchase_apr_pct, 2)
     if body.cash_apr_pct is not None:
@@ -717,7 +795,9 @@ async def confirm_card_offers(account_id: str, body: OffersConfirmBody, user: di
     defaults = {field: None for field in _PAYMENT_FIELDS}
     defaults.update(apr_pct=None, promos=[], min_payment_note=None, bt_offers=[], product_key=None, usage=None,
                     cash_apr_pct=None, rates_as_of=None)
-    return await _update_scoped_terms(uid, account_id, updates, defaults)
+    out = await _update_scoped_terms(uid, account_id, updates, defaults)
+    out["warnings"] = warnings
+    return out
 
 
 @router.post("/card-terms/{account_id}")

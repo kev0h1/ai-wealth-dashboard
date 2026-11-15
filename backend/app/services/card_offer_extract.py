@@ -5,11 +5,16 @@ Nothing here saves anything. The result is a proposal the person reviews and
 confirms through the card-terms confirm route.
 
 Privacy:
-* The uploaded bytes stay in memory for the length of the request. A PDF is
-  piped to pdftotext on stdin, so no temp file is ever written.
-* Runs of 12 or more digits (a full card number) are masked in the document
-  text before it goes to the model, and only the last four digits of whatever
-  the model returns are kept. Nothing from the document is logged.
+* This code writes nothing to disk. The bytes are read into memory and a PDF is
+  piped to pdftotext on stdin. The framework may itself spool a large multipart
+  upload (over 1 MB) to a temporary file while the request runs; that file is
+  deleted when the request ends and is outside this module.
+* Masking applies to PDF text only: runs of 12 or more digits (a full card
+  number) keep their last four before the text goes to the model. A screenshot
+  reaches the model as an image, unmasked, so nothing can be masked in it.
+  Sort codes and account numbers under 12 digits are not masked either. Only the
+  last four digits of whatever the model returns are kept, and nothing from the
+  document is logged.
 * The document is untrusted data and is never an instruction to the model.
 
 Model: google/gemini-2.5-flash through the shared OpenRouter helper, the same
@@ -27,7 +32,7 @@ import logging
 import math
 import re
 import subprocess
-from datetime import date, datetime, timezone
+from datetime import date, datetime, time, timedelta, timezone
 
 import httpx
 from fastapi import HTTPException
@@ -40,6 +45,8 @@ logger = logging.getLogger(__name__)
 PIPELINE = "card_offer_extract"
 MODEL = "google/gemini-2.5-flash"
 MAX_BYTES = 10 * 1024 * 1024
+# Multipart framing adds a little to the file itself.
+MAX_REQUEST_BYTES = MAX_BYTES + 256 * 1024
 MAX_PAGES = 12
 MAX_TEXT_CHARS = 30000
 MONTHLY_EXTRACT_CAP = 30
@@ -77,11 +84,45 @@ RULES = (
 
 
 def mask_card_numbers(text: str) -> str:
-    """Keep only the last four digits of any run of 12 or more digits."""
+    """Keep only the last four digits of any run of 12 or more digits. Used on
+    PDF text only; shorter numbers (sort codes, account numbers) are left alone."""
     return _LONG_DIGITS.sub(lambda m: "•••• " + re.sub(r"\D", "", m.group(0))[-4:], str(text or ""))
 
 
 # ── Upload handling ─────────────────────────────────────────────────────────
+
+from fastapi.routing import APIRoute
+from starlette.requests import Request
+
+
+class CappedUploadRoute(APIRoute):
+    """Refuses an oversized upload before the multipart body is parsed: on the
+    Content-Length header when there is one, and with a running byte count on
+    the request stream when there is not."""
+
+    def get_route_handler(self):
+        original = super().get_route_handler()
+
+        async def handler(request: Request):
+            declared = request.headers.get("content-length")
+            if declared and declared.isdigit() and int(declared) > MAX_REQUEST_BYTES:
+                raise HTTPException(413, "That file is larger than 10 MB. Upload a smaller copy.")
+            received = 0
+            inner = request.receive
+
+            async def counting_receive():
+                nonlocal received
+                message = await inner()
+                if message.get("type") == "http.request":
+                    received += len(message.get("body") or b"")
+                    if received > MAX_REQUEST_BYTES:
+                        raise HTTPException(413, "That file is larger than 10 MB. Upload a smaller copy.")
+                return message
+
+            return await original(Request(request.scope, counting_receive, request._send))
+
+        return handler
+
 
 def detect_kind(content: bytes) -> str:
     """"pdf", "png", "jpeg" or "webp" from the leading bytes, never the file
@@ -234,7 +275,11 @@ def clean_extraction(raw: dict) -> dict:
     purchase = _pct(raw.get("purchase_apr_pct"))
     cash = _pct(raw.get("cash_apr_pct"))
     offers = []
+    ended = []
     rows = raw.get("offers") if isinstance(raw.get("offers"), list) else []
+    if len(rows) > MAX_OFFERS:
+        warnings.append(f"The document lists {len(rows)} offers. Only the first {MAX_OFFERS} are shown.")
+        rows = rows[:MAX_OFFERS]
     for row in rows:
         if not isinstance(row, dict):
             continue
@@ -254,10 +299,9 @@ def clean_extraction(raw: dict) -> dict:
         if ends is None:
             warnings.append("An offer has no end date in the document. Add it before confirming.")
         elif date.fromisoformat(ends) < today:
-            warnings.append(f"An offer ended on {ends}, so it cannot be saved.")
+            ended.append(offer)  # shown, never offered for saving
+            continue
         offers.append(offer)
-    if len(offers) > MAX_OFFERS:
-        offers = offers[:MAX_OFFERS]
     if len(offers) > 4:
         warnings.append("A card can hold 4 offers. Choose which to keep before confirming.")
     return {
@@ -267,6 +311,7 @@ def clean_extraction(raw: dict) -> dict:
         "purchase_apr_pct": purchase,
         "cash_apr_pct": cash,
         "offers": offers,
+        "ended": ended,
         "warnings": list(dict.fromkeys(warnings)),
     }
 
@@ -341,24 +386,102 @@ def match_card(extracted_issuer: str | None, extracted_last4: str | None, cards:
             "candidates": [_candidate(a, i) for a, i, _ in rows]}
 
 
+# ── Existing promos and suggested updates ───────────────────────────────────
+
+_KIND_OF = {
+    "purchase": "purchases", "balance_transfer": "balance_transfer",
+    "money_transfer": "balance_transfer", "cash": "balance_transfer",
+}
+
+
+def existing_summary(promos: list[dict]) -> list[dict]:
+    return [
+        {"id": p.get("id"), "offer_type": p.get("offer_type"), "kind": p.get("kind"),
+         "apr_pct": p.get("apr_pct"), "balance": p.get("balance"), "ends": p.get("until")}
+        for p in promos
+    ]
+
+
+def suggest_matches(offers: list[dict], promos: list[dict]) -> list[str | None]:
+    """For each incoming offer, the id of the existing promo it would update, or
+    None for a new offer. Same offer type (or kind) and same end date first,
+    then the same kind with the nearest end date within 7 days. An existing
+    promo is suggested for at most one incoming offer."""
+    used: set[str] = set()
+    result: list[str | None] = []
+
+    def same_type(o: dict, p: dict) -> bool:
+        if p.get("offer_type"):
+            return p["offer_type"] == o["offer_type"]
+        return p.get("kind") == _KIND_OF[o["offer_type"]]
+
+    for o in offers:
+        pick = None
+        if o.get("ends"):
+            for p in promos:
+                if p.get("id") not in used and same_type(o, p) and p.get("until") == o["ends"]:
+                    pick = p["id"]
+                    break
+            if pick is None:
+                best = None
+                o_end = date.fromisoformat(o["ends"])
+                for p in promos:
+                    if p.get("id") in used or p.get("kind") != _KIND_OF[o["offer_type"]]:
+                        continue
+                    try:
+                        gap = abs((date.fromisoformat(str(p.get("until"))) - o_end).days)
+                    except ValueError:
+                        continue
+                    if gap <= 7 and (best is None or gap < best[0]):
+                        best = (gap, p["id"])
+                pick = best[1] if best else None
+        if pick:
+            used.add(pick)
+        result.append(pick)
+    return result
+
+
 # ── Per-user monthly cap ────────────────────────────────────────────────────
 
 async def check_extract_allowed(uid: str) -> None:
     """The extraction is metered like the statement parser (every call writes
     an llm_usage row and counts toward the global ceiling) and is NOT counted
     in statement_uploads_col, so the Statements tier's upload cap is untouched.
-    On top, a per-user monthly call cap bounds the cost of a loop or abuse."""
+    On top, a per-user monthly call cap bounds the cost of a loop or abuse. The
+    month is the London calendar month. The check and the usage row are not
+    atomic, so concurrent requests can overshoot the cap by a call or two; that
+    is accepted, the cap is a cost bound and not a quota."""
     from app.db.collections import llm_usage_col
-    ym = datetime.now(timezone.utc).strftime("%Y-%m")  # naive-ok: aware UTC month key, same as record_llm_usage
-    used = await llm_usage_col.count_documents({"user_id": uid, "pipeline": PIPELINE, "year_month": ym})
+    first = timeutil.user_today().replace(day=1)
+    nxt = (first.replace(day=28) + timedelta(days=4)).replace(day=1)
+    start = datetime.combine(first, time.min, tzinfo=timeutil.LONDON).astimezone(timezone.utc)  # naive-ok: explicit London midnight
+    end = datetime.combine(nxt, time.min, tzinfo=timeutil.LONDON).astimezone(timezone.utc)  # naive-ok: explicit London midnight
+    used = await llm_usage_col.count_documents({"user_id": uid, "pipeline": PIPELINE, "ts": {"$gte": start, "$lt": end}})
     if used >= MONTHLY_EXTRACT_CAP:
         raise HTTPException(429, f"You have used this month's {MONTHLY_EXTRACT_CAP} document reads. They reset next month.")
 
 
-async def extract_proposal(uid: str, content: bytes, password: str, cards: list[dict]) -> dict:
+async def extract_proposal(uid: str, content: bytes, password: str, cards: list[dict],
+                           promos_by_account: dict[str, list[dict]] | None = None) -> dict:
+    """`promos_by_account` maps a card's account id to its current promos (with
+    ids), so each incoming offer can be matched to the promo it would update."""
+    promos_by_account = promos_by_account or {}
     kind = detect_kind(content)
     text = await pdf_text(content, password) if kind == "pdf" else None
     raw = await call_model(uid, kind, content, text)
     proposal = clean_extraction(raw)
     match = match_card(proposal["issuer"], proposal["last4"], cards)
+    for cand in match["candidates"]:
+        promos = promos_by_account.get(cand["account_id"], [])
+        cand["existing"] = existing_summary(promos)
+        cand["offer_matches"] = suggest_matches(proposal["offers"], promos)
+    if match["status"] == "matched":
+        hit = match["candidates"][0]
+        match["existing"], match["offer_matches"] = hit["existing"], hit["offer_matches"]
+        for offer, mid in zip(proposal["offers"], match["offer_matches"]):
+            offer["match"] = mid
+    else:
+        match["existing"], match["offer_matches"] = [], []
+        for offer in proposal["offers"]:
+            offer["match"] = None
     return {"status": "ok", "source": {"kind": "pdf" if kind == "pdf" else "image"}, "proposal": proposal, "match": match}
