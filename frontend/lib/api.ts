@@ -2447,6 +2447,26 @@ export type OpsPerson = {
   accounts: number | null;
   last_sync: string | null;
   penny_messages_this_month: number | null;
+  // G469: counts and dates only, never a description.
+  transfer_matcher?: OpsTransferMatcher | null;
+};
+export type OpsTransferMatcher = {
+  month: string;
+  sent_this_month: number;
+  monthly_cap: number;
+  waiting: number;
+  last_run: {
+    at: string | null;
+    status: string;
+    candidates: number;
+    judged: number;
+    skipped_cap: number;
+    skipped_run_limit: number;
+    skipped_attempts: number;
+    errors: number;
+    stale: number;
+    prompt_version: number;
+  } | null;
 };
 // E14: one person's subscription, as the owner sees it
 // (backend/app/routers/ops_people_subscription.py).

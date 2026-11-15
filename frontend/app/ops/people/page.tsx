@@ -28,6 +28,7 @@ import {
   filterPeople,
   formatDate,
   formatDateTime,
+  matcherLabel,
   planLabel,
   removeMessage,
   revokeMessage,
@@ -310,6 +311,7 @@ function PersonCard({
           label="Penny this month"
           value={person.penny_messages_this_month === null ? "None" : `${person.penny_messages_this_month} messages`}
         />
+        <Fact label="Transfer matcher" value={matcherLabel(person)} />
       </div>
       {person.signed_up && <SubscriptionSection personId={person.id} />}
     </li>
