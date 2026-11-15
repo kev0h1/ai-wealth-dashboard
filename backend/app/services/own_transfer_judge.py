@@ -486,6 +486,9 @@ async def _candidates(uid: str, stats: dict | None = None) -> tuple[list[tuple[d
             continue  # an undo is the user's answer, never re-judged
         sig = pair_signature(credit, debit, accounts)
         if cached and (cached.get("signature") == sig or (cached.get("row_sig") and cached.get("row_sig") == row_signature(credit, debit))):
+            if not cached.get("row_sig"):
+                # G469: an old verdict matched by the old signature gets its row_sig now, so a later rename does not resend.
+                await own_transfer_judgements_col.update_one({"_id": pair_doc_id(uid, ids)}, {"$set": {"row_sig": row_signature(credit, debit)}})
             if not verdict_is_stale(cached):
                 stats["judged_already"] += 1
                 continue

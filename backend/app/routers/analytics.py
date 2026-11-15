@@ -6699,6 +6699,7 @@ def _has_pair_evidence(c: dict, d: dict, identity: dict, credit_claims_move: boo
         return True
     if (c_evidence or d_evidence) and _is_distinctive_amount(c.get("amount")):
         return True
+    # Same-day, same-amount coincidences between two current accounts are accepted as asks by Kevin's rule (G469); dismissal is permanent.
     # G469 (Kevin 2026-11-14): Kevin's rule on its own is a question, however plain the text:
     # current accounts, the same London day, opposite directions, the same amount, and the
     # model has not answered (capped, skipped, or not yet run). Never left silently as income;
@@ -6708,15 +6709,14 @@ def _has_pair_evidence(c: dict, d: dict, identity: dict, credit_claims_move: boo
     return False
 
 
-_NOT_CURRENT_WORDS = ("saving", "isa", "pot", "card", "credit", "loan", "mortgage", "debt", "invest", "pension")
-
-
 def _is_current_like(meta: dict | None) -> bool:
-    """A known account that is not a card, savings, pot, loan or investment."""
+    """A positive current-account signal from the shared classifier (services/account_kinds.py,
+    the one G456 and G438 use): empty metadata never qualifies, and never a card, savings or loan."""
     if not meta:
         return False
-    values = " ".join(str(meta.get(k) or "").lower() for k in ("type", "subtype", "account_type"))
-    return not any(w in values for w in _NOT_CURRENT_WORDS)
+    from app.services.account_kinds import is_credit_card_account, is_current_account, is_debt_account, is_savings_account
+    return (is_current_account(meta) and not is_credit_card_account(meta)
+            and not is_savings_account(meta) and not is_debt_account(meta))
 
 
 def _unjudged_same_day_current_pair(c: dict, d: dict, identity: dict) -> bool:

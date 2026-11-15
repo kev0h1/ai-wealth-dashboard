@@ -10,9 +10,11 @@ import app.services.categorisation as categorisation
 import app.services.own_transfer_judge as judge
 from test_e12_people_http import ALICE, _bearer, world  # noqa: F401  (world is a fixture)
 from test_g442_ai_transfer_judgement import (
-    UID, ModelMock, _arun, _async, _row, mongo_env,
+    ACCOUNTS, UID, ModelMock, _arun, _async, _row, mongo_env,
 )
 
+# the shared classifier needs a positive current signal (type bank, subtype TRANSACTION)
+CURRENT = [{**a, "type": "bank", "subtype": "TRANSACTION"} for a in ACCOUNTS]
 ORIG_ENRICH = people._enrich  # before any fixture patches it
 D0 = datetime(2026, 11, 3, 10, 0)
 
@@ -40,7 +42,7 @@ def test_capped_month_still_offers_an_unnamed_same_day_current_pair(monkeypatch)
     monkeypatch.setenv("OWN_TRANSFER_JUDGE_MONTHLY_PAIR_CAP", "5")
 
     async def run():
-        async with mongo_env(monkeypatch, rows) as cols:
+        async with mongo_env(monkeypatch, rows, accounts=CURRENT) as cols:
             await judge._count_sent(UID, 5)  # the month's cap is already spent
             result = await judge.judge_user(UID)
             assert result["status"] == "capped" and result["judged"] == 0
@@ -62,11 +64,11 @@ def test_unnamed_pair_on_different_days_or_a_savings_leg_is_not_offered(monkeypa
     monkeypatch.setattr(judge, "_call_model", ModelMock())
 
     async def run():
-        async with mongo_env(monkeypatch, rows) as cols:
+        async with mongo_env(monkeypatch, rows, accounts=CURRENT) as cols:
             identity = await categorisation.user_identity(UID)
             monkeypatch.setattr(analytics, "user_identity", lambda uid: _async(identity))
             assert await analytics._transfer_pair_suggestions(UID) == []
-            await cols["accounts"].update_one({"_id": "hsbc"}, {"$set": {"type": "savings"}})
+            await cols["accounts"].update_one({"_id": "hsbc"}, {"$set": {"subtype": "SAVINGS"}})
             await cols["transactions"].update_one({"_id": "a-c"}, {"$set": {"date": D0 + timedelta(hours=1)}})
             identity = await categorisation.user_identity(UID)
             monkeypatch.setattr(analytics, "user_identity", lambda uid: _async(identity))
@@ -182,3 +184,75 @@ def test_ops_people_returns_the_matcher_counts_to_the_owner_only(world, monkeypa
     owner = [p for p in ok.json()["people"] if p["owner"]][0]
     assert owner["transfer_matcher"]["sent_this_month"] == 7 and owner["transfer_matcher"]["waiting"] == 3
     assert set(owner["transfer_matcher"]) == {"month", "sent_this_month", "monthly_cap", "waiting", "last_run"}
+
+
+PLAIN = (
+    _row("p-d", "debit", 68.4, "barc", D0, "ZQX OUTGOING 8841"),
+    _row("p-c", "credit", 68.4, "hsbc", D0 + timedelta(hours=2), "PLAIN INBOUND"),
+)
+
+
+async def _asks(monkeypatch, cols):
+    identity = await categorisation.user_identity(UID)
+    monkeypatch.setattr(analytics, "user_identity", lambda uid: _async(identity))
+    return await analytics._transfer_pair_suggestions(UID)
+
+
+def test_same_day_ask_rule_baseline_offers_the_plain_pair(monkeypatch):
+    async def run():
+        async with mongo_env(monkeypatch, [dict(r) for r in PLAIN], accounts=CURRENT) as cols:
+            assert len(await _asks(monkeypatch, cols)) == 1
+    _arun(run())
+
+
+def test_same_day_ask_rule_never_offers_these(monkeypatch):
+    async def case(rows, accounts=None, prefs=None, edit=None):
+        async with mongo_env(monkeypatch, rows, accounts=accounts or CURRENT) as cols:
+            if prefs:
+                await cols["preferences"].update_one({"user_id": UID}, {"$set": prefs})
+            if edit:
+                await edit(cols)
+            return await _asks(monkeypatch, cols)
+
+    async def run():
+        plain = lambda: [dict(r) for r in PLAIN]  # noqa: E731
+        # dismissed (permanent)
+        assert await case(plain(), prefs={"dismissed_transfer_pairs": ["p-c:p-d"]}) == []
+        # a direct debit leg
+        dd = plain(); dd[0]["bank_code"] = "DD"
+        assert await case(dd) == []
+        # G443 pruned: a card purchase on the debit
+        card = plain(); card[0]["bank_code"] = "POS"
+        assert await case(card) == []
+        # G443 pruned: a credit naming a third institution
+        third = plain(); third[1]["description"] = "Sent from Revolut"
+        assert await case(third) == []
+        # a card account leg, a savings account leg, and an account with no metadata
+        for change in ({"type": "credit_card", "subtype": "CREDIT_CARD"}, {"subtype": "SAVINGS"}, {"type": None, "subtype": None}):
+            async def edit(cols, change=change):
+                await cols["accounts"].update_one({"_id": "hsbc"}, {"$set": change})
+            assert await case(plain(), edit=edit) == [], change
+        # "visa" in a name never reads as an ISA
+        async def edit_visa(cols):
+            await cols["accounts"].update_one({"_id": "hsbc"}, {"$set": {"type": "visa", "subtype": None}})
+        assert await case(plain(), edit=edit_visa) == []
+    _arun(run())
+
+
+def test_a_verdict_with_only_the_old_signature_is_not_resent_and_gains_a_row_sig(monkeypatch):
+    mock = ModelMock("not_transfer")
+    monkeypatch.setattr(judge, "_call_model", mock)
+
+    async def run():
+        async with mongo_env(monkeypatch, _named_pair("x", 41.0, D0)) as cols:
+            await judge.judge_user(UID)
+            assert len(mock.calls) == 1
+            await cols["own_transfer_judgements"].update_many({"kind": "pair"}, {"$unset": {"row_sig": ""}})
+            await judge.judge_user(UID)
+            assert len(mock.calls) == 1 and await judge.pairs_sent_this_month(UID) == 1
+            doc = await cols["own_transfer_judgements"].find_one({"kind": "pair"})
+            assert doc.get("row_sig")
+            await cols["accounts"].update_one({"_id": "hsbc"}, {"$set": {"name": "Renamed again"}})
+            await judge.judge_user(UID)
+            assert len(mock.calls) == 1  # the rename no longer resends
+    _arun(run())
