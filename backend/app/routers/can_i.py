@@ -1276,6 +1276,28 @@ async def _execute_set_card_terms(uid: str, params: dict) -> dict:
     return await _route_save_card_terms(account_id, body, user={"email": uid})
 
 
+# G472: one card rate or offer at a time (app.services.penny_card_offers). Each reads the
+# stored offers again at confirm time and writes through card_terms' scoped rates update.
+async def _execute_set_card_rates(uid: str, params: dict) -> dict:
+    from app.services.penny_card_offers import execute_set_card_rates
+    return await execute_set_card_rates(uid, params)
+
+
+async def _execute_add_card_offer(uid: str, params: dict) -> dict:
+    from app.services.penny_card_offers import execute_add_card_offer
+    return await execute_add_card_offer(uid, params)
+
+
+async def _execute_update_card_offer(uid: str, params: dict) -> dict:
+    from app.services.penny_card_offers import execute_update_card_offer
+    return await execute_update_card_offer(uid, params)
+
+
+async def _execute_remove_card_offer(uid: str, params: dict) -> dict:
+    from app.services.penny_card_offers import execute_remove_card_offer
+    return await execute_remove_card_offer(uid, params)
+
+
 async def _execute_record_trend_intent(uid: str, params: dict) -> dict:
     from app.routers.checkpoints import post_intent as _route_post_intent
 
@@ -1438,6 +1460,10 @@ _PROPOSAL_EXECUTORS = {
     "disconnect_bank":            _execute_disconnect_bank,
     "sync_now":                   _execute_sync_now,
     "set_card_terms":             _execute_set_card_terms,
+    "set_card_rates":             _execute_set_card_rates,
+    "add_card_offer":             _execute_add_card_offer,
+    "update_card_offer":          _execute_update_card_offer,
+    "remove_card_offer":          _execute_remove_card_offer,
     "record_trend_intent":        _execute_record_trend_intent,
     "undo_trend_intent":          _execute_undo_trend_intent,
     "mark_insight_opened":        _execute_mark_insight_opened,

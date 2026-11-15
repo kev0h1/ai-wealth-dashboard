@@ -152,6 +152,13 @@ ALLOWLIST: set[tuple[str, int]] = {
     ("app/services/penny_goal_schedule.py", 1066),
     ("app/services/penny_goal_schedule.py", 1145),
     ("app/services/penny_goal_schedule.py", 1186),
+    # G472: penny_card_offers.OfferEditError carries sentences written in that module for the person
+    # ("This card has no offer with id ..."), and the HTTPException detail is card_terms._normalise_promos'
+    # own authored text ("at most 4 promo rates"); neither is a system or library exception.
+    ("app/services/penny_card_offers.py", 379),
+    ("app/services/penny_card_offers.py", 423),
+    ("app/services/penny_card_offers.py", 425),
+    ("app/services/penny_card_offers.py", 477),
 }
 
 

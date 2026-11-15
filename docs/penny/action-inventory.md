@@ -19,7 +19,7 @@ Kevin's rule: any view the app has, Penny can show; any write the app can do, Pe
 | Payday plan | `get_payday_plan` (B60), `get_today_brief` | none | covered (view) | a recommendation with no lifecycle (G172): nothing to confirm, verify or celebrate, so there is no write to propose |
 | Pay split versus the conscious spending plan | `get_pay_split` (B60) | none | covered (view), write gap | Penny compares against any of the three references on request; saving the selected reference (`pay_split_reference`) is a gap, low value |
 | Tips | `get_insights` (ids added B60) | `propose_dismiss_insight`, `propose_pin_insight`, `propose_label_merchant`, `propose_remove_merchant_label`, `propose_mark_insight_opened`, `propose_save_insight_context` | covered | |
-| Card APRs | `get_debt_position` | `propose_set_card_apr`, `propose_set_card_terms` | covered | the representative-rate lookup stays UI-only (it can trigger a paid search) |
+| Card APRs | `get_debt_position` | `propose_set_card_apr`, `propose_set_card_rates`, `propose_set_card_terms` | covered | the representative-rate lookup stays UI-only (it can trigger a paid search) |
 | Offline accounts | `get_accounts`, `get_account_activity` | `propose_create_offline_account`, `propose_update_offline_account`, `propose_delete_offline_account`, `propose_add_ledger_entry`, `propose_update_ledger_entry`, `propose_delete_ledger_entry` | covered | |
 | Rules | none lists them | `propose_create_account_rule`, `propose_update_account_rule`, `propose_delete_account_rule` | partial | the write tools resolve a rule by name, but no read tool lists the rules (gap) |
 | Connect an account | none | `propose_connect_bank` (B60) | covered | Penny asks, the card shows the Finexer and agency disclosure, the user taps Continue to Finexer, the bank picker and the normal consent flow start. Nothing is written until then |
@@ -59,7 +59,7 @@ Kevin's rule: any view the app has, Penny can show; any write the app can do, Pe
 | `calculate(expression)` | read | `app.services.safe_calc.evaluate` (AST whitelist, never `eval`) |
 | `preview_trend_intent(category, answer)` | read (B17) | `app.services.spend_impact.compute_intent_preview` (`POST /spend/intent-preview`), `answer='one_off'` short-circuits without an engine call |
 
-### Propose/write tools, 50, in `PROPOSE_TOOL_SCHEMAS`
+### Propose/write tools, 54, in `PROPOSE_TOOL_SCHEMAS`
 
 B14 (2026-09-08, B12 stage 1 shipped) added the ten edit/delete twins below
 the original eight, for the covered creates only (planned, allocation,
@@ -125,6 +125,10 @@ reconciled against that real total. B60 (2026-10-25) added three more (`propose_
 | `propose_disconnect_bank(connection_or_account_ref)` | propose (B16) | `app.services.retention.disconnect_connection` (the function `DELETE /connections/{id}` itself defers to; no api.ts method calls that route directly today, see section 6) |
 | `propose_sync_now()` | propose (B16) | `app.routers.accounts.sync_all` (`POST /accounts/sync`) |
 | `propose_set_card_terms(card_ref, status?, apr_pct?, promos?, bt_offers?, min_payment_note?, product_key?, usage?)` | propose (B17) | `app.routers.card_terms.save_card_terms` (read-modify-write, only the supplied fields change; `status='skipped'` replays the router's own skip branch directly) |
+| `propose_set_card_rates(card_ref, purchase_apr_pct?, cash_apr_pct?)` | propose (G472) | `app.routers.card_terms.save_card_rates` (`POST /card-terms/{accountId}/rates`, the scoped update: offers, `bt_offers`, the statement override and payment fields are not touched) |
+| `propose_add_card_offer(card_ref, offer_type, apr_pct, until, balance?, revert_apr_pct?)` | propose (G472) | `save_card_rates` with the stored offer list read again at confirm time, plus one offer, validated by `_normalise_promos` (4 offer cap, duplicate rules) |
+| `propose_update_card_offer(card_ref, offer_id, offer_type?, apr_pct?, until?, balance?, revert_apr_pct?)` | propose (G472) | `save_card_rates`, changing only the given fields of the offer with that id (the id is kept; null clears balance or revert rate) |
+| `propose_remove_card_offer(card_ref, offer_id)` | propose (G472) | `save_card_rates`, the stored list without the offer with that id |
 | `propose_record_trend_intent(category, answer)` | propose (B17) | `app.routers.checkpoints.post_intent` (`POST /trends/intent`) |
 | `propose_undo_trend_intent(category)` | propose (B17) | `app.routers.spend_verdict.delete_intent_answer` (`DELETE /spend/intent/{category}`) |
 | `propose_mark_insight_opened(insight_ref)` | propose (B17) | `app.routers.savings_insights.mark_insight_opened` (`POST /savings-insights/{id}/opened`) |
@@ -220,7 +224,7 @@ reconciled against that real total. B60 (2026-10-25) added three more (`propose_
 
 | UI action | Surface | Endpoint (api.ts method) | Penny tool | Status |
 |---|---|---|---|---|
-| Save a card's terms (status, APR, promos, BT offers, min-payment note, product key, usage) | `components/CardTermsSheet.tsx:266` | `POST /card-terms/{accountId}` (`saveCardTerms`) | `propose_set_card_terms` (B17, every field) or `propose_set_card_apr` (APR only) | covered |
+| Save a card's terms (status, APR, promos, BT offers, min-payment note, product key, usage) | `components/CardTermsSheet.tsx:266` | `POST /card-terms/{accountId}` (`saveCardTerms`) | `propose_set_card_terms` (B17, every field), `propose_set_card_apr` (APR only), or one rate or offer at a time with `propose_set_card_rates`, `propose_add_card_offer`, `propose_update_card_offer`, `propose_remove_card_offer` (G472) | covered |
 | Look up a representative rate to prefill | `components/CardTermsSheet.tsx:226` | `POST /card-terms/{accountId}/lookup` (`lookupCardTerms`) | none, deliberately excluded (B17): not side-effect-free, a stale-cache miss triggers a real Tavily call and writes the shared product-rate cache | gap (deliberate) |
 
 ### Settings and preferences
