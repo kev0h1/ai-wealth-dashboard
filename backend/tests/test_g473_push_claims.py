@@ -11,7 +11,6 @@ import app.routers.push as push_router
 import app.services.companion as companion
 import app.services.notifications as notifications
 import app.services.spend_verdict as spend_verdict
-from app.services.account_names import holder_safe_name
 
 from tests import test_g359_steady_salary as g359
 from tests.test_notifications import (
@@ -35,6 +34,16 @@ def _patch_send(monkeypatch, *, result=None, raises=None):
 
     monkeypatch.setattr(notifications, "send_push_to_user", fake_send)
     return sent
+
+
+class _YieldingState(FakeStateCol):
+    """Yields between a read and the caller's later write, as real Mongo IO does."""
+
+    async def find_one(self, query, *args, **kwargs):
+        doc = await super().find_one(query, *args, **kwargs)
+        snapshot = None if doc is None else {k: (dict(v) if isinstance(v, dict) else v) for k, v in doc.items()}
+        await asyncio.sleep(0)
+        return snapshot
 
 
 def _two(coro_fn):
@@ -122,6 +131,7 @@ def test_no_devices_keeps_the_claim(monkeypatch):
 
 def test_money_movement_bill_move_and_plan_concurrent_runs_send_once(monkeypatch):
     state, _ = _patch_common(monkeypatch, state_docs={})
+    monkeypatch.setattr(notifications, "notification_state_col", _YieldingState({}))
     sent = _patch_send(monkeypatch)
     import app.routers.analytics as analytics
 
@@ -327,6 +337,8 @@ def _acc(name, **kw):
 
 
 def test_holder_safe_name_rules():
+    from app.services.account_names import holder_safe_name
+
     assert holder_safe_name(_acc("MRS ANYA TESTWORTH"), TOKENS) == "Barclays current account"
     assert holder_safe_name(_acc("Anya Testworth"), TOKENS) == "Barclays current account"
     assert holder_safe_name(_acc("Dr A Testworth"), TOKENS) == "Barclays current account"
