@@ -101,6 +101,14 @@ def _promo_id(p: dict) -> str:
     return "p" + hashlib.sha1(basis.encode()).hexdigest()[:9]
 
 
+def _promo_dup_key(p: dict) -> tuple:
+    """Two promos with the same key are duplicates. Older promos are told apart
+    by kind and end date; statement offers also by type and balance."""
+    if any(p.get(k) is not None for k in ("offer_type", "balance", "revert_apr_pct", "as_of")):
+        return (p.get("kind"), p.get("until"), p.get("offer_type"), p.get("balance"))
+    return (p.get("kind"), p.get("until"))
+
+
 def _promos_with_ids(promos: list) -> list[dict]:
     """The promos as stored, each carrying its id (lazily assigned on read)."""
     out = []
@@ -541,6 +549,7 @@ def _normalise_promos(body: "CardTermsBody") -> list[dict]:
 
     result = []
     seen: set[tuple] = set()
+    seen_ids: set[str] = set()
     for p in promos:
         extended = any(v is not None for v in (p.offer_type, p.balance, p.revert_apr_pct, p.as_of))
         # Validate apr_pct (statement offers may carry any rate up to 100)
@@ -590,6 +599,9 @@ def _normalise_promos(body: "CardTermsBody") -> list[dict]:
         seen.add(key)
 
         item["id"] = p.id or _promo_id(item)
+        if item["id"] in seen_ids:
+            raise HTTPException(400, "two promos cannot share an id")
+        seen_ids.add(item["id"])
         result.append(item)
 
     return result
@@ -775,13 +787,12 @@ async def confirm_card_offers(account_id: str, body: OffersConfirmBody, user: di
     merged = [incoming.get(p["id"], p) for p in existing if p["id"] not in remove] + added
     if len(merged) > 4:
         raise HTTPException(400, "A card can hold 4 offers. Remove one first, or update an existing offer instead of adding.")
-    seen = set()
+    keys = set()
     for p in merged:
-        if p["id"] in seen:
-            added_ids = [a["id"] for a in added]
-            if p["id"] in added_ids:
-                raise HTTPException(400, "That offer is already on this card. Update it instead of adding it again.")
-        seen.add(p["id"])
+        key = _promo_dup_key(p)
+        if key in keys:
+            raise HTTPException(400, "Two offers on this card would be the same. Update or remove the existing one instead.")
+        keys.add(key)
 
     updates: dict = {"status": "confirmed", "confirmed_at": datetime.now(timezone.utc)}  # naive-ok: persisted UTC confirmation audit timestamp, not a calendar decision.
     if body.offers or remove:

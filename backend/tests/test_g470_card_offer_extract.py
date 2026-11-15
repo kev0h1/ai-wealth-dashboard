@@ -556,3 +556,37 @@ def test_the_monthly_count_uses_the_london_month(stores):
     usage.docs.extend({"user_id": UID, "pipeline": "card_offer_extract", "ts": start - timedelta(minutes=1)}
                       for _ in range(extract.MONTHLY_EXTRACT_CAP))
     asyncio.run(extract.check_extract_allowed(UID))
+
+
+def test_merged_duplicates_are_rejected_for_adds_and_for_moved_end_dates(stores):
+    terms, *_ = stores
+    _seed(terms, [_p("balance_transfer", _end(100), offer_type="balance_transfer", balance=10.0),
+                  _p("balance_transfer", _end(200), offer_type="balance_transfer", balance=10.0)])
+    first, second = [p["id"] for p in card_terms._serialize_terms(terms.docs[0])["promos"]]
+    dup_add = card_terms.OfferConfirm(offer_type="balance_transfer", apr_pct=0, balance=10, ends=_end(100))
+    with pytest.raises(HTTPException) as e:
+        _confirm(card_terms.OffersConfirmBody(offers=[dup_add]))
+    assert e.value.status_code == 400
+    move = card_terms.OfferConfirm(id=second, offer_type="balance_transfer", apr_pct=0, balance=10, ends=_end(100))
+    with pytest.raises(HTTPException) as e:
+        _confirm(card_terms.OffersConfirmBody(offers=[move]))
+    assert e.value.status_code == 400
+    assert [p["until"] for p in terms.docs[0]["promos"]] == [_end(100), _end(200)]
+    # Moving to a free date, or removing the clash in the same request, is fine.
+    ok = card_terms.OfferConfirm(id=second, offer_type="balance_transfer", apr_pct=0, balance=10, ends=_end(250))
+    _confirm(card_terms.OffersConfirmBody(offers=[ok]))
+    assert [p["until"] for p in terms.docs[0]["promos"]] == [_end(100), _end(250)]
+
+
+def test_two_promos_cannot_share_an_id():
+    promos = [card_terms.CardPromo(kind="purchases", apr_pct=0, until=_end(10), id="same"),
+              card_terms.CardPromo(kind="balance_transfer", apr_pct=0, until=_end(20), id="same")]
+    with pytest.raises(HTTPException) as e:
+        card_terms._normalise_promos(card_terms.CardTermsBody(promos=promos))
+    assert e.value.status_code == 400
+
+
+def test_the_mounted_extract_route_is_a_capped_upload_route():
+    from app.main import app
+    routes = [r for r in app.routes if getattr(r, "path", None) == "/card-terms/extract" and "POST" in r.methods]
+    assert len(routes) == 1 and isinstance(routes[0], extract.CappedUploadRoute)
