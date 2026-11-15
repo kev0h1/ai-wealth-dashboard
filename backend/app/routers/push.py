@@ -60,7 +60,7 @@ async def _register_native_token(col, user_id: str, token: str, platform: str, i
     instead of adding another, so one phone gets one push. Without an install
     id (an older app binary) the token is stored exactly as before; identical
     tokens are already one row because the token is the document _id."""
-    now = datetime.now()
+    now = datetime.now()  # naive-ok: persisted token audit timestamp, same convention as the registration docs
     fields = {
         "_id": token, "user_id": user_id,
         "token": token, "platform": platform,

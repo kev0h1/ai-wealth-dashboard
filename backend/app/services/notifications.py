@@ -126,7 +126,7 @@ async def claim_push(user_id: str, key: str) -> bool:
     try:
         res = await notification_state_col.update_one(
             {"_id": user_id, field: {"$exists": False}},
-            {"$set": {field: datetime.utcnow().isoformat()}},
+            {"$set": {field: datetime.utcnow().isoformat()}},  # naive-ok: persisted claim audit instant
             upsert=True,
         )
     except DuplicateKeyError:
