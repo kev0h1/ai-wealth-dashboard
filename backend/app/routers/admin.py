@@ -7,6 +7,7 @@ from app.db.collections import connections_col, accounts_col, transactions_col
 from app.services.truelayer_sync import sync_connection
 from app.services.categorisation import apply_rules_bulk, categorise_others_bg
 from app.services import data_version
+from app.routers.ops import _require_owner
 import asyncio
 
 router = APIRouter(tags=["admin"])
@@ -63,6 +64,10 @@ async def admin_sync_all(user: dict = Depends(current_user)):
 
 @router.post("/admin/fix-card-transactions")
 async def fix_card_transactions(user: dict = Depends(current_user)):
+    """A196: owner only. A one-time migration that flips transaction
+    direction and clears categories on the caller's own card accounts, so it
+    is not for ordinary signed-in users (and has no bot scope)."""
+    _require_owner(user)
     uid    = user["email"]
     cc_ids = [d["_id"] async for d in accounts_col.find({"user_id": uid, "type": "credit_card"}, {"_id": 1})]
     if not cc_ids:
