@@ -564,8 +564,9 @@ def test_single_token_user_and_common_words_never_look_like_a_holder():
 
 
 def test_every_emitted_item_uses_the_safe_name(monkeypatch):
-    """Not just the move headline: the whole item list (payday plan, stored
-    shapes, cover plans) is serialised and must never contain the holder."""
+    """The whole emitted item list for a cover-plan scenario (move cards and
+    whatever else it emits) is serialised and must never contain the holder.
+    The payday plan has its own non-vacuous test below."""
     import json
 
     monkeypatch.setattr(companion, "user_profiles_col", g359.FakeCol([{"_id": g359.UID, "name_tokens": TOKENS}]))
@@ -579,3 +580,63 @@ def test_every_emitted_item_uses_the_safe_name(monkeypatch):
     assert "Testworth" not in text and "TESTWORTH" not in text and "Anya" not in text
     assert companion._acct_name({"name": "MRS ANYA TESTWORTH", "provider": "barclays", "subtype": "TRANSACTION", "type": "BANK"}, TOKENS) == "Barclays current account"
     assert companion._acct_name_from_label("MRS ANYA TESTWORTH", "Barclays", TOKENS) == "Barclays account"
+
+
+def test_payday_plan_item_uses_the_safe_account_names(monkeypatch):
+    """Payday preview forces the payday plan card; it must really be present,
+    and none of its account names (salary account, destinations, per-account
+    split) may be the holder's name."""
+    import json
+    from functools import partial
+
+    monkeypatch.setattr(companion, "user_profiles_col", g359.FakeCol([{"_id": g359.UID, "name_tokens": TOKENS}]))
+    real = companion.compute_today_items
+    monkeypatch.setattr(companion, "compute_today_items", partial(real, payday_preview=True))
+    items = g359._run(
+        monkeypatch, g359._bills(extra=[g359._bill("Rent", 6000.0, 1)]), [g359._salary()],
+        accounts=_holder_accounts(),
+    )
+    plans = [i for i in items if i.get("type") == "payday_plan"]
+    assert plans, "the payday plan item must be emitted, otherwise this test proves nothing"
+    text = json.dumps(plans, default=str)
+    assert "Barclays current account" in text, "the holder-named salary account is named by bank and type"
+    for holder in ("Testworth", "TESTWORTH", "Anya", "ANYA"):
+        assert holder not in text
+
+
+def test_penny_payday_plan_labeller_rules(monkeypatch):
+    import app.services.penny_consolidation as consolidation
+    import app.services.penny_payday_plan as ppp
+
+    async def tokens(uid):
+        return TOKENS
+
+    def accounts(nickname):
+        extra = {"nickname": nickname} if nickname else {}
+        return [
+            {"id": "a1", "name": "MRS ANYA TESTWORTH", "provider": "ob-barclays", "subtype": "TRANSACTION", "type": "BANK", **extra},
+            {"id": "a2", "name": "Rainy Day Saver", "provider": "ob-barclays", "subtype": "SAVINGS", "type": "SAVINGS"},
+        ]
+
+    import app.services.notifications as n
+
+    monkeypatch.setattr(n, "_user_name_tokens", tokens)
+
+    def label_for(nickname):
+        async def load(uid):
+            return accounts(nickname)
+
+        monkeypatch.setattr(consolidation, "_load_accounts", load)
+        return asyncio.run(ppp._labeller("u"))
+
+    plain = label_for(None)
+    shown = plain("a1", "MRS ANYA TESTWORTH")
+    assert shown == "your Barclays account", shown       # source_label fallback, never the holder
+    assert "Testworth" not in shown and "Anya" not in shown
+    nicked = label_for("Everyday")
+    assert nicked("a1", "MRS ANYA TESTWORTH") == "Everyday"
+    # a nickname that is itself the holder's name is ignored
+    holder_nick = label_for("Anya Testworth")
+    assert "Testworth" not in holder_nick("a1", "MRS ANYA TESTWORTH")
+    # an ordinary account keeps its own name
+    assert plain("a2", "Rainy Day Saver") == "Barclays Rainy Day Saver"
