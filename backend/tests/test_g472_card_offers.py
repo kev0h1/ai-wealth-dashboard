@@ -309,10 +309,43 @@ def test_confirm_time_rejects_an_id_that_vanished(world):
     assert err.value.status_code == 409
 
 
-def test_an_already_ended_offer_blocks_a_change_until_it_is_removed(world):
-    _doc(world)["promos"] = [{"kind": "purchases", "apr_pct": 0.0, "until": "2020-01-01", "id": "old1"}]
-    r = _propose("propose_add_card_offer", ADD, TEXT_ADD)
-    assert "error" in r and "old1" in r["error"]
+ENDED = {"kind": "purchases", "apr_pct": 0.0, "until": "2020-01-01", "id": "old1"}
+
+
+def test_setting_the_rate_works_with_an_ended_offer_stored_and_leaves_it_alone(world):
+    _doc(world)["promos"] = [dict(ENDED)]
+    r = _propose("propose_set_card_rates", {"card_ref": "Harbour", "purchase_apr_pct": 23.2}, ["23.2"])
+    _confirm(world, r)
+    assert _doc(world)["apr_pct"] == 23.2 and _doc(world)["promos"] == [ENDED]
+
+
+def test_adding_an_offer_works_with_an_ended_offer_stored(world):
+    _doc(world)["promos"] = [dict(ENDED)]
+    _confirm(world, _propose("propose_add_card_offer", ADD, TEXT_ADD))
+    promos = _doc(world)["promos"]
+    assert promos[0] == ENDED and len(promos) == 2 and promos[1]["until"] == "2028-06-01"
+
+
+def test_an_untouched_ended_offer_still_counts_towards_the_cap(world):
+    _doc(world)["promos"] = [dict(ENDED)] + [
+        {"kind": "purchases", "apr_pct": 0.0, "until": f"2028-0{m}-01", "id": f"o{m}"} for m in (1, 2, 3)
+    ]
+    assert "error" in _propose("propose_add_card_offer", ADD, TEXT_ADD)
+
+
+def test_removing_an_ended_offer_works(world):
+    _doc(world)["promos"] = [dict(ENDED), {"kind": "purchases", "apr_pct": 0.0, "until": "2028-03-01", "id": "live1"}]
+    _confirm(world, _propose("propose_remove_card_offer", {"card_ref": "Harbour", "offer_id": "old1"}))
+    assert [p["id"] for p in _doc(world)["promos"]] == ["live1"]
+
+
+def test_updating_an_ended_offer_needs_a_future_end_date(world):
+    _doc(world)["promos"] = [dict(ENDED)]
+    r = _propose("propose_update_card_offer", {"card_ref": "Harbour", "offer_id": "old1", "apr_pct": 5}, ["5"])
+    assert "error" in r and "ended" in r["error"] and "remove" in r["error"]
+    ok = _propose("propose_update_card_offer", {"card_ref": "Harbour", "offer_id": "old1", "until": "2028-09-01"}, ["x"])
+    _confirm(world, ok)
+    assert _doc(world)["promos"][0]["id"] == "old1" and _doc(world)["promos"][0]["until"] == "2028-09-01"
 
 
 # ── which card ─────────────────────────────────────────────────────────────

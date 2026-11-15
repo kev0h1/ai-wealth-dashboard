@@ -211,26 +211,33 @@ def apply_offer_change(existing_promos: list, op: str, offer_id: str | None, fie
     """The stored offers with ONE change applied, validated by the routes' own
     `_normalise_promos`. Raises HTTPException (its authored detail) or OfferEditError."""
     from app.routers.card_terms import (
-        CardPromo, CardTermsBody, _OFFER_TYPE_KIND, _normalise_promos, _promos_with_ids,
+        CardPromo, CardTermsBody, _OFFER_TYPE_KIND, _normalise_promos, _promo_dup_key, _promos_with_ids,
     )
 
     promos = [dict(p) for p in _promos_with_ids(existing_promos or [])]
+    today = _today()
+    index = None
     if op != "add":
         wanted = str(offer_id or "").strip()
         index = next((i for i, p in enumerate(promos) if wanted and p["id"] == wanted), None)
         if index is None:
             ids = ", ".join(p["id"] for p in promos) or "none"
             raise OfferEditError(f"This card has no offer with id '{wanted}'. Offer ids on this card: {ids}.")
-    today = _today()
-    survivors = [p for i, p in enumerate(promos) if not (op == "remove" and i == index)]
-    for p in survivors:
-        if p.get("until") and date.fromisoformat(p["until"]) < today:
+        if op == "update" and promos[index].get("until") and date.fromisoformat(promos[index]["until"]) < today \
+                and "until" not in fields:
             raise OfferEditError(
-                f"The offer {p['id']} on this card has already ended. Remove it first, then make this change."
+                f"The offer {wanted} has already ended. Give it a new end date in the future, or remove it."
             )
 
+    def _ended(i: int, p: dict) -> bool:
+        return i != index and bool(p.get("until")) and date.fromisoformat(p["until"]) < today
+
+    # Ended offers the change does not touch are carried through exactly as stored. They are
+    # left out of the "until must be today or later" check, but still count for the cap and duplicates.
+    kept = {p["id"]: p for i, p in enumerate(promos) if _ended(i, p)}
+    live = [p for i, p in enumerate(promos) if not _ended(i, p)]
     if op == "remove":
-        promos = survivors
+        live = [p for p in live if p["id"] != promos[index]["id"]]
     elif op == "add":
         item = {
             "kind": _OFFER_TYPE_KIND[fields["offer_type"]], "offer_type": fields["offer_type"],
@@ -239,7 +246,7 @@ def apply_offer_change(existing_promos: list, op: str, offer_id: str | None, fie
         for key in _CLEARABLE:
             if fields.get(key) is not None:
                 item[key] = fields[key]
-        promos.append(item)
+        live.append(item)
     else:
         item = dict(promos[index])  # keeps its id
         for key, value in fields.items():
@@ -251,10 +258,19 @@ def apply_offer_change(existing_promos: list, op: str, offer_id: str | None, fie
             item["kind"] = _OFFER_TYPE_KIND[fields["offer_type"]]
         if any(k in fields for k in ("apr_pct", "balance", "revert_apr_pct")):
             item["as_of"] = today.isoformat()
-        promos[index] = item
+        live = [item if p["id"] == item["id"] else p for p in live]
 
-    body = CardTermsBody(status="confirmed", promos=[CardPromo(**p) for p in promos])
-    return _normalise_promos(body)
+    normalised = _normalise_promos(CardTermsBody(status="confirmed", promos=[CardPromo(**p) for p in live])) if live else []
+    if len(normalised) + len(kept) > 4:
+        raise OfferEditError("A card holds at most 4 offers. Remove one first.")
+    taken_keys = {_promo_dup_key(p) for p in kept.values()}
+    for p in normalised:
+        if _promo_dup_key(p) in taken_keys or p["id"] in kept:
+            raise OfferEditError("This card already has an offer of that kind ending on that date. Two offers need different end dates or balances.")
+    by_id = {p["id"]: p for p in normalised}
+    out = [kept[p["id"]] if p["id"] in kept else by_id.pop(p["id"]) for p in promos if p["id"] in kept or p["id"] in by_id]
+    out.extend(by_id.values())  # a newly added offer goes last
+    return out
 
 
 def _pct(value) -> str:
@@ -466,7 +482,8 @@ async def execute_set_card_rates(uid: str, params: dict) -> dict:
 
 
 async def _execute_offer_change(uid: str, params: dict, op: str) -> dict:
-    from app.routers.card_terms import CardPromo, CardRatesBody, _owned_card_or_404, save_card_rates
+    from datetime import datetime, timezone
+    from app.routers.card_terms import _PAYMENT_FIELDS, _owned_card_or_404, _update_scoped_terms
 
     account_id = params["account_id"]
     await _owned_card_or_404(uid, account_id)
@@ -475,7 +492,12 @@ async def _execute_offer_change(uid: str, params: dict, op: str) -> dict:
         promos = apply_offer_change(stored.get("promos") or [], op, params.get("offer_id"), params.get("fields") or {})
     except OfferEditError as exc:
         raise HTTPException(409, exc.args[0])
-    return await save_card_rates(account_id, CardRatesBody(promos=[CardPromo(**p) for p in promos]), user={"email": uid})
+    # The same scoped update save_card_rates makes. The changed offer was validated above; going through
+    # save_card_rates would re-check every stored offer's end date and refuse an untouched ended one.
+    updates = {"status": "confirmed", "confirmed_at": datetime.now(timezone.utc), "promos": promos}  # naive-ok: persisted UTC confirmation audit timestamp, not a calendar decision.
+    defaults = {field: None for field in _PAYMENT_FIELDS}
+    defaults.update(apr_pct=None, promos=[], min_payment_note=None, bt_offers=[], product_key=None, usage=None)
+    return await _update_scoped_terms(uid, account_id, updates, defaults)
 
 
 async def execute_add_card_offer(uid: str, params: dict) -> dict:

@@ -155,10 +155,10 @@ ALLOWLIST: set[tuple[str, int]] = {
     # G472: penny_card_offers.OfferEditError carries sentences written in that module for the person
     # ("This card has no offer with id ..."), and the HTTPException detail is card_terms._normalise_promos'
     # own authored text ("at most 4 promo rates"); neither is a system or library exception.
-    ("app/services/penny_card_offers.py", 379),
-    ("app/services/penny_card_offers.py", 423),
-    ("app/services/penny_card_offers.py", 425),
-    ("app/services/penny_card_offers.py", 477),
+    ("app/services/penny_card_offers.py", 395),
+    ("app/services/penny_card_offers.py", 439),
+    ("app/services/penny_card_offers.py", 441),
+    ("app/services/penny_card_offers.py", 494),
 }
 
 
