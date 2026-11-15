@@ -1629,7 +1629,7 @@ def test_execute_set_card_apr_dispatches_and_preserves_existing_promos(monkeypat
 
     saved = fake_terms_col.docs[0]
     assert saved["apr_pct"] == 24.9
-    assert saved["promos"] == [{"kind": "purchases", "apr_pct": 0.0, "until": until}]
+    assert [{k: v for k, v in x.items() if k != "id"} for x in saved["promos"]] == [{"kind": "purchases", "apr_pct": 0.0, "until": until}]  # G470: promos now carry a stable id
     assert saved["min_payment_note"] == "min payment 3%"
     assert saved["usage"] == "carry"
     assert saved["product_key"] == "amex-green"
