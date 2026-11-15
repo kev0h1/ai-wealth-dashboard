@@ -346,9 +346,9 @@ async def send_push_to_user(user_id: str, title: str, body: str, url: str = "/")
     return {"apns": apns_result, "fcm": fcm_result, "webpush": webpush_result}
 
 
-async def notify_new_transactions(user_id: str, new_txns: list) -> None:
+async def notify_new_transactions(user_id: str, new_txns: list) -> dict | None:
     if not new_txns:
-        return
+        return None
     sym = "KES " if (new_txns[0].get("currency") == "KES") else "£"
     if len(new_txns) == 1:
         t = new_txns[0]
@@ -365,4 +365,4 @@ async def notify_new_transactions(user_id: str, new_txns: list) -> None:
     # redesign retired it (view=list now just falls back to the "This
     # period" hub — see frontend/app/components/SpendPage.tsx). The actual
     # transactions list now lives at its own route, /transactions.
-    await send_push_to_user(user_id, title, body, "/transactions")
+    return await send_push_to_user(user_id, title, body, "/transactions")

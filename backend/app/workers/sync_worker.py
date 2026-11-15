@@ -552,6 +552,14 @@ async def finexer_consent_needs_attention(fx: dict) -> bool:
     return not prints <= covered
 
 
+async def _restore_stamp(col, _id, field: str, previous) -> None:
+    """G473: undo a claim stamp after its push failed, so the next run retries."""
+    if previous is None:
+        await col.update_one({"_id": _id}, {"$unset": {field: ""}})
+    else:
+        await col.update_one({"_id": _id}, {"$set": {field: previous}})
+
+
 async def task_consent_watch(ctx):
     """Daily nudge for bank connections whose consent is dead or expiring soon.
 
@@ -611,13 +619,20 @@ async def task_consent_watch(ctx):
         else:
             title, body = _expiring_copy(bank, expires_at, now)
 
+        # G473: take the throttle stamp BEFORE sending, with a filter that
+        # still requires the throttle to be open, so two overlapping runs
+        # cannot both nag. A failed send puts the previous stamp back.
+        if not (await connections_col.update_one(
+            {"_id": conn["_id"], "last_connection_nag": {"$not": {"$gt": throttle_cutoff}}},
+            {"$set": {"last_connection_nag": now}},
+        )).modified_count:
+            continue
         try:
             await send_push_to_user(uid, title, body, url="/")
         except Exception:
             logger.exception("consent watch push failed for TrueLayer connection %s", conn["_id"])
+            await _restore_stamp(connections_col, conn["_id"], "last_connection_nag", last_nag)
             continue
-
-        await connections_col.update_one({"_id": conn["_id"]}, {"$set": {"last_connection_nag": now}})
         if is_dead:
             nagged += 1
         else:
@@ -662,13 +677,17 @@ async def task_consent_watch(ctx):
         else:
             title, body = _expiring_copy(bank, expiry_date, now)
 
+        if not (await finexer_consents_col.update_one(
+            {"_id": fx["_id"], "last_connection_nag": {"$not": {"$gt": throttle_cutoff}}},
+            {"$set": {"last_connection_nag": now}},
+        )).modified_count:
+            continue  # G473: a concurrent run already took this nag
         try:
             await send_push_to_user(uid, title, body, url="/")
         except Exception:
             logger.exception("consent watch push failed for Finexer consent %s", fx["_id"])
+            await _restore_stamp(finexer_consents_col, fx["_id"], "last_connection_nag", last_nag)
             continue
-
-        await finexer_consents_col.update_one({"_id": fx["_id"]}, {"$set": {"last_connection_nag": now}})
         if is_dead:
             nagged += 1
         else:
@@ -705,6 +724,12 @@ async def task_consent_watch(ctx):
             await finexer_consents_col.update_one({"_id": fx["_id"]}, {"$set": fields})
             continue
         bank = _bank_display_name(fx.get("provider"))
+        if not (await finexer_consents_col.update_one(
+            {"_id": fx["_id"], "last_reconfirm_nag": {"$not": {"$gt": throttle_cutoff}}},
+            {"$set": {"last_reconfirm_nag": now}},
+        )).modified_count:
+            await finexer_consents_col.update_one({"_id": fx["_id"]}, {"$set": fields})
+            continue  # G473: a concurrent run already took this nag
         try:
             await send_push_to_user(
                 uid, f"Still OK for Sorted to read your {bank} data?",
@@ -712,6 +737,7 @@ async def task_consent_watch(ctx):
             )
         except Exception:
             logger.exception("consent watch reconfirm push failed for Finexer consent %s", fx["_id"])
+            await _restore_stamp(finexer_consents_col, fx["_id"], "last_reconfirm_nag", last_nag)
             await finexer_consents_col.update_one({"_id": fx["_id"]}, {"$set": fields})
             continue
         fields["last_reconfirm_nag"] = now
@@ -841,15 +867,21 @@ async def task_trial_reminder(ctx):
             logger.warning("trial reminder: no price or trial end to remind about (uid=%s)", uid)
             continue
         title, body = copy
+        # G473: stamp first with a filter that needs the stamp to be absent
+        # (None matches missing or null), so a concurrent run or the Stripe
+        # trial_will_end webhook cannot also send. A failed send clears it.
+        if not (await subscriptions_col.update_one(
+            {"_id": doc["_id"], "trial_reminder_sent_at": None},
+            {"$set": {"trial_reminder_sent_at": now}},
+        )).modified_count:
+            continue
         try:
             await send_push_to_user(uid, title, body, url="/settings")
         except Exception:
             logger.exception("trial reminder push failed for %s", uid)
+            await _restore_stamp(subscriptions_col, doc["_id"], "trial_reminder_sent_at", None)
             continue
 
-        await subscriptions_col.update_one(
-            {"_id": doc["_id"]}, {"$set": {"trial_reminder_sent_at": now}},
-        )
         sent += 1
 
     logger.info("trial reminder: sent=%s", sent)

@@ -35,11 +35,16 @@ class FakeCol:
         return _FakeCursor(matched)
 
     async def update_one(self, filt, update, upsert=False):
+        from types import SimpleNamespace
+
         for d in self.docs:
             if all(d.get(k) == v for k, v in filt.items()):
                 for k, v in (update.get("$set") or {}).items():
                     d[k] = v
-                return
+                for k in (update.get("$unset") or {}):
+                    d.pop(k, None)
+                return SimpleNamespace(matched_count=1, modified_count=1)
+        return SimpleNamespace(matched_count=0, modified_count=0)
 
 
 class _FakeCursor:

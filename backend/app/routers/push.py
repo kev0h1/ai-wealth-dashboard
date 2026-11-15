@@ -19,6 +19,9 @@ logger = logging.getLogger(__name__)
 class APNsRegisterBody(BaseModel):
     token: str
     platform: str = "ios"
+    # G473: a stable id the app generates once per install. Optional, because
+    # app binaries already on phones bundle older web code that never sends it.
+    install_id: str | None = None
 
 
 class APNsUnregisterBody(BaseModel):
@@ -28,6 +31,7 @@ class APNsUnregisterBody(BaseModel):
 class FCMRegisterBody(BaseModel):
     token: str
     platform: str = "android"
+    install_id: str | None = None
 
 
 class FCMUnregisterBody(BaseModel):
@@ -38,6 +42,45 @@ class ClientDiagnosticBody(BaseModel):
     stage: str
     detail: str
     platform: str | None = None
+
+
+def _clean_install_id(raw: str | None) -> str | None:
+    """A usable install id is 8-64 characters of letters, digits, dashes or
+    underscores; anything else is treated as absent (old-client behaviour)."""
+    value = (raw or "").strip()
+    if 8 <= len(value) <= 64 and all(c.isalnum() or c in "-_" for c in value):
+        return value
+    return None
+
+
+async def _register_native_token(col, user_id: str, token: str, platform: str, install_id: str | None) -> None:
+    """Upsert one native push token. G473: when the client sends an install id,
+    a re-register from the same install (the OS rotated the token, or the app
+    was reinstalled over the same storage) replaces that install's older tokens
+    instead of adding another, so one phone gets one push. Without an install
+    id (an older app binary) the token is stored exactly as before; identical
+    tokens are already one row because the token is the document _id."""
+    now = datetime.now()  # naive-ok: persisted token audit timestamp, same convention as the registration docs
+    fields = {
+        "_id": token, "user_id": user_id,
+        "token": token, "platform": platform,
+        "updated_at": now,
+    }
+    iid = _clean_install_id(install_id)
+    if iid:
+        fields["install_id"] = iid
+    await col.update_one(
+        {"_id": token},
+        {"$set": fields, "$setOnInsert": {"created_at": now}},
+        upsert=True,
+    )
+    if iid:
+        # Upsert first, prune second, and only rows older than this write: two
+        # racing registers from one install leave the newer token, never none.
+        await col.delete_many({
+            "user_id": user_id, "install_id": iid, "platform": platform,
+            "_id": {"$ne": token}, "updated_at": {"$lt": now},
+        })
 
 
 @router.get("/push/vapid-public-key")
@@ -75,16 +118,7 @@ async def push_unsubscribe(request: Request, user: dict = Depends(current_user))
 @router.post("/push/apns/register")
 async def apns_register(body: APNsRegisterBody, user: dict = Depends(current_user)):
     """Register an APNs device token from the native iOS app."""
-    await apns_tokens_col.update_one(
-        {"_id": body.token},
-        {"$set": {
-            "_id": body.token, "user_id": user["email"],
-            "token": body.token, "platform": body.platform,
-            "updated_at": datetime.now(),
-        },
-         "$setOnInsert": {"created_at": datetime.now()}},
-        upsert=True,
-    )
+    await _register_native_token(apns_tokens_col, user["email"], body.token, body.platform, body.install_id)
     return {"ok": True}
 
 
@@ -97,16 +131,7 @@ async def apns_unregister(body: APNsUnregisterBody, user: dict = Depends(current
 @router.post("/push/fcm/register")
 async def fcm_register(body: FCMRegisterBody, user: dict = Depends(current_user)):
     """Register an FCM device token from the native Android app."""
-    await fcm_tokens_col.update_one(
-        {"_id": body.token},
-        {"$set": {
-            "_id": body.token, "user_id": user["email"],
-            "token": body.token, "platform": body.platform,
-            "updated_at": datetime.now(),
-        },
-         "$setOnInsert": {"created_at": datetime.now()}},
-        upsert=True,
-    )
+    await _register_native_token(fcm_tokens_col, user["email"], body.token, body.platform, body.install_id)
     return {"ok": True}
 
 

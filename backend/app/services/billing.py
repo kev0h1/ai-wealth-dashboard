@@ -888,10 +888,18 @@ async def _handle_trial_will_end(sub_obj: dict) -> dict:
     copy = billing_lifecycle.trial_reminder_copy(doc)
     if not copy:
         return {"handled": False, "reason": "no price or trial end to remind about"}
+    # G473: stamp first (filter needs the stamp absent) so the daily task and
+    # this webhook cannot both send; a failed send clears the stamp again.
+    claim = await subscriptions_col.update_one(
+        {**_stripe_doc_filter(uid), "trial_reminder_sent_at": None},
+        {"$set": {"trial_reminder_sent_at": datetime.now(timezone.utc)}},  # naive-ok: persisted audit instant
+    )
+    if not claim.modified_count:
+        return {"handled": True, "action": "trial_will_end", "uid": uid, "notified": False, "reason": "already reminded"}
     sent = await billing_lifecycle.notify(uid, copy[0], copy[1])
-    if sent:
+    if not sent:
         await subscriptions_col.update_one(
-            _stripe_doc_filter(uid), {"$set": {"trial_reminder_sent_at": datetime.now(timezone.utc)}},  # naive-ok: persisted audit instant
+            _stripe_doc_filter(uid), {"$unset": {"trial_reminder_sent_at": ""}},
         )
     return {"handled": True, "action": "trial_will_end", "uid": uid, "notified": sent}
 

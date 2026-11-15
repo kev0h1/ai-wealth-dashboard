@@ -36,7 +36,7 @@ from app.routers.analytics import (
     stamp_credit_basis,
 )
 from app.routers.allocations import list_active_allocations
-from app.services.account_names import display_account_name, distinct_account_label
+from app.services.account_names import display_account_name, distinct_account_label, holder_safe_name
 from app.services.counted_accounts import is_excluded
 from app.services.account_kinds import (
     is_credit_card_account,
@@ -327,7 +327,11 @@ def _is_holder_named(display_name: str, user_tokens: list[str] | None) -> bool:
     if words[0] in _PERSON_TITLES:
         return True
     toks = {str(t).lower() for t in (user_tokens or []) if t}
-    if toks and len(set(words) & toks) >= min(2, len(toks)):
+    # G473: a user with fewer than two name words (or a surname that is an
+    # ordinary word) must never turn "Joint" or "Bills" into a person's name,
+    # so below two tokens only the title prefix above counts. With two or more
+    # tokens the account must share at least two of them.
+    if len(toks) >= 2 and len(set(words) & toks) >= 2:
         return True
     # Surname plus initials ("Maingi K M", "K M Maingi"): exactly one full word,
     # the user's surname-style token (3+ letters), and one or more single
@@ -529,6 +533,25 @@ def _clean_name(name: str | None, fallback: str = "") -> str:
     return display_account_name(cleaned) if cleaned else fallback
 
 
+def _acct_name(acc: dict | None, tokens: list[str] | None, fallback: str = "") -> str:
+    """G473: the user-facing name for an account in a card, plan or push. An
+    account named after its holder is its nickname, else "<Bank> <kind>"
+    (`holder_safe_name`); anything else keeps its own cleaned name."""
+    if acc:
+        safe = holder_safe_name(acc, tokens)
+        if safe:
+            return safe
+        return _clean_name(acc.get("name"), fallback)
+    return fallback
+
+
+def _acct_name_from_label(name: str | None, provider: str | None, tokens: list[str] | None, fallback: str = "") -> str:
+    """Same rule when only a bill's account_name and bank label are known."""
+    cleaned = _clean_name(name, fallback)
+    safe = holder_safe_name({"name": name, "provider": provider}, tokens) if name else None
+    return safe or cleaned
+
+
 # Raw provider/account ids are 16+ hex chars — they must never reach copy.
 _RAW_ID_RE = re.compile(r"^[0-9a-fA-F]{16,}$")
 
@@ -550,9 +573,11 @@ async def _lookup_account_name(account_id: str) -> str | None:
         pass
     for col in (accounts_col, yapily_accounts_col, manual_accounts_col):
         for _id in ids:
-            doc = await col.find_one({"_id": _id}, {"name": 1})
+            doc = await col.find_one({"_id": _id}, {"name": 1, "nickname": 1, "provider": 1, "subtype": 1, "account_subtype": 1, "type": 1})
             if doc:
-                return _clean_name(doc.get("name")) or None
+                # G473: never a holder's name (no saved name tokens here, so the
+                # title and look-alike tests apply).
+                return (holder_safe_name(doc, None) or _clean_name(doc.get("name"))) or None
     return None
 
 
@@ -2750,9 +2775,28 @@ async def compute_today_items(
     # footnote and as `display_label` on the card's route endpoints.
     _label_accounts = all_uk_accounts + offline_accounts
 
+    # G473: the user's own name words, so an account named after its holder is
+    # recognised even without a title, and so every surface labels it the same.
+    _holder_tokens: list[str] = []
+    try:
+        _holder_prof = await user_profiles_col.find_one(
+            {"_id": uid}, {"name_tokens": 1, "full_name": 1}
+        ) or {}
+        _holder_tokens = list(_holder_prof.get("name_tokens") or [])
+        if not _holder_tokens:
+            _holder_tokens = re.findall(r"[a-z']+", str(_holder_prof.get("full_name") or "").lower())
+    except Exception as _ht_exc:  # profile is optional; titles still work
+        log.warning("holder name tokens lookup failed for %s: %s", uid, type(_ht_exc).__name__)
+
     def _dl(acct_id: str | None) -> str | None:
         _acc = _account_map.get(str(acct_id or ""))
-        return distinct_account_label(_acc, _label_accounts) if _acc else None
+        if not _acc:
+            return None
+        # A holder-named account with a nickname is its nickname everywhere.
+        _safe = holder_safe_name(_acc, _holder_tokens)
+        if _safe and " ".join(str(_acc.get("nickname") or "").split()) == _safe:
+            return _safe
+        return distinct_account_label(_acc, _label_accounts, _holder_tokens or None)
     reserved_by_source = await _reserved_for_allocations(uid, resp["internal_inflows"], _account_map)
     # No guess when there is no salary account: an assumed goal (no stored or
     # inferred source) then reserves nowhere, like `_plan_source_needs` where
@@ -3286,7 +3330,7 @@ async def compute_today_items(
             return out
 
         def _make_leg(sid, acc, leg_amount):
-            src_name = _clean_name(acc.get("name"), sid)
+            src_name = holder_safe_name(acc, _holder_tokens) or _clean_name(acc.get("name"), sid)
             src_balance = live_balances.get(sid, float(acc.get("balance") or 0))
             src_provider = _provider_of(acc)
             src_own_bills = acct_bills_total.get(sid, 0.0)
@@ -3453,12 +3497,15 @@ async def compute_today_items(
             bill_weekday = _when_label(bill_date, today_d)
 
         # Destination account details
-        dest_name = _clean_name(bill.get("account_name") if bill else None, dest_acct)
+        dest_name = _acct_name_from_label(
+            bill.get("account_name") if bill else None, bill.get("account_bank") if bill else None,
+            _holder_tokens, dest_acct,
+        )
         dest_provider = "Bank"
         dest_balance = live_balances.get(dest_acct, 0.0)
         for acc in all_uk_accounts:
             if acc["_str_id"] == dest_acct:
-                dest_name = _clean_name(acc.get("name"), dest_name)
+                dest_name = _acct_name(acc, _holder_tokens, dest_name)
                 dest_provider = _provider_of(acc)
                 dest_balance = live_balances.get(dest_acct, float(acc.get("balance") or 0))
                 break
@@ -3634,9 +3681,8 @@ async def compute_today_items(
         if not _cands:
             continue
         _amt, _inc = max(_cands, key=lambda t: t[0])
-        _dest_nm = _dl(_dest) or _clean_name(
-            next((a.get("name") for a in all_uk_accounts if a["_str_id"] == _dest), None),
-            _dest,
+        _dest_nm = _dl(_dest) or _acct_name(
+            next((a for a in all_uk_accounts if a["_str_id"] == _dest), None), _holder_tokens, _dest,
         )
         _when = date.fromisoformat(_inc["expected_date"]).strftime("%-d %b")
         _landing = _dl(_inc.get("account_id")) or " ".join(
@@ -4073,7 +4119,7 @@ async def compute_today_items(
                     continue
                 _dest_entry = {
                     "account_id": acct_id,
-                    "name": _clean_name(acc.get("name"), acct_id),
+                    "name": _acct_name(acc, _holder_tokens, acct_id),
                     "provider": _provider_of(acc),
                     "balance": int(round(balance)),
                     "bills_total": int(round(bills_total)),
@@ -4286,7 +4332,7 @@ async def compute_today_items(
                 headline = "Payday plan: every account is already set"
 
             _salary_acc_obj = next((a for a in all_uk_accounts if a["_str_id"] == salary_acct), None)
-            _salary_name = _clean_name(_salary_acc_obj.get("name") if _salary_acc_obj else None, salary_acct)
+            _salary_name = _acct_name(_salary_acc_obj, _holder_tokens, salary_acct)
             _salary_provider = _provider_of(_salary_acc_obj) if _salary_acc_obj else "Bank"
 
             if over_salary is not None:
@@ -4362,7 +4408,7 @@ async def compute_today_items(
                 _pd_worst_shortfall = 0.0
                 for _pd_acct, _pd_out in sorted(_pd_bills_by_acct.items(), key=lambda kv: kv[1], reverse=True):
                     _pd_acc_obj = next((a for a in all_uk_accounts if a["_str_id"] == _pd_acct), None)
-                    _pd_name = _clean_name(_pd_acc_obj.get("name") if _pd_acc_obj else None, _pd_acct)
+                    _pd_name = _acct_name(_pd_acc_obj, _holder_tokens, _pd_acct)
                     _pd_accounts.append({
                         "account_id": _pd_acct,
                         "name": _pd_name,
@@ -4717,7 +4763,7 @@ async def compute_today_items(
             def _um_account_display(acct_id: str) -> tuple[str, str]:
                 for _acc in all_uk_accounts + offline_accounts:
                     if _acc["_str_id"] == acct_id:
-                        return _clean_name(_acc.get("name"), acct_id), _provider_of(_acc)
+                        return _acct_name(_acc, _holder_tokens, acct_id), _provider_of(_acc)
                 return acct_id, "Bank"
 
             # ── G42 (Kevin, 2026-09-11): top-up suggestion, per qualifying
@@ -5471,7 +5517,7 @@ async def compute_today_items(
                     _item_id = f"allocation_shortfall:{_pay_id}:{window_end.isoformat()}"
                     if _item_id in dismissed:
                         continue
-                    _pay_name = _clean_name(_pay_acc.get("name"), _pay_id)
+                    _pay_name = _acct_name(_pay_acc, _holder_tokens, _pay_id)
                     _gap = _g["gap"]
                     _primary_plan = (_g["allocations"] + _g.get("goals", []))[0]
                     _multi = len(_g["allocations"]) + len(_g.get("goals", [])) > 1
@@ -5746,12 +5792,18 @@ async def compute_today_items(
         Second element: True when the name came from the live lookup, so the
         caller can heal the stored doc."""
         nm = _clean_name(stored.get("_dest_name"))
+        dest = str(stored.get("_dest_acct") or "")
+        acc = next((a for a in all_uk_accounts if a["_str_id"] == dest), None) if dest else None
+        # G473: a stored name written before the holder-name rule (or by an
+        # older build) is re-derived from the live account, so a stored move
+        # card never speaks the holder's name.
+        safe = holder_safe_name(acc, _holder_tokens) if acc else None
+        if safe:
+            return safe, safe != nm
         if _display_name_ok(nm):
             return nm, False
-        dest = str(stored.get("_dest_acct") or "")
         if not dest:
             return None, False
-        acc = next((a for a in all_uk_accounts if a["_str_id"] == dest), None)
         if acc:
             nm = _clean_name(acc.get("name"))
             if _display_name_ok(nm):
@@ -6156,7 +6208,7 @@ async def compute_today_items(
             # resolve (offline/removed account) falls back to a generic,
             # still-safe phrase rather than omitting the account entirely.
             _acc = _account_map.get(str(acct_id or "")) if acct_id else None
-            return (_acc or {}).get("name") or "another account"
+            return (_acct_name(_acc, _holder_tokens) if _acc else "") or "another account"
 
         for _stream in (cached.get("recurring_income") or []):
             if _stream.get("source") != "confirmed":
@@ -6378,9 +6430,11 @@ async def compute_today_items(
                     _cliff_id = f"cliff:{_sid}:{_until_d.isoformat()}"
                     if _cliff_id in dismissed:
                         continue   # try the next-soonest promo on this card
-                    _card_name = humanise_account_name(_clean_name(
-                        _acc.get("nickname") or _acc.get("display_name") or _acc.get("name")
-                    ) or "Credit card")
+                    _card_name = humanise_account_name(
+                        holder_safe_name(_acc, _holder_tokens)
+                        or _clean_name(_acc.get("nickname") or _acc.get("display_name") or _acc.get("name"))
+                        or "Credit card"
+                    )
                     _when = _until_d.strftime("%-d %b")
                     _bal_str = f"£{int(round(_bal_mag)):,}"
                     _promo_rate = f"{float(_p.get('apr_pct') or 0.0):g}%"
@@ -6820,6 +6874,12 @@ async def _build_plan_easing_items(
         closing, movement, accts = ctx
 
     cfg = await _cm._pay_cfg(uid)
+    _easing_tokens: list[str] = []
+    try:
+        _ep = await user_profiles_col.find_one({"_id": uid}, {"name_tokens": 1, "full_name": 1}) or {}
+        _easing_tokens = list(_ep.get("name_tokens") or []) or re.findall(r"[a-z']+", str(_ep.get("full_name") or "").lower())
+    except Exception:
+        log.warning("easing name tokens lookup failed for %s", uid)
     today = timeutil.user_today()
     docs = await commitments_col.find({"user_id": uid, "status": "active"}).to_list(None)
     if not docs:
@@ -6891,7 +6951,7 @@ async def _build_plan_easing_items(
         source_capacity.update(snapshot)  # an easing never claims a source
         if covered:
             continue  # a safe move covers it: the move card speaks, not an easing
-        pay_name = _clean_name(pay_acc.get("name"), pay_id)
+        pay_name = _acct_name(pay_acc, _easing_tokens, pay_id)
         cap = _cap_for(cid)
         return [_item(cid, _payload("capped" if cap else "eligible", cid, gap=gap, cap=cap, pay_name=pay_name))]
 

@@ -32,11 +32,33 @@ class FakeStateCol:
         return self.docs.get(query.get("_id"))
 
     async def update_one(self, filt, update, upsert=False):
+        from types import SimpleNamespace
+        from pymongo.errors import DuplicateKeyError
+
         _id = filt.get("_id")
+        exists_filters = {
+            k: v["$exists"] for k, v in filt.items() if k != "_id" and isinstance(v, dict) and "$exists" in v
+        }
+
+        def _has(doc, dotted):
+            d = doc
+            for p in dotted.split("."):
+                if not isinstance(d, dict) or p not in d:
+                    return False
+                d = d[p]
+            return True
+
         if _id not in self.docs:
             if not upsert:
-                return
+                return SimpleNamespace(modified_count=0, upserted_id=None)
             self.docs[_id] = {"_id": _id}
+            created = True
+        else:
+            created = False
+            if any(_has(self.docs[_id], k) != want for k, want in exists_filters.items()):
+                if upsert:
+                    raise DuplicateKeyError("E11000 duplicate key on _id")
+                return SimpleNamespace(modified_count=0, upserted_id=None)
         doc = self.docs[_id]
         # Real Mongo interprets a dotted $set key ("category_pace.2026-08-01")
         # as a nested-field write, not a literal top-level key — several
@@ -48,6 +70,13 @@ class FakeStateCol:
             for p in parts[:-1]:
                 d = d.setdefault(p, {})
             d[parts[-1]] = value
+        for key in (update.get("$unset") or {}):
+            parts = key.split(".")
+            d = doc
+            for p in parts[:-1]:
+                d = d.get(p, {})
+            d.pop(parts[-1], None)
+        return SimpleNamespace(modified_count=0 if created else 1, upserted_id=_id if created else None)
 
 
 class FakeCashflowCacheCol:
