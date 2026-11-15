@@ -111,7 +111,7 @@ async def undo_filed_series(uid: str, series_key: str) -> dict:
     learned_candidates: dict[str, dict] = {}
     for credit, debit in pairs:
         ai_a, ai_b = ai_pair_keys(credit, debit)
-        queries = [{"user_id": uid, "key_a": ai_a, "key_b": ai_b, "source": "ai"}]
+        queries = [{"user_id": uid, "key_a": ai_a, "key_b": ai_b, "source": {"$in": ["ai", "series"]}}]
         if actor == "user":
             keys = sorted((canonical_merchant_key(credit.get("merchant_name") or "", credit.get("description") or ""),
                            canonical_merchant_key(debit.get("merchant_name") or "", debit.get("description") or "")))

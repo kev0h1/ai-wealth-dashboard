@@ -207,7 +207,7 @@ def test_candidate_set_is_only_what_no_rule_decides():
         _row("dd-c", "credit", 44.0, "hsbc", d0, "SOMETHING"),
         # G447: the next day is no candidate between current accounts
         _row("far-d", "debit", 45.0, "barc", d0, "JORDAN HARTLEY HSBC STO"),
-        _row("far-c", "credit", 45.0, "hsbc", d0 + timedelta(days=1), "HARTLEY J E HSBC"),
+        _row("far-c", "credit", 45.0, "hsbc", d0 + timedelta(days=5), "HARTLEY J E HSBC"),
         # the user already answered with a movement category
         _row("ans-d", "debit", 46.0, "barc", d0, "SOME STO", custom_category="Transfer"),
         _row("ans-c", "credit", 46.0, "hsbc", d0, "OTHER"),
@@ -738,7 +738,7 @@ def test_not_transfer_goes_back_into_spend_and_is_not_asked(monkeypatch):
     # G447: without a verdict a named pair on the same day is the G440 fallback: decided as an own move
     assert "sd" in find_own_move_ids(docs, KINDS, _identity())
     # and a named pair the next day is no pair at all between current accounts: it stays in Spend, unasked
-    late = {**credit, "date": datetime(2026, 11, 4)}
+    late = {**credit, "date": datetime(2026, 11, 8)}  # G468: beyond 3 days
     assert find_pending_transfer_ids([late, debit], KINDS, _identity()) == set()
     assert find_own_move_ids([late, debit], KINDS, _identity()) == set()
     ident = _identity("not_transfer", "Different counterparties.")

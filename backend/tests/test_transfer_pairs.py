@@ -15,7 +15,7 @@ level-name pattern test_notifications.py already established.
 """
 import asyncio
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import app.routers.analytics as analytics
 import app.services.categorisation as categorisation
@@ -199,7 +199,7 @@ def test_one_day_apart_pair_is_not_suggested(monkeypatch):
     txns = [
         _t("c1", ttype="credit", amount=50.0, date=D0, account_id="accA",
            merchant="Acme Rail", desc="ACME RAIL TRANSFER IN PAIRREF", category="Income"),
-        _t("d1", ttype="debit", amount=50.0, date=D1, account_id="accB",
+        _t("d1", ttype="debit", amount=50.0, date=datetime(2026, 8, 15), account_id="accB",
            merchant=None, desc="BETA PAYMENTS OUT PAIRREF", category="Other"),
     ]
     assert _run_suggestions(monkeypatch, txns) == []
@@ -1042,7 +1042,9 @@ def test_g377_review_drops_weekend_delay_keeps_same_day_and_rejects_other_curren
     credit = _t("credit-weekend", ttype="credit", amount=150.98, date=D0, account_id="natwest", desc="FROM A/C MAINGI KM VIA MOBILE XFER", category="Income", custom_category="Income")
     debit = _t("debit-weekend", ttype="debit", amount=150.98, date=D2, account_id="hsbc", desc="MAINGI KM FT", category="Other")
     identity = {"name_tokens": ["kevin", "maingi"], "own_ids": set(), "own_map": {}}
-    # G447: a weekend delay is no longer a pair between current accounts (same calendar day only)
+    # G468: a two-day delay between current accounts is asked (over 24 hours, up to 3 days)
+    assert len(_run_suggestions(monkeypatch, [credit, debit], identity=identity)) == 1
+    debit["date"] = credit["date"] + timedelta(days=5)
     assert _run_suggestions(monkeypatch, [credit, debit], identity=identity) == []
     debit["date"] = credit["date"]
     assert len(_run_suggestions(monkeypatch, [credit, debit], identity=identity)) == 1

@@ -79,7 +79,7 @@ from app.services.categories import (
 from app.services.categorisation import canonical_merchant_key, own_transfer_evidence, user_identity
 from app.services.transfer_pruning import pair_pruned_reason
 from app.services.own_account_transfers import (
-    account_name_in_text, counterparty_key, is_direct_debit, pair_is_named, pair_timing_ok, user_set_movement, within_auto_window,
+    account_name_in_text, counterparty_key, is_direct_debit, pair_gap, pair_is_named, pair_timing_ok, user_set_movement, within_auto_window,
 )
 
 logger = logging.getLogger(__name__)
@@ -105,6 +105,7 @@ _PROJECTION = {
     "account_id": 1, "linked_offline_account_id": 1, "linked_goal_id": 1,
     "currency": 1, "party_sort_code": 1, "party_number": 1, "bank_code": 1,
     "card_repayment_rule": 1, "card_repayment_taught": 1, "correction_scope": 1,
+    "first_seen": 1, "activity_date": 1,  # G468: the earliest known instant times a leg
 }
 
 
@@ -304,7 +305,7 @@ def _scan_own_moves(docs: list[dict], kinds, identity: dict | None = None) -> tu
                     continue
                 if not pair_timing_ok(cr, d, account_meta, learned_pairs, learned_keys):  # G447: same calendar day (card repayments a few days, learned pairs any date)
                     continue
-                gap = abs((cr["date"].date() - d["date"].date()).days)
+                gap = pair_gap(cr, d) or timedelta(0)  # G468: nearest instant wins
                 if named_income_only and not (
                     kind_of(kinds, _effective_category(cr)) == INCOME and pair_named(d, cr)
                 ):
@@ -314,6 +315,20 @@ def _scan_own_moves(docs: list[dict], kinds, identity: dict | None = None) -> tu
                 if best is None or gap < best_gap:
                     best, best_gap = cr, gap
         return best
+
+    def unique_within_24h(d: dict, cr: dict) -> bool:
+        """G468: a named pair files automatically only when it is the single candidate
+        at that amount within 24 hours on both sides; otherwise it is an ask."""
+        cents = round(abs(float(d.get("amount") or 0)) * 100)
+        credits = [x for c in (cents - 2, cents - 1, cents, cents + 1, cents + 2) for x in pool.get(c, ())
+                   if x.get("account_id") != d.get("account_id") and not is_direct_debit(x)
+                   and abs(abs(float(x.get("amount") or 0)) - abs(float(d.get("amount") or 0))) < PAIR_AMOUNT_TOLERANCE
+                   and within_auto_window(x, d)]
+        debits = [x for x in docs if _is_debit(x) and x.get("account_id") != cr.get("account_id")
+                  and isinstance(x.get("date"), datetime) and not is_direct_debit(x)
+                  and abs(abs(float(x.get("amount") or 0)) - abs(float(cr.get("amount") or 0))) < PAIR_AMOUNT_TOLERANCE
+                  and within_auto_window(x, cr)]
+        return len(credits) <= 1 and len(debits) <= 1
 
     dated = sorted(
         (d for d in docs if _is_debit(d) and isinstance(d.get("date"), datetime)),
@@ -406,7 +421,8 @@ def _scan_own_moves(docs: list[dict], kinds, identity: dict | None = None) -> tu
         history_undone = bool(ai_blocked and _history_sig(partner, d) in ai_blocked)
         fallback_ok = not (ai_blocked and (frozenset((_txn_id(d), _txn_id(partner))) in ai_blocked
                                            or _series_sig(partner, d) in ai_blocked or history_undone))
-        if (ai_same and not history_undone) or (fallback_ok and pair_named(d, partner) and within_auto_window(d["date"], partner["date"])):
+        if (ai_same and not history_undone) or (fallback_ok and pair_named(d, partner) and within_auto_window(d, partner)
+                                                and unique_within_24h(d, partner)):
             own.add(did)
             if kind_of(kinds, _effective_category(partner)) not in (INCOME, MOVEMENT) and not partner.get("custom_category"):
                 own.add(_txn_id(partner))
