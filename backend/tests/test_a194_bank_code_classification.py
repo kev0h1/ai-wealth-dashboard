@@ -62,8 +62,8 @@ def test_absent_code_keeps_the_same_behaviour():
     assert plain[1] == {"d1"} and not is_transfer_rail_candidate(pair[1])
 
 
-def test_cr_with_the_users_name_on_another_day_is_no_pair():  # G447: only the same day pairs
-    credit, debit = _coded(_pair(110.0, "hsbc", "barclays", datetime(2026, 11, 3, 9, 30), datetime(2026, 11, 6, 8, 0)), "FP")
+def test_cr_with_the_users_name_on_another_day_is_no_pair():  # G468: no pair beyond 3 days
+    credit, debit = _coded(_pair(110.0, "hsbc", "barclays", datetime(2026, 11, 3, 9, 30), datetime(2026, 11, 8, 8, 0)), "FP")
     credit = {**credit, "bank_code": "CR"}
     pairs, own, pending = _classify(credit, debit)
     assert pairs == [] and own == set() and pending == set()

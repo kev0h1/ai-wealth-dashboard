@@ -2825,7 +2825,8 @@ async def _compute_cashflow_patterns(uid: str) -> dict:
             "transaction_type": 1, "category": 1, "custom_category": 1,
             "custom_category_at": 1, "account_id": 1, "own_transfer_match": 1,
             "currency": 1, "is_pending": 1,
-            "party_sort_code": 1, "party_number": 1, "bank_code": 1}
+            "party_sort_code": 1, "party_number": 1, "bank_code": 1,
+            "first_seen": 1, "activity_date": 1}
     raw: list[dict] = await transactions_col.find(
         {"user_id": uid, "date": {"$gte": cutoff180}}, proj
     ).to_list(None)
@@ -6682,6 +6683,11 @@ def _has_pair_evidence(c: dict, d: dict, identity: dict, credit_claims_move: boo
         return True
     if credit_claims_move:
         return True
+    # G468: a NAMED pair that is not filed automatically (over 24 hours apart, or one of
+    # several candidates) is asked here; Spend's pending scan applies the same test.
+    from app.services.own_account_transfers import pair_is_named
+    if pair_is_named(c, d, identity):
+        return True
     c_text = f"{c.get('merchant_name') or ''} {c.get('description') or ''}"
     d_text = f"{d.get('merchant_name') or ''} {d.get('description') or ''}"
     from app.services.own_account_transfers import has_owner_transfer_reference
@@ -6806,6 +6812,7 @@ async def _transfer_pair_suggestions(uid: str) -> list[dict]:
          "merchant_name": 1, "category": 1, "custom_category": 1,
          "transaction_type": 1, "currency": 1, "own_transfer_match": 1, "is_pending": 1,
          "bank_code": 1, "party_sort_code": 1, "party_number": 1,
+         "first_seen": 1, "activity_date": 1,
          "linked_offline_account_id": 1, "linked_goal_id": 1},
     ).to_list(None)
 
@@ -6831,17 +6838,19 @@ async def _transfer_pair_suggestions(uid: str) -> list[dict]:
     def _credit_needs_fixing(cat) -> bool:
         return cat in ("Income", "Other") or is_spend(kind_map, cat)
 
-    from app.services.own_account_transfers import _confirmed_pairs, _same_amount_pairs, ai_verdict_for, pair_gap_days
+    from app.services.own_account_transfers import _confirmed_pairs, _same_amount_pairs, ai_verdict_for, pair_gap
     _, consumed = _confirmed_pairs(txns, owned_accounts, movement_names)
 
     candidates = []  # (date_diff, amount, credit, debit, pair_key)
+    gap_by_pair: dict[str, float] = {}
     for c, d, issuer in _same_amount_pairs(
             txns, owned_accounts, movement_names, consumed=consumed, exclude_ids=active_separate_ids,
             learned=learned_pair_keys, name_tokens=identity.get("name_tokens") or [], identity=identity,
             blocks=lambda t: t.get("custom_category") is not None and is_spend(kind_map, t["custom_category"])):
         if issuer:
             continue  # a card repayment is filed by its own rule, never asked here
-        date_diff = pair_gap_days(c["date"], d["date"])
+        gap_secs = (pair_gap(c, d) or timedelta(0)).total_seconds()  # G468: earliest known instants
+        date_diff = int(gap_secs // 86400)
         # A prior "this is spending" dismissal also answers the same
         # transaction when it later becomes a pair candidate after sync.
         if (str(d["_id"]) in dismissed_rows or series_key(d) in dismissed_series):
@@ -6883,6 +6892,7 @@ async def _transfer_pair_suggestions(uid: str) -> list[dict]:
         history_undone = history_series_signature(c, d) in (identity.get("ai_blocked") or frozenset())
         if learned_match(learned_pair_keys, c, d) and (not history_undone or _user_answered_pair(c, d, learned_pair_keys, movement_names)):
             continue
+        gap_by_pair[pair_key] = gap_secs
         candidates.append((date_diff, c.get("amount") or 0, c, d, pair_key))
 
     # Greedy matching: nearest date-diff first (same-day beats 1-day), then
@@ -6891,7 +6901,7 @@ async def _transfer_pair_suggestions(uid: str) -> list[dict]:
     # without this, two candidates tied on date-diff and amount could order
     # differently between requests depending on unspecified document order,
     # making the greedy match's outcome non-deterministic.
-    candidates.sort(key=lambda x: (x[0], -x[1], x[4]))
+    candidates.sort(key=lambda x: (gap_by_pair.get(x[4], 0.0), -x[1], x[4]))  # G468: nearest instant first
 
     used_credits: set = set()
     used_debits: set = set()
@@ -7075,7 +7085,8 @@ async def confirm_transfer_pair(body: dict, user: dict = Depends(current_user)):
     key_b = canonical_merchant_key(debit_txn.get("merchant_name") or "", debit_txn.get("description") or "")
 
     learned = False
-    if not _too_generic_to_learn(key_a) and not _too_generic_to_learn(key_b):
+    from app.services.own_account_transfers import learnable_pair_keys
+    if learnable_pair_keys(key_a, key_b):  # G468: one short but specific key is allowed, see learnable_pair_keys
         ka, kb = sorted((key_a, key_b))
         await confirmed_transfer_pairs_col.update_one(
             {"user_id": uid, "key_a": ka, "key_b": kb},
@@ -7093,7 +7104,7 @@ async def confirm_transfer_pair(body: dict, user: dict = Depends(current_user)):
     # are stamped as the user's confirmation, never as the model's.
     from app.services.own_account_transfers import ai_pair_keys
     ai_a, ai_b = ai_pair_keys(credit_txn, debit_txn)
-    await confirmed_transfer_pairs_col.delete_many({"user_id": uid, "key_a": ai_a, "key_b": ai_b, "source": "ai"})
+    await confirmed_transfer_pairs_col.delete_many({"user_id": uid, "key_a": ai_a, "key_b": ai_b, "source": {"$in": ["ai", "series"]}})
 
     # A successful decision must be visible to the very next read, including
     # another API process or the shared response cache.

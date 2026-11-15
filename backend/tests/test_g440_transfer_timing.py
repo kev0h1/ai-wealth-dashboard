@@ -11,7 +11,7 @@ rule 2 name forms and the same-day timing rule.
 Invented names, amounts and account ids throughout, shaped like the 8 Nov
 review rows."""
 import asyncio
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import app.routers.card_terms  # noqa: F401  (H143: pre-import before any collection patching)
 import app.services.debt_plan  # noqa: F401
@@ -66,51 +66,56 @@ def test_named_pair_on_the_same_day_by_timestamp_is_automatic():
     assert pairs == [(credit, debit)] and own == {"d1"} and pending == set()
 
 
-def test_the_next_day_is_not_a_pair_even_when_named_and_even_within_24_hours():
-    # 22:10 and 20:00 next day is under 24 hours but two calendar days: G447 says no pair
+def test_a_named_pair_within_24_hours_across_midnight_is_automatic_and_over_24_hours_asks():
+    # G468: 22:10 and 20:00 next day is under 24 hours: a named single candidate files automatically
     credit, debit = _pair(1885.0, "barclays", "hsbc", datetime(2026, 11, 3, 22, 10), datetime(2026, 11, 4, 20, 0))
     pairs, own, pending = _classify(credit, debit)
-    assert pairs == [] and own == set() and pending == set()
-    assert is_spending(debit, SpendingContext.from_docs([debit, credit], KINDS, IDENTITY))
+    assert pairs == [(credit, debit)] and own == {"d1"} and pending == set()
+    # 25 hours is an ask, never automatic
+    credit, debit = _pair(1885.0, "barclays", "hsbc", datetime(2026, 11, 3, 22, 10), datetime(2026, 11, 4, 23, 10))
+    pairs, own, pending = _classify(credit, debit)
+    assert pairs == [] and own == set() and pending == {"d1"}
 
 
-def test_two_and_three_days_apart_get_no_offer(monkeypatch):
+def test_two_and_three_days_apart_ask_and_four_get_no_offer(monkeypatch):
+    # G468: over 24 hours and up to 3 days is an ask; beyond 3 days there is no pair
     for gap in (2, 3):
         credit, debit = _pair(110.0, "hsbc", "barclays", datetime(2026, 11, 3, 9, 30), datetime(2026, 11, 3 + gap, 8, 0))
         pairs, own, pending = _classify(credit, debit)
-        assert pairs == [] and own == set() and pending == set()
+        assert pairs == [] and own == set() and pending == {"d1"}
         _review_fakes(monkeypatch, [credit, debit], IDENTITY)
-        assert asyncio.run(analytics._transfer_pair_suggestions(UID)) == []
-
-
-def test_date_only_legs_one_day_apart_are_not_a_pair(monkeypatch):
-    credit, debit = _pair(110.0, "hsbc", "barclays", datetime(2026, 11, 3), datetime(2026, 11, 4))
-    assert not within_auto_window(debit["date"], credit["date"])
+        assert len(asyncio.run(analytics._transfer_pair_suggestions(UID))) == 1
+    credit, debit = _pair(110.0, "hsbc", "barclays", datetime(2026, 11, 3, 9, 30), datetime(2026, 11, 7, 8, 0))
     pairs, own, pending = _classify(credit, debit)
     assert pairs == [] and own == set() and pending == set()
-    assert is_spending(debit, SpendingContext.from_docs([debit, credit], KINDS, IDENTITY))
     _review_fakes(monkeypatch, [credit, debit], IDENTITY)
     assert asyncio.run(analytics._transfer_pair_suggestions(UID)) == []
 
 
+def test_date_only_legs_two_days_apart_are_asked_not_filed(monkeypatch):
+    credit, debit = _pair(110.0, "hsbc", "barclays", datetime(2026, 11, 3), datetime(2026, 11, 5))
+    assert not within_auto_window(debit["date"], credit["date"]) and within_ask_window(debit["date"], credit["date"])
+    pairs, own, pending = _classify(credit, debit)
+    assert pairs == [] and own == set() and pending == {"d1"}
+    _review_fakes(monkeypatch, [credit, debit], IDENTITY)
+    assert len(asyncio.run(analytics._transfer_pair_suggestions(UID))) == 1
+
+
 def test_a_one_day_gap_never_hides_a_row_unasked(monkeypatch):
     # the G438 invariant under the new rule: nothing next-day is left out of Spend either
-    credit, debit = _pair(60.0, "barclays", "monzo", datetime(2026, 8, 1), datetime(2026, 8, 2))
+    # G468: a 4-day gap is no pair at all, so nothing leaves Spend
+    credit, debit = _pair(60.0, "barclays", "monzo", datetime(2026, 8, 1), datetime(2026, 8, 5))
     assert find_pending_transfer_ids([debit, credit], KINDS, IDENTITY) == set()
     assert is_spending(debit, SpendingContext.from_docs([debit, credit], KINDS, IDENTITY))
 
 
-def test_same_day_edges_use_the_london_calendar_day():
-    # stored naive UTC. Summer (BST = UTC+1): 23:30 UTC on 3 Aug is 00:30 London on 4 Aug
-    assert within_ask_window(datetime(2026, 8, 3, 23, 30), datetime(2026, 8, 4, 8, 0))
-    assert not within_ask_window(datetime(2026, 8, 3, 22, 30), datetime(2026, 8, 4, 8, 0))
-    # winter (GMT): the UTC date is the London date
-    assert not within_ask_window(datetime(2026, 11, 3, 23, 30), datetime(2026, 11, 4, 0, 10))
-    assert within_ask_window(datetime(2026, 11, 3, 0, 0), datetime(2026, 11, 3, 23, 59))
-    # a date-only (midnight) leg keeps the bank's own date in both seasons
-    assert within_ask_window(datetime(2026, 8, 3), datetime(2026, 8, 3, 21, 0))
-    assert within_ask_window(datetime(2026, 11, 3), datetime(2026, 11, 3, 23, 0))
-    assert not within_ask_window(datetime(2026, 11, 3), datetime(2026, 11, 4))
+def test_windows_are_elapsed_time_on_the_earliest_instants_in_both_seasons():
+    # G468: stored naive UTC, so the 24 hour and 3 day windows are exact elapsed time in BST and GMT alike
+    for base in (datetime(2026, 8, 3, 23, 30), datetime(2026, 11, 3, 23, 30)):
+        assert within_auto_window(base, base + timedelta(hours=24))
+        assert not within_auto_window(base, base + timedelta(hours=24, minutes=1))
+        assert within_ask_window(base, base + timedelta(days=3))
+        assert not within_ask_window(base, base + timedelta(days=3, minutes=1))
     assert within_auto_window(datetime(2026, 11, 3), datetime(2026, 11, 3, 5)) and not within_auto_window(None, datetime(2026, 11, 3))
 
 
@@ -149,14 +154,14 @@ def test_every_pending_pair_is_askable_and_next_day_rows_are_never_hidden():
                 assert analytics._has_pair_evidence(credit, debit, ident, kind_of(KINDS, credit["category"]) == MOVEMENT), (dtext, ctext, amount)
 
 
-def test_review_offers_a_same_day_pair_with_no_name_and_not_a_next_day_one(monkeypatch):
+def test_review_offers_a_same_day_pair_with_no_name_and_not_a_four_day_one(monkeypatch):
     credit, debit = _pair(250.0, "hsbc", "barclays", datetime(2026, 11, 3, 9, 30), datetime(2026, 11, 3, 12, 0),
                           debit_text="PAIRREF OUT", credit_text="PAIRREF IN")
     credit["category"] = "Transfer"
     _review_fakes(monkeypatch, [credit, debit], NO_ONE)
     items = asyncio.run(analytics._transfer_pair_suggestions(UID))
     assert [(i["credit"]["id"], i["debit"]["id"]) for i in items] == [("c1", "d1")]
-    late = {**credit, "date": datetime(2026, 11, 4, 12, 0)}
+    late = {**credit, "date": datetime(2026, 11, 8, 12, 0)}  # G468: beyond 3 days
     _review_fakes(monkeypatch, [late, debit], NO_ONE)
     assert asyncio.run(analytics._transfer_pair_suggestions(UID)) == []
 

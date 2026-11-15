@@ -153,7 +153,7 @@ def test_every_pair_the_review_offers_is_one_the_builder_yields(monkeypatch):
     rows = [_row("a-d", "debit", 41.0, "natw", D0, "JORDAN HARTLEY HSBC STO"),
             _row("a-c", "credit", 41.0, "hsbc", D0, "HARTLEY J E HSBC"),
             _row("b-d", "debit", 42.0, "natw", D0, "PAIRREF OUT"),
-            _row("b-c", "credit", 42.0, "hsbc", D0 + timedelta(days=1), "PAIRREF IN", category="Transfer")]
+            _row("b-c", "credit", 42.0, "hsbc", D0 + timedelta(days=4), "PAIRREF IN", category="Transfer")]  # G468: beyond 3 days
 
     async def run():
         async with mongo_env(monkeypatch, rows, accounts=ACCTS):
@@ -195,7 +195,7 @@ def test_same_day_current_to_current_is_a_candidate_and_next_day_is_not():
     assert [(x["_id"], y["_id"]) for x, y in got] == [("c", "d")]
     assert [(x["_id"], y["_id"]) for x, y, _ in oat._same_amount_pairs(
         [c, d], BY_ID, {"Transfer"}, consumed=set(), exclude_ids=frozenset())] == [("c", "d")]
-    c2, d2 = _named(D0 + timedelta(days=1), D0)
+    c2, d2 = _named(D0 + timedelta(days=4), D0)  # G468: beyond 3 days
     assert oat.ai_candidate_pairs([c2, d2], BY_ID, TOKENS, set(), movement_categories={"Transfer"}) == []
     assert list(oat._same_amount_pairs([c2, d2], BY_ID, {"Transfer"}, consumed=set(), exclude_ids=frozenset())) == []
     assert oat.select_unique_pairs([c2, d2], BY_ID, TOKENS, set(), movement_categories={"Transfer"}) == []
@@ -223,28 +223,31 @@ def test_a_card_repayment_two_days_apart_is_still_matched_and_not_asked(monkeypa
     assert oat.select_unique_pairs_detailed(cur, BY_ID, TOKENS, set(), movement_categories={"Transfer"}) == []
     # Spend: a card account partner may span the repayment window, a current one may not
     assert oat.pair_timing_ok(rows[1], rows[0], BY_ID)
-    assert not oat.pair_timing_ok(cur[1], cur[0], BY_ID)
-    far = {**rows[1], "date": datetime(2026, 8, 5)}
+    assert oat.pair_timing_ok(cur[1], cur[0], BY_ID)  # G468: two days between current accounts is an ask candidate (not automatic)
+    assert not oat.pair_timing_ok({**cur[1], "date": datetime(2026, 8, 3)}, cur[0], BY_ID)  # five days: no pair
+    far = {**rows[1], "date": datetime(2026, 8, 5)}  # G468: a card repayment keeps CARD_REPAY_DAYS
     assert not oat.pair_timing_ok(far, rows[0], BY_ID)
 
 
-def test_a_learned_series_matches_on_any_date_nearest_first_one_to_one():
+def test_a_learned_series_matches_within_five_days_nearest_first_one_to_one():  # G468: capped at 5 days
     start = datetime(2026, 6, 1)
     rows = []
     for m in range(4):  # a monthly standing order whose credit lands a few days after the debit
         rows.append(_row(f"d{m}", "debit", 150.0, "natw", start + timedelta(days=30 * m), "JORDAN HARTLEY HSBC STO"))
-        rows.append(_row(f"c{m}", "credit", 150.0, "hsbc", start + timedelta(days=30 * m + (7 if m % 2 else 0)), "HARTLEY J E HSBC"))
+        rows.append(_row(f"c{m}", "credit", 150.0, "hsbc", start + timedelta(days=30 * m + (4 if m % 2 else 0)), "HARTLEY J E HSBC"))
     key = tuple(sorted((categorisation.canonical_merchant_key("", "HARTLEY J E HSBC"),
                         categorisation.canonical_merchant_key("", "JORDAN HARTLEY HSBC STO"))))
-    # no learned pair: only the same-day months pair, and the seven day ones do not
+    # no learned pair: only the same-day months pair, and the four day ones do not (beyond 3 days)
     plain = oat.select_unique_pairs(rows, BY_ID, TOKENS, set(), movement_categories={"Transfer"})
     assert sorted((c["_id"], d["_id"]) for c, d in plain) == [("c0", "d0"), ("c2", "d2")]
     learned = oat.select_unique_pairs(rows, BY_ID, TOKENS, {key}, movement_categories={"Transfer"})
     assert sorted((c["_id"], d["_id"]) for c, d in learned) == [(f"c{m}", f"d{m}") for m in range(4)]
-    # and a single credit weeks after its debit still matches once the pair is learned
+    # a single credit four days after its debit matches once the pair is learned, six days does not
     lone = [_row("ld", "debit", 99.0, "natw", start, "JORDAN HARTLEY HSBC STO"),
-            _row("lc", "credit", 99.0, "hsbc", start + timedelta(days=40), "HARTLEY J E HSBC")]
+            _row("lc", "credit", 99.0, "hsbc", start + timedelta(days=4), "HARTLEY J E HSBC")]
     assert [(c["_id"], d["_id"]) for c, d in oat.select_unique_pairs(lone, BY_ID, TOKENS, {key}, movement_categories={"Transfer"})] == [("lc", "ld")]
+    far = [lone[0], {**lone[1], "date": start + timedelta(days=6)}]
+    assert oat.select_unique_pairs(far, BY_ID, TOKENS, {key}, movement_categories={"Transfer"}) == []
     assert oat.select_unique_pairs(lone, BY_ID, TOKENS, set(), movement_categories={"Transfer"}) == []
 
 
@@ -265,7 +268,7 @@ def test_series_singles_and_the_judge_window_still_work():
 # ── e: the invariant under the new rules ────────────────────────────────────
 
 def test_nothing_is_hidden_and_unasked_for_same_day_and_next_day_pairs(monkeypatch):
-    cases = [(D0, D0), (D0 + timedelta(days=1), D0), (D0 + timedelta(days=3), D0)]
+    cases = [(D0, D0), (D0 + timedelta(days=1), D0), (D0 + timedelta(days=4), D0)]
     for c_at, d_at in cases:
         for credit_cat in ("Transfer", "Income"):
             c = _row("c", "credit", 55.5, "hsbc", c_at, "HARTLEY J E HSBC", category=credit_cat)
@@ -275,7 +278,7 @@ def test_nothing_is_hidden_and_unasked_for_same_day_and_next_day_pairs(monkeypat
                         "account_names": {k: v["name"] for k, v in BY_ID.items()}, "account_meta": meta}
             pending = find_pending_transfer_ids([c, d], KINDS, identity)
             own = find_own_move_ids([c, d], KINDS, identity)
-            if c_at != d_at:  # the next day: no pair, so nothing leaves Spend
+            if c_at - d_at > timedelta(days=3):  # G468: beyond 3 days: no pair, so nothing leaves Spend
                 assert pending == set() and own == set()
                 continue
             for leg_id in pending:

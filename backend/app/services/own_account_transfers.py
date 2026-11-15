@@ -35,7 +35,7 @@ from app.services.transfer_pruning import pair_pruned_reason
 OWN_TRANSFER_MATCH_VERSION = 2
 # G447: bump whenever a pair rule changes (timing, pruning, verdict order, evidence), so the
 # stored transfers review (transfer_review_store) is rebuilt by the worker after the deploy.
-REVIEW_RULES_VERSION = 2  # G451: a whole-history Undo also covers later variable amounts.
+REVIEW_RULES_VERSION = 3  # G451: a whole-history Undo also covers later variable amounts. G468: 3 = 24 h / 3 day windows on the earliest known instant.
 logger = logging.getLogger(__name__)
 # G443: one history window for everything that reads pairs (reconcile, the model's
 # candidates). It was 90 days, which left a pair imported at the start of history
@@ -640,7 +640,7 @@ def _learned_pair_keys(rows: Iterable[dict]) -> set[tuple[str, str]]:
         a, b = str(row.get("key_a") or ""), str(row.get("key_b") or "")
         if not (a and b):
             continue
-        if row.get("source") == "ai":
+        if row.get("source") in ("ai", "series"):  # G468: a series-learned pair is held under the model's normaliser too
             a, b = AI_KEY_PREFIX + a, AI_KEY_PREFIX + b
         out.add(tuple(sorted((a, b))))
     return out
@@ -700,41 +700,75 @@ def same_calendar_day(a, b) -> bool:
     return to_user_date(a) == to_user_date(b)
 
 
+AUTO_WINDOW = timedelta(hours=24)
+ASK_WINDOW = timedelta(days=3)
+
+
+def leg_instant(row_or_date) -> datetime | None:
+    """G468 (Kevin 2026-11-14): the earliest instant known for a leg, so a payment
+    seen pending on Friday is timed on Friday, not on the Monday posting date the
+    bank later gave it: min(date, first_seen, activity_date) over those that are
+    datetimes. Booked dates are stored as naive UTC, so differences are exact
+    elapsed time and the London season never enters. A bare datetime is its own
+    instant (callers that only have dates)."""
+    if isinstance(row_or_date, datetime):
+        return row_or_date
+    if not isinstance(row_or_date, dict):
+        return None
+    stamps = [v for v in (row_or_date.get("date"), row_or_date.get("first_seen"), row_or_date.get("activity_date"))
+              if isinstance(v, datetime)]
+    return min(stamps) if stamps else None
+
+
+def pair_gap(a, b) -> timedelta | None:
+    """Elapsed time between two legs' earliest known instants (absolute), or None."""
+    ia, ib = leg_instant(a), leg_instant(b)
+    if ia is None or ib is None:
+        return None
+    return abs(ia - ib)
+
+
+def within_ask_window(a, b) -> bool:
+    """G468: the two legs (rows, or bare datetimes) are within 3 days of each other
+    on their earliest known instants: a candidate pair the review may ask about."""
+    gap = pair_gap(a, b)
+    return gap is not None and gap <= ASK_WINDOW
+
+
+def within_auto_window(a, b) -> bool:
+    """G468: within 24 hours on the earliest known instants. The only gap at which
+    a pair can be filed without asking, and then only when named or counterparty
+    evidenced AND the single candidate on both sides (see `_strong_evidence`)."""
+    gap = pair_gap(a, b)
+    return gap is not None and gap <= AUTO_WINDOW
+
+
 def pair_timing_ok(credit: dict, debit: dict, accounts: dict | None = None, learned=frozenset(),
                    keys: dict | None = None) -> bool:
-    """G447 (Kevin 2026-11-09): may these two legs be a pair by DATE?
+    """G468 (superseding G447's same-day rule): may these two legs be a pair by TIME?
 
-    - same London calendar day: yes (current to current);
+    - current/savings/pot legs: within 3 days on their earliest known instants
+      (`leg_instant`); within 24 hours is the only window that can file
+      automatically, everything else is an ask;
     - either leg on a credit card account: a repayment may span CARD_REPAY_DAYS
-      calendar days (the G381 routes keep their own window);
-    - a learned pair (the user's, the model's, or a confirmed series): any date.
+      calendar days (the G381 routes keep their own window), unchanged;
+    - a learned pair (the user's, the model's, or a series): within PAIR_DAYS (5) days.
     `accounts` maps account id to an account-like dict; `learned` is the learned
     pair-key set; `keys` is an optional per-call cache for learned lookups."""
     c_date, d_date = credit.get("date"), debit.get("date")
     if not isinstance(c_date, datetime) or not isinstance(d_date, datetime):
         return False
-    if same_calendar_day(c_date, d_date):
+    if within_ask_window(credit, debit):
         return True
     from app.services.transfer_pruning import _is_card_account
     accounts = accounts or {}
     if (_is_card_account(accounts.get(credit.get("account_id"))) or _is_card_account(accounts.get(debit.get("account_id")))):
         if pair_gap_days(c_date, d_date) <= CARD_REPAY_DAYS:
             return True
-    return bool(learned) and learned_match(learned, credit, debit, keys)
-
-
-def within_ask_window(a, b) -> bool:
-    """G447: the review's date test between current accounts is the same
-    calendar day. Kept under this name for callers that only have two dates
-    (it supersedes G440's three day window). Card repayments and learned series
-    use `pair_timing_ok`."""
-    return same_calendar_day(a, b)
-
-
-def within_auto_window(a, b) -> bool:
-    """G447: automatic filing and asking share one window now (the same calendar
-    day), so G440's separate 24-hour test is the same test."""
-    return same_calendar_day(a, b)
+    # G468 (Kevin 2026-11-14): a learned pair (the user's, the model's, a series) matches
+    # within PAIR_DAYS days of the legs' earliest known instants, no longer on any date.
+    gap = pair_gap(credit, debit)
+    return bool(learned) and gap is not None and gap <= timedelta(days=PAIR_DAYS) and learned_match(learned, credit, debit, keys)
 
 
 def pair_is_named(credit: dict, debit: dict, identity: dict) -> bool:
@@ -773,6 +807,27 @@ def ai_verdict_for(identity: dict | None, credit: dict, debit: dict) -> str | No
 def pair_ids(credit: dict, debit: dict) -> frozenset:
     """The identity of one candidate pair: both stable transaction ids."""
     return frozenset((str(credit.get("_id")), str(debit.get("_id"))))
+
+
+SERIES_SOURCE = "series"  # G468: confirmed_transfer_pairs.source for a pair learned from a series the rules filed twice
+GENERIC_SHORT_WORDS = frozenset({"transfer", "payment", "ft", "fps", "bp", "so", "dd", "tfr", "trf", "from", "to", "savings", "pot"})
+
+
+def learnable_pair_keys(ka: str, kb: str) -> bool:
+    """G468: may this key pair be learned? `learned_match` compares the two normalised
+    keys ONLY (amount and account pair are checked by the pair builder, not by the
+    learned rule), so the rule is deliberately narrow: not both keys generic, and a key
+    the 6-character rule calls generic is allowed only when it is a short but specific
+    word (at least 3 characters, no channel code), and no key may be made only of generic
+    words (transfer, payment, from, to, savings, pot...)."""
+    if too_generic_to_learn(ka) and too_generic_to_learn(kb):
+        return False
+    for key in (ka, kb):
+        if all(w in GENERIC_SHORT_WORDS for w in key.lower().split()):
+            return False  # a key made only of generic words (transfer, payment, savings, pot...) never identifies a pair
+        if too_generic_to_learn(key) and (len(key) < 3 or key.upper() in _CHANNEL_CODES):
+            return False
+    return True
 
 
 def too_generic_to_learn(key: str) -> bool:
@@ -817,14 +872,20 @@ def history_series_signature(credit: dict, debit: dict) -> str:
 
 def _strong_evidence(credit: dict, debit: dict, accounts: dict[str, dict], name_tokens: list[str], learned: set[tuple[str, str]], movement_categories: set[str],
                      ai_same: frozenset = frozenset(), named_blocked: frozenset = frozenset(),
-                     skip_named_auto: bool = False) -> bool:
+                     skip_named_auto: bool = False, auto_timing_ok: bool = True) -> bool:
     """Evidence strong enough to decide a pair without asking (G438, Kevin's
     rule): counterparty evidence (a), a pair where either leg names the user or
     the other account or pot on file (b), a pair the user already answered
     (learned description pair, an explicit movement choice) or a card
     repayment (checked by the caller). A pair with no name, a name with no pair
     and a bare account number are only reasons to ASK, which the transfers
-    review does (`has_pair_evidence` in the analytics router)."""
+    review does (`has_pair_evidence` in the analytics router).
+
+    G468: the name (b) and counterparty (a) evidence is timing-gated. It decides
+    only when `auto_timing_ok`: the legs are within 24 hours (earliest known
+    instants) AND this is the single candidate at that amount on both sides (the
+    caller computes it, same ambiguity rule as the card route). Otherwise the pair
+    is an ask. A model verdict, a learned pair and a movement choice are not timing-gated."""
     history_undone = bool(named_blocked and history_series_signature(credit, debit) in named_blocked)
     if ai_same and not history_undone and pair_ids(credit, debit) in ai_same:
         return True  # G442: the model judged this pair to be one transfer (an undone verdict is never in the set)
@@ -843,7 +904,7 @@ def _strong_evidence(credit: dict, debit: dict, accounts: dict[str, dict], name_
     # model's own candidate set never counts it as already decided.
     named_ok = not skip_named_auto and not (
         named_blocked and (pair_ids(credit, debit) in named_blocked or series_signature(credit, debit) in named_blocked or history_undone))
-    if named_ok and within_auto_window(credit.get("date"), debit.get("date")):
+    if named_ok and auto_timing_ok:
         if _compact_owner_name(c_text, name_tokens) or _compact_owner_name(d_text, name_tokens):
             return True
         if (account_name_in_text(c_text, accounts.get(debit["account_id"]))
@@ -851,15 +912,16 @@ def _strong_evidence(credit: dict, debit: dict, accounts: dict[str, dict], name_
             return True
     # The text of either leg carries the OTHER leg's sort code AND account
     # number together. A bare account number, or a bare sort code, is not enough.
-    for text, other in ((c_text, accounts.get(debit["account_id"])), (d_text, accounts.get(credit["account_id"]))):
-        key = counterparty_key((other or {}).get("sort_code"), (other or {}).get("account_number"))
-        if key is not None and _text_has_account_pair(text, key[0], key[1]):
+    if auto_timing_ok:
+        for text, other in ((c_text, accounts.get(debit["account_id"])), (d_text, accounts.get(credit["account_id"]))):
+            key = counterparty_key((other or {}).get("sort_code"), (other or {}).get("account_number"))
+            if key is not None and _text_has_account_pair(text, key[0], key[1]):
+                return True
+        # A183: Finexer's own counterparty fields on either leg name the other
+        # leg's account (sort code and account number both equal).
+        if (counterparty_matches_account(credit, accounts.get(debit["account_id"]))
+                or counterparty_matches_account(debit, accounts.get(credit["account_id"]))):
             return True
-    # A183: Finexer's own counterparty fields on either leg name the other
-    # leg's account (sort code and account number both equal).
-    if (counterparty_matches_account(credit, accounts.get(debit["account_id"]))
-            or counterparty_matches_account(debit, accounts.get(credit["account_id"]))):
-        return True
     if learned_match(learned, credit, debit) and (not history_undone or _user_answered_pair(credit, debit, learned, movement_categories)):
         return True
     # An explicit movement resolution is a private user fact and can anchor
@@ -1070,6 +1132,77 @@ def _same_amount_pairs(
             yield credit, debit, issuer
 
 
+def _auto_timing_flags(built: list[tuple[dict, dict, str | None]]) -> dict:
+    """G468: for each candidate pair, may name or counterparty evidence file it
+    without asking? Only when the legs are within 24 hours AND neither leg has
+    another same-amount candidate within 24 hours (the single candidate on both
+    sides; a card repayment is decided by its own route and not counted)."""
+    near = [(c, d) for c, d, issuer in built if issuer is None and within_auto_window(c, d)]
+    credit_counts: dict = {}
+    debit_counts: dict = {}
+    for c, d in near:
+        credit_counts[c["_id"]] = credit_counts.get(c["_id"], 0) + 1
+        debit_counts[d["_id"]] = debit_counts.get(d["_id"], 0) + 1
+    return {(c["_id"], d["_id"]): within_auto_window(c, d) and credit_counts.get(c["_id"]) == 1 and debit_counts.get(d["_id"]) == 1
+            for c, d, _ in built}
+
+
+async def _dismissed_series_keys(preference_collection, user_id: str, by_id: dict) -> set:
+    """G468: the model-normaliser key pairs (prefixed, sorted, as `_learn_repeated_series`
+    sees them) of every pair the user dismissed in the review, from the same sources the
+    review reads: `dismissed_transfer_pairs` (ids, resolved through the rows in hand) and
+    the `separate_transfer_pair_reviews` snapshots (which carry the legs' descriptions)."""
+    prefs = await preference_collection.find_one(
+        {"user_id": user_id}, {"dismissed_transfer_pairs": 1, "separate_transfer_pair_reviews": 1}) or {}
+    out: set = set()
+
+    def add(credit: dict, debit: dict) -> None:
+        out.add(tuple(sorted(AI_KEY_PREFIX + k for k in ai_pair_keys(credit, debit))))
+    for pair_key in prefs.get("dismissed_transfer_pairs") or []:
+        ids = str(pair_key).split(":")
+        if len(ids) == 2 and ids[0] in by_id and ids[1] in by_id:
+            add(by_id[ids[0]], by_id[ids[1]])
+    snapshots = prefs.get("separate_transfer_pair_reviews") or []
+    if isinstance(snapshots, dict):
+        snapshots = [v for v in snapshots.values() if isinstance(v, dict)]
+    for snap in snapshots:
+        if isinstance(snap, dict) and isinstance(snap.get("credit"), dict) and isinstance(snap.get("debit"), dict):
+            add(snap["credit"], snap["debit"])
+    return out
+
+
+async def _learn_repeated_series(pair_collection, user_id: str, series_seen: dict, learned_pairs: set,
+                                 *, dismissed_keys: frozenset | set = frozenset(), blocked: frozenset = frozenset()) -> int:
+    """G468 (Kevin 2026-11-14): a series the rules have filed twice becomes a learned
+    pair, so every later occurrence matches at any date (nearest first, one to one)
+    instead of needing the same-day or 24 hour window again. Written under the
+    model's own keys with its own `source: "series"` (never "ai": the model did not judge
+    it); `_learned_pair_keys`, Undo and the confirm/judge overrides treat it like a judged
+    pair. See `learnable_pair_keys` for which keys may be learned. Returns the
+    number of series written."""
+    written = 0
+    for pair_keys, members in series_seen.items():
+        if len(members) < 2 or pair_keys in learned_pairs:
+            continue
+        if pair_keys in dismissed_keys:
+            continue  # the user dismissed this series in the review: never learned, whenever more pairs appear
+        if blocked and any(pair_ids(c, d) in blocked or series_signature(c, d) in blocked
+                           or history_series_signature(c, d) in blocked for c, d in members):
+            continue  # a not_transfer or unclear verdict, or the user's undo, covers any member
+        credit, debit = members[0]
+        ka, kb = sorted(ai_pair_keys(credit, debit))
+        if not learnable_pair_keys(ka, kb):
+            continue
+        await pair_collection.update_one(
+            {"user_id": user_id, "key_a": ka, "key_b": kb},
+            {"$setOnInsert": {"user_id": user_id, "key_a": ka, "key_b": kb, "source": SERIES_SOURCE,
+                              "created_at": datetime.utcnow()}},  # naive-ok: matches the confirm path's created_at
+            upsert=True,
+        )
+        written += 1
+    return written
+
+
 def _unique_only(candidates: list[tuple[dict, dict, str | None]]) -> list[tuple[dict, dict, str | None]]:
     """Keep only pairs whose two legs appear in no other candidate pair."""
     credit_counts: dict[object, int] = {}
@@ -1092,13 +1225,16 @@ def select_unique_pairs_detailed(
         movement_categories = {name for name, kind in BUILTIN_CATEGORY_KINDS.items() if kind == MOVEMENT}
     confirmed, consumed = _confirmed_pairs(rows, accounts, movement_categories)
     candidates: list[tuple[dict, dict, str | None]] = []
-    for credit, debit, issuer in _same_amount_pairs(
-            rows, accounts, movement_categories, consumed=consumed, exclude_ids=exclude_ids,
-            learned=learned, name_tokens=name_tokens):
+    built = list(_same_amount_pairs(
+        rows, accounts, movement_categories, consumed=consumed, exclude_ids=exclude_ids,
+        learned=learned, name_tokens=name_tokens))
+    auto_ok = _auto_timing_flags(built)
+    for credit, debit, issuer in built:
         if (is_direct_debit(credit) or is_direct_debit(debit)) and not issuer and not _user_answered_pair(
                 credit, debit, learned, movement_categories):
             continue  # A194: a direct debit is never an own transfer by bank evidence
-        if issuer or _strong_evidence(credit, debit, accounts, name_tokens, learned, movement_categories, ai_same, named_blocked):
+        if issuer or _strong_evidence(credit, debit, accounts, name_tokens, learned, movement_categories, ai_same, named_blocked,
+                                      auto_timing_ok=auto_ok[(credit["_id"], debit["_id"])]):
             candidates.append((credit, debit, issuer))
     # G447: a learned pair matches on any date, so a monthly series offers every
     # month's credit against every month's debit. Resolve ALL learned candidates
@@ -1135,14 +1271,17 @@ def ai_candidate_pairs(
         movement_categories = {name for name, kind in BUILTIN_CATEGORY_KINDS.items() if kind == MOVEMENT}
     _, consumed = _confirmed_pairs(rows, accounts, movement_categories)
     leftovers: list[tuple[dict, dict, str | None]] = []
-    for credit, debit, issuer in _same_amount_pairs(
-            rows, accounts, movement_categories, consumed=consumed, exclude_ids=exclude_ids,
-            learned=learned, name_tokens=name_tokens):
+    built = list(_same_amount_pairs(
+        rows, accounts, movement_categories, consumed=consumed, exclude_ids=exclude_ids,
+        learned=learned, name_tokens=name_tokens))
+    auto_ok = _auto_timing_flags(built)
+    for credit, debit, issuer in built:
         if issuer or is_direct_debit(credit) or is_direct_debit(debit):
             continue
         if _user_answered_pair(credit, debit, learned, movement_categories):
             continue
-        if _strong_evidence(credit, debit, accounts, name_tokens, learned, movement_categories, skip_named_auto=True):
+        if _strong_evidence(credit, debit, accounts, name_tokens, learned, movement_categories, skip_named_auto=True,
+                            auto_timing_ok=auto_ok[(credit["_id"], debit["_id"])]):
             continue  # G442: a named pair within 24 hours is NOT decided here; the model judges it
         leftovers.append((credit, debit, None))
     return [(c, d) for c, d, _ in _unique_only(leftovers)]
@@ -1221,7 +1360,7 @@ def series_single_legs(
                 continue
             if any(o.get("transaction_type") != row.get("transaction_type") and _pair_key(o) == ev["pair_key"]
                    and not o.get("is_pending") and isinstance(o.get("date"), datetime)
-                   and within_ask_window(row["date"], o["date"]) for o in others):
+                   and within_ask_window(row, o) for o in others):
                 continue  # a possible counterpart exists: the pair rules decide, not this one
             done.add(rid)
             out.append((row, ev["category"]))
@@ -1370,7 +1509,8 @@ async def reconcile_own_account_transfers(
     projection = {"account_id": 1, "amount": 1, "currency": 1, "date": 1, "transaction_type": 1,
                   "merchant_name": 1, "description": 1, "category": 1, "custom_category": 1,
                   "is_pending": 1, "own_transfer_match": 1, "card_repayment_rule": 1,
-                  "party_sort_code": 1, "party_number": 1, "bank_code": 1}
+                  "party_sort_code": 1, "party_number": 1, "bank_code": 1,
+                  "first_seen": 1, "activity_date": 1}  # G468: the earliest known instant times a leg
     rows = [] if confirmed_only else await transaction_collection.find(
         {"user_id": user_id, "date": {"$gte": cutoff},
          "transaction_type": {"$in": ["credit", "debit"]}}, projection,
@@ -1400,7 +1540,8 @@ async def reconcile_own_account_transfers(
     ai_same = frozenset(k for k, v in ai_verdicts.items() if v.get("verdict") == "same_transfer")
     named_blocked = frozenset() if confirmed_only else await load_ai_blocked(user_id, ai_verdicts, collection=judgement_collection)
     learned_pairs = _learned_pair_keys(learned_rows)
-    ai_learned = {k for k in learned_pairs if k[0].startswith(AI_KEY_PREFIX)}
+    series_learned = _learned_pair_keys([r for r in learned_rows if r.get("source") == "series"])
+    ai_learned = {k for k in learned_pairs if k[0].startswith(AI_KEY_PREFIX)} - series_learned  # G468: a series pair is the rules', not the model's
     # An unmarked confirmed_transfer_pairs record is the user's durable answer
     # (the confirm endpoint deliberately removes an old `source: ai`).  Keep
     # that provenance when it matches later occurrences, without treating any
@@ -1450,6 +1591,7 @@ async def reconcile_own_account_transfers(
         )
         if getattr(result, "modified_count", 0):
             changed += 1
+    series_seen: dict[tuple[str, str], list[tuple[dict, dict]]] = {}  # G468: pairs filed by rule, by their series keys
     for credit, debit in pairs:
         issuer = issuers.get((str(credit["_id"]), str(debit["_id"])))
         link = {"issuer": issuer, "card_account_id": str(credit["account_id"])} if issuer else None
@@ -1461,6 +1603,8 @@ async def reconcile_own_account_transfers(
         source = "user" if not issuer and plain_keys in user_learned else (
             "ai" if (not issuer and (pair_ids(credit, debit) in ai_same or pair_keys in ai_learned)) else None
         )
+        if not issuer and source is None:
+            series_seen.setdefault(pair_keys, []).append((credit, debit))
         if issuer:
             # G403: the bank debit is Debt against the card, the card credit stays Transfer.
             classifications = ((credit, "Transfer", debit),
@@ -1479,6 +1623,10 @@ async def reconcile_own_account_transfers(
             )
             if getattr(result, "modified_count", 0):
                 changed += 1
+    if not confirmed_only:
+        dismissed_keys = await _dismissed_series_keys(preference_collection, user_id, by_id)
+        await _learn_repeated_series(pair_collection, user_id, series_seen, learned_pairs,
+                                     dismissed_keys=dismissed_keys, blocked=named_blocked)
     changed += await _apply_card_repayment_rules(transaction_collection, user_id, rows, rule_hits, selected_ids)
     for row, category in singles:
         prior = row.get("own_transfer_match") or {}
