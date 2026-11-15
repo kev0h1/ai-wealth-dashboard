@@ -47,7 +47,7 @@ from app.db.collections import (
 )
 from app.services.categories import MOVEMENT, get_category_kinds
 from app.services.own_account_transfers import (
-    HISTORY_DAYS, UNCLEAR_FALLBACK_REASON, _learned_pair_keys, _pair_key, ai_pair_keys, active_separate_review_ids, ai_candidate_pairs, pair_doc_id,
+    HISTORY_DAYS, UNCLEAR_FALLBACK_REASON, leg_instant, _learned_pair_keys, _pair_key, ai_pair_keys, active_separate_review_ids, ai_candidate_pairs, pair_doc_id,
     reconcile_own_account_transfers, series_key as _txn_series_key, series_signature, history_series_signature, too_generic_to_learn,
 )
 from app.services.recurring_judge import _MODEL as HAIKU_MODEL, model_calls_allowed
@@ -65,6 +65,11 @@ LOOKBACK_DAYS = HISTORY_DAYS
 # same_transfer (already filed, undone only by the user) and the user's own
 # answers, which are never discarded. A document with no stamp is version 1.
 PROMPT_VERSION = 2
+# G469: a stored verdict below this version is judged once more. Bumping PROMPT_VERSION
+# alone never re-judges anything (every verdict stays valid, so the monthly cap is
+# spent only on new or changed pairs); raise this number in the same change ONLY when
+# the new rules must re-judge the old verdicts, and say so in the commit.
+REJUDGE_BELOW_VERSION = 2
 BATCH_SIZE = 12                # pairs per model call
 SYNC_MAX_PAIRS = 36            # new pairs judged per sync run (three calls at most)
 BACKFILL_MAX_PAIRS = 240       # one-off backfill over the last 90 days
@@ -309,7 +314,7 @@ async def _store_verdict(uid: str, credit: dict, debit: dict, sig: str, series_s
         {"$set": {
             "user_id": uid, "kind": "pair", "ids": ids,
             "credit_id": str(credit["_id"]), "debit_id": str(debit["_id"]),
-            "signature": sig, "series_sig": series_sig, "verdict": verdict, "reason": reason,
+            "signature": sig, "row_sig": row_signature(credit, debit), "series_sig": series_sig, "verdict": verdict, "reason": reason,
             "fallback": bool(fallback), "model": HAIKU_MODEL, "prompt_version": PROMPT_VERSION, "judged_at": datetime.utcnow(),  # naive-ok: Mongo audit stamp, naive UTC like every other stored date
         }},
         upsert=True,
@@ -338,7 +343,7 @@ async def _stored_state(uid: str) -> tuple[dict[str, dict], set[str], dict[str, 
     {pair doc id: attempt doc} for pairs whose reply could not be used)."""
     docs = await own_transfer_judgements_col.find(
         {"user_id": uid, "kind": {"$in": ["pair", "undo", "attempt"]}},
-        {"kind": 1, "signature": 1, "series_sig": 1, "history_series_sig": 1, "attempts": 1, "pair_id": 1,
+        {"kind": 1, "signature": 1, "row_sig": 1, "series_sig": 1, "history_series_sig": 1, "attempts": 1, "pair_id": 1,
          "prompt_version": 1, "verdict": 1, "user_override": 1},
     ).to_list(None)
     pairs = {d["_id"]: d for d in docs if d.get("kind") == "pair"}
@@ -371,6 +376,25 @@ async def pairs_sent_this_month(uid: str) -> int:
     return int((doc or {}).get("n") or 0)
 
 
+async def matcher_state(uid: str) -> dict:
+    """G469: the matcher's state for /ops/people, COUNTS and dates only (never a
+    description, an id or an amount): pairs sent this month against the cap, the last
+    run's status and counts, and the pairs still waiting (candidates not judged)."""
+    sent = await pairs_sent_this_month(uid)
+    run = await own_transfer_judgements_col.find_one({"_id": f"{uid}::lastrun"}) or {}
+    ran = bool(run)
+    n = lambda k: int(run.get(k) or 0)  # noqa: E731
+    at = run.get("at")
+    return {
+        "month": _month(), "sent_this_month": sent, "monthly_cap": monthly_pair_cap(),
+        "last_run": ({"at": at.isoformat() if isinstance(at, datetime) else None, "status": str(run.get("status") or "ok"),
+                      "candidates": n("candidates"), "judged": n("judged"), "skipped_cap": n("skipped_cap"),
+                      "skipped_run_limit": n("skipped_run_limit"), "skipped_attempts": n("skipped_attempts"),
+                      "errors": n("errors"), "stale": n("stale"), "prompt_version": n("prompt_version")} if ran else None),
+        "waiting": max(0, n("candidates") - n("judged")) if ran else 0,
+    }
+
+
 async def _count_sent(uid: str, n: int) -> None:
     await own_transfer_judgements_col.update_one(
         {"_id": f"{uid}::sent::{_month()}"},
@@ -386,7 +410,22 @@ def verdict_is_stale(doc: dict | None) -> bool:
     override and a same_transfer (already filed) are never stale."""
     if not doc or doc.get("user_override") or doc.get("verdict") == "same_transfer":
         return False
-    return int(doc.get("prompt_version") or 1) < PROMPT_VERSION
+    return int(doc.get("prompt_version") or 1) < REJUDGE_BELOW_VERSION
+
+
+def row_signature(credit: dict, debit: dict) -> str:
+    """G469: fingerprint of the two BANK rows alone (what the bank said, never the
+    user's account names). Renaming an account changes `pair_signature` for every pair
+    on it; it is not a changed pair, so a verdict whose rows are unchanged stays valid."""
+    body = {"credit": leg_payload(credit, None), "debit": leg_payload(debit, None),
+            "amount": f"{(_pair_key(credit) or ('', 0))[1]:.2f}" if _pair_key(credit) else None}
+    return hashlib.sha256(json.dumps(body, sort_keys=True).encode()).hexdigest()[:24]
+
+
+def _pair_instant(pair: tuple[dict, dict]) -> datetime:
+    """G469: the newer of the two legs' earliest known instants (G468 `leg_instant`)."""
+    stamps = [i for i in (leg_instant(pair[0]), leg_instant(pair[1])) if i is not None]
+    return max(stamps) if stamps else datetime.min  # naive-ok: sort sentinel
 
 
 async def _candidates(uid: str, stats: dict | None = None) -> tuple[list[tuple[dict, dict]], dict[str, dict]]:
@@ -446,7 +485,7 @@ async def _candidates(uid: str, stats: dict | None = None) -> tuple[list[tuple[d
             stats["answered"] += 1
             continue  # an undo is the user's answer, never re-judged
         sig = pair_signature(credit, debit, accounts)
-        if cached and cached.get("signature") == sig:
+        if cached and (cached.get("signature") == sig or (cached.get("row_sig") and cached.get("row_sig") == row_signature(credit, debit))):
             if not verdict_is_stale(cached):
                 stats["judged_already"] += 1
                 continue
@@ -456,7 +495,7 @@ async def _candidates(uid: str, stats: dict | None = None) -> tuple[list[tuple[d
             stats["attempts_exhausted"] += 1
             continue  # the reply could not be used three times: leave it to today's rules
         todo.append((credit, debit))
-    todo.sort(key=lambda p: max(p[0]["date"], p[1]["date"]), reverse=True)
+    todo.sort(key=_pair_instant, reverse=True)  # G469: newest leg instant first, so a limit drops the oldest
     return todo, accounts
 
 
@@ -583,7 +622,7 @@ async def backfill_done(uid: str) -> bool:
     old prompt are re-judged (the stale ones; see `verdict_is_stale`), paced and
     counted against the monthly cap like any other call."""
     doc = await own_transfer_judgements_col.find_one({"_id": _backfill_id(uid)}, {"prompt_version": 1})
-    return bool(doc) and int(doc.get("prompt_version") or 1) >= PROMPT_VERSION
+    return bool(doc) and int(doc.get("prompt_version") or 1) >= REJUDGE_BELOW_VERSION
 
 
 async def backfill_user(uid: str) -> dict:
