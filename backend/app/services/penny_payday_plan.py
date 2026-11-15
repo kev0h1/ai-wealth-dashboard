@@ -63,6 +63,14 @@ async def _labeller(uid: str):
     def label(account_id, name, provider=None) -> str:
         acc = accounts.get(str(account_id)) or {}
         shown = display_account_name(acc.get("name") or name)
+        # G473: a holder-named account the user has nicknamed is its nickname;
+        # otherwise the sentence form below ("your NatWest account"), which
+        # these Penny sentences are written around, never the holder's name.
+        from app.services.account_names import holder_safe_name
+
+        nick = " ".join(str(acc.get("nickname") or "").split())
+        if nick and holder_safe_name({**acc, "name": shown}, tokens) == nick:
+            return nick
         return source_label(shown, acc.get("provider") or provider, tokens)
 
     return label

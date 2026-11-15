@@ -446,7 +446,10 @@ class _FakeCol:
         return 1
 
     async def update_one(self, *a, **k):
+        from types import SimpleNamespace
+
         self.updated.append(a)
+        return SimpleNamespace(matched_count=1, modified_count=1)
 
 
 def _dead_conn(uid, cid):
