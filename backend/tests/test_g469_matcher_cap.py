@@ -158,8 +158,27 @@ def test_matcher_state_is_counts_and_dates_only(monkeypatch):
             assert state["sent_this_month"] == 1 and state["monthly_cap"] == 1
             assert state["last_run"]["candidates"] == 2 and state["last_run"]["judged"] == 1
             assert state["last_run"]["skipped_cap"] == 1 and state["waiting"] == 1
+            # Exact shape: a new field (which could carry an amount) must fail here.
+            assert set(state) == {"month", "sent_this_month", "monthly_cap", "last_run", "waiting"}
+            assert set(state["last_run"]) == {
+                "at", "status", "candidates", "judged", "skipped_cap", "skipped_run_limit",
+                "skipped_attempts", "errors", "stale", "prompt_version"}
             blob = json.dumps(state)
-            assert "HARTLEY" not in blob and "x-c" not in blob and "41" not in blob
+            assert "HARTLEY" not in blob and "x-c" not in blob
+
+            # The amount check skips the clock fields (month, last_run.at): an isoformat
+            # timestamp can contain "41" by chance, which made this test flaky.
+            def leaves(node, path=""):
+                if isinstance(node, dict):
+                    for k, v in node.items():
+                        yield from leaves(v, f"{path}.{k}")
+                else:
+                    yield path, node
+            checked = [(p, v) for p, v in leaves(state) if p not in {".month", ".last_run.at"}]
+            assert checked  # the walk found values to check
+            for p, v in checked:
+                assert v not in (41, 41.0, "41", "41.00"), p
+                assert "41" not in str(v), p
     _arun(run())
 
 
