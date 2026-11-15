@@ -450,3 +450,132 @@ def test_trial_reminder_failed_send_clears_the_stamp(monkeypatch):
     monkeypatch.setattr(sync_worker, "send_push_to_user", boom)
     asyncio.run(sync_worker.task_trial_reminder({}))
     assert subs.docs[0].get("trial_reminder_sent_at") is None
+
+
+# ── review round: claim race on a missing state doc, pruning, name rules ─────
+
+def _real_state_collection():
+    """A throwaway collection in conftest's disposable wealth_test_* database."""
+    import uuid
+
+    from motor.motor_asyncio import AsyncIOMotorClient
+
+    from app.core.config import MONGO_DB, MONGO_URI
+
+    assert MONGO_DB.startswith("wealth_test_"), "real-Mongo tests only ever run against a disposable test database"
+    client = AsyncIOMotorClient(MONGO_URI, serverSelectionTimeoutMS=2000)
+    name = f"g473_state_{uuid.uuid4().hex[:10]}"
+    return client, MONGO_DB, name, client[MONGO_DB][name]
+
+
+def _real_mongo_up():
+    try:
+        client, _, _, col = _real_state_collection()
+
+        async def ping():
+            await client.admin.command("ping")
+
+        asyncio.run(ping())
+        client.close()
+        return True
+    except Exception:
+        return False
+
+
+real_mongo = pytest.mark.skipif(not _real_mongo_up(), reason="local mongod not reachable")
+
+
+@real_mongo
+def test_real_mongo_different_keys_on_a_missing_doc_all_win():
+    from app.db.guard import guarded_drop_collection
+
+    client, db_name, coll_name, col = _real_state_collection()
+
+    async def go():
+        import app.services.notifications as n
+
+        orig = n.notification_state_col
+        n.notification_state_col = col
+        try:
+            for trial in range(25):
+                uid = f"missing-doc-{trial}"
+                wins = await asyncio.gather(*[n.claim_push(uid, f"key-{i}") for i in range(8)])
+                assert all(wins), f"trial {trial}: a legitimate claim was dropped: {wins}"
+        finally:
+            n.notification_state_col = orig
+            await guarded_drop_collection(client, db_name, coll_name)
+
+    asyncio.run(go())
+    client.close()
+
+
+@real_mongo
+def test_real_mongo_same_key_has_exactly_one_winner_and_release_reopens():
+    from app.db.guard import guarded_drop_collection
+
+    client, db_name, coll_name, col = _real_state_collection()
+
+    async def go():
+        import app.services.notifications as n
+
+        orig = n.notification_state_col
+        n.notification_state_col = col
+        try:
+            for trial in range(25):
+                uid = f"same-key-{trial}"
+                wins = await asyncio.gather(*[n.claim_push(uid, "one-key") for _ in range(8)])
+                assert sum(wins) == 1, f"trial {trial}: {wins}"
+            await n.release_push_claim("same-key-0", "one-key")
+            assert await n.claim_push("same-key-0", "one-key") is True
+            doc = await col.find_one({"_id": "same-key-0"})
+            (claim,) = doc["claims"].values()
+            assert "claimed_at" in claim
+        finally:
+            n.notification_state_col = orig
+            await guarded_drop_collection(client, db_name, coll_name)
+
+    asyncio.run(go())
+    client.close()
+
+
+def test_old_claims_are_pruned_on_the_next_claim(monkeypatch):
+    from datetime import datetime, timedelta
+
+    old = (datetime.utcnow() - timedelta(days=notifications.CLAIM_RETENTION_DAYS + 1))
+    fresh = datetime.utcnow() - timedelta(days=5)
+    state = FakeStateCol({"u": {"claims": {"oldhash": {"claimed_at": old}, "freshhash": {"claimed_at": fresh}}}})
+    monkeypatch.setattr(notifications, "notification_state_col", state)
+    assert asyncio.run(notifications.claim_push("u", "new")) is True
+    claims = state.docs["u"]["claims"]
+    assert "oldhash" not in claims and "freshhash" in claims and len(claims) == 2
+
+
+def test_single_token_user_and_common_words_never_look_like_a_holder():
+    from app.services.account_names import is_holder_named_account
+
+    for name in ("Joint", "Bills", "Joint Account", "Bills Account"):
+        assert not is_holder_named_account(_acc(name), ["bills"]), name   # single-token user, ordinary word
+        assert not is_holder_named_account(_acc(name), ["joint", "smith"]), name  # one shared word only
+        assert not is_holder_named_account(_acc(name), TOKENS), name
+    # a title still counts for a single-token user; two shared words count for a full name
+    assert is_holder_named_account(_acc("Mr Bills"), ["bills"])
+    assert is_holder_named_account(_acc("Anya Testworth"), TOKENS)
+    assert not is_holder_named_account(_acc("Testworth"), TOKENS)
+
+
+def test_every_emitted_item_uses_the_safe_name(monkeypatch):
+    """Not just the move headline: the whole item list (payday plan, stored
+    shapes, cover plans) is serialised and must never contain the holder."""
+    import json
+
+    monkeypatch.setattr(companion, "user_profiles_col", g359.FakeCol([{"_id": g359.UID, "name_tokens": TOKENS}]))
+    items = g359._run(
+        monkeypatch, g359._bills(extra=[g359._bill("Rent", 6000.0, 1)]), [g359._salary()],
+        accounts=_holder_accounts(),
+    )
+    text = json.dumps(items, default=str)
+    # the bills fixture's own account_name text is a fixture string, not an account doc name
+    text = text.replace("Mr Kevin Mbithi Maingi", "")
+    assert "Testworth" not in text and "TESTWORTH" not in text and "Anya" not in text
+    assert companion._acct_name({"name": "MRS ANYA TESTWORTH", "provider": "barclays", "subtype": "TRANSACTION", "type": "BANK"}, TOKENS) == "Barclays current account"
+    assert companion._acct_name_from_label("MRS ANYA TESTWORTH", "Barclays", TOKENS) == "Barclays account"

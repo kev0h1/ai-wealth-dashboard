@@ -119,21 +119,50 @@ def _claim_field(key: str) -> str:
     return "claims." + hashlib.sha1(key.encode("utf-8")).hexdigest()[:24]
 
 
+CLAIM_RETENTION_DAYS = 90
+
+
 async def claim_push(user_id: str, key: str) -> bool:
     """Atomically claim the right to send the push identified by `key` for this
-    user. True for exactly one caller per (user, key) until it is released."""
+    user. True for exactly one caller per (user, key) until it is released.
+
+    Two steps, so a DuplicateKeyError can never be mistaken for "taken":
+    (1) make sure the state doc exists, with an upsert whose filter is a pure
+    `_id` equality (a collision there only means another run created it
+    first); (2) claim with a NON-upsert conditional update that requires the
+    key to be absent, and win only when exactly one document was modified."""
     field = _claim_field(key)
     try:
-        res = await notification_state_col.update_one(
-            {"_id": user_id, field: {"$exists": False}},
-            {"$set": {field: datetime.utcnow().isoformat()}},  # naive-ok: persisted claim audit instant
-            upsert=True,
+        await notification_state_col.update_one(
+            {"_id": user_id}, {"$setOnInsert": {"claims": {}}}, upsert=True,
         )
     except DuplicateKeyError:
-        # The state doc exists and already carries the claim: with upsert, a
-        # non-matching filter turns into an insert that collides on _id.
+        pass  # a concurrent run created the doc between our check and insert
+    now = datetime.utcnow()  # naive-ok: persisted claim audit instant
+    res = await notification_state_col.update_one(
+        {"_id": user_id, field: {"$exists": False}},
+        {"$set": {field: {"claimed_at": now}}},
+    )
+    if getattr(res, "modified_count", 0) != 1:
         return False
-    return bool(getattr(res, "modified_count", 0) or getattr(res, "upserted_id", None))
+    await _prune_old_claims(user_id, now)
+    return True
+
+
+async def _prune_old_claims(user_id: str, now: datetime) -> None:
+    """Drop claims older than CLAIM_RETENTION_DAYS so the state doc stays small.
+    Best effort: a failure here never costs the caller its claim."""
+    try:
+        doc = await notification_state_col.find_one({"_id": user_id}, {"claims": 1}) or {}
+        cutoff = now - timedelta(days=CLAIM_RETENTION_DAYS)
+        old = [
+            "claims." + h for h, c in (doc.get("claims") or {}).items()
+            if isinstance(c, dict) and isinstance(c.get("claimed_at"), datetime) and c["claimed_at"] < cutoff
+        ]
+        if old:
+            await notification_state_col.update_one({"_id": user_id}, {"$unset": {f: "" for f in old}})
+    except Exception as e:
+        log.warning("claim pruning failed for %s: %s", user_id, e)
 
 
 async def release_push_claim(user_id: str, key: str) -> None:
