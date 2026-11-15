@@ -192,9 +192,9 @@ kind=... executed_at=... source=penny`) to `journalctl -u wealth-api`.
 | `propose_sync_now()` | `app.routers.accounts.sync_all` | Low — a refresh, changes nothing about what's stored, only how current it is |
 | `propose_set_card_terms(card_ref, status?, apr_pct?, promos?, bt_offers?, min_payment_note?, product_key?, usage?)` | `app.routers.card_terms.save_card_terms` (read-modify-write, generalising `propose_set_card_apr`'s own doctrine to every field the router accepts — see "B17" below) | Medium — sets one credit card's status/APR/promos/BT offers/minimum-payment note/product key/usage, feeds the card plan, repayment projection and interest calculations |
 | `propose_set_card_rates(card_ref, purchase_apr_pct?, cash_apr_pct?)` | `app.routers.card_terms.save_card_rates` (the scoped rates update, see "G472" below) | Medium — sets one card's purchase and/or cash rate and nothing else |
-| `propose_add_card_offer(card_ref, offer_type, apr_pct, until, balance?, revert_apr_pct?)` | `save_card_rates`, stored offers re-read at confirm time plus one offer | Medium — adds one rate offer to a card; the card's other offers are untouched |
-| `propose_update_card_offer(card_ref, offer_id, offer_type?, apr_pct?, until?, balance?, revert_apr_pct?)` | `save_card_rates`, one offer changed by id | Medium — changes only the supplied fields of that offer; id kept, null clears balance or revert rate |
-| `propose_remove_card_offer(card_ref, offer_id)` | `save_card_rates`, one offer dropped by id | Medium — removes one offer; the others are untouched |
+| `propose_add_card_offer(card_ref, offer_type, apr_pct, until, balance?, revert_apr_pct?)` | `_update_scoped_terms` (the scoped update under `save_card_rates`), stored offers re-read at confirm time plus one offer | Medium — adds one rate offer to a card; the card's other offers are untouched |
+| `propose_update_card_offer(card_ref, offer_id, offer_type?, apr_pct?, until?, balance?, revert_apr_pct?)` | `_update_scoped_terms`, one offer changed by id | Medium — changes only the supplied fields of that offer; id kept, null clears balance or revert rate |
+| `propose_remove_card_offer(card_ref, offer_id)` | `_update_scoped_terms`, one offer dropped by id | Medium — removes one offer; the others are untouched |
 | `propose_record_trend_intent(category, answer)` | `app.routers.checkpoints.post_intent` (`app.services.checkpoints.record_intent`) | Low — files a category's current overspend as one-off or the user's new normal; `new_normal` changes the usual figure future spend checks compare against |
 | `propose_undo_trend_intent(category)` | `app.routers.spend_verdict.delete_intent_answer` (`app.services.checkpoints.delete_intent`) | Low — undoes a just-recorded trend answer for this period; idempotent, a no-op if nothing was recorded |
 | `propose_mark_insight_opened(insight_ref)` | `app.routers.savings_insights.mark_insight_opened` | Low — an engagement signal only, no figures change |
@@ -1161,12 +1161,12 @@ for "add one offer". Four small tools, all in `app/services/penny_card_offers.py
 - **Read-modify-write at confirm.** The proposal stores only the change (`op`, `offer_id`, the given fields).
   The executor (`can_i._execute_*_card_offer`) re-reads the stored list when the user confirms, applies the
   change, validates with the routes' own `_normalise_promos` (4 offer cap, duplicate and id rules, date and
-  rate ranges) and writes through `save_card_rates`, the scoped update the card sheet uses, so `bt_offers`,
+  rate ranges) and writes through `_update_scoped_terms`, the scoped update under `save_card_rates` (only `propose_set_card_rates` calls `save_card_rates` itself; offer changes skip its re-check of untouched ended offers), so `bt_offers`,
   the statement override and the payment fields are never touched. An offer that has already ended blocks a
   change until it is removed.
 - **Never invent a rate.** Every rate and balance passed to these tools must appear as a number in the
   user's own words (the `_user_texts` the agent loop injects server side, as for `propose_set_card_apr`;
-  commas are handled, so "£1,455" matches 1455). Otherwise the tool returns `needs_input` and Penny asks.
+  commas are handled, so "£1,455" matches 1455, ".5" is 0.5, and dates such as "1 June 2028" are removed first so their parts never count; the check is per conversation, not per card or per field). Otherwise the tool returns `needs_input` and Penny asks.
   System prompt rule 23 also forbids stating a rate, offer balance or end date that `get_accounts` did not
   return for that card and the user did not type. There is no separate reply-text guard for rates:
   the existing reply guards are scoped to their own tools' turns.

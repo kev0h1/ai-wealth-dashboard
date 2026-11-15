@@ -126,9 +126,9 @@ reconciled against that real total. B60 (2026-10-25) added three more (`propose_
 | `propose_sync_now()` | propose (B16) | `app.routers.accounts.sync_all` (`POST /accounts/sync`) |
 | `propose_set_card_terms(card_ref, status?, apr_pct?, promos?, bt_offers?, min_payment_note?, product_key?, usage?)` | propose (B17) | `app.routers.card_terms.save_card_terms` (read-modify-write, only the supplied fields change; `status='skipped'` replays the router's own skip branch directly) |
 | `propose_set_card_rates(card_ref, purchase_apr_pct?, cash_apr_pct?)` | propose (G472) | `app.routers.card_terms.save_card_rates` (`POST /card-terms/{accountId}/rates`, the scoped update: offers, `bt_offers`, the statement override and payment fields are not touched) |
-| `propose_add_card_offer(card_ref, offer_type, apr_pct, until, balance?, revert_apr_pct?)` | propose (G472) | `save_card_rates` with the stored offer list read again at confirm time, plus one offer, validated by `_normalise_promos` (4 offer cap, duplicate rules) |
-| `propose_update_card_offer(card_ref, offer_id, offer_type?, apr_pct?, until?, balance?, revert_apr_pct?)` | propose (G472) | `save_card_rates`, changing only the given fields of the offer with that id (the id is kept; null clears balance or revert rate) |
-| `propose_remove_card_offer(card_ref, offer_id)` | propose (G472) | `save_card_rates`, the stored list without the offer with that id |
+| `propose_add_card_offer(card_ref, offer_type, apr_pct, until, balance?, revert_apr_pct?)` | propose (G472) | `_update_scoped_terms` (the scoped update under `save_card_rates`) with the stored offer list read again at confirm time, plus one offer, validated by `_normalise_promos` (4 offer cap, duplicate rules) |
+| `propose_update_card_offer(card_ref, offer_id, offer_type?, apr_pct?, until?, balance?, revert_apr_pct?)` | propose (G472) | `_update_scoped_terms`, changing only the given fields of the offer with that id (the id is kept; null clears balance or revert rate) |
+| `propose_remove_card_offer(card_ref, offer_id)` | propose (G472) | `_update_scoped_terms`, the stored list without the offer with that id |
 | `propose_record_trend_intent(category, answer)` | propose (B17) | `app.routers.checkpoints.post_intent` (`POST /trends/intent`) |
 | `propose_undo_trend_intent(category)` | propose (B17) | `app.routers.spend_verdict.delete_intent_answer` (`DELETE /spend/intent/{category}`) |
 | `propose_mark_insight_opened(insight_ref)` | propose (B17) | `app.routers.savings_insights.mark_insight_opened` (`POST /savings-insights/{id}/opened`) |

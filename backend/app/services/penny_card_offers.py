@@ -20,7 +20,8 @@ Doctrine:
    touched. Offer ids are preserved on update.
  * Penny never invents a rate: every rate and balance in a proposal must appear
    as a number in the user's own words (`_user_texts`, injected server side by
-   the agent loop), otherwise the tool asks for it.
+   the agent loop; dates are removed first), otherwise the tool asks for it.
+   The check is per conversation, not per card or per field.
 """
 import math
 import re
@@ -301,14 +302,25 @@ def describe_offer(p: dict) -> str:
 
 
 # ── Never invent a rate ────────────────────────────────────────────────────
-_NUMBER = re.compile(r"\d[\d,]*(?:\.\d+)?")
+_NUMBER = re.compile(r"(?<![\d.])(?:\d[\d,]*(?:\.\d+)?|\.\d+)")
 _ZERO_WORDS = re.compile(r"\b(?:zero|interest[- ]free)\b", re.I)
+_MONTH = r"(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)"
+_ORD = r"(?:st|nd|rd|th)?"
+# Date expressions, so a day, month or year is never read as a typed rate or balance.
+_DATES = re.compile(
+    r"\b\d{4}-\d{1,2}-\d{1,2}\b"
+    r"|\b\d{1,2}/\d{1,2}/\d{2,4}\b"
+    rf"|\b\d{{1,2}}{_ORD}\s+(?:of\s+)?{_MONTH}\b(?:,?\s+\d{{4}})?"
+    rf"|\b{_MONTH}\s+\d{{1,2}}{_ORD}\b(?:,?\s+\d{{4}})?"
+    rf"|\b{_MONTH}\s+\d{{4}}\b",
+    re.I,
+)
 
 
 def numbers_typed(texts) -> list[float]:
     found: list[float] = []
     for text in texts or []:
-        for m in _NUMBER.findall(text or ""):
+        for m in _NUMBER.findall(_DATES.sub(" ", text or "")):
             try:
                 found.append(round(float(m.replace(",", "")), 4))
             except ValueError:

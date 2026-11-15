@@ -402,3 +402,39 @@ def test_whole_list_save_keeps_id_type_balance_revert_and_as_of(world):
     saved = _doc(world)["promos"][0]
     assert (saved["id"], saved["offer_type"], saved["balance"], saved["revert_apr_pct"], saved["as_of"]) == \
         ("keep-me", "balance_transfer", 1455.0, 24.9, "2026-11-01")
+
+
+# ── ownership at confirm time, and number provenance ───────────────────────
+def test_confirm_refuses_another_users_card_and_a_non_card_account(world):
+    other = _stored("c9", user_id="someone-else")
+    other["_id"] = "someone-else:c9"
+    world["accounts_col"].docs.append({"_id": "c9", "user_id": "someone-else", "type": "credit_card", "subtype": "CREDIT_CARD", "name": "Other"})
+    world["accounts_col"].docs.append({"_id": "cur1", "user_id": UID, "type": "bank", "subtype": "CURRENT", "name": "Current"})
+    world["terms"].docs.append(other)
+    from app.services.penny_card_offers import execute_add_card_offer, execute_set_card_rates
+    fields = {"offer_type": "purchase", "apr_pct": 0.0, "until": "2028-06-01"}
+    for account_id in ("c9", "cur1", "missing"):
+        with pytest.raises(HTTPException) as err:
+            asyncio.run(execute_add_card_offer(UID, {"account_id": account_id, "op": "add", "fields": fields}))
+        assert err.value.status_code == 404, account_id
+        with pytest.raises(HTTPException) as err:
+            asyncio.run(execute_set_card_rates(UID, {"account_id": account_id, "apr_pct": 20.0}))
+        assert err.value.status_code == 404, account_id
+    assert next(d for d in world["terms"].docs if d["_id"] == "someone-else:c9")["promos"] == []
+
+
+def test_dates_are_not_read_as_a_typed_rate_or_balance(world):
+    text = ["add a 0% balance transfer ending 1 June 2028"]
+    assert _propose("propose_add_card_offer", {**ADD, "balance": None, "revert_apr_pct": 1}, text)["needs_input"] is True
+    assert _propose("propose_add_card_offer", {**ADD, "balance": 1}, text)["needs_input"] is True
+    from app.services.penny_card_offers import numbers_typed
+    for phrase in ("1 June 2028", "01/06/2028", "2028-06-01", "June 2028", "1st June", "June 1st, 2028", "the 3rd of May"):
+        assert numbers_typed([f"ends {phrase}"]) == [], phrase
+    assert numbers_typed(["0% until 1 June 2028 on £1,455"]) == [0.0, 1455.0]
+
+
+def test_a_leading_point_rate_is_read(world):
+    from app.services.penny_card_offers import numbers_typed
+    assert numbers_typed([".5%"]) == [0.5] and numbers_typed(["0.5%"]) == [0.5] and numbers_typed(["23.5."]) == [23.5]
+    r = _propose("propose_set_card_rates", {"card_ref": "Harbour", "cash_apr_pct": 0.5}, ["cash rate .5%"])
+    assert r["proposal"] is True
