@@ -13,7 +13,7 @@ const { draftFromTerms, ruleFor, saveBody } = await import("../components/card-s
 
 const noop = () => {};
 const exact = { kind: "exact", text: "AMERICAN EXPRESS …20001", fingerprint: "a".repeat(64), salt: "b".repeat(32) };
-const terms = { status: "confirmed", apr_pct: 24.9, promos: [{ kind: "purchases", apr_pct: 4.9, until: "2027-06-14" }], min_payment_note: "Keep this note", bt_offers: [{ ends: null, fee_pct: null, note: "Available if needed" }], confirmed_at: null, product_key: "product", usage: "clear_monthly", statement_close_day: 9, payment_due_day: 24, payment_due_days_after_close: null, payment_method: "full", payment_account_id: "payer", fixed_payment_amount: null, payment_match: exact };
+const terms = { status: "confirmed", apr_pct: 24.9, cash_apr_pct: 29.9, rates_as_of: "2026-11-15", promos: [{ id: "promo-stable", kind: "purchases", offer_type: "purchase", apr_pct: 4.9, balance: 1200, until: "2027-06-14", revert_apr_pct: 24.9, as_of: "2026-11-15" }], min_payment_note: "Keep this note", bt_offers: [{ ends: null, fee_pct: null, note: "Available if needed" }], confirmed_at: null, product_key: "product", usage: "clear_monthly", statement_close_day: 9, payment_due_day: 24, payment_due_days_after_close: null, payment_method: "full", payment_account_id: "payer", fixed_payment_amount: null, payment_match: exact };
 const card = { account_id: "card", name: "Example card", provider: "Example", balance: -100, currency: "GBP", source: "finexer", ask_eligible: false, card_class: "credit_card", terms, statement_bill: { statement_start: "2026-10-10", statement_close: "2026-11-09", payment_due: "2026-11-24", next_payment_due: "2026-12-24", estimated_bill: 99.8, payment_amount: 99.8, payment_remaining: 0, paid_since_close: 99.8, spending_since_close: 20, payment_method: "full", payment_account_id: "payer", status: "paid", reason: null, estimated: true, next_payday: null } };
 
 const exactDraft = draftFromTerms(terms);
@@ -31,10 +31,14 @@ const hiddenHtml = renderToStaticMarkup(React.createElement(PaymentSheet, { card
 assert.doesNotMatch(hiddenHtml, /99\.80|£99\.80|20\.00/, "hidden markup and accessible text contain no real amounts");
 assert.match(hiddenHtml, /£••••/);
 const ratesSource = readFileSync(new URL("../components/card-settings/RatesSheet.tsx", import.meta.url), "utf8");
-assert.match(ratesSource, /String\(promo\.apr_pct\)/, "stored nonzero promo rate is retained");
+assert.match(ratesSource, /storedId: promo\.id/, "stable promo ids remain in the rates draft");
+assert.match(ratesSource, /offer_type: row\.offerType/, "extracted offer type survives manual save");
+assert.match(ratesSource, /balance: Number\(row\.balance\)/, "extracted offer balance survives manual save");
+assert.match(ratesSource, /revert_apr_pct: Number\(row\.revertRate\)/, "revert APR survives manual save");
+assert.match(ratesSource, /as_of: row\.asOf/, "offer evidence date survives manual save");
 assert.match(ratesSource, /note: row\.note\.trim\(\) \|\| null/, "offer notes remain in the rates draft");
-assert.match(ratesSource, /ends: row\.ends === monthValue/, "dateless offers remain representable");
+assert.match(ratesSource, /ends: row\.ends \|\| null/, "dateless offers remain representable");
 assert.doesNotMatch(ratesSource, /payment_account_id|payment_match|statement_close_day/, "rates payload cannot include payment fields");
 const ratesHtml = renderToStaticMarkup(React.createElement(RatesSheet, { card, hiddenOverride: false, onClose: noop, services: { saveCardRates: async () => ({ status: "ok", terms }) } }));
-assert.match(ratesHtml, /4\.9/); assert.match(ratesHtml, /Available if needed/);
+assert.match(ratesHtml, /24\.9% APR/); assert.match(ratesHtml, /29\.9% APR/); assert.match(ratesHtml, /4\.9/); assert.match(ratesHtml, /Available if needed/);
 console.log("g419-card-payment: ok");

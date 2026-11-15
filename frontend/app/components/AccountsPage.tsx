@@ -4,6 +4,7 @@ import { CONNECTION_ENDED_NOT_COUNTED, connectionEnded, isCountedInLeftToSpend }
 import { displayAccountName } from "@/lib/accountName";
 import { useEffect, useEffectEvent, useState, useCallback, useMemo, useRef } from "react";
 import { useSearchParams, useRouter, usePathname } from "next/navigation";
+import Link from "next/link";
 import { ArrowLeft, Plus, Landmark, RefreshCw, Upload, Trash2, AlertTriangle, TrendingUp, Eye, EyeOff, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Pencil, PiggyBank, Wallet, CreditCard, X, CircleDashed, Check, FileText, Star, Info } from "lucide-react";
 import { formatPriceDay } from "@/lib/priceDay";
 import { api, ApiError, Account, Connection, Transaction, InvestmentAccount, InvestmentHolding, InvestmentNote, ManualAccount, ManualAccountType, ManualAccountRule, RuleMatchType, RuleMatchField, RuleSign, AccountCategorySummary, CardTermsCard } from "@/lib/api";
@@ -375,6 +376,7 @@ export default function AccountsPage() {
   const [cardTermsOpen, setCardTermsOpen] = useState(false);
   const [cardPaymentId, setCardPaymentId] = useState<string | null>(null);
   const [cardTermsStartId, setCardTermsStartId] = useState<string | null>(null);
+  const pendingCardTermsStart = useRef<string | null | undefined>(undefined);
 
   const loadCardTerms = useCallback(() => {
     api.getCardTerms()
@@ -419,11 +421,18 @@ export default function AccountsPage() {
     const params = new URLSearchParams(window.location.search);
     const ct = params.get("cardTerms");
     if (ct) {
-      setCardTermsStartId(ct === "1" ? null : ct);
-      setCardTermsOpen(true);
+      pendingCardTermsStart.current = ct === "1" ? null : ct;
       params.delete("cardTerms");
       const rest = params.toString();
       router.replace(rest ? `/accounts?${rest}` : "/accounts", { scroll: false });
+      return;
+    }
+    // Let Next finish removing the deep-link parameter before SheetFrame
+    // owns a history entry. Its replace would otherwise erase the sheet id.
+    if (pendingCardTermsStart.current !== undefined) {
+      setCardTermsStartId(pendingCardTermsStart.current);
+      pendingCardTermsStart.current = undefined;
+      setCardTermsOpen(true);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pathname, searchParams]);
@@ -1838,14 +1847,15 @@ export default function AccountsPage() {
       {showBankPicker && (
         <BankPickerSheet provider={showBankPicker} onClose={() => setShowBankPicker(null)} />
       )}
-      {cardTermsOpen && (
-        cardTermsFromDetails.current && cardTermsStartId && cardTermsByAccount[cardTermsStartId] ? <CardRatesSheet
+      {cardTermsOpen && (!cardTermsStartId || cardTermsReady) && (
+        cardTermsStartId && cardTermsByAccount[cardTermsStartId] && (cardTermsFromDetails.current || cardTermsByAccount[cardTermsStartId].terms?.status === "confirmed") ? <CardRatesSheet
           card={cardTermsByAccount[cardTermsStartId]}
+          cards={cardTermsCards}
           onClose={() => {
-            const back = cardTermsStartId;
+            const back = cardTermsFromDetails.current ? cardTermsStartId : null;
             cardTermsFromDetails.current = false;
             setCardTermsOpen(false); setCardTermsStartId(null);
-            setAccountDetailsFor(back);
+            if (back) setAccountDetailsFor(back);
           }}
           onSaved={async () => {
             const mark = ++availabilityRequestRef.current;
@@ -3033,6 +3043,7 @@ export default function AccountsPage() {
                   availabilityFor={availabilityFor}
                   termsFor={estateTermsProps}
                 />
+                {cardTermsReady && cardTermsCards.length > 0 && <Link href="/accounts/card-offers" className="flex min-h-11 items-center justify-between gap-3 rounded-xl px-1 text-sm font-semibold text-indigo-700 active:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-indigo-300"><span>Card offers</span><span className="text-xs font-normal text-slate-600 dark:text-slate-300">See upcoming end dates</span></Link>}
               </>
             )}
           </div>

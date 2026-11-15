@@ -46,6 +46,9 @@ export interface DateFieldProps {
   emptyDescription?: string;
   /** Receives the trigger button, for hosts that move focus to it on a validation error. */
   buttonRef?: Ref<HTMLButtonElement>;
+  /** Connect a host's source/helper text and inline validation to the trigger. */
+  describedBy?: string;
+  invalid?: boolean;
   /** Start with the picker open (previews and tests). */
   defaultOpen?: boolean;
   /** View the picker opens on (previews and tests). */
@@ -54,7 +57,7 @@ export interface DateFieldProps {
 
 export function DateField({
   mode, value, onChange, min, max, label, title, id, required, disabled, appearance = "filled", size = "default",
-  className = "", placeholder, today, themeClass, buttonRef, allowClear, emptyDescription, defaultOpen = false, defaultView,
+  className = "", placeholder, today, themeClass, buttonRef, describedBy, invalid, allowClear, emptyDescription, defaultOpen = false, defaultView,
 }: DateFieldProps) {
   const [open, setOpen] = useState(defaultOpen);
   const ref = useRef<HTMLButtonElement>(null);
@@ -75,6 +78,7 @@ export function DateField({
           else if (buttonRef) (buttonRef as { current: HTMLButtonElement | null }).current = node;
         }} id={id} type="button" disabled={disabled} onClick={() => setOpen(true)}
         aria-haspopup="dialog" aria-expanded={open}
+        aria-describedby={describedBy} aria-invalid={invalid || undefined}
         aria-label={`${label}, ${text || emptyDescription || (required ? `${empty}, required` : empty)}`}
         className={`flex ${height} w-full items-center gap-2.5 rounded-xl border px-3 text-left text-sm transition-transform active:scale-[0.99] motion-reduce:transition-none disabled:opacity-60 disabled:active:scale-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 ${skin} ${className}`}
       >

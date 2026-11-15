@@ -2188,7 +2188,7 @@ function fetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> 
 // push registration, and the read-only POSTs (can-i, the cashflow, commitment,
 // schedule and spend-intent previews, card payment-match preview, receipt
 // scan), none of which move a cached figure.
-const ENDPOINT_CACHE_WRITE_EXEMPT = /\/(?:preferences|categories\/icon|penny\/(?:chat|stream|history|chip)|auth|push|telemetry|analytics\/event|can-i|cashflow\/preview-rule|commitments\/(?:schedule-)?preview|spend\/intent-preview|card-terms\/[^/?]+\/payment-match-preview|baskets\/scan-receipt)(?:[/?]|$)/;
+const ENDPOINT_CACHE_WRITE_EXEMPT = /\/(?:preferences|categories\/icon|penny\/(?:chat|stream|history|chip)|auth|push|telemetry|analytics\/event|can-i|cashflow\/preview-rule|commitments\/(?:schedule-)?preview|spend\/intent-preview|card-terms\/(?:extract|[^/?]+\/payment-match-preview)|baskets\/scan-receipt)(?:[/?]|$)/;
 function isEndpointCacheWrite(input: RequestInfo | URL, init?: RequestInit): boolean {
   const method = (init?.method ?? (typeof Request !== "undefined" && input instanceof Request ? input.method : "GET")).toUpperCase();
   if (method === "GET" || method === "HEAD" || method === "OPTIONS") return false;
@@ -2947,10 +2947,85 @@ export type CardsStory = {
 // ── Card terms (asked, never inferred — open banking has no APR data) ──────
 export type CardPromoKind = "purchases" | "balance_transfer" | "both";
 export type BtOffer = { ends: string | null; fee_pct: number | null; note: string | null };
-export type CardPromo = { kind: CardPromoKind; apr_pct: number; until: string };
+export type CardOfferType = "purchase" | "balance_transfer" | "money_transfer" | "cash";
+/** Optional G470 facts preserve the original compact promo contract for older cards. */
+export type CardPromo = {
+  kind: CardPromoKind;
+  apr_pct: number;
+  until: string;
+  id?: string;
+  offer_type?: CardOfferType;
+  balance?: number;
+  revert_apr_pct?: number;
+  as_of?: string;
+};
+
+export type ExtractedCardOffer = {
+  offer_type: CardOfferType;
+  apr_pct: number;
+  balance: number | null;
+  ends: string | null;
+  revert_apr_pct: number | null;
+  /** Existing promo id suggested by the server, never a claim it has saved. */
+  match: string | null;
+};
+export type ExistingCardOffer = {
+  id: string | null;
+  offer_type: CardOfferType | null;
+  kind: CardPromoKind;
+  apr_pct: number;
+  balance: number | null;
+  ends: string | null;
+};
+export type CardOfferCandidate = {
+  account_id: string;
+  name: string | null;
+  issuer: string;
+  last4: string | null;
+  existing: ExistingCardOffer[];
+  offer_matches: (string | null)[];
+};
+export type CardOffersExtraction = {
+  status: "ok";
+  source: { kind: "pdf" | "image" };
+  proposal: {
+    issuer: string | null;
+    last4: string | null;
+    statement_date: string | null;
+    purchase_apr_pct: number | null;
+    cash_apr_pct: number | null;
+    offers: ExtractedCardOffer[];
+    ended: Omit<ExtractedCardOffer, "match">[];
+    warnings: string[];
+  };
+  match: {
+    status: "matched" | "ambiguous" | "not_found";
+    account_id: string | null;
+    reason?: "issuer_mismatch" | "several_cards" | "no_digits" | "digits_not_found" | "no_card_matches";
+    candidates: CardOfferCandidate[];
+    existing: ExistingCardOffer[];
+    offer_matches: (string | null)[];
+  };
+};
+export type CardOffersConfirmBody = {
+  statement_date?: string | null;
+  purchase_apr_pct?: number | null;
+  cash_apr_pct?: number | null;
+  offers?: {
+    id?: string;
+    offer_type: CardOfferType;
+    apr_pct: number;
+    balance?: number | null;
+    ends: string;
+    revert_apr_pct?: number | null;
+  }[];
+  remove_ids?: string[];
+};
 
 export type CardTerms = {
   apr_pct: number | null;
+  cash_apr_pct?: number | null;
+  rates_as_of?: string | null;
   promos: CardPromo[];
   min_payment_note: string | null;
   bt_offers: BtOffer[];
@@ -3080,6 +3155,7 @@ export type CardTermsLookup = {
 export type CardTermsSaveBody = {
   status: "confirmed" | "skipped";
   apr_pct?: number | null;
+  cash_apr_pct?: number | null;
   promos?: CardPromo[];
   min_payment_note?: string | null;
   bt_offers?: BtOffer[];
@@ -3098,7 +3174,7 @@ export type CardPaymentSaveBody = Pick<CardTermsSaveBody,
   "statement_close_day" | "payment_due_day" | "payment_due_days_after_close" |
   "payment_method" | "payment_account_id" | "fixed_payment_amount" | "payment_match">;
 export type CardRatesSaveBody = Pick<CardTermsSaveBody,
-  "status" | "apr_pct" | "promos" | "min_payment_note" | "bt_offers" | "product_key">;
+  "status" | "apr_pct" | "cash_apr_pct" | "promos" | "min_payment_note" | "bt_offers" | "product_key">;
 
 export interface CycleStoryPeriod {
   start: string;
@@ -4714,6 +4790,47 @@ export const api = {
 
   // Card terms — asked from the user; lookups only prefill a representative rate
   getCardTerms: () => get<CardTermsList>("/card-terms"),
+  /** Reads a document into a proposal only. It deliberately does not invalidate money caches. */
+  extractCardOffers: async (file: File, password?: string, signal?: AbortSignal): Promise<CardOffersExtraction> => {
+    const form = new FormData();
+    form.append("file", file);
+    if (password) form.append("password", password);
+    if (signal?.aborted) throw new Error("The request was cancelled.");
+    const controller = new AbortController();
+    const abort = () => controller.abort();
+    signal?.addEventListener("abort", abort, { once: true });
+    if (signal?.aborted) {
+      signal.removeEventListener("abort", abort);
+      throw new Error("The request was cancelled.");
+    }
+    const timer = setTimeout(() => controller.abort(), 150_000);
+    let response: Response;
+    try {
+      try {
+        response = await fetch(`${API_BASE}/card-terms/extract`, {
+          method: "POST",
+          headers: authHeaders(),
+          body: form,
+          signal: controller.signal,
+        });
+      } catch (error: unknown) {
+        if (error instanceof DOMException && error.name === "AbortError") {
+          throw new Error("The request timed out or was cancelled. Try a smaller or clearer copy.");
+        }
+        const message = error instanceof Error ? error.message : String(error);
+        throw new Error(`Network error: ${message}`);
+      }
+      return await toJson<CardOffersExtraction>(response);
+    } finally {
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", abort);
+    }
+  },
+  /** Confirmation is a normal scoped save, so the shared fetch invalidates money caches on success. */
+  confirmCardOffers: (accountId: string, body: CardOffersConfirmBody) =>
+    post<{ status: string; terms: CardTerms; warnings: string[] }>(
+      `/card-terms/${encodeURIComponent(accountId)}/offers/confirm`, body,
+    ),
   lookupCardTerms: (accountId: string) =>
     post<CardTermsLookup>(`/card-terms/${encodeURIComponent(accountId)}/lookup`),
   getCardPayerPayments: (accountId: string, payerId: string) =>
