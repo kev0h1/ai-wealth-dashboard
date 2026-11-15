@@ -782,7 +782,7 @@ def test_execute_set_card_terms_merges_apr_and_promo_preserving_other_fields(mon
 
     saved = fake_terms_col.docs[0]
     assert saved["apr_pct"] == 24.9
-    assert saved["promos"] == [{"kind": "purchases", "apr_pct": 0.0, "until": "2027-03-14"}]
+    assert [{k: v for k, v in x.items() if k != "id"} for x in saved["promos"]] == [{"kind": "purchases", "apr_pct": 0.0, "until": "2027-03-14"}]  # G470: promos now carry a stable id
     # Untouched fields carried forward from the existing doc.
     assert saved["min_payment_note"] == "min payment 3%"
     # A recorded manual payment deliberately has no inferred cadence.

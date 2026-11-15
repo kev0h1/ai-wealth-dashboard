@@ -17,7 +17,7 @@ from datetime import date, datetime, timezone
 from math import isfinite
 from typing import Literal, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, Form, HTTPException, UploadFile
 from pydantic import BaseModel, ConfigDict, Field, StrictInt, field_validator
 
 from app.core.auth import current_user
@@ -25,6 +25,7 @@ from app.core import timeutil
 from app.db.collections import accounts_col, card_terms_col
 from app.services.account_kinds import is_credit_card_account
 from app.services.counted_accounts import is_excluded
+from app.services.card_offer_extract import CappedUploadRoute
 from app.services.card_statements import mask_long_digits as _mask_long_digits, normalise_match_rule as _normalise_match_rule
 from app.services.card_rates import (
     derive_product_identity,
@@ -66,10 +67,56 @@ class PaymentMatch(BaseModel):
     salt: Optional[str] = None
 
 
+OFFER_TYPES = ("purchase", "balance_transfer", "money_transfer", "cash")
+# G470: an offer's own type maps onto the older three-value `kind` every reader
+# (debt planner, Left to spend, Penny, cards UI) already understands.
+_OFFER_TYPE_KIND = {
+    "purchase": "purchases", "balance_transfer": "balance_transfer",
+    "money_transfer": "balance_transfer", "cash": "balance_transfer",
+}
+
+
 class CardPromo(BaseModel):
     kind: Literal["purchases", "balance_transfer", "both"]
     apr_pct: float = 0.0
     until: Optional[str] = None   # ISO date — required, validated in _normalise_promos
+    # G470: optional per-offer facts read from a statement. Absent on every
+    # older document, which reads exactly as before.
+    offer_type: Optional[Literal["purchase", "balance_transfer", "money_transfer", "cash"]] = None
+    balance: Optional[float] = None          # outstanding on this offer, GBP
+    revert_apr_pct: Optional[float] = None   # rate after the offer ends
+    as_of: Optional[str] = None              # ISO statement date the figures are from
+    id: Optional[str] = Field(default=None, max_length=40)  # G470: stable reference, assigned when absent
+
+
+def _promo_id(p: dict) -> str:
+    """A stable short id for a promo that has none stored. Derived from its own
+    content, so the same stored promo always reads with the same id, and the id
+    written on the next save equals the one that was read."""
+    import hashlib
+    basis = "|".join(str(x) for x in (
+        p.get("kind"), p.get("until"), round(float(p.get("apr_pct") or 0), 2),
+        p.get("offer_type") or "", round(float(p["balance"]), 2) if p.get("balance") is not None else "",
+    ))
+    return "p" + hashlib.sha1(basis.encode()).hexdigest()[:9]
+
+
+def _promo_dup_key(p: dict) -> tuple:
+    """Two promos with the same key are duplicates. Older promos are told apart
+    by kind and end date; statement offers also by type and balance."""
+    if any(p.get(k) is not None for k in ("offer_type", "balance", "revert_apr_pct", "as_of")):
+        return (p.get("kind"), p.get("until"), p.get("offer_type"), p.get("balance"))
+    return (p.get("kind"), p.get("until"))
+
+
+def _promos_with_ids(promos: list) -> list[dict]:
+    """The promos as stored, each carrying its id (lazily assigned on read)."""
+    out = []
+    for p in promos:
+        if not isinstance(p, dict):
+            continue
+        out.append(p if p.get("id") else {**p, "id": _promo_id(p)})
+    return out
 
 
 async def _user_credit_cards(uid: str) -> list[dict]:
@@ -114,8 +161,12 @@ def _serialize_terms(doc: dict | None) -> dict | None:
         promos = _promos_from_legacy(
             doc.get("on_promo"), doc.get("promo_kind"), doc.get("promo_end")
         )
+    promos = _promos_with_ids(promos)
     return {
         "apr_pct": doc.get("apr_pct"),
+        # G470: absent on older documents, which reads as not known.
+        "cash_apr_pct": doc.get("cash_apr_pct"),
+        "rates_as_of": doc.get("rates_as_of"),
         "promos": promos,
         "min_payment_note": doc.get("min_payment_note"),
         "bt_offers": doc.get("bt_offers") or [],
@@ -292,6 +343,8 @@ class CardTermsBody(BaseModel):
     payment_account_id: Optional[str] = None
     fixed_payment_amount: Optional[float] = None
     payment_match: Optional[PaymentMatch] = None
+    # G470: optional; carried forward from the stored document when not sent.
+    cash_apr_pct: Optional[float] = None
 
     @field_validator("fixed_payment_amount", mode="before")
     @classmethod
@@ -336,6 +389,7 @@ class CardRatesBody(BaseModel):
     promo_end: Optional[str] = None
     bt_offer_available: Optional[bool] = None
     bt_offer_note: Optional[str] = None
+    cash_apr_pct: Optional[float] = None
 
 
 class CardPaymentHistoryBody(BaseModel):
@@ -495,11 +549,13 @@ def _normalise_promos(body: "CardTermsBody") -> list[dict]:
 
     result = []
     seen: set[tuple] = set()
+    seen_ids: set[str] = set()
     for p in promos:
-        # Validate apr_pct
+        extended = any(v is not None for v in (p.offer_type, p.balance, p.revert_apr_pct, p.as_of))
+        # Validate apr_pct (statement offers may carry any rate up to 100)
         apr = p.apr_pct
-        if not (0 <= apr <= 30):
-            raise HTTPException(400, "promo apr_pct must be between 0 and 30")
+        if not (0 <= apr <= (100 if extended else 30)):
+            raise HTTPException(400, f"promo apr_pct must be between 0 and {100 if extended else 30}")
         apr = round(apr, 2)
 
         # Validate until — required
@@ -514,13 +570,39 @@ def _normalise_promos(body: "CardTermsBody") -> list[dict]:
             raise HTTPException(400, "until must be today or in the future")
         until = until_d.isoformat()
 
-        # Duplicate check: same kind + same until is not allowed
-        key = (p.kind, until)
+        item = {"kind": p.kind, "apr_pct": apr, "until": until}
+        if extended:
+            if p.offer_type is not None:
+                item["offer_type"] = p.offer_type
+            if p.balance is not None:
+                if not isfinite(p.balance) or not 0 <= p.balance <= 10_000_000:
+                    raise HTTPException(400, "balance must be between 0 and 10,000,000")
+                item["balance"] = round(p.balance, 2)
+            if p.revert_apr_pct is not None:
+                if not isfinite(p.revert_apr_pct) or not 0 <= p.revert_apr_pct <= 100:
+                    raise HTTPException(400, "revert_apr_pct must be between 0 and 100")
+                item["revert_apr_pct"] = round(p.revert_apr_pct, 2)
+            if p.as_of is not None:
+                try:
+                    as_of_d = date.fromisoformat(p.as_of)
+                except ValueError:
+                    raise HTTPException(400, "as_of must be an ISO date (YYYY-MM-DD)")
+                if as_of_d > timeutil.user_today():
+                    raise HTTPException(400, "as_of cannot be in the future")
+                item["as_of"] = as_of_d.isoformat()
+
+        # Duplicate check: same kind + same until is not allowed. Offers read
+        # from a statement are told apart by type and balance as well.
+        key = (p.kind, until) if not extended else (p.kind, until, p.offer_type, item.get("balance"))
         if key in seen:
             raise HTTPException(400, "two promos of the same kind must end on different dates")
         seen.add(key)
 
-        result.append({"kind": p.kind, "apr_pct": apr, "until": until})
+        item["id"] = p.id or _promo_id(item)
+        if item["id"] in seen_ids:
+            raise HTTPException(400, "two promos cannot share an id")
+        seen_ids.add(item["id"])
+        result.append(item)
 
     return result
 
@@ -569,9 +651,164 @@ def _normalise_bt_offers(body: "CardTermsBody") -> list[dict]:
     return result
 
 
+def _checked_cash_apr(value) -> Optional[float]:
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isfinite(value) or not 0 <= value <= 100:
+        raise HTTPException(400, "cash_apr_pct must be between 0 and 100")
+    return round(float(value), 2)
+
+
+def _cash_apr_for_save(body, existing: dict) -> Optional[float]:
+    """G470: the cash rate is kept from the stored document unless this
+    request names it, so older clients that never send it do not erase it."""
+    if _submitted(body, "cash_apr_pct"):
+        return _checked_cash_apr(body.cash_apr_pct)
+    return existing.get("cash_apr_pct")
+
+
 def _clip_note(s: Optional[str]) -> Optional[str]:
     s = _clean(s)
     return s[:300] if s else None
+
+
+class OfferConfirm(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    # With an id this updates that promo on the card; without one it is added.
+    id: Optional[str] = Field(default=None, max_length=40)
+    offer_type: Literal["purchase", "balance_transfer", "money_transfer", "cash"]
+    apr_pct: float
+    balance: Optional[float] = None
+    ends: str
+    revert_apr_pct: Optional[float] = None
+
+
+class OffersConfirmBody(BaseModel):
+    """The person's confirmed, possibly edited, proposal from /card-terms/extract."""
+    model_config = ConfigDict(extra="forbid")
+    statement_date: Optional[str] = None
+    purchase_apr_pct: Optional[float] = None
+    cash_apr_pct: Optional[float] = None
+    # Merged into the card's existing promos: an offer with an id updates that
+    # promo, one without is added. Nothing is removed unless its id is listed in
+    # remove_ids.
+    offers: list[OfferConfirm] = []
+    remove_ids: list[str] = []
+
+
+async def extract_card_offers(
+    file: UploadFile,
+    password: str = Form(default=""),
+    user: dict = Depends(current_user),
+):
+    """G470: read a card statement PDF or a bank-app screenshot and PROPOSE the
+    card's rates and offers. Saves nothing and this code keeps no file (see the
+    module docstring of services/card_offer_extract.py for what the framework
+    may spool). Not counted in the Statements tier's upload cap; metered as an
+    LLM call. Declared before /card-terms/{account_id} so the path is not read
+    as an account id."""
+    from app.core.demo import assert_not_demo
+    from app.services import card_offer_extract as extract
+    uid = user["email"]
+    assert_not_demo(uid)
+    await extract.check_extract_allowed(uid)
+    content = await file.read(extract.MAX_BYTES + 1)
+    if not content:
+        raise HTTPException(422, "That file is empty.")
+    if len(content) > extract.MAX_BYTES:
+        raise HTTPException(413, "That file is larger than 10 MB. Upload a smaller copy.")
+    cards = await _user_credit_cards(uid)
+    ids = [str(c["_id"]) for c in cards]
+    promos_by_account = {}
+    async for doc in card_terms_col.find({"user_id": uid, "account_id": {"$in": ids}}):
+        promos_by_account[str(doc.get("account_id"))] = _serialize_terms(doc)["promos"]
+    return await extract.extract_proposal(uid, content, password, cards, promos_by_account)
+
+
+# Registered with a route class that refuses an oversized body before parsing it.
+router.add_api_route("/card-terms/extract", extract_card_offers, methods=["POST"], route_class_override=CappedUploadRoute)
+
+
+@router.post("/card-terms/{account_id}/offers/confirm")
+async def confirm_card_offers(account_id: str, body: OffersConfirmBody, user: dict = Depends(current_user)):
+    """G470: merge the confirmed proposal into this card's terms. Every field is
+    validated here, whatever the client sent. Existing promos are kept unless
+    updated by id or listed in remove_ids."""
+    uid = user["email"]
+    await _owned_card_or_404(uid, account_id)
+    today = timeutil.user_today()
+    as_of = None
+    if body.statement_date is not None:
+        try:
+            as_of_d = date.fromisoformat(body.statement_date)
+        except ValueError:
+            raise HTTPException(400, "statement_date must be an ISO date (YYYY-MM-DD)")
+        if as_of_d > today:
+            raise HTTPException(400, "statement_date cannot be in the future")
+        as_of = as_of_d.isoformat()
+    for label, v in (("purchase_apr_pct", body.purchase_apr_pct), ("cash_apr_pct", body.cash_apr_pct)):
+        if v is not None and (not isfinite(v) or not 0 <= v <= 100):
+            raise HTTPException(400, f"{label} must be between 0 and 100")
+
+    existing_doc = await card_terms_col.find_one({"_id": f"{uid}:{account_id}"}) or {}
+    existing = _serialize_terms(existing_doc)["promos"] if existing_doc else []
+    own_ids = {p["id"] for p in existing}
+    remove = set(body.remove_ids)
+    named = {o.id for o in body.offers if o.id}
+    if (remove | named) - own_ids:
+        raise HTTPException(400, "One of those offers is not on this card")
+    if remove & named:
+        raise HTTPException(400, "An offer cannot be both updated and removed")
+    if len(named) != len([o for o in body.offers if o.id]):
+        raise HTTPException(400, "An offer id appears twice")
+
+    warnings: list[str] = []
+    incoming: dict[str, dict] = {}   # id -> normalised promo
+    added: list[dict] = []
+    for o in body.offers:
+        if not isfinite(o.apr_pct) or not 0 <= o.apr_pct <= 100:
+            raise HTTPException(400, "apr_pct must be between 0 and 100")
+        try:
+            ends_d = date.fromisoformat(o.ends)
+        except ValueError:
+            raise HTTPException(400, "ends must be an ISO date (YYYY-MM-DD)")
+        if ends_d < today:
+            warnings.append(f"The offer that ended on {ends_d.isoformat()} was not saved.")
+            continue
+        promo = _normalise_promos(CardTermsBody(promos=[CardPromo(
+            kind=_OFFER_TYPE_KIND[o.offer_type], apr_pct=o.apr_pct, until=o.ends, offer_type=o.offer_type,
+            balance=o.balance, revert_apr_pct=o.revert_apr_pct, as_of=as_of, id=o.id,
+        )]))[0]
+        if o.id:
+            incoming[o.id] = promo
+        else:
+            added.append(promo)
+
+    merged = [incoming.get(p["id"], p) for p in existing if p["id"] not in remove] + added
+    if len(merged) > 4:
+        raise HTTPException(400, "A card can hold 4 offers. Remove one first, or update an existing offer instead of adding.")
+    keys = set()
+    for p in merged:
+        key = _promo_dup_key(p)
+        if key in keys:
+            raise HTTPException(400, "Two offers on this card would be the same. Update or remove the existing one instead.")
+        keys.add(key)
+
+    updates: dict = {"status": "confirmed", "confirmed_at": datetime.now(timezone.utc)}  # naive-ok: persisted UTC confirmation audit timestamp, not a calendar decision.
+    if body.offers or remove:
+        updates["promos"] = merged
+    if body.purchase_apr_pct is not None:
+        updates["apr_pct"] = round(body.purchase_apr_pct, 2)
+    if body.cash_apr_pct is not None:
+        updates["cash_apr_pct"] = round(body.cash_apr_pct, 2)
+    if as_of is not None:
+        updates["rates_as_of"] = as_of
+    defaults = {field: None for field in _PAYMENT_FIELDS}
+    defaults.update(apr_pct=None, promos=[], min_payment_note=None, bt_offers=[], product_key=None, usage=None,
+                    cash_apr_pct=None, rates_as_of=None)
+    out = await _update_scoped_terms(uid, account_id, updates, defaults)
+    out["warnings"] = warnings
+    return out
 
 
 @router.post("/card-terms/{account_id}")
@@ -609,11 +846,14 @@ async def save_card_terms(
             "product_key": body.product_key,
             "usage": existing.get("usage"),
             "statement_amount_override": existing.get("statement_amount_override"),
+            "cash_apr_pct": None,
+            "rates_as_of": None,
             **payment,
         }
     else:
         if body.apr_pct is not None and not (0 <= body.apr_pct <= 100):
             raise HTTPException(400, "apr_pct must be between 0 and 100")
+        cash_apr = _cash_apr_for_save(body, existing)
         promos_list = _normalise_promos(body)
         bt_offers_list = _normalise_bt_offers(body)
         payment = await _validate_payment_settings(
@@ -657,6 +897,8 @@ async def save_card_terms(
             "product_key": body.product_key,
             "usage": usage,
             "statement_amount_override": existing.get("statement_amount_override"),
+            "cash_apr_pct": cash_apr,
+            "rates_as_of": existing.get("rates_as_of"),
             **payment,
         }
 
@@ -816,7 +1058,7 @@ async def save_card_rates(account_id: str, body: CardRatesBody, user: dict = Dep
     await _owned_card_or_404(uid, account_id)
     updates = {"status": body.status, "confirmed_at": datetime.now(timezone.utc)}  # naive-ok: persisted UTC confirmation audit timestamp, not a calendar decision.
     if body.status == "skipped":
-        updates.update(apr_pct=None, promos=[], min_payment_note=None, bt_offers=[])
+        updates.update(apr_pct=None, promos=[], min_payment_note=None, bt_offers=[], cash_apr_pct=None, rates_as_of=None)
     else:
         if _submitted(body, "apr_pct"):
             if body.apr_pct is not None and (not isfinite(body.apr_pct) or not 0 <= body.apr_pct <= 100):
@@ -828,6 +1070,8 @@ async def save_card_rates(account_id: str, body: CardRatesBody, user: dict = Dep
             updates["bt_offers"] = _normalise_bt_offers(body)
         if _submitted(body, "min_payment_note"):
             updates["min_payment_note"] = _clip_note(body.min_payment_note)
+        if _submitted(body, "cash_apr_pct"):
+            updates["cash_apr_pct"] = _checked_cash_apr(body.cash_apr_pct)
     if _submitted(body, "product_key"):
         updates["product_key"] = body.product_key
     defaults = {field: None for field in _PAYMENT_FIELDS}

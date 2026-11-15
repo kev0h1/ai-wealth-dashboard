@@ -58,6 +58,8 @@ _BLOCKED = [
     ("POST", r"^/admin/fix-card-transactions$"),
     ("POST", r"^/billing/play/purchase$"),
     ("POST", r"^/subscription/select-free$"),
+    # G470: reads an uploaded document with a paid model; the demo identity has no documents of its own.
+    ("POST", r"^/card-terms/extract$"),
 ]
 _BLOCKED_RE = [(m, re.compile(p)) for m, p in _BLOCKED]
 
