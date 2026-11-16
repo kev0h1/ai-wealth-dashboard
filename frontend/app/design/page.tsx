@@ -32,6 +32,14 @@ type PreviewRoute = {
 
 const ROUTES: PreviewRoute[] = [
   {
+    slug: "account-details",
+    name: "Account details · G474",
+    description: "Three coded directions for the Account details sheet: A Account passport, B Clear groups, C Connection first. Fictional current, savings and credit accounts, each with healthy, reconnect and never-synced states. Includes the initial critique, missing/long details, locked inclusion, local failure and retry, pinning, removal confirmation and separate Payment and Rates destinations. Fixed at 15 November 2026; no bank records read or changed.",
+    variants: [{ label: "A · Account passport", value: "a" }, { label: "B · Clear groups", value: "b" }, { label: "C · Connection first", value: "c" }],
+    states: [{ label: "Healthy", value: "healthy" }, { label: "Needs reconnecting", value: "reconnect" }, { label: "Never synced", value: "never" }],
+    group: "current",
+  },
+  {
     slug: "play-extras",
     name: "Google Play extras · C42",
     description: "A 30-second landscape C22 product film with original sound and English captions, plus a launch template and two text-free promotional image examples. Both themes, exact-size downloads, crop-safe guides and event conditions. Fictional production UI; review before upload.",
