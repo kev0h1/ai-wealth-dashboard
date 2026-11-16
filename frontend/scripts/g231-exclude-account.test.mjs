@@ -86,7 +86,8 @@ const acct = { id: "a1", name: "Joint bills", type: "Current", subtype: "CURRENT
   // Only connected current and savings accounts get the row, in Account details.
   const page = readFileSync(new URL("../app/components/AccountsPage.tsx", import.meta.url), "utf8");
   const details = page.slice(page.indexOf("accountDetailsFor === selectedAccount.id"), page.indexOf("{/* Transaction sheet"));
-  assert.match(details, /!isManual && !isStatement && !isCredit && !isDebt && detailBalanceReady/);
+  assert.match(details, /inclusion=\{!isManual && !isStatement && !isCredit && !isDebt \?/);
+  assert.match(details, /connectionEnded\(selectedAccount\) \? <AccountDetailsFactRow[\s\S]*?: !detailBalanceReady \? <AccountDetailsFactRow[\s\S]*?: \(\s*<AccountCountRow/, "ended and unready accounts get facts before the actionable inclusion row");
   assert.match(details, /<AccountCountRow[\s\S]*?\bcompact\s*[\s\S]*?\bcalm/, "count setting belongs in Account details");
   const compact = renderToStaticMarkup(React.createElement(CountTowardsSafeToSpendRow, { counted: true, onChange: noop, compact: true, calm: true, reason, busy: true }));
   assert.doesNotMatch(compact, /glass-card/);

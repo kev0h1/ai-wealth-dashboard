@@ -8,6 +8,8 @@
 
 import { useId } from "react";
 import Toggle from "@/components/Toggle";
+import { Wallet } from "lucide-react";
+import { AccountDetailsPreferenceRow } from "@/components/AccountDetailsContent";
 
 export const COUNT_TOWARDS_LABEL = "Count towards Left to spend";
 export const COUNT_TOWARDS_HELPER = "Turn off for accounts you do not spend from, like a joint bills account.";
@@ -22,10 +24,23 @@ export interface CountTowardsSafeToSpendRowProps {
   compact?: boolean;
   calm?: boolean;
   lockedReason?: string;
+  /** G474 B: match the neighbouring account-control rows. */
+  grouped?: boolean;
+  extraHelper?: string;
 }
 
-export default function CountTowardsSafeToSpendRow({ counted, onChange, busy, reason, compact = false, calm = false, lockedReason }: CountTowardsSafeToSpendRowProps) {
+export default function CountTowardsSafeToSpendRow({ counted, onChange, busy, reason, compact = false, calm = false, lockedReason, grouped = false, extraHelper }: CountTowardsSafeToSpendRowProps) {
   const helperId = useId();
+  if (grouped) return <AccountDetailsPreferenceRow
+    icon={<Wallet size={18} />}
+    title="Include in Left to spend"
+    caption={<>{lockedReason ?? (counted ? "Turn off for an account you do not spend from." : "Excluded from this estimate.")}{extraHelper ? <> {extraHelper}</> : null}</>}
+    checked={counted}
+    disabled={!!lockedReason}
+    busy={busy}
+    onChange={() => onChange(!counted)}
+    error={reason}
+  />;
   if (calm) {
     const label = "Include in estimated left to spend";
     const helper = lockedReason ?? (counted ? "Turn off for an account you do not spend from." : "Excluded from this estimate.");

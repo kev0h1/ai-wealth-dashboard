@@ -110,9 +110,10 @@ assert.match(page, /className=\{`\$\{detailStyles\.rows\} flex flex-col gap-3`\}
 const sheet = page.slice(page.indexOf("accountDetailsFor === selectedAccount.id"), page.indexOf("{/* Transaction sheet"));
 assert.match(sheet, /<AccountCountRow[\s\S]*?calm/);
 assert.match(sheet, /lockedReason=\{available\?\.kind === "ready" && available\.warning/, "real shortfalls lock the inclusion switch");
-assert.match(sheet, /<AccountRefreshRow[\s\S]*?compact/);
-assert.match(sheet, /Unpin from Home|Pin to Home/);
-assert.match(sheet, /Remove account/);
+assert.match(sheet, /<AccountConnectionSummary[\s\S]*?onRefresh=\{refreshOneAccount\}/);
+assert.match(read("components/AccountConnectionDetails.tsx"), /<AccountRefreshRow[^>]*compact/);
+assert.match(read("components/AccountDetailsContent.tsx"), /Pin to Home/);
+assert.match(read("components/AccountDetailsContent.tsx"), /Remove account/);
 for (const action of ["handleReconnect", "openEditManual", "setShowStatementUpload", "openCardTermsAt", "handleDeleteAccount", "deleteManualAccount"]) assert.match(sheet, new RegExp(`closeThen\\(\\(\\) =>[\\s\\S]*?${action}`), `${action} closes Account details first`);
 assert.match(page, /hideNetWorth && detailBalanceReady \? \(balance < 0 \? "Negative balance hidden" : "Balance hidden"\) : detailBalanceText/, "masked balance has a matching masked spoken value");
 
@@ -122,7 +123,7 @@ assert.match(sheet, /<SheetFrame title="Account details"[^>]*variant="focused"/,
 assert.doesNotMatch(sheet, /variant="compact"/, "details sheet is no longer the short compact sheet");
 assert.doesNotMatch(readFileSync(new URL("../components/TeachingSheet.tsx", import.meta.url), "utf8").slice(0, 200000), /<SheetFrame[^>]*variant="compact"/, "the transaction sheet frame stays focused");
 assert.match(sheet, /Include in estimated left to spend|<AccountCountRow/, "inclusion row kept");
-assert.match(sheet, /consentExpiry/, "Connected until row kept");
+assert.match(sheet, /<AccountConnectionEvidence account=\{selectedAccount\} connection=\{consentConnection\}/, "consent evidence remains joined to the selected account");
 {
   const { bankDataTimeLine } = await import("../lib/accountSheetNotes.ts");
   const now = Date.parse("2026-11-03T12:00:00Z");

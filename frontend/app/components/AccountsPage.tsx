@@ -16,6 +16,9 @@ import AccountsHeader from "@/components/AccountsHeader";
 import AccountsDirectory from "@/components/AccountsDirectory";
 import AccountAvailabilityDetail from "@/components/AccountAvailabilityDetail";
 import AccountDetailLayout from "@/components/AccountDetailLayout";
+import AccountDetailsContent, { AccountDetailsFactRow } from "@/components/AccountDetailsContent";
+import { AccountConnectionEvidence, AccountConnectionSummary } from "@/components/AccountConnectionDetails";
+import accountDetailsStyles from "@/components/AccountDetailsContent.module.css";
 import detailStyles from "@/components/AccountDetailLayout.module.css";
 import AccountsAddMenu from "@/components/AccountsAddMenu";
 import { useAccountsOverviewRefresh } from "@/lib/useAccountsOverviewRefresh";
@@ -59,8 +62,7 @@ import type { SyncStatus } from "@/lib/api";
 import { writeHomePinnedAccounts } from "@/lib/homePinnedAccounts";
 import MoneyText from "@/components/MoneyText";
 import { accountAvailability, formatAvailabilityAmount, type AccountAvailabilitySnapshot } from "@/lib/accountAvailability";
-import { formatConsentExpiry } from "@/lib/consentExpiry";
-import { connectionNotes } from "@/lib/reconfirm";
+import { tidyAccountText } from "@/lib/accountDisplay";
 import { useTutorialAction, useTutorialReady } from "@/components/TutorialContext";
 import { isLegacyBankSource } from "@/lib/legacyBankProvider";
 import { useOpenBankingAccessState } from "@/lib/openBankingAccess";
@@ -70,8 +72,7 @@ import { openSheetHistoryCount } from "@/lib/useSheetA11y";
 import { SheetFrame } from "@/components/SheetFrame";
 import AccountCountRow from "@/components/AccountCountRow";
 import AccountBankEmpty from "@/components/AccountBankEmpty";
-import AccountRefreshRow from "@/components/AccountRefreshRow";
-import { canRefreshAccount, type AccountRefreshResult } from "@/lib/accountRefresh";
+import { type AccountRefreshResult } from "@/lib/accountRefresh";
 import { noticeSheet } from "@/components/ConfirmSheet";
 import { useProviderHealth } from "@/lib/useProviderHealth";
 import { todayIso, dayIsoFromStored } from "@/lib/calendar";
@@ -897,6 +898,7 @@ export default function AccountsPage() {
   const MAX_PINS = 3;
   const [pinnedIds, setPinnedIds] = useState<string[]>([]);
   const [pinMsg, setPinMsg] = useState<string | null>(null);
+  const [pinBusy, setPinBusy] = useState(false);
   const pinMsgTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const noteFileRef = useRef<HTMLInputElement>(null);
   useEffect(() => {
@@ -946,21 +948,25 @@ export default function AccountsPage() {
     }
     return r;
   }
-  function togglePin(id: string) {
+  async function togglePin(id: string) {
+    if (pinBusy) return;
     if (!pinnedIds.includes(id) && pinnedIds.length >= MAX_PINS) {
       setPinMsg(`Home shows up to ${MAX_PINS} pinned accounts, unpin one first.`);
       if (pinMsgTimer.current) clearTimeout(pinMsgTimer.current);
       pinMsgTimer.current = setTimeout(() => setPinMsg(null), 3500);
       return;
     }
-    setPinnedIds(prev => {
-      const next = prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id];
-      api.updatePreferences({ home_pinned_accounts: next }).catch(() => {});
-      // Write-through so Home's useHomePinnedAccounts() reflects this pin
-      // toggle immediately, without re-fetching preferences itself.
+    if (pinMsgTimer.current) clearTimeout(pinMsgTimer.current);
+    setPinMsg(null);
+    setPinBusy(true);
+    const next = pinnedIds.includes(id) ? pinnedIds.filter(x => x !== id) : [...pinnedIds, id];
+    try {
+      await api.updatePreferences({ home_pinned_accounts: next });
+      setPinnedIds(next);
       writeHomePinnedAccounts(next);
-      return next;
-    });
+    } catch {
+      setPinMsg("The Home pin could not be saved. Try the switch again.");
+    } finally { setPinBusy(false); }
   }
 
   // Detail view is a state switch, not a navigation — so manage scroll and
@@ -2340,18 +2346,11 @@ export default function AccountsPage() {
     const isPinned = pinnedIds.includes(selectedAccount.id);
     const termsCard = cardTermsByAccount[selectedAccount.id];
     const termsPill = termsPillFor(termsCard);
-    // A113: when does the bank consent behind this account currently end.
-    // Manual accounts and statement uploads carry no `connection_id`, so
-    // this naturally resolves to undefined for them (no consent exists —
-    // state 4 of the four states this feature must handle honestly). An
-    // already-expired connection is deliberately excluded: the reconnect
-    // banner above already owns that story, and formatConsentExpiry itself
-    // also refuses to name a past date, so this can only ever read as a
-    // genuine future end date or say nothing.
+    // G474: connection evidence is joined to this account, never inferred
+    // from an absent timestamp or another account at the same bank.
     const consentConnection = !isManual && !isStatement
       ? connections.find(c => c.connection_id === selectedAccount.connection_id)
       : undefined;
-    const consentExpiry = isExpired ? null : formatConsentExpiry(consentConnection?.expires_at);
 
     // Categories tab — one row-panel renderer shared by the "Spending"
     // (debit) and "Money in" (credit) sections so card payments/refunds
@@ -2674,15 +2673,21 @@ export default function AccountsPage() {
           />
         </div>
         {accountDetailsFor === selectedAccount.id && (
-          <SheetFrame title="Account details" description={accountDetailKindText(accountKindLabel(accountKind(selectedAccount)), selectedAccount.provider, undefined, isBusinessAccount(selectedAccount))} variant="focused" onClose={() => setAccountDetailsFor(null)}>
-            {({ closeThen }) => <div className="divide-y divide-slate-200 dark:divide-slate-700 [&>*]:py-4 [&>*:first-child]:pt-0 [&>*:last-child]:pb-0">
-              {isCredit && termsCard && <CardDetailsSections
+          <SheetFrame title="Account details" variant="focused" mobileFullScreen onClose={() => setAccountDetailsFor(null)} bodyClassName="px-5 pb-5" footer={({ close }) => <button type="button" onClick={close} className="flex min-h-12 w-full items-center justify-center rounded-xl bg-indigo-600 px-4 py-3 text-sm font-semibold text-white active:opacity-70">Done</button>}>
+            {({ closeThen }) => <AccountDetailsContent
+              account={selectedAccount}
+              name={isManual ? selectedAccount.name : displayAccountName(selectedAccount.name)}
+              providerLabel={isManual ? "Offline account" : tidyAccountText(selectedAccount.provider)}
+              kindLabel={accountDetailKindText(accountKindLabel(accountKind(selectedAccount)), "", undefined, isBusinessAccount(selectedAccount))}
+              controlsTitle={isCredit ? "Card and Home" : isManual || isStatement || isDebt ? "Account controls" : "Home and Left to spend"}
+              cardRows={isCredit && termsCard ? <CardDetailsSections
+                grouped
                 card={termsCard}
                 paymentAccounts={cardPaymentAccounts}
                 onEditPayment={() => closeThen(() => setCardPaymentId(selectedAccount.id))}
                 onEditRates={() => closeThen(() => openCardTermsAt(selectedAccount.id, true))}
-              />}
-              {!isManual && !isStatement && !isCredit && !isDebt && detailBalanceReady && !connectionEnded(selectedAccount) && (
+              /> : undefined}
+              inclusion={!isManual && !isStatement && !isCredit && !isDebt ? connectionEnded(selectedAccount) ? <AccountDetailsFactRow icon={<Wallet size={18} />} title="Left to spend" caption="Not counted while the bank connection has ended." value="Not counted" /> : !detailBalanceReady ? <AccountDetailsFactRow icon={<Wallet size={18} />} title="Left to spend" caption="Inclusion can be checked when the account balance is available." value="Not available" /> : (
                 <AccountCountRow
                   account={selectedAccount}
                   counted={selectedAccount.include_in_safe_to_spend !== false}
@@ -2692,22 +2697,26 @@ export default function AccountsPage() {
                   lockedReason={available?.kind === "ready" && available.warning ? `Included while this account is short ${available.warning === "payments" ? "for payments" : "after plans"}.` : undefined}
                   compact
                   calm
+                  grouped
                 />
-              )}
-              {!isManual && !isStatement && (consentExpiry || isExpired || canRefreshAccount(selectedAccount) || connectionNotes(consentConnection).length > 0) && <div data-g412-section="connection" className="[&_[data-a179-refresh-button]]:pr-0">
-                <h3 className="mb-1 text-base font-bold text-slate-900 dark:text-slate-100">Connection</h3>
-                {consentExpiry && <p className="mb-2 text-[13px] text-slate-600 dark:text-slate-300">{consentExpiry}</p>}
-                {!isExpired && connectionNotes(consentConnection).map(note => <p key={note} className="mb-2 text-[13px] text-slate-600 dark:text-slate-300">{note}</p>)}
-                {isExpired && <button type="button" onClick={() => closeThen(() => void handleReconnect(selectedAccount.provider_id, selectedAccount))} className="min-h-11 text-sm font-semibold text-amber-800 dark:text-amber-200">Reconnect bank</button>}
-                {canRefreshAccount(selectedAccount) && <AccountRefreshRow key={selectedAccount.id} account={selectedAccount} onRefresh={refreshOneAccount} compact />}
-              </div>}
-              <div>
-                {isManual && <button type="button" onClick={() => closeThen(() => { if (manualAcc) openEditManual(manualAcc); })} className={detailStyles.action}>Edit account<Pencil size={15} aria-hidden="true" /></button>}
-                {isStatement && <button type="button" onClick={() => closeThen(() => setShowStatementUpload(true))} className={detailStyles.action}>Add statement<Upload size={15} aria-hidden="true" /></button>}
-                {!isManual && !isExpired && <button type="button" onClick={() => togglePin(selectedAccount.id)} className={detailStyles.action}>{isPinned ? "Unpin from Home" : "Pin to Home"}<Star size={15} aria-hidden="true" className={isPinned ? "fill-current" : ""} /></button>}
-                {pinMsg && <p role="status" className="py-2 text-[13px] text-slate-600 dark:text-slate-300">{pinMsg}</p>}
-
-                <button type="button" disabled={deletingAccount} onClick={() => closeThen(() => {
+              ) : undefined}
+              connection={!isManual && !isStatement ? <div data-g412-section="connection"><AccountConnectionSummary
+                account={selectedAccount}
+                providerLabel={tidyAccountText(selectedAccount.provider) || "your bank"}
+                pending={detailPending}
+                onReconnect={() => closeThen(() => void handleReconnect(selectedAccount.provider_id, selectedAccount))}
+                onRefresh={refreshOneAccount}
+              /></div> : undefined}
+              connectionDetails={!isManual && !isStatement ? <AccountConnectionEvidence account={selectedAccount} connection={consentConnection} /> : undefined}
+              actions={isManual ? <button type="button" data-account-details-row onClick={() => closeThen(() => { if (manualAcc) openEditManual(manualAcc); })} className={accountDetailsStyles.actionRow}><Pencil size={18} className={accountDetailsStyles.rowIcon} aria-hidden="true" /><span className={accountDetailsStyles.rowCopy}><strong>Edit account</strong><small>Change this offline account’s details</small></span><ChevronRight size={16} aria-hidden="true" /></button> : isStatement ? <button type="button" data-account-details-row onClick={() => closeThen(() => setShowStatementUpload(true))} className={accountDetailsStyles.actionRow}><Upload size={18} className={accountDetailsStyles.rowIcon} aria-hidden="true" /><span className={accountDetailsStyles.rowCopy}><strong>Add statement</strong><small>Update this account from a statement</small></span><ChevronRight size={16} aria-hidden="true" /></button> : undefined}
+              pinned={isPinned}
+              showPin={!isManual}
+              pinDisabledReason={isExpired ? "Reconnect this account before changing its Home pin." : !prefsReady ? "Loading your Home pins." : undefined}
+              pinBusy={pinBusy}
+              onTogglePin={() => void togglePin(selectedAccount.id)}
+              pinMessage={pinMsg}
+              deleting={deletingAccount}
+              onRemove={() => closeThen(() => {
                   if (!isManual) { void handleDeleteAccount(); return; }
                   void (async () => {
                     if (!await showConfirm("Remove this offline account?")) return;
@@ -2719,9 +2728,8 @@ export default function AccountsPage() {
                       handleBack();
                     } catch { void noticeSheet({ title: "Couldn’t remove that account", body: "Please try again." }); }
                   })();
-                })} className={`${detailStyles.action} text-rose-700 dark:text-rose-300`}>Remove account{deletingAccount ? <Spinner size={15} /> : <Trash2 size={15} aria-hidden="true" />}</button>
-              </div>
-            </div>}
+                })}
+            />}
           </SheetFrame>
         )}
 
