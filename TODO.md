@@ -4325,3 +4325,4 @@ Board: the private page /ops/go-live on UAT reads and edits these files. Session
 - [x] **H152. Raise integrate's backend suite timeout to 25 minutes, make it configurable, and log the suite's run time** [owner: claude] [priority: p1] (done 2026-11-12, a52c74826)
   - note (2026-11-12, claude): Merged directly as a bootstrap: the integrate.py on main still had the 600s cap and the ~777s suite blocked every pass, so integrate could not merge its own fix. Kevin authorised 2026-11-12.
 - [x] **H153. Make the G469 matcher_state privacy test clock-proof: it searches the whole JSON for 41 and fails when the run timestamp contains 41** [owner: claude] [priority: p1] (done 2026-11-15, 1129e4524f0503bbfd2116ff5fb60bdea2d54bc1)
+- [ ] **H154. Freeze G436 and account-eligibility fixture dates so a backend run crossing midnight cannot fail** [owner: codex]
