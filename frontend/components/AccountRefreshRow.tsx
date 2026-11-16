@@ -8,7 +8,7 @@
 // holds the control's own state, so /design previews can render it.
 
 import { useEffect, useState } from "react";
-import { RefreshCw } from "lucide-react";
+import { RefreshCw, ShieldCheck } from "lucide-react";
 import { bankDataTimeLine } from "@/lib/accountSheetNotes";
 import {
   refreshControlState, refreshNote, type AccountRefreshResult,
@@ -22,9 +22,12 @@ export interface AccountRefreshRowProps {
   now?: number;
   /** G406: quiet account-facts row, retaining the same refresh lifecycle. */
   compact?: boolean;
+  /** G474 B: status and update control form one connection summary. */
+  connectionSummary?: boolean;
+  pending?: boolean;
 }
 
-export default function AccountRefreshRow({ account, onRefresh, now, compact = false }: AccountRefreshRowProps) {
+export default function AccountRefreshRow({ account, onRefresh, now, compact = false, connectionSummary = false, pending = false }: AccountRefreshRowProps) {
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<AccountRefreshResult | null>(null);
   const [failed, setFailed] = useState(false);
@@ -59,6 +62,16 @@ export default function AccountRefreshRow({ account, onRefresh, now, compact = f
       setBusy(false);
     }
   }
+
+  if (connectionSummary) return <div data-a179-refresh-row className="py-4">
+    <h4 className="flex items-center gap-2 text-[15px] font-bold text-slate-900 dark:text-slate-100"><ShieldCheck size={18} aria-hidden="true" />{pending && !asOf ? "Waiting for the first update" : "Connected"}</h4>
+    <p data-a179-asof className="mt-2 text-xs leading-relaxed text-slate-600 dark:text-slate-300">{pending && !asOf ? "Your bank is connected. The first balance and transactions have not arrived yet." : asOf ?? "The bank has not supplied an update time."}</p>
+    <button type="button" data-a179-refresh-button disabled={state.disabled} aria-busy={state.spinning} onClick={() => void run()} className="mt-1 inline-flex min-h-11 items-center gap-2 rounded-lg text-[13px] font-semibold text-indigo-700 active:opacity-70 disabled:cursor-not-allowed disabled:text-slate-500 dark:text-indigo-300 dark:disabled:text-slate-400">
+      <RefreshCw size={15} aria-hidden="true" className={state.spinning ? "animate-spin motion-reduce:animate-none" : undefined} />
+      <span>{state.disabled ? state.label : pending && !asOf ? "Check for an update" : "Refresh account"}</span>
+    </button>
+    <p role="status" aria-live="polite" data-a179-refresh-note className={note ? "mt-1 text-xs leading-relaxed text-slate-600 dark:text-slate-300" : "sr-only"}>{note ?? ""}</p>
+  </div>;
 
   return (
     <div data-a179-refresh-row className={compact ? "" : "glass-card rounded-2xl px-4 py-2"}>

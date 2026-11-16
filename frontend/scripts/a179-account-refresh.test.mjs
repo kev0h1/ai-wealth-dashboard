@@ -65,8 +65,10 @@ assert.match(html, /Bank data updated 30 min ago/);
 
 // Wiring, both themes and no red or em dashes in the new files.
 const page = fs.readFileSync(new URL("../app/components/AccountsPage.tsx", import.meta.url), "utf8");
-assert.match(page, /<AccountRefreshRow\s+key=\{selectedAccount\.id\}\s+account=\{selectedAccount\}/);
-assert.match(page, /canRefreshAccount\(selectedAccount\)/);
+const connection = fs.readFileSync(new URL("../components/AccountConnectionDetails.tsx", import.meta.url), "utf8");
+assert.match(page, /<AccountConnectionSummary\s+account=\{selectedAccount\}/);
+assert.match(connection, /<AccountRefreshRow\s+key=\{account\.id\}\s+account=\{account\}/);
+assert.match(connection, /canRefreshAccount\(account\)/);
 assert.match(page, /api\.refreshAccount\(id\)/);
 for (const f of ["../lib/accountRefresh.ts", "../components/AccountRefreshRow.tsx"]) {
   const src = fs.readFileSync(new URL(f, import.meta.url), "utf8");
@@ -81,6 +83,6 @@ assert.doesNotMatch(compact, /glass-card/, "G406 freshness is an unboxed facts r
 assert.match(compact, /Next refresh from/);
 assert.match(compact, /disabled=""/, "compact mode preserves the hourly cooldown");
 const details = page.slice(page.indexOf("accountDetailsFor === selectedAccount.id"), page.indexOf("{/* Transaction sheet"));
-assert.match(details, /<AccountRefreshRow[^>]+\bcompact\s*\/>/, "refresh lives in Account details");
+assert.match(details, /<AccountConnectionSummary[\s\S]*?onRefresh=\{refreshOneAccount\}/, "refresh lives in Account details");
 assert.match(details, /closeThen/, "secondary details actions close before hand-off");
 console.log("a179 account refresh: ok");

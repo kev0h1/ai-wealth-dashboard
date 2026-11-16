@@ -254,6 +254,7 @@
     "check:g448-no-move-lines": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g448-no-move-lines.test.mjs",
     "check:g411-home-skeleton": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g411-home-skeleton.test.mjs",
     "check:g407-account-detail": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g407-account-detail.test.mjs",
+    "check:g474-account-details": "node scripts/g474-account-details.browser.mjs",
     "check:g408-disclosures": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g408-disclosures.test.mjs",
     "check:g391-directory": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g391-directory.test.mjs",
     "check:g395-bank-coverage": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g395-bank-coverage.test.mjs",

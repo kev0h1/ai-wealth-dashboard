@@ -2,12 +2,13 @@
 
 // Approved G419 B: two routes from Account details. Payment evidence belongs
 // in Payment, while connection, pin and removal remain in the host sheet.
-import { ChevronRight } from "lucide-react";
+import { ChevronRight, CreditCard, Wallet } from "lucide-react";
 import type { CardTermsCard } from "@/lib/api";
 import MoneyText from "@/components/MoneyText";
 import { BalancesHiddenContext } from "@/lib/balancesHidden";
 import { usePreferences } from "@/components/PreferencesContext";
 import styles from "@/components/card-settings/CardSettings.module.css";
+import detailStyles from "@/components/AccountDetailsContent.module.css";
 
 const METHOD_LABEL: Record<string, string> = {
   full: "Paid in full by Direct Debit", minimum: "Minimum payment", fixed: "Fixed payment", manual: "Paid manually",
@@ -25,12 +26,14 @@ export function paymentRuleLabels(terms: CardTermsCard["terms"]) {
     method: terms?.payment_method ? METHOD_LABEL[terms.payment_method] : "Not set",
   };
 }
-export default function CardDetailsSections({ card, onEditPayment, onEditRates, hiddenOverride }: {
+export default function CardDetailsSections({ card, onEditPayment, onEditRates, hiddenOverride, grouped = false }: {
   card: CardTermsCard;
   paymentAccounts?: { id: string; name: string }[];
   onEditPayment: () => void;
   onEditRates: () => void;
   hiddenOverride?: boolean;
+  /** G474 B: shared account-details grouped-row presentation. */
+  grouped?: boolean;
 }) {
   const { hideNetWorth, preferencesReady } = usePreferences();
   const t = card.terms;
@@ -43,12 +46,12 @@ export default function CardDetailsSections({ card, onEditPayment, onEditRates, 
   const rate = card.card_class === "charge_card" ? "Not applicable to a charge card"
     : t?.status === "confirmed" && t.apr_pct != null ? `${t.apr_pct}% APR${deals.length ? ` · ${deals.length} ${deals.length === 1 ? "deal" : "deals"}` : ""}` : "No rates or deals recorded";
   return <BalancesHiddenContext.Provider value={hiddenOverride ?? (hideNetWorth || !preferencesReady)}>
-    <div className={styles.surface} data-g419-card-details>
-      <button type="button" data-g412-section="payment" data-card-entry="payment" className={styles.entry} onClick={onEditPayment}>
-        <span><strong>Payment</strong><small><MoneyText text={`${method}${due ? ` · Due ${due}` : ""}`} /></small></span><ChevronRight size={16} aria-hidden="true" />
+    <div className={grouped ? detailStyles.cardRows : styles.surface} data-g419-card-details>
+      <button type="button" data-account-details-row data-g412-section="payment" data-card-entry="payment" className={grouped ? detailStyles.actionRow : styles.entry} onClick={onEditPayment}>
+        {grouped ? <Wallet className={detailStyles.rowIcon} size={18} aria-hidden="true" /> : null}<span className={grouped ? detailStyles.rowCopy : undefined}><strong>Payment</strong><small><MoneyText text={`${method}${due ? ` · Due ${due}` : ""}`} /></small></span><ChevronRight size={16} aria-hidden="true" />
       </button>
-      <button type="button" data-g412-section="rates" data-card-entry="rates" className={styles.entry} onClick={onEditRates}>
-        <span><strong>Rates and deals</strong><small>{rate}</small></span><ChevronRight size={16} aria-hidden="true" />
+      <button type="button" data-account-details-row data-g412-section="rates" data-card-entry="rates" className={grouped ? detailStyles.actionRow : styles.entry} onClick={onEditRates}>
+        {grouped ? <CreditCard className={detailStyles.rowIcon} size={18} aria-hidden="true" /> : null}<span className={grouped ? detailStyles.rowCopy : undefined}><strong>Rates and deals</strong><small>{rate}</small></span><ChevronRight size={16} aria-hidden="true" />
       </button>
     </div>
   </BalancesHiddenContext.Provider>;

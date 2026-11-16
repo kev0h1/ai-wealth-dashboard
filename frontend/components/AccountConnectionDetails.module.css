@@ -1,0 +1,18 @@
+.summary { padding-block:16px; }
+.summary h4 { display:flex; align-items:center; gap:8px; color:#0f172a; font-size:15px; font-weight:700; }
+.summary h4 svg { flex-shrink:0; color:#475569; }
+.summary>p,.evidence>p { margin-top:8px; color:#475569; font-size:12px; line-height:1.6; text-wrap:pretty; }
+.caution { width:6px; height:6px; flex:0 0 6px; border-radius:50%; background:#d97706; }
+.reconnect { display:flex; width:100%; min-height:48px; align-items:center; justify-content:center; gap:8px; margin-top:12px; padding:12px 16px; border-radius:12px; background:#4f46e5; color:white; font-size:14px; font-weight:600; touch-action:manipulation; }
+.reconnect svg { flex-shrink:0; }
+.reconnect:active { opacity:.7; }
+.reconnect:focus-visible { outline:2px solid #6366f1; outline-offset:3px; }
+.evidence { padding-bottom:16px; }
+.evidence dl { margin:0; }
+.evidence dl>div { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1.3fr); gap:12px; padding-block:12px; border-top:1px solid #e2e8f0; font-size:12px; line-height:1.5; }
+.evidence dt { color:#475569; }
+.evidence dd { margin:0; color:#0f172a; font-weight:500; text-align:right; overflow-wrap:anywhere; }
+:global(.dark) .summary h4,:global(.dark) .evidence dd { color:#f1f5f9; }
+:global(.dark) .summary h4 svg,:global(.dark) .summary>p,:global(.dark) .evidence>p,:global(.dark) .evidence dt { color:#cbd5e1; }
+:global(.dark) .evidence dl>div { border-color:#334155; }
+@media(hover:hover) { .reconnect:hover { background:#4338ca; } }

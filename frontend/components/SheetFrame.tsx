@@ -46,6 +46,7 @@ export function SheetFrame({
   headingRef,
   onClickCapture,
   nested = false,
+  mobileFullScreen = false,
 }: {
   variant?: SheetFrameVariant;
   title: string;
@@ -75,6 +76,8 @@ export function SheetFrame({
   onClickCapture?: React.MouseEventHandler<HTMLElement>;
   /** G136: this frame stacks over another sheet that already dims the page, so it omits its own dim. Everything else (click-catcher, focus trap, history) is unchanged. */
   nested?: boolean;
+  /** An approved phone takeover; desktop keeps the shared centred dialog. */
+  mobileFullScreen?: boolean;
 }) {
   const mounted = useSyncExternalStore(() => () => {}, () => true, () => false);
   const reactId = useId();
@@ -175,9 +178,12 @@ export function SheetFrame({
     };
   }, []);
   const titleId = labelledBy ?? `sheet-frame-title-${reactId.replace(/:/g, "")}`;
-  const mobileHeight = variant === "focused"
+  const mobileHeight = mobileFullScreen ? "h-full lg:h-[85%]" : variant === "focused"
     ? "h-[calc(100%-max(1rem,env(safe-area-inset-top,0px)))] lg:h-[85%]"
     : "max-h-[88%]";
+  const mobileShape = mobileFullScreen
+    ? "max-w-none rounded-none border-0 lg:max-w-[500px]"
+    : "max-w-[500px] rounded-t-3xl border-t";
 
   if (!mounted) return null;
   // closeThen reads its ref only when an event invokes it, never while
@@ -191,6 +197,7 @@ export function SheetFrame({
       <button ref={backdropRef} type="button" tabIndex={-1} aria-hidden="true" onClick={() => { if (!dismissDisabled) close(); }} className={`absolute inset-0 cursor-default ${nested ? "" : "bg-black/40 fade-in"}`} />
       <section
         data-sheet-frame
+        data-sheet-mobile-full-screen={mobileFullScreen || undefined}
         ref={setPanel}
         {...swipe.handlers}
         tabIndex={-1}
@@ -199,9 +206,9 @@ export function SheetFrame({
         aria-modal="true"
         aria-labelledby={titleId}
         aria-describedby={description ? `${titleId}-description` : undefined}
-        className={`glass-sheet relative z-10 flex w-full max-w-[500px] flex-col overflow-hidden rounded-t-3xl border-t border-slate-200 shadow-xl outline-none dark:border-slate-700 dark:shadow-none lg:max-h-[85%] lg:rounded-3xl lg:border [&_button:not([data-compact])]:min-h-11 [&_button:focus-visible]:outline-2 [&_button:focus-visible]:outline-indigo-500 [&_input:focus-visible]:outline-2 [&_input:focus-visible]:outline-indigo-500 ${mobileHeight}`}
+        className={`glass-sheet relative z-10 flex w-full flex-col overflow-hidden border-slate-200 shadow-xl outline-none dark:border-slate-700 dark:shadow-none lg:max-h-[85%] lg:rounded-3xl lg:border [&_button:not([data-compact])]:min-h-11 [&_button:focus-visible]:outline-2 [&_button:focus-visible]:outline-indigo-500 [&_input:focus-visible]:outline-2 [&_input:focus-visible]:outline-indigo-500 ${mobileShape} ${mobileHeight}`}
       >
-        <div ref={handleRef} data-sheet-handle aria-hidden="true" className="flex h-5 shrink-0 touch-none items-center justify-center lg:hidden"><span className="h-1 w-9 rounded-full bg-slate-300 dark:bg-slate-600" /></div>
+        <div ref={handleRef} data-sheet-handle aria-hidden="true" className="flex h-5 shrink-0 touch-none items-center justify-center lg:hidden" style={mobileFullScreen ? { marginTop: "env(safe-area-inset-top, 0px)" } : undefined}><span className="h-1 w-9 rounded-full bg-slate-300 dark:bg-slate-600" /></div>
         <header ref={headerRef} className="flex shrink-0 touch-none items-start gap-3 border-b border-slate-100 px-5 pb-4 pt-0 dark:border-slate-700 lg:pt-4">
           {onBack && <button type="button" onClick={onBack} disabled={dismissDisabled} aria-label={backLabel} className="-ml-2 -mt-1 flex size-11 shrink-0 items-center justify-center rounded-full text-slate-600 active:scale-95 disabled:opacity-50 dark:text-slate-300"><ChevronLeft size={20} aria-hidden="true" /></button>}
           {leading && <div className="shrink-0">{leading}</div>}
