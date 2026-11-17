@@ -5,6 +5,7 @@ import dynamic from "next/dynamic";
 import { ChevronRight, CreditCard, Plus, ShieldCheck, Target } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { api, type Account, type Commitment, type DebtPlanSummary } from "@/lib/api";
+import { CARD_PLAN_COPY, clearByLine, isCardPlan, offerLine, paidLine, planAmountLine } from "@/lib/cardRepaymentPlan";
 import { getAccountsCached } from "@/lib/accountsCache";
 import MoneyText from "@/components/MoneyText";
 import { usePreferences } from "@/components/PreferencesContext";
@@ -104,7 +105,36 @@ export function GoalRow({ goal, hideValues, onOpen }: { goal: Commitment; hideVa
   );
 }
 
-export function DebtPosition({ debt, hideValues, onOpen }: { debt: Loadable<DebtPlanSummary>; hideValues: boolean; onOpen: () => void }) {
+/** G475: one repayment plan, as a row of the Debt section. Amount per pay period, what has been paid, and a
+ * hedged month it would clear by. Facts and estimates only, never advice about which card to pay. */
+export function CardPlanRow({ plan, hideValues, onOpen }: { plan: Commitment; hideValues: boolean; onOpen: () => void }) {
+  const facts = plan.card_plan;
+  const lines = [paidLine(facts), clearByLine(facts)].filter((line): line is string => Boolean(line));
+  const offer = offerLine(facts);
+  const amount = hideValues ? "£•••• a pay period" : planAmountLine(facts, plan.period_label);
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      aria-label={`Open repayment plan: ${plan.name}`}
+      className="flex min-h-[70px] w-full items-center gap-3 px-3.5 py-2.5 text-left transition-colors hover:bg-slate-50/80 focus-visible:z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500 dark:hover:bg-white/[0.035]"
+    >
+      <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-500 dark:bg-white/[0.06] dark:text-slate-400"><CreditCard size={15} aria-hidden="true" /></span>
+      <span className="min-w-0 flex-1">
+        <span className="flex items-center justify-between gap-3">
+          <span className="truncate text-sm font-semibold text-slate-900 dark:text-slate-100">{plan.name}</span>
+          <MoneyText text={amount} className="shrink-0 text-xs font-semibold text-slate-800 dark:text-slate-200" />
+        </span>
+        {lines.map((line) => <MoneyText key={line} text={line} className="mt-0.5 block text-xs text-slate-500 dark:text-slate-400" />)}
+        {offer && <MoneyText text={offer} className="mt-0.5 block text-xs leading-5 text-slate-500 dark:text-slate-400" />}
+        {plan.paused === true && <span className="mt-0.5 block text-xs text-slate-500 dark:text-slate-400">Paused. The card's usual payment counts again.</span>}
+      </span>
+      <ChevronRight size={15} className="shrink-0 text-slate-400 dark:text-slate-500" aria-hidden="true" />
+    </button>
+  );
+}
+
+export function DebtPosition({ debt, hideValues, onOpen, onSetPlan, plans = [], onOpenPlan }: { debt: Loadable<DebtPlanSummary>; hideValues: boolean; onOpen: () => void; onSetPlan?: () => void; plans?: Commitment[]; onOpenPlan?: (plan: Commitment) => void }) {
   const hidden = "£••••";
   const total = debt?.cards.reduce((sum, card) => sum + Math.max(0, card.debt), 0) ?? 0;
   const buckets = debt
@@ -119,7 +149,7 @@ export function DebtPosition({ debt, hideValues, onOpen }: { debt: Loadable<Debt
 
   return (
     <section aria-labelledby="debt-position-title">
-      <SectionHeading id="debt-position-title" title="Debt" side={<button type="button" onClick={onOpen} className="flex min-h-11 items-center gap-0.5 px-2 text-xs font-semibold text-indigo-600 focus-visible:rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-indigo-400">Details <ChevronRight size={13} aria-hidden="true" /></button>} />
+      <SectionHeading id="debt-position-title" title="Debt" side={<span className="flex items-center">{onSetPlan && <button type="button" onClick={onSetPlan} className="inline-flex min-h-11 items-center gap-1 px-2 text-xs font-semibold text-indigo-600 focus-visible:rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-indigo-400"><Plus size={14} aria-hidden="true" /> {CARD_PLAN_COPY.setPlan}</button>}<button type="button" onClick={onOpen} className="flex min-h-11 items-center gap-0.5 px-2 text-xs font-semibold text-indigo-600 focus-visible:rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-indigo-400">Details <ChevronRight size={13} aria-hidden="true" /></button></span>} />
       <div className="glass-card rounded-2xl p-4">
         {debt === undefined ? (
           <div className="space-y-3" aria-label="Loading debt position"><div className="h-5 w-40 animate-pulse rounded bg-slate-200 dark:bg-slate-700" /><div className="h-10 animate-pulse rounded bg-slate-200 dark:bg-slate-700" /></div>
@@ -140,7 +170,12 @@ export function DebtPosition({ debt, hideValues, onOpen }: { debt: Loadable<Debt
           </>
         )}
       </div>
-      <p className="mt-2 px-1 text-xs text-slate-500 dark:text-slate-400">The amounts above add up to the total owed. Balances stay in Accounts. Repayment plans are under Details.</p>
+      {plans.length > 0 && onOpenPlan && (
+        <div className="glass-card mt-3 overflow-hidden rounded-2xl divide-y divide-slate-200/70 dark:divide-white/10" aria-label="Card repayment plans">
+          {plans.map((plan) => <CardPlanRow key={plan.id} plan={plan} hideValues={hideValues} onOpen={() => onOpenPlan(plan)} />)}
+        </div>
+      )}
+      <p className="mt-2 px-1 text-xs text-slate-500 dark:text-slate-400">{CARD_PLAN_COPY.debtFootnote}</p>
     </section>
   );
 }
@@ -153,15 +188,20 @@ export default function LongTermPlanningPage() {
   const { hideNetWorth } = usePreferences();
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [goals, setGoals] = useState<Loadable<Commitment[]>>(undefined);
+  const [cardPlans, setCardPlans] = useState<Commitment[]>([]);
   const [debt, setDebt] = useState<Loadable<DebtPlanSummary>>(undefined);
   const [editingGoal, setEditingGoal] = useState<Commitment | null | undefined>(undefined);
+  // G475: the same goal sheet, opened for a card repayment plan (null = a new plan).
+  const [editingPlan, setEditingPlan] = useState<Commitment | null | undefined>(undefined);
   const [goalRouteError, setGoalRouteError] = useState<string | null>(null);
   const handledGoalRoute = useRef<string | null>(null);
   const [growReady, setGrowReady] = useState(false);
 
   const refreshGoals = useCallback(async () => {
     const response = await api.listCommitments();
-    setGoals(response.items.filter((item) => item.status === "active"));
+    const active = response.items.filter((item) => item.status === "active");
+    setGoals(active.filter((item) => !isCardPlan(item)));
+    setCardPlans(active.filter(isCardPlan));
   }, []);
   const loadGoals = useCallback(() => {
     setGoals(undefined);
@@ -210,7 +250,7 @@ export default function LongTermPlanningPage() {
           stripSlot={(view) => <SectionJumpStrip view={view} debt={debt} goals={goals} hideValues={hideNetWorth} />}
           debtSlot={
             <div id="debt" className="scroll-mt-4">
-              <DebtPosition debt={debt} hideValues={hideNetWorth} onOpen={() => router.push("/cards")} />
+              <DebtPosition debt={debt} hideValues={hideNetWorth} onOpen={() => router.push("/cards")} onSetPlan={() => setEditingPlan(null)} plans={cardPlans} onOpenPlan={(plan) => setEditingPlan(plan)} />
             </div>
           }
           goalsSlot={
@@ -237,6 +277,7 @@ export default function LongTermPlanningPage() {
         <p className="px-1 text-xs leading-relaxed text-slate-500 dark:text-slate-400">One-off payments and this pay period&apos;s set-asides live in <button type="button" onClick={() => router.push("/upcoming")} className="font-semibold text-indigo-600 underline-offset-2 hover:underline focus-visible:rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-indigo-400">Upcoming</button>.</p>
       </main>
 
+      {editingPlan !== undefined && <CommitmentSheet accounts={accounts} commitment={editingPlan} cardPlan={editingPlan === null} takenCardIds={cardPlans.map((plan) => plan.card_account_id ?? "")} initialMode={editingPlan ? "view" : "edit"} onClose={() => setEditingPlan(undefined)} onSaved={async (item) => { setEditingPlan(item); await refreshGoals(); }} onCancelled={refreshGoals} />}
       {editingGoal !== undefined && <CommitmentSheet accounts={accounts} commitment={editingGoal} initialMode={editingGoal && !(editFromQuery && editingGoal.id === goalFromQuery) ? "view" : "edit"} onClose={() => { setEditingGoal(undefined); if (goalFromQuery) router.replace("/planning", { scroll: false }); }} onSaved={async item => { setEditingGoal(item); if (goalFromQuery) router.replace("/planning", { scroll: false }); await refreshGoals(); }} onCancelled={refreshGoals} />}
     </div>
   );
