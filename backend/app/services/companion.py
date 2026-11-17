@@ -1370,8 +1370,8 @@ async def _goal_source_slices(
                         "name": str(c.get("name") or "").strip() or "Goal",
                         "amount": float(slice_info["per_period_slice"]),
                         "assumed": assumed,
-                        "kind": "card_plan" if card_plan else "goal",
                         "to": sorted(dest_ids),
+                        **({"kind": "card_plan"} if card_plan else {}),
                     })
                 except Exception:
                     log.exception("_goal_source_slices: skipped one goal for %s", uid)

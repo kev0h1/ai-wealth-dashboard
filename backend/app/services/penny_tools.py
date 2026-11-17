@@ -477,7 +477,6 @@ TOOL_SCHEMAS = [
                 "'Japan'), with target amount, progress, the amount still remaining and "
                 "target date where set. Use this "
                 "when the question names a goal or asks about progress toward one. "
-                "A card repayment plan is not a goal: it is read from get_debt_position. "
                 "Figures are authoritative: quote them verbatim, never recompute, "
                 "derive, or round them yourself."
             ),
