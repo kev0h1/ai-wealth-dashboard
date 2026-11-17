@@ -43,7 +43,7 @@ export function paidLine(facts: CardPlanFacts | null | undefined): string | null
 }
 
 /** "would clear by Mar 2028": hedged, and silent when the balance is cleared or no month is known. */
-export function clearByLine(facts: CardPlanFacts | null | undefined): string | null {
+export function projectedMonthLine(facts: CardPlanFacts | null | undefined): string | null {
   if (!facts?.would_clear_by) return null;
   return `At this pace it would clear by about ${facts.would_clear_by}`;
 }

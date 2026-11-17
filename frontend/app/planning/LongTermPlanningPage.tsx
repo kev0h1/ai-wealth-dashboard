@@ -5,7 +5,7 @@ import dynamic from "next/dynamic";
 import { ChevronRight, CreditCard, Plus, ShieldCheck, Target } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { api, type Account, type Commitment, type DebtPlanSummary } from "@/lib/api";
-import { CARD_PLAN_COPY, clearByLine, isCardPlan, offerLine, paidLine, planAmountLine } from "@/lib/cardRepaymentPlan";
+import { CARD_PLAN_COPY, projectedMonthLine, isCardPlan, offerLine, paidLine, planAmountLine } from "@/lib/cardRepaymentPlan";
 import { getAccountsCached } from "@/lib/accountsCache";
 import MoneyText from "@/components/MoneyText";
 import { usePreferences } from "@/components/PreferencesContext";
@@ -109,7 +109,7 @@ export function GoalRow({ goal, hideValues, onOpen }: { goal: Commitment; hideVa
  * hedged month it would clear by. Facts and estimates only, never advice about which card to pay. */
 export function CardPlanRow({ plan, hideValues, onOpen }: { plan: Commitment; hideValues: boolean; onOpen: () => void }) {
   const facts = plan.card_plan;
-  const lines = [paidLine(facts), clearByLine(facts)].filter((line): line is string => Boolean(line));
+  const lines = [paidLine(facts), projectedMonthLine(facts)].filter((line): line is string => Boolean(line));
   const offer = offerLine(facts);
   const amount = hideValues ? "£•••• a pay period" : planAmountLine(facts, plan.period_label);
   return (

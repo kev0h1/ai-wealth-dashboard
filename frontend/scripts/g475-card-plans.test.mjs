@@ -11,7 +11,7 @@ import { readFileSync } from "node:fs";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import {
-  CARD_PLAN_COPY, clearByLine, isCardAccount, isCardPlan, offerLine, paidLine, planAmountLine, prefillBasisLine,
+  CARD_PLAN_COPY, projectedMonthLine, isCardAccount, isCardPlan, offerLine, paidLine, planAmountLine, prefillBasisLine,
 } from "../lib/cardRepaymentPlan.ts";
 
 const read = (p) => readFileSync(new URL(`../${p}`, import.meta.url), "utf8");
@@ -62,8 +62,8 @@ assert.equal(planAmountLine(facts, null), "£150 a pay period");
 assert.equal(planAmountLine(null, null), "Amount unavailable");
 assert.equal(paidLine(facts), "£60.00 paid this pay period");
 assert.equal(paidLine({ ...facts, paid_this_period: 0 }), "Nothing paid yet this pay period");
-assert.equal(clearByLine(facts), "At this pace it would clear by about Feb 2027", "the clear-by month is hedged");
-assert.equal(clearByLine({ ...facts, would_clear_by: null }), null, "no month, no claim");
+assert.equal(projectedMonthLine(facts), "At this pace it would clear by about Feb 2027", "the clear-by month is hedged");
+assert.equal(projectedMonthLine({ ...facts, would_clear_by: null }), null, "no month, no claim");
 assert.match(offerLine(facts), /ends 31 Jan 2027\. The plan would pay about £600 by 31 Jan 2027, which would cover the offer balance of about £450\./, "the offer is a fact with a date");
 const short = { ...facts, promo: { ...facts.promo, planned_by_end: 400, clears_before_end: false } };
 assert.match(offerLine(short), /would leave about £50 of the offer balance when it ends\./, "a shortfall is stated as a fact");
@@ -73,7 +73,7 @@ assert.equal(prefillBasisLine("fixed_payment", false), "From the fixed payment o
 assert.equal(prefillBasisLine(null, false), null);
 
 const spoken = [CARD_PLAN_COPY.setPlan, CARD_PLAN_COPY.debtFootnote, CARD_PLAN_COPY.emptyHint, CARD_PLAN_COPY.deleteConfirm, CARD_PLAN_COPY.purpose, CARD_PLAN_COPY.noCards, CARD_PLAN_COPY.allCardsHavePlans, CARD_PLAN_COPY.moneyNote,
-  planAmountLine(facts, "monthly"), paidLine(facts), clearByLine(facts), offerLine(facts), offerLine(short), prefillBasisLine("direct_debit", true)];
+  planAmountLine(facts, "monthly"), paidLine(facts), projectedMonthLine(facts), offerLine(facts), offerLine(short), prefillBasisLine("direct_debit", true)];
 for (const text of spoken) {
   assert.doesNotMatch(text, /[—–!]/, `no em dash, en dash or exclamation mark: ${text}`);
   assert.doesNotMatch(text, /\b(?:should|must|best|better|recommend|you need to)\b/i, `a fact, never advice: ${text}`);
