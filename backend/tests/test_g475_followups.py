@@ -104,3 +104,32 @@ def test_upcoming_rows_flag_a_repayment_plan(monkeypatch):
     assert rows[0]["kind"] == "goal" and rows[0]["plan_kind"] == "card_repayment"
     assert rows[0]["card_account_id"] == "card"
     assert rows[0]["destination"] == "Example Amex Alpha"
+
+
+class _Cards:
+    def __init__(self, doc): self.doc = doc
+    async def find_one(self, query, *args): return dict(self.doc) if self.doc and query["user_id"] == "u" and query["_id"] == "card" else None
+
+
+def _owed_for(monkeypatch, doc):
+    monkeypatch.undo()  # use the real reader, not the autouse stub
+    import app.db.collections as c
+    monkeypatch.setattr(c, "accounts_col", _Cards(doc))
+    monkeypatch.setattr(c, "yapily_accounts_col", _Cards(None))
+    monkeypatch.setattr(c, "manual_accounts_col", _Cards(None))
+    return asyncio.run(crp.owed_balance("u", "card"))
+
+
+def test_owed_balance_never_turns_a_missing_balance_into_zero(monkeypatch):
+    assert _owed_for(monkeypatch, {"_id": "card"}) is None
+    assert _owed_for(monkeypatch, {"_id": "card", "balance": None}) is None
+    assert _owed_for(monkeypatch, {"_id": "card", "balance": None, "current_balance": -80.0}) == 80.0
+    assert _owed_for(monkeypatch, {"_id": "card", "available_balance": -5}) == 5.0
+    assert _owed_for(monkeypatch, {"_id": "card", "balance": 0}) == 0.0
+    assert _owed_for(monkeypatch, {"_id": "card", "balance": -600}) == 600.0
+
+
+def test_a_card_with_no_balance_field_keeps_the_full_reserve(monkeypatch):
+    async def none(uid, card_id): return None
+    monkeypatch.setattr(crp, "owed_balance", none)
+    assert _rows(monkeypatch, _plan())[0]["remaining"] == 150.0

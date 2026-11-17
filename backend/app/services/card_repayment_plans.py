@@ -93,17 +93,30 @@ async def owed_balance(uid: str, card_id: str) -> float | None:
     be read, so a failed read never caps a reserve to zero."""
     from app.db.collections import accounts_col, manual_accounts_col, yapily_accounts_col
 
-    for col in (accounts_col, yapily_accounts_col, manual_accounts_col):
+    for col, manual in ((accounts_col, False), (yapily_accounts_col, False), (manual_accounts_col, True)):
         for key in {card_id, _oid(card_id)}:
             if key is None:
                 continue
-            doc = await col.find_one({"_id": key, "user_id": uid}, {"balance": 1})
-            if doc:
+            doc = await col.find_one(
+                {"_id": key, "user_id": uid}, {"balance": 1, "current_balance": 1, "available_balance": 1},
+            )
+            if not doc:
+                continue
+            # The field precedence the plan balance reader uses: balance, then
+            # current_balance, then available_balance (a manual record only has
+            # `balance`). A field that is absent or None is skipped, and if none
+            # is readable the answer is None, never 0, so a missing balance can
+            # not drop the reserve.
+            for field in (("balance",) if manual else ("balance", "current_balance", "available_balance")):
+                value = doc.get(field)
+                if value is None:
+                    continue
                 try:
-                    raw = float(doc.get("balance") or 0.0)
+                    raw = float(value)
                 except (TypeError, ValueError):
                     return None
-                return max(0.0, -raw)
+                return max(0.0, -raw) if raw == raw else None
+            return None
     return None
 
 
