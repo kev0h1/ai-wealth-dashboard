@@ -903,6 +903,9 @@ async def list_account_plans(user: dict = Depends(current_user)):
         basis = "recent-transfers" if inferred else ("chosen" if source_id else "unknown")
         slice_info = await commitments._pot_progress_and_slice(doc, cfg, ledger, today)
         labels = [account_label(account_map.get(aid), "Funding account") for aid in destination_ids]
+        if doc.get("plan_kind") == "card_repayment":
+            # G475: the repayment goes to the card, never to a savings pot.
+            labels = [account_label(account_map.get(str(doc.get("card_account_id"))), "Card")]
         items.append({
             "id": f"goal:{doc['_id']}",
             "record_id": str(doc["_id"]),

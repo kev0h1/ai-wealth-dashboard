@@ -583,6 +583,8 @@ async def _goal_horizon(uid: str, delta: float, pay_cfg: dict) -> dict | None:
         ledger = await compute_pot_ledger(uid, docs=docs)
         today = timeutil.user_today()
         for doc in sorted(docs, key=_ledger_sort_key):
+            if doc.get("plan_kind") == "card_repayment":
+                continue  # G475: a repayment plan is not a savings goal with a date to slip
             info = await _pot_progress_and_slice(doc, pay_cfg, ledger, today)
             remaining = info["remaining"]
             orig_slice = info["per_period_slice"]

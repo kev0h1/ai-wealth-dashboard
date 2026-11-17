@@ -503,6 +503,13 @@ async def _create_indexes():
         [("user_id", 1), ("category", 1), ("period_end", 1)], unique=True
     )
     await _ensure_index(commitments_col, [("user_id", 1), ("status", 1)])
+    # G475: one ACTIVE repayment plan per card, enforced by the database as well
+    # as the endpoint, so two quick saves cannot both land.
+    await _ensure_index(
+        commitments_col, [("user_id", 1), ("card_account_id", 1)],
+        unique=True, name="one_active_card_plan_per_card",
+        partialFilterExpression={"plan_kind": "card_repayment", "status": "active"},
+    )
     await _ensure_index(allocations_col, [("user_id", 1), ("active", 1)])
     # Penny Agent Mode v1 — 15-minute proposal TTL (owner decision,
     # 2026-08-30, see PENNY_TOOLS.md). expires_at is set at creation time

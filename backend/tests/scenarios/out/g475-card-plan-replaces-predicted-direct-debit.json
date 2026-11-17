@@ -1,0 +1,182 @@
+{
+  "account_eligibility": {
+    "acc-bc": {
+      "after_payments": 1350.0,
+      "after_payments_and_money_in": 1350.0,
+      "after_payments_and_plans": 1200.0,
+      "estimated": false,
+      "headroom": 1190.0,
+      "is_current_account": true,
+      "low_point": 1350.0,
+      "low_point_and_plans": 1200.0,
+      "plans_reserved": 150.0,
+      "short": false,
+      "spend_from_headroom": 1200.0,
+      "uncertain": false
+    }
+  },
+  "account_plans": [
+    {
+      "active": true,
+      "destination": "Example Amex Alpha",
+      "destination_account_ids": [],
+      "filled_amount": null,
+      "fulfilment": null,
+      "id": "goal:plan-amex-a",
+      "inferred": false,
+      "kind": "goal",
+      "name": "Example Amex Alpha repayment",
+      "paid_amount": 0.0,
+      "paid_this_period": false,
+      "period_amount": 150.0,
+      "record_id": "plan-amex-a",
+      "remaining": 150.0,
+      "source_account_id": "acc-bc",
+      "source_account_name": "Example Current",
+      "source_basis": "chosen"
+    }
+  ],
+  "accounts": [
+    {
+      "balance": -600.0,
+      "currency": "GBP",
+      "id": "acc-amex-a",
+      "include_in_safe_to_spend": true,
+      "name": "Example Amex Alpha",
+      "provider": "amex",
+      "status": "connected",
+      "subtype": "CREDIT_CARD",
+      "type": "CREDIT"
+    },
+    {
+      "balance": -400.0,
+      "currency": "GBP",
+      "id": "acc-amex-b",
+      "include_in_safe_to_spend": true,
+      "name": "Example Amex Beta",
+      "provider": "amex",
+      "status": "connected",
+      "subtype": "CREDIT_CARD",
+      "type": "CREDIT"
+    },
+    {
+      "balance": 1500.0,
+      "currency": "GBP",
+      "id": "acc-bc",
+      "include_in_safe_to_spend": true,
+      "name": "Example Current",
+      "provider": "barclays",
+      "status": "connected",
+      "subtype": "TRANSACTION",
+      "type": "BANK"
+    }
+  ],
+  "at_risk_count": 0,
+  "cashflow": {
+    "internal_inflows": [],
+    "next_payday": "2026-10-30",
+    "observed_pending_bills": [],
+    "period": {
+      "day_number": 18,
+      "end": "2026-10-29",
+      "label": "25 Sep to 29 Oct",
+      "length_days": 35,
+      "payday": "2026-10-30",
+      "payday_observed": null,
+      "start": "2026-09-25",
+      "type": "last_friday"
+    },
+    "plans_count": 1,
+    "plans_reserved": 150.0,
+    "spendable_balance": 1500.0,
+    "upcoming_bills": [
+      {
+        "account_balance": 1500.0,
+        "account_bank": "Barclays",
+        "account_id": "acc-bc",
+        "account_name": "Example Current",
+        "amount": 150.0,
+        "amount_basis": null,
+        "card_dest_account_bank": null,
+        "card_dest_account_id": null,
+        "card_dest_account_name": null,
+        "category": "Bills",
+        "days_away": 8,
+        "days_past_due": 0,
+        "dest_account_bank": null,
+        "dest_account_id": null,
+        "dest_account_name": null,
+        "dest_account_spendable": null,
+        "edited": false,
+        "expected_date": "2026-10-20",
+        "is_card_repayment": false,
+        "is_credit_card": false,
+        "kind": "commitment",
+        "name": "COUNCIL TAX",
+        "observed_pending": false,
+        "original_date": null,
+        "pending": false,
+        "rule_label": null
+      }
+    ],
+    "upcoming_income": [
+      {
+        "account_balance": 1500.0,
+        "account_bank": "Barclays",
+        "account_id": "acc-bc",
+        "account_name": "Example Current",
+        "amount": 3000.0,
+        "amounts_recent": [
+          3000.0,
+          3000.0,
+          3000.0
+        ],
+        "avg_interval": 30,
+        "category": "Income",
+        "confirmed_alias": null,
+        "credit_basis": "reliable",
+        "days_away": 18,
+        "display_name": "Acme Payroll",
+        "edited": false,
+        "expected_date": "2026-10-30",
+        "income_history": null,
+        "monthly_anchor": null,
+        "name": "acme|payroll::acc-bc",
+        "occurrences": 3,
+        "rule_label": null,
+        "source": null,
+        "steady_salary": true
+      }
+    ]
+  },
+  "days_to_payday": 18,
+  "items": [
+    {
+      "id": "trajectory:bad:2026-10",
+      "type": "trajectory"
+    },
+    {
+      "id": "ask:card_terms",
+      "type": "ask"
+    }
+  ],
+  "name": "A card with a learned direct debit and a repayment plan: the plan is the only reserve, never both (G475)",
+  "period": {
+    "end": "2026-10-29",
+    "start": "2026-09-25"
+  },
+  "safe_to_spend": {
+    "allocations_reserved": 0.0,
+    "calculation_status": "complete",
+    "commitments_reserved": 150.0,
+    "left_to_spend_lines": {
+      "accounts_total": 1350.0,
+      "buffer": 0.0,
+      "plans_total": 150.0
+    },
+    "lowest_projected_balance": 1350.0,
+    "safe_to_spend": 1200.0,
+    "safe_to_spend_cash": 1200.0
+  },
+  "today": "2026-10-12"
+}

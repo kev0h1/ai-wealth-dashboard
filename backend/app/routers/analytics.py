@@ -4962,6 +4962,26 @@ async def _build_cashflow_response(cached: dict, uid: str | None = None, prefs: 
             logger.exception("dated card payments could not be checked for %s", mask_email(uid))
             statement_bills_unverified = True
 
+    # G475: a card with a repayment plan has no other repayment. The plan is a
+    # commitment, so its reserve (planned minus paid this period) already comes
+    # from the plan readers; here the card's learned repayment AND its statement
+    # estimate leave the one list every money view reads, so nothing is counted
+    # twice. A paused, done or deleted plan replaces nothing. If the plans cannot
+    # be read the predictions stay (over-reserving, never under).
+    if uid:
+        try:
+            from app.services import card_repayment_plans
+            _card_plans = await card_repayment_plans.active_card_plans(uid)
+            if _card_plans:
+                raw_bills, _plan_replaced = card_repayment_plans.replace_planned_card_bills(
+                    raw_bills, set(_card_plans), statement_bills or None,
+                )
+                _bill_occ_dates.extend(
+                    (_date.fromisoformat(b["expected_date"]), -b["amount"]) for b in _plan_replaced
+                )
+        except Exception:
+            logger.exception("card repayment plans could not be checked for %s", mask_email(uid))
+
     upcoming_bills = sorted(raw_bills, key=lambda x: (x["days_away"], -x["amount"]))
     internal_inflows = sorted(raw_internal_inflows, key=lambda x: x["days_away"])
     observed_pending_bills = sorted(raw_observed_pending_bills, key=lambda x: (x["days_away"], -x["amount"]))
