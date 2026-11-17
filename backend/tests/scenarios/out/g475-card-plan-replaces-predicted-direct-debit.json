@@ -20,8 +20,16 @@
       "active": true,
       "destination": "Example Amex Alpha",
       "destination_account_ids": [],
-      "filled_amount": null,
-      "fulfilment": null,
+      "filled_amount": 0.0,
+      "fulfilment": {
+        "expected_pence": 15000,
+        "matched": [],
+        "matched_pence": 0,
+        "seen_in_sink": false,
+        "state": "unmet",
+        "unmet": 150.0,
+        "unmet_pence": 15000
+      },
       "id": "goal:plan-amex-a",
       "inferred": false,
       "kind": "goal",
