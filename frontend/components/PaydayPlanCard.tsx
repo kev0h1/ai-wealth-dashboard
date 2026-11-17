@@ -31,7 +31,7 @@ function resolveBankChip(provider: string) {
 function reasonLabel(dest: PaydayPlanDest): string | null {
   const reasons = dest.reasons ?? [];
   if (reasons.length === 0) return null;
-  const named = reasons.slice(0, 2).map((r) => `${r.name} ${r.kind === "goal" ? "goal" : "set-aside"}`);
+  const named = reasons.slice(0, 2).map((r) => `${r.name} ${r.kind === "goal" ? "goal" : r.kind === "card_plan" ? "repayment plan" : "set-aside"}`);
   const more = reasons.length - named.length;
   return `covers your ${named.join(" and ")}${more > 0 ? ` +${more} more` : ""}`;
 }

@@ -1370,6 +1370,7 @@ async def _goal_source_slices(
                         "name": str(c.get("name") or "").strip() or "Goal",
                         "amount": float(slice_info["per_period_slice"]),
                         "assumed": assumed,
+                        "kind": "card_plan" if card_plan else "goal",
                         "to": sorted(dest_ids),
                     })
                 except Exception:
@@ -1427,7 +1428,7 @@ async def _plan_source_needs(
     out, so a goal or set-aside is never a plan destination by itself.
 
     Returns {source_account_id: {"amount", "source_assumed", "reasons":
-    [{"name", "kind": "goal"|"set_aside", "amount", "source_assumed",
+    [{"name", "kind": "goal"|"card_plan"|"set_aside", "amount", "source_assumed",
     "to": [pot ids]}]}}; `{}` on any failure (the plan then builds with no
     source needs).
 
@@ -1514,7 +1515,7 @@ async def _plan_source_needs(
     if goal_slices is None:
         goal_slices = await _goal_source_slices(uid, pay_cfg, live_balances, salary_acct, amap)
     for g in goal_slices:
-        _add(g["source"], g["name"], "goal", g["amount"], g["assumed"], g["to"])
+        _add(g["source"], g["name"], g.get("kind") or "goal", g["amount"], g["assumed"], g["to"])
 
     return {
         source: {

@@ -33,6 +33,7 @@ from datetime import date, datetime, timedelta, timezone
 
 from app.core import timeutil
 from app.services import goal_schedule
+from app.services.pay_period import get_pay_period_for_date
 
 logger = logging.getLogger(__name__)
 
@@ -75,11 +76,45 @@ async def active_card_plans(uid: str, today: date | None = None) -> dict[str, di
     prefs = await preferences_col.find_one({"user_id": uid}) or {}
     cfg = prefs.get("pay_period_config") or {"type": "calendar_month"}
     out: dict[str, dict] = {}
+    period_end = get_pay_period_for_date(today, cfg)[1]
     for doc in candidates:
         last = goal_schedule.end_date(doc["schedule"], cfg)
-        if last is not None and last >= today:
+        first = min((due for due, _a in goal_schedule.events(doc["schedule"], cfg)), default=None)
+        # A plan that asks for nothing yet (its first payment is in a later pay
+        # period) reserves nothing, so it must not hide the card's prediction.
+        if last is not None and last >= today and first is not None and first <= period_end:
             out.setdefault(str(doc["card_account_id"]), doc)
     return out
+
+
+async def owed_balance(uid: str, card_id: str) -> float | None:
+    """What the card owes now, from the same signed balance the debt plan and the
+    statement code read (a negative balance is debt). None when the card cannot
+    be read, so a failed read never caps a reserve to zero."""
+    from app.db.collections import accounts_col, manual_accounts_col, yapily_accounts_col
+
+    for col in (accounts_col, yapily_accounts_col, manual_accounts_col):
+        for key in {card_id, _oid(card_id)}:
+            if key is None:
+                continue
+            doc = await col.find_one({"_id": key, "user_id": uid}, {"balance": 1})
+            if doc:
+                try:
+                    raw = float(doc.get("balance") or 0.0)
+                except (TypeError, ValueError):
+                    return None
+                return max(0.0, -raw)
+    return None
+
+
+def _oid(value: str):
+    from bson import ObjectId
+    from bson.errors import InvalidId
+
+    try:
+        return ObjectId(value)
+    except (InvalidId, TypeError):
+        return None
 
 
 def replace_planned_card_bills(

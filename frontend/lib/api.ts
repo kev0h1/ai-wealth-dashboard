@@ -1157,6 +1157,9 @@ export type AccountPlanData = {
   id: string;
   record_id: string;
   kind: "allocation" | "goal";
+  /** G475: set when the "goal" is a card repayment plan, so rows say repayment, not goal. */
+  plan_kind?: "card_repayment" | null;
+  card_account_id?: string;
   name: string;
   destination: string;
   destination_account_ids: string[];
@@ -1601,7 +1604,7 @@ export type ConfirmPaydayResponse = {
 /** A goal or set-aside whose money leaves from an account (G350). */
 export type PaydayPlanReason = {
   name: string;
-  kind: "goal" | "set_aside";
+  kind: "goal" | "card_plan" | "set_aside";
   amount: number;
 };
 

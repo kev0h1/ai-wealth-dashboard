@@ -234,11 +234,13 @@ export default function LongTermPlanningPage() {
     if (goals === null) return;
     handledGoalRoute.current = goalFromQuery;
     const goal = goals.find((item) => item.id === goalFromQuery);
+    const repayment = goal ? undefined : cardPlans.find((item) => item.id === goalFromQuery);
     queueMicrotask(() => {
-      if (goal) { setGoalRouteError(null); setEditingGoal(goal); }
+      if (repayment) { setGoalRouteError(null); setEditingPlan(repayment); }
+      else if (goal) { setGoalRouteError(null); setEditingGoal(goal); }
       else setGoalRouteError("That goal is no longer available.");
     });
-  }, [goalFromQuery, goals]);
+  }, [goalFromQuery, goals, cardPlans]);
 
   useTutorialReady("planning", goals !== undefined && growReady);
 

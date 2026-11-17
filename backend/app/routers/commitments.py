@@ -546,6 +546,13 @@ async def _pot_progress_and_slice(
             scheduled_later_pence=scheduled_later_pence,
         )
         planned_per_period_slice = current_contribution["contribution"]
+    if card_repayment_plans.is_card_plan(doc) and doc.get("user_id") and per_period_slice > 0:
+        # G475: a repayment plan never reserves more than the card still owes,
+        # and nothing once it is cleared. The owed figure is the signed balance
+        # the debt plan and the statement code read; a failed read keeps the plan.
+        owed = await card_repayment_plans.owed_balance(str(doc["user_id"]), str(doc.get("card_account_id") or ""))
+        if owed is not None:
+            per_period_slice = round(min(per_period_slice, owed), 2)
     return {
         "fulfilment":       fulfilment,
         "progress":         progress,

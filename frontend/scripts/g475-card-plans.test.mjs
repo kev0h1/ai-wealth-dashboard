@@ -51,6 +51,19 @@ assert.match(flow, /steps\.indexOf\(actions\.step\) \+ 1\} of \{steps\.length\}/
 assert.match(api, /cardPlanPrefill: \(cardAccountId: string\)/);
 assert.match(api, /createCardPlan: \(body: \{[\s\S]{0,200}card_account_id: string;/);
 
+// ── Upcoming rows: a repayment plan travels as a goal but is worded as a repayment ─
+const upcoming = read("lib/upcomingPlans.ts");
+const detail = read("components/upcoming/UpcomingDetailFlow.tsx");
+const unlinked = read("components/upcoming/UnlinkedGoalPlans.tsx");
+const icons = read("components/upcoming/detailPrimitives.tsx");
+assert.match(upcoming, /planKind: item\.plan_kind \?\? null/, "the plan flag reaches the row");
+assert.match(icons, /cardPlan \? CreditCard : kind === "goal" \? Target : Wallet/, "a repayment plan gets the card icon, not the goal target");
+assert.match(detail, /Your card repayment plan/, "the sheet subtitle says repayment plan");
+assert.match(detail, /<PlanIcon kind="goal" cardPlan=\{Boolean\(plan\.planKind\)\} \/>/);
+assert.match(unlinked, /Repayment plans needing a paying account/);
+assert.match(read("components/PaydayPlanCard.tsx"), /"repayment plan"/, "the payday plan names it a repayment plan, not a goal");
+assert.match(page, /setEditingPlan\(repayment\)/, "a plan deep link opens the plan, not a missing goal");
+
 // ── the words ────────────────────────────────────────────────────────────────
 const facts = {
   card_name: "Example Amex", balance_owed: 600, this_period_planned: 150, paid_this_period: 60,

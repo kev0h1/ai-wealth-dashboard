@@ -133,9 +133,9 @@ export default function UpcomingDetailFlow(props: UpcomingDetailFlowProps) {
     if (plan.kind === "goal") {
       const goal = plan.recordId ? goals[plan.recordId] : undefined;
       return {
-        title: view.kind === "edit-plan" ? "Edit plan" : view.kind === "goal-contribution" ? "Change this period" : goal?.name ?? "Goal",
-        subtitle: view.kind === "plan" ? goal ? "Your goal" : "Loading goal" : undefined,
-        leading: <PlanIcon kind="goal" />,
+        title: view.kind === "edit-plan" ? "Edit plan" : view.kind === "goal-contribution" ? "Change this period" : goal?.name ?? (plan.planKind ? "Repayment plan" : "Goal"),
+        subtitle: view.kind === "plan" ? plan.planKind ? goal ? "Your card repayment plan" : "Loading plan" : goal ? "Your goal" : "Loading goal" : undefined,
+        leading: <PlanIcon kind="goal" cardPlan={Boolean(plan.planKind)} />,
         body: <UpcomingGoalPlan
           key={`${view.kind}-${plan.recordId ?? plan.id}`}
           id={plan.recordId}

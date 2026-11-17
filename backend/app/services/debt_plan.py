@@ -1533,6 +1533,7 @@ async def compute_debt_plan(uid: str) -> dict:
     # plan replaces its learned payment and its statement estimate, so the
     # walk never counts a usual payment on top of what the plan pays.
     planned_cards: set[str] = set()
+    planned_info: dict[str, dict] = {}
     try:
         from app.services import card_repayment_plans, goal_schedule
         card_ids_here = {str(a["_id"]) for a in cc_accounts}
@@ -1549,6 +1550,10 @@ async def compute_debt_plan(uid: str) -> dict:
             }]
             ambiguous_card_ids.discard(aid)
             planned_cards.add(aid)
+            planned_info[aid] = {
+                "schedule": goal_schedule.schedule_label(plan_doc["schedule"]),
+                "next_payment": round((upcoming[1] if upcoming else 0) / 100, 2),
+            }
     except Exception as _plan_exc:
         log.warning("debt_plan: card repayment plans unavailable: %s", _plan_exc)
 
@@ -1760,6 +1765,7 @@ async def compute_debt_plan(uid: str) -> dict:
             "first_interest_month": proj["first_interest_month"],
             "monthly_interest_at_first": proj["monthly_interest_at_first"],
             "balance_at_first_interest": proj.get("balance_at_first_interest"),
+            "repayment_plan": planned_info.get(aid),
             "near_term_source": near_term_source,
             "near_term_bills": near_term_bills,
             "mapping_ambiguous": mapping_ambiguous,

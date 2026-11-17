@@ -477,6 +477,7 @@ TOOL_SCHEMAS = [
                 "'Japan'), with target amount, progress, the amount still remaining and "
                 "target date where set. Use this "
                 "when the question names a goal or asks about progress toward one. "
+                "A card repayment plan is not a goal: it is read from get_debt_position. "
                 "Figures are authoritative: quote them verbatim, never recompute, "
                 "derive, or round them yourself."
             ),
@@ -3652,6 +3653,9 @@ async def _exec_get_debt_position(uid: str) -> dict:
             "classification_evidence": c.get("classification_evidence") or [],
             "usage": c.get("usage"),
             "usage_conflict": bool(c.get("usage_conflict", False)),
+            # G475: the user's own repayment plan for this card, when it has one.
+            # Not a savings goal: it is what the user plans to pay the card.
+            **({"repayment_plan": c["repayment_plan"]} if c.get("repayment_plan") else {}),
             "movement": {
                 "monthly": (
                     _money(movement.get("monthly")) if movement.get("monthly") is not None else None
@@ -3741,7 +3745,9 @@ async def _exec_get_goals(uid: str) -> dict:
     except Exception:
         logger.exception("penny_tools: get_goals failed for %s", uid)
         return _tool_error("goals lookup failed")
-    items = resp.get("items") or []
+    # G475: a card repayment plan is not a savings goal. It is read through
+    # get_debt_position (per card, `repayment_plan`), never listed here.
+    items = [g for g in (resp.get("items") or []) if g.get("plan_kind") != "card_repayment"]
     goals = []
     for g in items[:_GOALS_CAP]:
         pace_note = g.get("pace_note") or {}

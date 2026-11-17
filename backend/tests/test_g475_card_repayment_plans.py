@@ -40,6 +40,10 @@ def _clock(monkeypatch):
     monkeypatch.setattr(pf, "transactions_col", pf.transactions_col)
     monkeypatch.setattr(pf, "yapily_transactions_col", pf.yapily_transactions_col)
 
+    async def owed(uid, card_id):  # the card owes 600 unless a test says otherwise
+        return 600.0
+    monkeypatch.setattr(crp, "owed_balance", owed)
+
 
 def _accounts(**overrides):
     accts = {

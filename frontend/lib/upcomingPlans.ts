@@ -6,6 +6,8 @@ export type Plan = {
   id: string;
   recordId?: string;
   kind: "allocation" | "goal";
+  /** G475: a card repayment plan travels as a goal (source, reserve, tracking) but is worded as a repayment. */
+  planKind?: "card_repayment" | null;
   name: string;
   destination: string;
   destinationIds?: string[];
@@ -61,7 +63,7 @@ export function isPlanSourceAccount(account: Account) {
 
 export function plansFromApi(items: AccountPlanData[]): Plan[] {
   return items.map((item) => ({
-    id: item.id, recordId: item.record_id, kind: item.kind, name: item.name,
+    id: item.id, recordId: item.record_id, kind: item.kind, planKind: item.plan_kind ?? null, name: item.name,
     destination: item.destination, destinationIds: item.destination_account_ids,
     sourceId: item.source_account_id, evidence: item.source_basis,
     periodPence: Math.round(item.period_amount * 100),

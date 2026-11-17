@@ -18,6 +18,7 @@
   "account_plans": [
     {
       "active": true,
+      "card_account_id": "acc-amex-a",
       "destination": "Example Amex Alpha",
       "destination_account_ids": [],
       "filled_amount": 60.0,
@@ -43,6 +44,7 @@
       "paid_amount": 60.0,
       "paid_this_period": false,
       "period_amount": 150.0,
+      "plan_kind": "card_repayment",
       "record_id": "plan-amex-a",
       "remaining": 90.0,
       "source_account_id": "acc-bc",
