@@ -201,7 +201,7 @@ const heroPlans = renderToStaticMarkup(React.createElement(UpcomingHeroCard, {
   savingsNow: 300, runway: 20, runwayStatus: "left",
 }));
 assert.match(heroPlans, /Plans this period/);
-assert.match(heroPlans, /Goal contributions planned this pay period\./);
+assert.match(heroPlans, /Goals and repayment plans planned this pay period\./);
 assert.match(heroPlans, /−£80/);
 assert.ok(heroPlans.indexOf("Still to set aside") < heroPlans.indexOf("Plans this period") && heroPlans.indexOf("Plans this period") < heroPlans.indexOf("Projected balance"), "plans row sits between set-aside and total");
 const heroPlansDown = renderToStaticMarkup(React.createElement(UpcomingHeroCard, {

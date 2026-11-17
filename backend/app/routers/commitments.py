@@ -83,7 +83,7 @@ from app.db.collections import (
     yapily_accounts_col,
 )
 from app.routers.savings import _cashflow, _current_savings
-from app.services import goal_contribution, goal_schedule, plan_easing, response_cache, plan_tracking
+from app.services import card_repayment_plans, goal_contribution, goal_schedule, plan_easing, response_cache, plan_tracking
 from app.services.plan_fulfilment import fill_candidates as _plan_fill_candidates, validate_fill_rule
 from app.services.debt_plan import (
     DAYS_PER_MONTH,
@@ -512,7 +512,7 @@ async def _pot_progress_and_slice(
     # in this one function so Safe to Spend, Upcoming, the account position and
     # Penny all follow. Any failure keeps the full reservation (fail closed).
     fulfilment = None
-    if claim and doc.get("fill_rule") and doc.get("user_id") and per_period_slice >= 0:
+    if claim and (doc.get("fill_rule") or card_repayment_plans.is_card_plan(doc)) and doc.get("user_id") and per_period_slice >= 0:
         fulfilment = await _plan_fulfilment(
             doc, fulfilment_expected, _start, _end,
             **({"exact": True} if (manual or sched_exact) else {}),
@@ -546,6 +546,13 @@ async def _pot_progress_and_slice(
             scheduled_later_pence=scheduled_later_pence,
         )
         planned_per_period_slice = current_contribution["contribution"]
+    if card_repayment_plans.is_card_plan(doc) and doc.get("user_id") and per_period_slice > 0:
+        # G475: a repayment plan never reserves more than the card still owes,
+        # and nothing once it is cleared. The owed figure is the signed balance
+        # the debt plan and the statement code read; a failed read keeps the plan.
+        owed = await card_repayment_plans.owed_balance(str(doc["user_id"]), str(doc.get("card_account_id") or ""))
+        if owed is not None:
+            per_period_slice = round(min(per_period_slice, owed), 2)
     return {
         "fulfilment":       fulfilment,
         "progress":         progress,
@@ -952,6 +959,9 @@ def _ease_fields(doc: dict, cfg: dict, slice_info: dict, today: date) -> dict:
     cap = plan_easing.period_cap_reason(doc.get("period_eased"), live_key, start)
     if cap is None and slice_info["usual_slice"] <= 0:
         cap = plan_easing.MSG_NOTHING
+    if card_repayment_plans.is_card_plan(doc):
+        # G475: a repayment plan is changed by editing its schedule, never eased.
+        cap = "A card repayment plan changes when you edit its schedule."
     current = slice_info.get("current_period_contribution")
     if current is not None:
         later = current["later_contribution"]
@@ -1074,6 +1084,9 @@ async def _serialise(
         "fulfilment":          slice_info.get("fulfilment"),
         **_paid_fields(slice_info.get("fulfilment")),
         "source":              doc.get("source", "manual"),
+        # G475: a card repayment plan is a commitment whose target is a card.
+        "plan_kind":           doc.get("plan_kind"),
+        "card_account_id":     doc.get("card_account_id") if card_repayment_plans.is_card_plan(doc) else None,
         "status":              doc.get("status", "active"),
         "progress":            progress,
         "remaining":           remaining,
@@ -1162,6 +1175,72 @@ async def _attach_sources(uid: str, items: list[dict], docs: list[dict]) -> None
         item["source_assumed"] = bool(source_id and inferred)
 
 
+async def _attach_card_plans(uid: str, items: list[dict], docs: list[dict], cfg: dict, today: date) -> None:
+    """G475: the facts a card repayment plan row shows, read from the same
+    sources as everything else: this period's planned and paid figures from the
+    plan's own fulfilment, the month the card would clear from the debt plan
+    (which already follows the plan's schedule), and, when the card has an
+    offer with an end date, whether the plan's payments would reach that
+    offer's balance before it ends. Estimates only; the sheet hedges them.
+    Never fails the list: a missing fact is simply left out."""
+    pairs = [(it, d) for it, d in zip(items, docs) if card_repayment_plans.is_card_plan(d)]
+    if not pairs:
+        return
+    plan = None
+    try:
+        plan = await get_debt_plan_cached(uid)
+    except Exception:
+        logger.warning("commitments: debt plan unavailable for card plans", exc_info=True)
+    cards = {str(c.get("account_id")): c for c in (plan or {}).get("cards", [])}
+    terms: dict[str, dict] = {}
+    try:
+        from app.db.collections import card_terms_col
+        ids = [str(d.get("card_account_id")) for _it, d in pairs]
+        terms = {
+            str(t.get("account_id")): t
+            for t in await card_terms_col.find({"user_id": uid, "account_id": {"$in": ids}}).to_list(None)
+        }
+    except Exception:
+        logger.warning("commitments: card terms unavailable for card plans", exc_info=True)
+    for item, doc in pairs:
+        cid = str(doc.get("card_account_id") or "")
+        card = cards.get(cid) or {}
+        fulfilment = item.get("fulfilment") or {}
+        this_period = (fulfilment.get("expected_pence") / 100) if fulfilment else item.get("this_period_amount")
+        facts: dict = {
+            "card_name": card.get("name"),
+            "balance_owed": card.get("debt"),
+            "this_period_planned": this_period,
+            "paid_this_period": round((fulfilment.get("matched_pence") or 0) / 100, 2) if fulfilment else 0.0,
+            "would_clear_by_month": card.get("payoff_month") if (card.get("debt") or 0) > 0 else None,
+            "would_clear_by": month_label_to_human(card["payoff_month"]) if card.get("payoff_month") and (card.get("debt") or 0) > 0 else None,
+            "promo": None,
+        }
+        sched = doc.get("schedule")
+        upcoming = []
+        for p in (terms.get(cid) or {}).get("promos") or []:
+            try:
+                until = date.fromisoformat(str(p.get("until") or "")[:10])
+            except ValueError:
+                continue
+            if until >= today:
+                upcoming.append((until, p))
+        if upcoming and goal_schedule.is_scheduled(sched):
+            until, p = min(upcoming, key=lambda x: x[0])
+            balance = p.get("balance")
+            basis = float(balance) if balance is not None else card.get("debt")
+            if basis is not None and float(basis) > 0:
+                by_then = sum(a for due, a in goal_schedule.events(sched, cfg) if today <= due <= until) / 100
+                facts["promo"] = {
+                    "until": until.isoformat(),
+                    "balance": round(float(basis), 2),
+                    "balance_is_offer": balance is not None,
+                    "planned_by_end": round(by_then, 2),
+                    "clears_before_end": by_then + 0.005 >= float(basis),
+                }
+        item["card_plan"] = facts
+
+
 async def _serialise_all(
     uid: str, docs: list[dict], cfg: dict, fctx: tuple[float, float] | None,
     today: date | None = None, debt_shortfall: float = 0.0,
@@ -1174,6 +1253,7 @@ async def _serialise_all(
     ledger = await compute_pot_ledger(uid, docs=docs)
     items = [await _serialise(doc, cfg, ledger, today=today) for doc in docs]
     await _attach_sources(uid, items, docs)
+    await _attach_card_plans(uid, items, docs, cfg, today)
     _apply_joint_feasibility(items, docs, fctx, period_rhythm_label(cfg), debt_shortfall)
     overlap = _pot_account_overlap(docs)
     id_to_name = {str(d["_id"]): str(d.get("name") or "").strip() for d in docs}
@@ -1393,6 +1473,108 @@ async def list_commitments(user: dict = Depends(current_user)):
     return result
 
 
+_CARD_PLAN_NO_SCHEDULE = "Choose how much to repay each pay period, or a schedule."
+
+
+async def _card_plan_schedule(uid: str, body: dict, card: dict) -> tuple[dict, float, str]:
+    """(schedule, total pounds, end date) for a new card plan: the submitted
+    schedule, else a fixed amount each pay period from `amount_per_period`,
+    running long enough to cover the balance before interest."""
+    if body.get("schedule") not in (None, {}) and not (
+        isinstance(body.get("schedule"), dict) and body["schedule"].get("type") in (None, "equal")
+    ):
+        sched, total, end = await _validate_schedule_body(body.get("schedule"), uid)
+        if sched is None:
+            raise HTTPException(400, _CARD_PLAN_NO_SCHEDULE)
+        return sched, total, end
+    try:
+        per_period = round(float(body.get("amount_per_period")), 2)
+    except (TypeError, ValueError):
+        raise HTTPException(400, _CARD_PLAN_NO_SCHEDULE) from None
+    if not (0 < per_period <= 100_000):
+        raise HTTPException(400, _CARD_PLAN_NO_SCHEDULE)
+    pence = int(round(per_period * 100))
+    try:
+        start = date.fromisoformat(str(body.get("start_date") or "")[:10]) if body.get("start_date") else timeutil.user_today()
+    except ValueError:
+        raise HTTPException(400, "start_date must be an ISO date (YYYY-MM-DD)") from None
+    balance = card.get("balance")
+    owed = max(0.0, -float(balance)) if balance is not None else None
+    count = body.get("count")
+    if count is None:
+        count = card_repayment_plans.periods_to_clear(owed, pence)
+    try:
+        raw = card_repayment_plans.fixed_schedule(pence, start, int(count))
+    except (ValueError, TypeError):
+        raise HTTPException(400, goal_schedule.INVALID) from None
+    return await _validate_schedule_body(raw, uid)
+
+
+async def _create_card_plan(uid: str, body: dict) -> dict:
+    """G475: POST /commitments with a `card_account_id`. One plan per card; the
+    card and the paying account must both be the caller's own, the card must
+    really be a card and the paying account must be one a plan can leave from.
+    A taken card is a 409 with no detail about any other record."""
+    from pymongo.errors import DuplicateKeyError
+
+    card_id = str(body.get("card_account_id")).strip()
+    card = await card_repayment_plans.owned_card(uid, card_id)
+    if card is None:
+        raise HTTPException(404, "Card not found")
+    if body.get("funding_pots") not in (None, [], "") or body.get("funding_account_id") or body.get("category_tracking"):
+        raise HTTPException(400, "A card repayment plan has no savings pot.")
+    if await commitments_col.find_one(
+        {"user_id": uid, "plan_kind": card_repayment_plans.PLAN_KIND, "card_account_id": card_id, "status": "active"}, {"_id": 1},
+    ):
+        raise HTTPException(409, "This card already has a repayment plan.")
+    default_name = f"{card_repayment_plans.card_display_name(card)} repayment"[:_MAX_NAME]
+    name = _validate_name(body.get("name") or default_name)
+    sched, sched_total, sched_end = await _card_plan_schedule(uid, body, card)
+    sources = await owned_account_map(uid)
+    source_id = validate_source_account(body.get("source_account_id"), sources, set())
+    if source_id is None:
+        raise HTTPException(400, "Choose the account the repayments leave.")
+    doc = {
+        "user_id": uid,
+        "name": name,
+        "amount": _validate_amount(sched_total),
+        "target_date": sched_end,
+        "funding_pots": [],
+        **_pot_mirrors([]),
+        "contributed": 0.0,
+        "source": "manual",
+        "status": "active",
+        "created_at": datetime.now(timezone.utc),  # naive-ok: persisted audit timestamp, same as every other plan
+        "plan_kind": card_repayment_plans.PLAN_KIND,
+        "card_account_id": card_id,
+        "schedule": sched,
+        "source_account_id": source_id,
+        "source_unset": False,
+    }
+    if "fill_rule" in body:
+        rule = validate_fill_rule(body.get("fill_rule"))
+        if rule is not None:
+            doc["fill_rule"] = rule
+    try:
+        result = await commitments_col.insert_one(doc)
+    except DuplicateKeyError:
+        raise HTTPException(409, "This card already has a repayment plan.") from None
+    doc["_id"] = result.inserted_id
+    await response_cache.ainvalidate(uid)
+    return await _serialise_one_with_siblings(uid, doc)
+
+
+@router.get("/commitments/card-plan-prefill")
+async def card_plan_prefill(card_account_id: str, user: dict = Depends(current_user)):
+    """G475: what is already known about how one of the caller's cards is
+    repaid (paying account, usual amount, start, the payment to track), or
+    empty fields when nothing is detected so the sheet asks. Read-only."""
+    result = await card_repayment_plans.prefill(user["email"], card_account_id)
+    if result is None:
+        raise HTTPException(404, "Card not found")
+    return result
+
+
 @router.get("/commitments/fill-candidates")
 async def plan_fill_candidates(
     source_account_id: str, pot_ids: str = "", user: dict = Depends(current_user),
@@ -1433,6 +1615,8 @@ async def create_commitment(
     user: dict = Depends(current_user),
 ):
     uid = user["email"]
+    if body.get("card_account_id") not in (None, ""):
+        return await _create_card_plan(uid, body)
     name = _validate_name(body.get("name"))
     sched, sched_total, sched_end = await _validate_schedule_body(body.get("schedule"), uid)
     if sched:
@@ -1727,6 +1911,14 @@ async def update_commitment(
 ):
     uid = user["email"]
     doc = await _get_owned(uid, commitment_id)
+    is_card_plan = card_repayment_plans.is_card_plan(doc)
+    if is_card_plan:
+        # G475: the card never changes (delete the plan and set another), and a
+        # card plan has no savings pot and always follows a schedule.
+        if any(f in body for f in ("card_account_id", "plan_kind", "funding_pots", "funding_account_id")):
+            raise HTTPException(400, "A card repayment plan's card cannot be changed. Delete it and set a new plan.")
+        if "schedule" in body and not (isinstance(body["schedule"], dict) and body["schedule"].get("type") not in (None, "equal")):
+            raise HTTPException(400, _CARD_PLAN_NO_SCHEDULE)
     update_filter = {"_id": doc["_id"], "user_id": uid}
     link_changed = any(field in body for field in ("source_account_id", "funding_pots", "funding_account_id", "category_tracking", "fill_rule"))
     if link_changed:
@@ -1988,6 +2180,8 @@ async def _ease_context(uid: str, doc: dict) -> dict:
 def _require_active(doc: dict) -> None:
     if (doc.get("status") or "active") != "active" or doc.get("paused") is True:
         raise HTTPException(409, "Only an active plan can be eased.")
+    if card_repayment_plans.is_card_plan(doc):
+        raise HTTPException(409, "A card repayment plan changes when you edit its schedule.")
 
 
 def _parse_ease_body(body: dict, usual: int) -> tuple[int, str | None]:

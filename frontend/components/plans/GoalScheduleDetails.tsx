@@ -19,13 +19,16 @@ export function ScheduleRule({ text }: { text: string }) {
 
 /** Approved G351 B. A single border owns each side of the disclosure. No
  * space-y margin may sit between its lower edge and the source account. */
-export function GoalScheduleDetails({ preview, name, progress, onEdit, children, paused = false }: {
+export function GoalScheduleDetails({ preview, name, progress, onEdit, children, paused = false, totalLabel, hiddenName = "Savings goal" }: {
   preview: GoalSchedulePreview;
   name?: string;
   progress?: number;
   onEdit?: () => void;
   children?: ReactNode;
   paused?: boolean;
+  /** G475: replaces "Goal total" for a plan that is not a savings goal. */
+  totalLabel?: string;
+  hiddenName?: string;
 }) {
   const hidden = useBalancesHidden();
   const [open, setOpen] = useState(false);
@@ -37,14 +40,14 @@ export function GoalScheduleDetails({ preview, name, progress, onEdit, children,
   const label = "text-[11px] font-semibold uppercase tracking-[0.05em] text-slate-500 dark:text-slate-400";
   return <div data-goal-schedule-details className="min-w-0 text-slate-900 dark:text-slate-100">
     {(name || hasProgress) && <div className="mb-5 flex items-start justify-between gap-3">
-      {name && <h3 className="min-w-0 break-words text-base font-bold">{hidden ? "Savings goal" : name}</h3>}
+      {name && <h3 className="min-w-0 break-words text-base font-bold">{hidden ? hiddenName : name}</h3>}
       {hasProgress && <p className={`inline-flex shrink-0 items-center gap-1 text-xs ${paused ? quiet : onTrack ? "text-emerald-700 dark:text-emerald-300" : quiet}`}>
         {!paused && (onTrack ? <Check size={14} aria-hidden="true" /> : <span className="h-1.5 w-1.5 rounded-full bg-amber-500" aria-hidden="true" />)}
         {paused ? "Paused" : onTrack ? "On schedule" : "Below schedule"}
       </p>}
     </div>}
     <div>
-      <p className={label}>{hasProgress ? "Saved so far" : preview.estimated ? "Estimated goal total" : "Goal total"}</p>
+      <p className={label}>{hasProgress ? "Saved so far" : totalLabel ?? (preview.estimated ? "Estimated goal total" : "Goal total")}</p>
       <p className="mt-2 text-[30px] font-bold leading-tight tracking-tight"><MoneyText text={scheduleMoney(progress ?? preview.total)} /></p>
       <p className={`mt-1 text-xs ${quiet}`}>{hasProgress && <>of <MoneyText text={scheduleMoney(preview.total)} />{preview.estimated ? " estimated" : ""} · </>}By {scheduleDate(preview.end_date)}</p>
     </div>

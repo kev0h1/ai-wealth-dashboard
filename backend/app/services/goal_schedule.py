@@ -194,6 +194,12 @@ def _events(schedule: dict, cfg: dict, expected_pay_pence: int | None = None) ->
     return events
 
 
+def events(schedule: dict, cfg: dict) -> list[tuple[date, int]]:
+    """G475: the schedule's (due date, pence) events, the same list every other
+    reader of this module derives its figures from."""
+    return _events(schedule, cfg) if is_scheduled(schedule) else []
+
+
 def daily_amounts(schedule: dict, start: date, end: date, cfg: dict | None = None) -> list[int]:
     """Pence due on each day of [start, end] (0 on days with nothing due)."""
     if end < start or (end - start).days > MAX_DAYS:

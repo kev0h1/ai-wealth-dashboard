@@ -1028,7 +1028,43 @@ export type GoalSchedulePreview = {
   planned_to_date: number;
 };
 
+/** G475: the facts a card repayment plan row shows. Estimates, hedged when spoken. */
+export type CardPlanFacts = {
+  card_name?: string | null;
+  balance_owed?: number | null;
+  this_period_planned?: number | null;
+  paid_this_period?: number;
+  would_clear_by_month?: string | null;
+  would_clear_by?: string | null;
+  promo?: {
+    until: string; balance: number; balance_is_offer: boolean;
+    planned_by_end: number; clears_before_end: boolean;
+  } | null;
+};
+
+/** G475: what is already known about how a card is repaid. Empty fields mean ask. */
+export type CardPlanPrefill = {
+  card_account_id: string;
+  card_name: string;
+  existing_plan_id: string | null;
+  balance_owed: number | null;
+  source_account_id: string | null;
+  source_account_name: string | null;
+  amount: number | null;
+  amount_basis: "direct_debit" | "statement_estimate" | "fixed_payment" | null;
+  estimated: boolean;
+  tracking_start: string;
+  start_is_detected: boolean;
+  fill_rule: PlanFillRule | null;
+  schedule: GoalSchedule | null;
+  detected: boolean;
+};
+
 export type Commitment = {
+  /** G475: "card_repayment" for a plan whose target is a card, else absent. */
+  plan_kind?: "card_repayment" | null;
+  card_account_id?: string | null;
+  card_plan?: CardPlanFacts;
   schedule_preview?: GoalSchedulePreview | null;
   /** G351: present only on a goal with a contribution schedule. Pounds, from the server. */
   schedule?: GoalSchedule | null;
@@ -1121,6 +1157,9 @@ export type AccountPlanData = {
   id: string;
   record_id: string;
   kind: "allocation" | "goal";
+  /** G475: set when the "goal" is a card repayment plan, so rows say repayment, not goal. */
+  plan_kind?: "card_repayment" | null;
+  card_account_id?: string;
   name: string;
   destination: string;
   destination_account_ids: string[];
@@ -1565,7 +1604,7 @@ export type ConfirmPaydayResponse = {
 /** A goal or set-aside whose money leaves from an account (G350). */
 export type PaydayPlanReason = {
   name: string;
-  kind: "goal" | "set_aside";
+  kind: "goal" | "card_plan" | "set_aside";
   amount: number;
 };
 
@@ -3915,6 +3954,19 @@ export const api = {
   reviseScheduledGoalProposal: (id: string, body: { schedule: GoalSchedule; source_account_id: string }) =>
     post<PennyProposal>(`/penny/proposals/${encodeURIComponent(id)}/scheduled-goal-revision`, body),
   listCommitments: () => get<{ items: Commitment[] }>("/commitments"),
+  /** G475: what is already known about how one card is repaid; read-only. */
+  cardPlanPrefill: (cardAccountId: string) =>
+    get<CardPlanPrefill>(`/commitments/card-plan-prefill?card_account_id=${encodeURIComponent(cardAccountId)}`),
+  /** G475: one repayment plan per card, paid from one account. */
+  createCardPlan: (body: {
+    card_account_id: string;
+    source_account_id: string;
+    name?: string;
+    amount_per_period?: number;
+    start_date?: string;
+    schedule?: GoalSchedule;
+    fill_rule?: PlanFillRule | null;
+  }) => post<Commitment>("/commitments", body),
   getCommitment: (id: string) => get<Commitment>(`/commitments/${encodeURIComponent(id)}`),
   previewGoalContribution: (id: string, contributionPence: number) =>
     get<GoalContributionPreview>(`/commitments/${encodeURIComponent(id)}/contribution-preview?contribution_pence=${contributionPence}`),

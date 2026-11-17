@@ -1529,6 +1529,34 @@ async def compute_debt_plan(uid: str) -> dict:
                                "estimated": True, "matched": 0, "occurrences": 0}]
         ambiguous_card_ids.discard(aid)
 
+    # G475: a card with a repayment plan is projected from the plan alone. The
+    # plan replaces its learned payment and its statement estimate, so the
+    # walk never counts a usual payment on top of what the plan pays.
+    planned_cards: set[str] = set()
+    planned_info: dict[str, dict] = {}
+    try:
+        from app.services import card_repayment_plans, goal_schedule
+        card_ids_here = {str(a["_id"]) for a in cc_accounts}
+        for aid, plan_doc in (await card_repayment_plans.active_card_plans(uid)).items():
+            if aid not in card_ids_here:
+                continue
+            months = card_repayment_plans.plan_month_amounts(plan_doc["schedule"], pay_cfg, today, HORIZON_MONTHS)
+            predicted_by_card[aid] = months
+            upcoming = next(((d, a) for d, a in sorted(goal_schedule.events(plan_doc["schedule"], pay_cfg)) if d >= today and a > 0), None)
+            bills_by_card[aid] = [{
+                "name": "Repayment plan", "amount": round((upcoming[1] if upcoming else 0) / 100, 2),
+                "next_date": upcoming[0].isoformat() if upcoming else None,
+                "confidence": 1.0, "estimated": True, "matched": 0, "occurrences": 0,
+            }]
+            ambiguous_card_ids.discard(aid)
+            planned_cards.add(aid)
+            planned_info[aid] = {
+                "schedule": goal_schedule.schedule_label(plan_doc["schedule"]),
+                "next_payment": round((upcoming[1] if upcoming else 0) / 100, 2),
+            }
+    except Exception as _plan_exc:
+        log.warning("debt_plan: card repayment plans unavailable: %s", _plan_exc)
+
     # ── Per-card computation ──────────────────────────────────────────────────
     cards_out: list[dict] = []
     balance_series_by_card: dict[str, list[float]] = {}
@@ -1677,7 +1705,13 @@ async def compute_debt_plan(uid: str) -> dict:
             bt_offers = terms_doc.get("bt_offers") or []
 
         # Near-term source: predicted bills or median
-        if pbm and debt > 0:
+        if pbm and debt > 0 and aid in planned_cards:
+            near_term_source = "repayment plan"
+            near_term_bills = bills_by_card.get(aid, [])
+            flags["assumptions"].append(
+                "projected from your repayment plan, which replaces its usual payment"
+            )
+        elif pbm and debt > 0:
             near_term_source = "upcoming bills"
             near_term_bills = bills_by_card.get(aid, [])
             flags["assumptions"].append(
@@ -1731,6 +1765,7 @@ async def compute_debt_plan(uid: str) -> dict:
             "first_interest_month": proj["first_interest_month"],
             "monthly_interest_at_first": proj["monthly_interest_at_first"],
             "balance_at_first_interest": proj.get("balance_at_first_interest"),
+            "repayment_plan": planned_info.get(aid),
             "near_term_source": near_term_source,
             "near_term_bills": near_term_bills,
             "mapping_ambiguous": mapping_ambiguous,

@@ -1318,6 +1318,7 @@ async def _goal_source_slices(
             _pot_progress_and_slice,
             compute_pot_ledger,
         )
+        from app.services import card_repayment_plans
         from app.services.account_plan_sources import needs_inference, resolve_goal_source
 
         today_d = timeutil.user_today()
@@ -1327,7 +1328,7 @@ async def _goal_source_slices(
              "funding_account_id": 1, "baseline_balance": 1, "contributed": 1,
              "created_at": 1, "user_id": 1, "paused": 1, "period_eased": 1,
              "period_contributions": 1, "source_account_id": 1, "source_unset": 1,
-             "fill_rule": 1, "schedule": 1},
+             "fill_rule": 1, "schedule": 1, "plan_kind": 1, "card_account_id": 1},
         ).to_list(None)
         if docs:
             ledger = await compute_pot_ledger(uid, docs=docs, balances=live_balances)
@@ -1346,7 +1347,11 @@ async def _goal_source_slices(
                 try:
                     pots = _doc_pots(c)
                     dest_ids = {str(p["account_id"]) for p in pots}
-                    if not dest_ids:
+                    # G475: a card repayment plan has no pot; its money leaves the
+                    # paying account for the card, so it is a source need like any
+                    # other plan and is never a payday-plan destination.
+                    card_plan = card_repayment_plans.is_card_plan(c)
+                    if not dest_ids and not card_plan:
                         continue  # an unlinked goal moves nothing through the plan
                     try:
                         slice_info = await _pot_progress_and_slice(c, pay_cfg, ledger, today_d)
@@ -1366,6 +1371,7 @@ async def _goal_source_slices(
                         "amount": float(slice_info["per_period_slice"]),
                         "assumed": assumed,
                         "to": sorted(dest_ids),
+                        **({"kind": "card_plan"} if card_plan else {}),
                     })
                 except Exception:
                     log.exception("_goal_source_slices: skipped one goal for %s", uid)
@@ -1422,7 +1428,7 @@ async def _plan_source_needs(
     out, so a goal or set-aside is never a plan destination by itself.
 
     Returns {source_account_id: {"amount", "source_assumed", "reasons":
-    [{"name", "kind": "goal"|"set_aside", "amount", "source_assumed",
+    [{"name", "kind": "goal"|"card_plan"|"set_aside", "amount", "source_assumed",
     "to": [pot ids]}]}}; `{}` on any failure (the plan then builds with no
     source needs).
 
@@ -1509,7 +1515,7 @@ async def _plan_source_needs(
     if goal_slices is None:
         goal_slices = await _goal_source_slices(uid, pay_cfg, live_balances, salary_acct, amap)
     for g in goal_slices:
-        _add(g["source"], g["name"], "goal", g["amount"], g["assumed"], g["to"])
+        _add(g["source"], g["name"], g.get("kind") or "goal", g["amount"], g["assumed"], g["to"])
 
     return {
         source: {
@@ -6933,6 +6939,8 @@ async def _build_plan_easing_items(
             cid = goal["id"]
             if cid not in by_id or infos[cid]["eased_this_period"] is not None:
                 continue
+            if by_id[cid].get("plan_kind") == "card_repayment":
+                continue  # G475: a repayment plan is covered by a move or edited, never eased
             candidates.append((goal["remaining"], cid, g, pay_acc))
     # eligible plans before capped ones, then the largest slice first
     def _cap_for(cid: str) -> str | None:

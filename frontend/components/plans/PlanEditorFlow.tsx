@@ -37,6 +37,8 @@ export function PlanEditorActions({ step, reviewing = false, busy = false, locke
 }
 
 type FlowProps = ActionProps & {
+  /** G475: the steps this flow actually has (a card repayment plan has no destination step). */
+  steps?: readonly PlanEditorStep[];
   onSubmit(event: FormEvent<HTMLFormElement>): void;
   children: ReactNode;
   error?: ReactNode;
@@ -47,7 +49,7 @@ type FlowProps = ActionProps & {
 
 /** The approved Small steps editor shell. Domain-specific fields, validation
  * and persistence stay with their controller; navigation never writes. */
-export default function PlanEditorFlow({ children, error, onSubmit, onPrevious, renderActions, className = "space-y-5", ...actions }: FlowProps) {
+export default function PlanEditorFlow({ children, error, onSubmit, onPrevious, renderActions, className = "space-y-5", steps = PLAN_EDITOR_STEPS, ...actions }: FlowProps) {
   const heading = useRef<HTMLParagraphElement>(null);
   useEffect(() => {
     heading.current?.focus({ preventScroll: true });
@@ -63,7 +65,7 @@ export default function PlanEditorFlow({ children, error, onSubmit, onPrevious, 
       }
     }} className={className}>
     <fieldset disabled={actions.locked ?? actions.busy} className="min-w-0 space-y-5 [&_input]:text-base">
-      <p ref={heading} tabIndex={-1} className="text-xs font-semibold text-slate-600 outline-none dark:text-slate-300">{labels[actions.step]} · {PLAN_EDITOR_STEPS.indexOf(actions.step) + 1} of {PLAN_EDITOR_STEPS.length}</p>
+      <p ref={heading} tabIndex={-1} className="text-xs font-semibold text-slate-600 outline-none dark:text-slate-300">{labels[actions.step]} · {steps.indexOf(actions.step) + 1} of {steps.length}</p>
       {children}
       {onPrevious && actions.step !== "purpose" && actions.step !== "review" && <button type="button" onClick={onPrevious} className={editorQuiet}>Previous step</button>}
     </fieldset>

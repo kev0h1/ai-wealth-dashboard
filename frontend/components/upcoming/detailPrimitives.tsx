@@ -1,6 +1,6 @@
 "use client";
 
-import { Target, Wallet, type LucideIcon } from "lucide-react";
+import { CreditCard, Target, Wallet, type LucideIcon } from "lucide-react";
 import type { Plan } from "@/lib/upcomingPlans";
 import { money, dateLabel } from "@/lib/upcomingPlans";
 import { useBalancesHidden, maskMoneyText } from "@/lib/balancesHidden";
@@ -16,8 +16,8 @@ export const detailFocus = "focus-visible:outline-none focus-visible:ring-2 focu
 export const detailInk = "font-mono tabular-nums text-slate-950 dark:text-slate-50";
 export const detailMuted = "text-slate-600 dark:text-slate-400";
 
-export function PlanIcon({ kind }: { kind: Plan["kind"] }) {
-  const Icon = kind === "goal" ? Target : Wallet;
+export function PlanIcon({ kind, cardPlan = false }: { kind: Plan["kind"]; cardPlan?: boolean }) {
+  const Icon = cardPlan ? CreditCard : kind === "goal" ? Target : Wallet;
   return <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-indigo-50 text-indigo-600 dark:bg-indigo-400/10 dark:text-indigo-300"><Icon size={18} aria-hidden="true" /></span>;
 }
 

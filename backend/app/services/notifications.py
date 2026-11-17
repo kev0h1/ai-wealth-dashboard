@@ -482,6 +482,16 @@ async def _maybe_bill_shortfall(user_id: str, covered_dest_accts: set[str] | Non
         return []
     resp = await _build_cashflow_response(cached)
     upcoming_bills = resp.get("upcoming_bills") or []
+    # G475: this build runs without a uid (so no statement bills), which also
+    # skips the card plan replacement. A card with a repayment plan has no
+    # predicted payment to warn about; the plan's reserve is its figure.
+    try:
+        from app.services import card_repayment_plans
+        _card_plans = await card_repayment_plans.active_card_plans(user_id)
+        if _card_plans:
+            upcoming_bills, _ = card_repayment_plans.replace_planned_card_bills(upcoming_bills, set(_card_plans))
+    except Exception:
+        log.warning("card plan replacement failed in bill shortfall for %s", user_id, exc_info=True)
 
     covered = covered_dest_accts or set()
     # A192: a bill on an account whose bank connection has ended is judged

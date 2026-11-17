@@ -83,6 +83,15 @@ def rule_matches(rule: dict, txn: dict) -> bool:
     return False
 
 
+def card_link_matches(card_id: str, txn: dict) -> bool:
+    """G475: a debit the repayment reconciler already linked to this card (the
+    stamp it writes when the card's own credit pairs with it) is a payment to
+    that card, whatever its narrative says."""
+    marker = txn.get("own_transfer_match") if isinstance(txn, dict) else None
+    link = marker.get("card_repayment") if isinstance(marker, dict) else None
+    return bool(card_id) and isinstance(link, dict) and str(link.get("card_account_id") or "") == str(card_id)
+
+
 def display_name(txn: dict) -> str:
     return clean_name((txn.get("merchant_name") or "").strip() or (txn.get("description") or ""))
 
@@ -137,6 +146,8 @@ async def _load(uid: str, account_ids: list[str], kind: str, start: date, end: d
         # that sync/categorisation writes. Keep them in the projection rather
         # than silently falling through to a loose text heuristic.
         "category": 1, "custom_category": 1,
+        # G475: a repayment already linked to a card counts for that card's plan.
+        "own_transfer_match": 1,
     }
     out: list[dict] = []
     for col in (transactions_col, yapily_transactions_col):
@@ -201,7 +212,11 @@ async def period_fulfilment(
     the reserve (`unmet`) exactly planned minus paid, floored at 0, with no
     tolerance snap; `state` (the status word) keeps the 15% tolerance."""
     rule = validate_fill_rule(doc.get("fill_rule")) if doc.get("fill_rule") else None
-    if rule is None or not source_id:
+    # G475: a card repayment plan needs no rule to see a payment already linked
+    # to its card, so a plan whose payment was not detected still lowers its
+    # reserve by what was paid (never counted twice).
+    card_id = str(doc.get("card_account_id") or "") if doc.get("plan_kind") == "card_repayment" else ""
+    if (rule is None and not card_id) or not source_id:
         return None
     expected_value = float(expected_pounds)
     if not math.isfinite(expected_value):
@@ -212,7 +227,10 @@ async def period_fulfilment(
     if begin is not None and begin > start:
         start = begin
     debits = await _load(uid, [source_id], "debit", start, window_end)
-    hits = sorted((t for t in debits if rule_matches(rule, t)), key=lambda t: t["date"])
+    hits = sorted(
+        (t for t in debits if (rule is not None and rule_matches(rule, t)) or card_link_matches(card_id, t)),
+        key=lambda t: t["date"],
+    )
     if rivals:
         me = {"doc": doc, "rule": rule, "expected_pence": expected_pence}
         hits = [t for t in hits if claims_debit(me, rivals, t, me["expected_pence"])]
