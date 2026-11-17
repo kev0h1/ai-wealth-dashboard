@@ -166,8 +166,8 @@ export default function UpcomingHeroCard({
                 Plans this period
                 <span className="block text-xs leading-snug text-slate-500 dark:text-slate-400">
                   {plansUnavailable
-                    ? "Goal and repayment plan amounts could not be loaded, so this figure may be too high."
-                    : "Goal contributions and card repayment plans planned this pay period."}
+                    ? "Goal contributions could not be loaded, so this figure may be too high."
+                    : "Goal contributions planned this pay period."}
                 </span>
               </dt>
               <dd className="shrink-0 whitespace-nowrap font-mono tabular-nums text-slate-900 dark:text-slate-100">
