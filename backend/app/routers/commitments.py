@@ -512,7 +512,7 @@ async def _pot_progress_and_slice(
     # in this one function so Safe to Spend, Upcoming, the account position and
     # Penny all follow. Any failure keeps the full reservation (fail closed).
     fulfilment = None
-    if claim and doc.get("fill_rule") and doc.get("user_id") and per_period_slice >= 0:
+    if claim and (doc.get("fill_rule") or card_repayment_plans.is_card_plan(doc)) and doc.get("user_id") and per_period_slice >= 0:
         fulfilment = await _plan_fulfilment(
             doc, fulfilment_expected, _start, _end,
             **({"exact": True} if (manual or sched_exact) else {}),
@@ -1495,8 +1495,8 @@ async def _card_plan_schedule(uid: str, body: dict, card: dict) -> tuple[dict, f
         count = card_repayment_plans.periods_to_clear(owed, pence)
     try:
         raw = card_repayment_plans.fixed_schedule(pence, start, int(count))
-    except (ValueError, TypeError) as exc:
-        raise HTTPException(400, str(exc)) from None
+    except (ValueError, TypeError):
+        raise HTTPException(400, goal_schedule.INVALID) from None
     return await _validate_schedule_body(raw, uid)
 
 
@@ -1534,7 +1534,7 @@ async def _create_card_plan(uid: str, body: dict) -> dict:
         "contributed": 0.0,
         "source": "manual",
         "status": "active",
-        "created_at": datetime.now(timezone.utc),
+        "created_at": datetime.now(timezone.utc),  # naive-ok: persisted audit timestamp, same as every other plan
         "plan_kind": card_repayment_plans.PLAN_KIND,
         "card_account_id": card_id,
         "schedule": sched,

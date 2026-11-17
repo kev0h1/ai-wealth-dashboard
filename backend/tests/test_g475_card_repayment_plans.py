@@ -74,6 +74,7 @@ def _patch_world(monkeypatch, docs=(), accounts=None):
     col = _Collection(docs)
     monkeypatch.setattr(commitments, "commitments_col", col)
     monkeypatch.setattr(dbc, "commitments_col", col)
+    monkeypatch.setattr(dbc, "preferences_col", _Rows([]))
     accts = accounts or _accounts()
 
     async def amap(uid):
@@ -139,6 +140,17 @@ def test_only_a_live_plan_replaces_the_prediction(monkeypatch):
     cancelled = _plan(card_account_id="card3", status="cancelled")
     not_a_card_plan = {"_id": ObjectId(), "user_id": UID, "status": "active", "name": "Japan", "funding_pots": []}
     _patch_world(monkeypatch, [live, paused, cancelled, not_a_card_plan])
+    assert set(asyncio.run(crp.active_card_plans(UID))) == {"card"}
+
+
+def test_a_finished_plan_stops_replacing_the_prediction(monkeypatch):
+    # Three pay periods from 1 Jan 2025: long over by Oct 2026, so the card's usual payment counts again.
+    ended = _plan(schedule=_schedule(start="2025-01-01", count=3))
+    _patch_world(monkeypatch, [ended])
+    assert asyncio.run(crp.active_card_plans(UID)) == {}
+    # The last pay period it asks for still counts as live.
+    live = _plan(schedule=_schedule(start="2026-08-12", count=3))  # periods of Aug, Sep, Oct
+    _patch_world(monkeypatch, [live])
     assert set(asyncio.run(crp.active_card_plans(UID))) == {"card"}
 
 
@@ -383,6 +395,17 @@ def test_a_payment_made_this_period_reduces_the_reserve_and_is_not_counted_again
     row = _rows(monkeypatch, plan, txns)[0]
     # 150 planned, 60 paid on 8 Oct; the 24 Sep payment is before the plan's start and counts nothing.
     assert row["remaining"] == 90.0 and row["filled_amount"] == 60.0 and row["period_amount"] == 150.0
+
+
+def test_a_payment_already_linked_to_the_card_reduces_the_reserve_without_a_rule(monkeypatch):
+    plan = _plan(schedule=_schedule(start="2026-10-05"))  # no tracking rule at all
+    linked = {**_debit(date(2026, 10, 8), 60.0, desc="BANK TRANSFER 8 OCT"),
+              "own_transfer_match": {"card_repayment": {"issuer": "amex", "card_account_id": "card"}}}
+    other_card = {**_debit(date(2026, 10, 9), 25.0, desc="BANK TRANSFER 9 OCT"),
+                  "own_transfer_match": {"card_repayment": {"issuer": "amex", "card_account_id": "card2"}}}
+    plain = _debit(date(2026, 10, 10), 30.0, desc="SUPERMARKET")
+    row = _rows(monkeypatch, plan, _txn_rows([linked, other_card, plain]))[0]
+    assert row["filled_amount"] == 60.0 and row["remaining"] == 90.0
 
 
 def test_the_cover_move_engine_uses_the_plan_amount(monkeypatch):

@@ -57,17 +57,27 @@ def replaces_prediction(doc: dict | None) -> bool:
     )
 
 
-async def active_card_plans(uid: str) -> dict[str, dict]:
+async def active_card_plans(uid: str, today: date | None = None) -> dict[str, dict]:
     """{card_account_id: plan doc} for every plan that replaces its card's
-    prediction. The oldest plan wins if a duplicate ever slipped through."""
-    from app.db.collections import commitments_col
+    prediction. The oldest plan wins if a duplicate ever slipped through. A plan
+    whose schedule has run out (the last pay period it asks for is over) stops
+    replacing anything, so the card's usual payment counts again rather than the
+    card having no repayment at all."""
+    from app.db.collections import commitments_col, preferences_col
 
+    today = today or timeutil.user_today()
     docs = await commitments_col.find(
         {"user_id": uid, "plan_kind": PLAN_KIND, "status": "active"}
     ).to_list(None)
+    candidates = sorted((d for d in docs if replaces_prediction(d)), key=lambda d: str(d.get("_id")))
+    if not candidates:
+        return {}
+    prefs = await preferences_col.find_one({"user_id": uid}) or {}
+    cfg = prefs.get("pay_period_config") or {"type": "calendar_month"}
     out: dict[str, dict] = {}
-    for doc in sorted(docs, key=lambda d: str(d.get("_id"))):
-        if replaces_prediction(doc):
+    for doc in candidates:
+        last = goal_schedule.end_date(doc["schedule"], cfg)
+        if last is not None and last >= today:
             out.setdefault(str(doc["card_account_id"]), doc)
     return out
 
@@ -176,7 +186,7 @@ def _rule_from_debit(txn: dict) -> dict | None:
 async def _recent_debits(uid: str, account_id: str, days: int = 120) -> list[dict]:
     from app.db.collections import transactions_col, yapily_transactions_col
 
-    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+    cutoff = datetime.now(timezone.utc) - timedelta(days=days)  # naive-ok: lookback window, not a calendar date
     query = {"user_id": uid, "account_id": account_id, "transaction_type": "debit", "date": {"$gte": cutoff}}
     rows: list[dict] = []
     for col in (transactions_col, yapily_transactions_col):
