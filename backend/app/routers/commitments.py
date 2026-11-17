@@ -952,6 +952,9 @@ def _ease_fields(doc: dict, cfg: dict, slice_info: dict, today: date) -> dict:
     cap = plan_easing.period_cap_reason(doc.get("period_eased"), live_key, start)
     if cap is None and slice_info["usual_slice"] <= 0:
         cap = plan_easing.MSG_NOTHING
+    if card_repayment_plans.is_card_plan(doc):
+        # G475: a repayment plan is changed by editing its schedule, never eased.
+        cap = "A card repayment plan changes when you edit its schedule."
     current = slice_info.get("current_period_contribution")
     if current is not None:
         later = current["later_contribution"]
@@ -2170,6 +2173,8 @@ async def _ease_context(uid: str, doc: dict) -> dict:
 def _require_active(doc: dict) -> None:
     if (doc.get("status") or "active") != "active" or doc.get("paused") is True:
         raise HTTPException(409, "Only an active plan can be eased.")
+    if card_repayment_plans.is_card_plan(doc):
+        raise HTTPException(409, "A card repayment plan changes when you edit its schedule.")
 
 
 def _parse_ease_body(body: dict, usual: int) -> tuple[int, str | None]:

@@ -465,3 +465,13 @@ def test_the_plan_row_carries_a_hedged_clear_by_month_and_the_offer_fact(monkeyp
     asyncio.run(commitments._attach_card_plans(UID, [item2], [short], CFG, TODAY))
     # 4 x 100 reaches 400 by 31 Jan, short of the 450 on the offer.
     assert item2["card_plan"]["promo"]["planned_by_end"] == 400.0 and item2["card_plan"]["promo"]["clears_before_end"] is False
+
+
+def test_a_card_plan_is_never_eased(monkeypatch):
+    plan = _plan()
+    with pytest.raises(HTTPException) as err:
+        commitments._require_active(plan)
+    assert err.value.status_code == 409
+    info = {"usual_slice": 150, "eased_this_period": None, "remaining": 600, "scheduled_later_pence": 15000}
+    fields = commitments._ease_fields(plan, CFG, info, TODAY)
+    assert fields["ease_blocked_reason"] == "A card repayment plan changes when you edit its schedule."

@@ -6938,6 +6938,8 @@ async def _build_plan_easing_items(
             cid = goal["id"]
             if cid not in by_id or infos[cid]["eased_this_period"] is not None:
                 continue
+            if by_id[cid].get("plan_kind") == "card_repayment":
+                continue  # G475: a repayment plan is covered by a move or edited, never eased
             candidates.append((goal["remaining"], cid, g, pay_acc))
     # eligible plans before capped ones, then the largest slice first
     def _cap_for(cid: str) -> str | None:
