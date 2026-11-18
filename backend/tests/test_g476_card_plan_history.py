@@ -254,3 +254,60 @@ def test_the_search_route_returns_404_for_a_foreign_account(monkeypatch):
     assert err.value.status_code == 404
     out = asyncio.run(commitments.card_plan_search("card", "current", "pymt", 20, 0, {"email": UID}))
     assert out["total"] == 1
+
+
+# ── follow-ups: search eligibility, stable rules, repayment wording ─────────
+
+def test_search_refuses_a_manual_another_card_or_a_not_counted_account(monkeypatch):
+    accounts = _acc(
+        manual={"_id": "manual", "type": "bank", "subtype": "CURRENT_ACCOUNT", "currency": "GBP", "balance": 5,
+                "name": "Example Cash", "_account_plan_manual": True},
+        card_b={"_id": "card_b", "type": "credit_card", "subtype": "CREDIT_CARD", "currency": "GBP",
+                "balance": -10, "name": "Example Other Card"},
+        hidden={"_id": "hidden", "type": "bank", "subtype": "CURRENT_ACCOUNT", "currency": "GBP", "balance": 5,
+                "name": "Example Hidden", "include_in_safe_to_spend": False},
+    )
+    _world(monkeypatch, [], accounts)
+    for source in ("manual", "card_b", "hidden"):
+        assert _search("", source=source) is None, source
+        with pytest.raises(HTTPException) as err:
+            asyncio.run(commitments.card_plan_search("card", source, "", 20, 0, {"email": UID}))
+        assert err.value.status_code == 404
+    assert _search("", source="current") is not None
+
+
+def test_one_rule_matches_three_months_of_a_changing_reference_and_not_another_payee():
+    from app.services.plan_fulfilment import rule_matches
+    months = [
+        _row("current", "debit", date(2026, 7, 24), 200.0, "PAYMENT TO NORTHBANK CARD REF 48213377 24JUL"),
+        _row("current", "debit", date(2026, 8, 24), 200.0, "PAYMENT TO NORTHBANK CARD REF 90117342 24AUG"),
+        _row("current", "debit", date(2026, 9, 24), 200.0, "PAYMENT TO NORTHBANK CARD REF 12559908 24SEP"),
+    ]
+    rule, exact = crp.rule_and_kind(months[0])
+    assert rule["match_value"] == "PAYMENT TO NORTHBANK CARD" and exact is False
+    assert all(rule_matches(rule, m) for m in months)
+    other = _row("current", "debit", date(2026, 9, 24), 50.0, "PAYMENT TO OTHERBANK LOAN REF 12559908")
+    assert not rule_matches(rule, other)
+
+
+def test_with_no_stable_part_the_rule_is_the_exact_wording_and_says_so():
+    row = _row("current", "debit", date(2026, 9, 24), 200.0, "48213377 24SEP")
+    rule, exact = crp.rule_and_kind(row)
+    assert exact is True and rule["match_value"] == "48213377 24SEP"
+
+
+def test_a_repayment_item_flags_exact_wording(monkeypatch):
+    rows = [_row("current", "debit", date(2026, 9, 24), 200.0, "48213377 24SEP"),
+            _row("card", "credit", date(2026, 9, 25), 200.0, "PAYMENT RECEIVED")]
+    _world(monkeypatch, rows)
+    assert _prefill()["repayments"][0]["rule_is_exact"] is True
+
+
+def test_an_unpaired_faster_payment_refund_is_not_a_repayment(monkeypatch):
+    rows = [_row("card", "credit", date(2026, 10, 2), 30.0, "FASTER PAYMENT REFUND"),
+            _row("card", "credit", date(2026, 10, 3), 31.0, "BACS TRANSFER FROM SHOP"),
+            _row("card", "credit", date(2026, 10, 4), 75.0, "CARD PYMT")]
+    _world(monkeypatch, rows)
+    out = _prefill()
+    assert [r["amount"] for r in out["repayments"]] == [75.0]
+    assert len(out["recent_credits"]) == 3

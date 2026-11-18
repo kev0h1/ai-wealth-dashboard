@@ -19,9 +19,9 @@ const sheet = read("components/CommitmentSheet.tsx");
 const api = read("lib/api.ts");
 const panel = read("components/plans/CardPaymentHistory.tsx");
 
-const pair = { date: "2026-09-24", card_date: "2026-09-26", debit_date: "2026-09-24", amount: 200, source_account_id: "cur", source_account_name: "Example Current", matched: true, narrative: "PAYMENT RECEIVED", fill_rule: { match_type: "description_contains", match_value: "20001" } };
-const loose = { ...pair, date: "2026-10-02", card_date: "2026-10-02", debit_date: null, amount: 75, source_account_id: null, source_account_name: null, matched: false, fill_rule: null, narrative: "CARD PYMT" };
-const other = { ...pair, source_account_id: "two", source_account_name: "Example Second", amount: 150, fill_rule: { match_type: "description_contains", match_value: "REF2" } };
+const pair = { id: "c1", date: "2026-09-24", card_date: "2026-09-26", debit_date: "2026-09-24", amount: 200, source_account_id: "cur", source_account_name: "Example Current", matched: true, narrative: "PAYMENT RECEIVED", fill_rule: { match_type: "description_contains", match_value: "20001" } };
+const loose = { ...pair, id: "c2", date: "2026-10-02", card_date: "2026-10-02", debit_date: null, amount: 75, source_account_id: null, source_account_name: null, matched: false, fill_rule: null, narrative: "CARD PYMT" };
+const other = { ...pair, id: "c3", source_account_id: "two", source_account_name: "Example Second", amount: 150, fill_rule: { match_type: "description_contains", match_value: "REF2" } };
 
 // ── default name ─────────────────────────────────────────────────────────────
 assert.match(sheet, /if \(!nameTouched\.current\) setName\(\(found\.default_name \?\? `\$\{found\.card_name\} repayment plan`\)\.slice\(0, 40\)\)/, "the default name is the server's, unless the user typed one");
@@ -51,8 +51,14 @@ assert.equal(legMatchFor([pair], ""), null);
 assert.match(legMatchLine(pair), /Found a payment of about £200\.00 that left Example Current on 24 Sep(?:t)? and appeared on the card on 26 Sep(?:t)?/, "debit and credit may be on different days");
 const found = renderToStaticMarkup(React.createElement(RecognisePayment, { cardId: "card", sourceId: "cur", legMatch: pair, credits: [loose], ruleChosen: true, onPickRule() {} }));
 assert.match(found, /data-testid="card-leg-match"/);
-assert.doesNotMatch(found, /card-plan-search/, "no search when the leg was found");
-const missing = renderToStaticMarkup(React.createElement(RecognisePayment, { cardId: "card", sourceId: "cur", legMatch: null, credits: [loose, { ...loose, amount: 40, fill_rule: pair.fill_rule }], ruleChosen: false, onPickRule() {} }));
+assert.doesNotMatch(found, /card-plan-search/, "no search until the user asks for a different payment");
+assert.match(found, /Choose a different payment/, "a found payment can be swapped");
+assert.match(panel, /const open = showOther \|\| \(!legMatch && !ruleChosen\)/, "the credits and search open on request or when nothing was found");
+assert.match(panel, /<li key=\{item\.id\}>/, "rows are keyed by their own id");
+assert.doesNotMatch(panel, /key=\{`/, "no composite keys that can collide");
+const exactFound = renderToStaticMarkup(React.createElement(RecognisePayment, { cardId: "card", sourceId: "cur", legMatch: { ...pair, rule_is_exact: true }, credits: [], ruleChosen: true, onPickRule() {} }));
+assert.match(text(exactFound), /matches this exact wording/, "an exact-wording rule says so");
+const missing = renderToStaticMarkup(React.createElement(RecognisePayment, { cardId: "card", sourceId: "cur", legMatch: null, credits: [loose, { ...loose, id: "c4", amount: 40, fill_rule: pair.fill_rule }], ruleChosen: false, onPickRule() {} }));
 assert.match(missing, /data-testid="card-plan-recent-credits"/, "the card's recent credits are listed");
 assert.match(text(missing), /CARD PYMT/);
 assert.match(missing, /id="card-plan-search"/, "a search field is offered");

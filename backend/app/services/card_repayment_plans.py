@@ -211,24 +211,60 @@ def _day(value) -> date | None:
         return None
 
 
-def _rule_from_debit(txn: dict) -> dict | None:
-    """The narrowest "contains" text that matches this payment: the tail of a
-    card reference in its narrative (so one card's payment never claims
-    another card's from the same bank), else the whole narrative, else the
-    cleaned payee name. A card number is never kept beyond its last five
-    digits. None when no text reproduces a match."""
+_MONTHS = r"jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?"
+_DATE_TOKEN = re.compile(
+    rf"^(?:\d{{1,4}}[/.-]\d{{1,2}}(?:[/.-]\d{{2,4}})?|\d{{1,2}}(?:st|nd|rd|th)?|(?:{_MONTHS})|\d{{2,4}})$", re.I,
+)
+_REF_MARKER = {"REF", "REFERENCE", "REF:", "ID", "NO", "NO.", "NUMBER", "ON", "DATED", "DATE", "FROM", "TO", "AT", "-"}
+_MIN_STABLE = 8
+
+
+def stable_narrative(description: str) -> str | None:
+    """The part of a payment narrative that stays the same month to month: the
+    leading words, up to the first token that looks like a date or a reference
+    (anything with a digit), with trailing reference markers ("REF", "ON")
+    dropped. None when too little is left to be a meaningful rule."""
+    kept: list[str] = []
+    for token in " ".join(str(description or "").split()).split(" "):
+        if any(ch.isdigit() for ch in token) or _DATE_TOKEN.match(token):
+            break
+        kept.append(token)
+    while kept and kept[-1].upper() in _REF_MARKER:
+        kept.pop()
+    value = " ".join(kept)
+    return value if len(value) >= _MIN_STABLE and re.search(r"[A-Za-z]{3}", value) else None
+
+
+def rule_and_kind(txn: dict) -> tuple[dict, bool] | None:
+    """(rule, exact_wording). The rule is the narrowest "contains" text that
+    matches this payment AND the same payee's later payments: the tail of a card
+    reference (so one card's payment never claims another card's), else the
+    stable leading part of the narrative (dates, long digit runs and trailing
+    reference tokens removed), else, with exact_wording True, the whole
+    narrative or cleaned payee name. A card number is never kept beyond its last
+    five digits. None when no text reproduces a match."""
     from app.services.plan_fulfilment import display_name, rule_matches
 
     description = " ".join(str(txn.get("description") or "").split())
     run = _LONG_RUN.search(description)
-    candidates = [re.sub(r"\D", "", run.group(0))[-5:]] if run else []
-    candidates += [_mask_rule_text(description), _mask_rule_text(display_name(txn))]
-    for raw in candidates:
+    candidates: list[tuple[str, bool]] = []
+    if run:
+        candidates.append((re.sub(r"\D", "", run.group(0))[-5:], False))
+    stable = stable_narrative(description) if not run else None
+    if stable:
+        candidates.append((stable, False))
+    candidates += [(_mask_rule_text(description), True), (_mask_rule_text(display_name(txn)), True)]
+    for raw, exact in candidates:
         value = str(raw or "").strip()[:_MAX_RULE]
         rule = {"match_type": "description_contains", "match_value": value}
         if value and rule_matches(rule, txn):
-            return rule
+            return rule, exact
     return None
+
+
+def _rule_from_debit(txn: dict) -> dict | None:
+    found = rule_and_kind(txn)
+    return found[0] if found else None
 
 
 async def _recent_debits(uid: str, account_id: str, days: int = 120) -> list[dict]:
@@ -271,8 +307,9 @@ SEARCH_PAGE = 20
 SEARCH_MAX_PAGE = 50
 SEARCH_MAX_TEXT = 60
 _PAYMENT_LOOKING = re.compile(
-    r"payment|pymt|pmt|repay|direct\s+debit|thank\s+you|transfer|bacs|faster|standing\s+order", re.I,
+    r"payment\s+received|card\s+(?:payment|pymt)|(?<![a-z])pymt|repayment|thank\s+you|direct\s+debit", re.I,
 )
+_NOT_A_REPAYMENT = re.compile(r"refund|reversal|cashback|chargeback", re.I)
 _PLAN_SUFFIX = " repayment plan"
 _NAME_MAX = 40
 
@@ -373,10 +410,18 @@ def _median(values: list[float]) -> float:
     return ordered[mid] if len(ordered) % 2 else round((ordered[mid - 1] + ordered[mid]) / 2, 2)
 
 
+def _looks_like_repayment(credit: dict) -> bool:
+    text = f"{credit.get('description') or ''} {credit.get('merchant_name') or ''}"
+    if _NOT_A_REPAYMENT.search(text):
+        return False
+    return bool(_PAYMENT_LOOKING.search(text)) or isinstance(credit.get("own_transfer_match"), dict)
+
+
 def _credit_item(credit: dict, debit: dict | None, accounts: dict[str, dict]) -> dict:
     source = accounts.get(str(debit.get("account_id"))) if debit else None
     when = debit if debit is not None else credit
     return {
+        "id": _row_id(credit),
         "date": _day(when.get("date")).isoformat() if _day(when.get("date")) else None,
         "card_date": _day(credit.get("date")).isoformat() if _day(credit.get("date")) else None,
         "debit_date": _day(debit.get("date")).isoformat() if debit is not None and _day(debit.get("date")) else None,
@@ -386,6 +431,7 @@ def _credit_item(credit: dict, debit: dict | None, accounts: dict[str, dict]) ->
         "matched": debit is not None,
         "narrative": _mask(credit.get("description") or credit.get("merchant_name")),
         "fill_rule": _rule_from_debit(debit) if debit is not None else None,
+        "rule_is_exact": bool(debit is not None and (rule_and_kind(debit) or (None, False))[1]),
     }
 
 
@@ -395,6 +441,15 @@ def latest_leg_match(repayments: list[dict], source_id: str | None) -> dict | No
     if not source_id:
         return None
     return next((r for r in repayments if r["matched"] and r["source_account_id"] == str(source_id) and r["fill_rule"]), None)
+
+
+def eligible_sources(account_map: dict[str, dict]) -> dict[str, dict]:
+    """The accounts a card plan may be paid from: the plan source rule plus
+    counted in Left to spend. Prefill and search share this one test."""
+    from app.services.counted_accounts import is_counted
+    from app.services.account_plan_sources import eligible_source_account_map
+
+    return {aid: doc for aid, doc in eligible_source_account_map(account_map, set()).items() if is_counted(doc)}
 
 
 async def card_history(uid: str, card_id: str, account_map: dict[str, dict], eligible: dict[str, dict]) -> dict:
@@ -412,8 +467,7 @@ async def card_history(uid: str, card_id: str, account_map: dict[str, dict], eli
     items = [_credit_item(c, d, account_map) for c, d in pairs]
     repayments = [
         item for item, (credit, debit) in zip(items, pairs)
-        if debit is not None or _PAYMENT_LOOKING.search(f"{credit.get('description') or ''} {credit.get('merchant_name') or ''}")
-        or isinstance(credit.get("own_transfer_match"), dict)
+        if debit is not None or _looks_like_repayment(credit)
     ][:RECENT_REPAYMENTS]
     by_source: dict[str, list[dict]] = {}
     for item in repayments:
@@ -445,6 +499,12 @@ def _squash(text) -> str:
     return re.sub(r"[^a-z0-9]", "", str(text or "").lower())
 
 
+def _exact_for(row: dict, debit: dict | None, on_card: bool) -> bool:
+    leg = debit if on_card else row
+    found = rule_and_kind(leg) if leg is not None else None
+    return bool(found and found[1])
+
+
 async def search(uid: str, card_id: str, source_id: str, query: str, *, limit: int = SEARCH_PAGE, skip: int = 0,
                  account_map: dict[str, dict] | None = None) -> dict | None:
     """G476: search the card's and the paying account's own transactions by text
@@ -459,8 +519,8 @@ async def search(uid: str, card_id: str, source_id: str, query: str, *, limit: i
 
     accounts = account_map if account_map is not None else await owned_account_map(uid)
     card = await owned_card(uid, card_id)
-    source = accounts.get(str(source_id))
-    if card is None or source is None or str(source_id) == str(card_id):
+    source = eligible_sources(accounts).get(str(source_id))
+    if card is None or source is None or source.get("_account_plan_manual") or str(source_id) == str(card_id):
         return None
     cid, sid = str(card_id), str(source_id)
     text = " ".join(str(query or "").split())[:SEARCH_MAX_TEXT]
@@ -503,6 +563,7 @@ async def search(uid: str, card_id: str, source_id: str, query: str, *, limit: i
             "narrative": _mask(row.get("description") or row.get("merchant_name")),
             "display_name": _mask(display_name(row)),
             "fill_rule": rule,
+            "rule_is_exact": bool(rule) and _exact_for(row, paired_debit.get(_row_id(row)), on_card),
         })
     return {"items": items, "total": len(hits), "limit": limit, "skip": skip, "has_more": skip + limit < len(hits)}
 
@@ -525,10 +586,9 @@ async def prefill(uid: str, card_id: str, today: date | None = None) -> dict | N
     Every amount is an estimate and says so."""
     from app.db.collections import card_terms_col, cashflow_cache_col, commitments_col
     from app.services.account_plan_sources import (
-        account_label, eligible_source_account_map, owned_account_map,
+        account_label, owned_account_map,
     )
     from app.services.card_statements import load_statement_bills, normalise_match_rule, row_matches_rule
-    from app.services.counted_accounts import is_counted
 
     today = today or timeutil.user_today()
     account_map = await owned_account_map(uid)
@@ -559,9 +619,7 @@ async def prefill(uid: str, card_id: str, today: date | None = None) -> dict | N
     if statement and statement.get("status") not in ("estimated", "paid"):
         statement = None
 
-    eligible = {
-        aid: doc for aid, doc in eligible_source_account_map(account_map, set()).items() if is_counted(doc)
-    }
+    eligible = eligible_sources(account_map)
     try:
         history = await card_history(uid, cid, account_map, eligible)
     except Exception:

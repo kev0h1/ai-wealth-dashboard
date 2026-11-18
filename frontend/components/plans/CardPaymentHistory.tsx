@@ -45,7 +45,7 @@ export function RecentRepayments({ repayments, sources, sourceId, onPickSource, 
       )}
       <ul className={boxClass}>
         {repayments.map(item => (
-          <li key={`${item.card_date}-${item.amount}-${item.source_account_id ?? "none"}`}>
+          <li key={item.id}>
             <button type="button" onClick={() => onPickAmount(item.amount)} className={`${rowClass} active:opacity-70`}>
               <span className="min-w-0 flex-1 text-sm text-slate-900 dark:text-slate-100"><MoneyText text={repaymentLine(item)} /></span>
               <span className="shrink-0 text-xs font-semibold text-indigo-600 dark:text-indigo-400">Use amount</span>
@@ -72,6 +72,9 @@ export function RecognisePayment({ cardId, sourceId, legMatch, credits, ruleChos
   const [result, setResult] = useState<CardPlanSearch | null>(null);
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState(false);
+  const [showOther, setShowOther] = useState(false);
+  const [pickedExact, setPickedExact] = useState(false);
+  const pick = (rule: PlanFillRule, exact?: boolean) => { setPickedExact(Boolean(exact)); onPickRule(rule); };
 
   async function run(skip: number) {
     setBusy(true);
@@ -86,12 +89,19 @@ export function RecognisePayment({ cardId, sourceId, legMatch, credits, ruleChos
     }
   }
 
-  if (legMatch) {
-    return <p data-testid="card-leg-match" role="status" className="rounded-xl bg-slate-50 p-3 text-sm leading-6 text-slate-700 dark:bg-slate-800/60 dark:text-slate-200"><MoneyText text={legMatchLine(legMatch)} /></p>;
-  }
-  if (ruleChosen) return null;
+  const open = showOther || (!legMatch && !ruleChosen);
+  const exact = pickedExact || (!showOther && Boolean(legMatch?.rule_is_exact));
+  const head = (
+    <>
+      {legMatch && !showOther && <p data-testid="card-leg-match" role="status" className="rounded-xl bg-slate-50 p-3 text-sm leading-6 text-slate-700 dark:bg-slate-800/60 dark:text-slate-200"><MoneyText text={legMatchLine(legMatch)} /></p>}
+      {exact && <p data-testid="card-rule-exact" className={hintClass}>{CARD_PLAN_COPY.exactWording}</p>}
+      {legMatch && <button type="button" aria-expanded={showOther} onClick={() => setShowOther(value => !value)} className="flex min-h-[44px] items-center px-1 text-[13px] font-semibold text-indigo-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-indigo-400">{showOther ? "Keep the payment found" : CARD_PLAN_COPY.chooseDifferent}</button>}
+    </>
+  );
+  if (!open) return <div className="space-y-1">{head}</div>;
   return (
     <div data-testid="card-leg-fallback" className="space-y-3">
+      {head}
       <div>
         <h4 className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">{CARD_PLAN_COPY.creditsTitle}</h4>
         <p className={`mt-1 ${hintClass}`}>{CARD_PLAN_COPY.creditsHelper}</p>
@@ -99,8 +109,8 @@ export function RecognisePayment({ cardId, sourceId, legMatch, credits, ruleChos
       {credits.length > 0 && (
         <ul data-testid="card-plan-recent-credits" className={boxClass}>
           {credits.map(item => (
-            <li key={`${item.card_date}-${item.amount}-${item.narrative}`}>
-              <button type="button" disabled={!item.fill_rule} onClick={() => item.fill_rule && onPickRule(item.fill_rule)} className={`${rowClass} enabled:active:opacity-70 disabled:cursor-default`}>
+            <li key={item.id}>
+              <button type="button" disabled={!item.fill_rule} onClick={() => item.fill_rule && pick(item.fill_rule, item.rule_is_exact)} className={`${rowClass} enabled:active:opacity-70 disabled:cursor-default`}>
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-sm font-medium text-slate-900 dark:text-slate-100">{item.narrative || "Payment"}</span>
                   <span className="block text-xs text-slate-600 dark:text-slate-300"><MoneyText text={`+£${item.amount.toFixed(2)} on ${shortRepaymentDate(item.card_date)}`} />{item.fill_rule ? "" : ` · ${CARD_PLAN_COPY.searchUnmatched}`}</span>
@@ -126,7 +136,7 @@ export function RecognisePayment({ cardId, sourceId, legMatch, credits, ruleChos
           <ul className={boxClass}>
             {result.items.map(item => (
               <li key={item.id}>
-                <button type="button" disabled={!item.fill_rule} onClick={() => item.fill_rule && onPickRule(item.fill_rule)} className={`${rowClass} enabled:active:opacity-70 disabled:cursor-default`}>
+                <button type="button" disabled={!item.fill_rule} onClick={() => item.fill_rule && pick(item.fill_rule, item.rule_is_exact)} className={`${rowClass} enabled:active:opacity-70 disabled:cursor-default`}>
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-sm font-medium text-slate-900 dark:text-slate-100">{item.narrative || item.display_name}</span>
                     <span className="block text-xs text-slate-600 dark:text-slate-300"><MoneyText text={`${item.direction === "out" ? "−" : "+"}£${item.amount.toFixed(2)} on ${shortRepaymentDate(item.date)}`} /> · {item.account_name}{item.fill_rule ? "" : ` · ${CARD_PLAN_COPY.searchUnmatched}`}</span>

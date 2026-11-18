@@ -97,6 +97,8 @@ export function legMatchLine(item: CardRepayment): string {
 }
 
 export const CARD_PLAN_COPY = {
+  exactWording: "This matches this exact wording, so a payment with a different reference may not be recognised.",
+  chooseDifferent: "Choose a different payment",
   recentTitle: "Recent repayments",
   recentHelper: "From this card's own history. Tap one to use its amount.",
   sourcePick: "These came from more than one account. Choose the one this plan should use.",

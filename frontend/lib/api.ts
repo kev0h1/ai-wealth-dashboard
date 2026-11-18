@@ -1044,6 +1044,9 @@ export type CardPlanFacts = {
 
 /** G476: one payment into a card, from both legs. `matched` means the paying account's debit was found. */
 export type CardRepayment = {
+  id: string;
+  /** True when the rule is the payment's whole wording because no stable part was found. */
+  rule_is_exact?: boolean;
   date: string | null;
   card_date: string | null;
   debit_date: string | null;
@@ -1063,7 +1066,7 @@ export type CardRepaymentSource = {
 /** G476: one row from the card-plan search (the card's or the paying account's). */
 export type CardPlanSearchItem = {
   id: string; account_id: string; account_name: string; on_card: boolean; date: string | null;
-  amount: number; direction: "in" | "out"; narrative: string; display_name: string; fill_rule: PlanFillRule | null;
+  amount: number; direction: "in" | "out"; narrative: string; display_name: string; fill_rule: PlanFillRule | null; rule_is_exact?: boolean;
 };
 
 export type CardPlanSearch = { items: CardPlanSearchItem[]; total: number; limit: number; skip: number; has_more: boolean };
