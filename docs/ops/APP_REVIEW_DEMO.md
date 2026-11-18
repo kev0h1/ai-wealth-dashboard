@@ -34,7 +34,13 @@ route to any bank provider.
    enter `appreview@auriqltd.co.uk` and the password. In the notes say: "Tap
    Demo sign-in under the Google and Apple buttons. The account holds
    synthetic data only and cannot connect a bank."
-6. Re-seed before each review submission so dates stay current.
+6. Re-seed before each review submission so dates stay current. The seed is
+   deterministic (no randomness), so any day of the pay period gives the same
+   story: Left to spend about £400 to £520 and "Looks on track", with the Bills
+   Account short before payday and one suggested move from the Everyday
+   Current covering it. (`--today YYYY-MM-DD` exists only as a test aid, used
+   by tests/test_demo_seeder.py to sweep two pay periods. Never pass it when
+   seeding for real.)
 7. Optionally remove `DEMO_LOGIN_ENABLED` afterwards and restart.
 
 Never run the seeder against a database you are not sure of: it only deletes
