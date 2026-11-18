@@ -323,7 +323,8 @@ async def _rows(uid: str, account_ids: list[str], days: int, kind: str | None = 
 
     if not account_ids:
         return []
-    cutoff = datetime.now(timezone.utc) - timedelta(days=days)  # naive-ok: lookback window, not a calendar date
+    start = timeutil.user_today() - timedelta(days=days)
+    cutoff = datetime(start.year, start.month, start.day)
     query: dict = {"user_id": uid, "account_id": {"$in": list(account_ids)}, "date": {"$gte": cutoff}}
     if kind:
         query["transaction_type"] = kind
