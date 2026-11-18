@@ -118,3 +118,6 @@ roe.env
 marketing/ai-intro/out/
 
 backend/.finexer_templates.json
+
+# Integrate unpushed-merge window marker (H156), runtime artifact.
+.integrate-window

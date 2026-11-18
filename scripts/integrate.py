@@ -47,7 +47,7 @@ vanish with no explanation at all.
      `wealth-worker` (the worker imports services and core modules under
      `backend/app`, not just `backend/app/workers`, so any backend change
      can affect its cron code); then checks both health endpoints.
-  4. On any failure in step 3: `git reset --hard ORIG_HEAD`, restart
+  4. On any failure in step 3 or the push: reset local main to the pre-merge sha (replaying board commits made meanwhile), restart
      services again from the restored tree, and block the item. The full
      failure output is logged at error level (in full); the board note is
      built from its diagnostic tail rather than the raw head, so it holds
@@ -55,7 +55,9 @@ vanish with no explanation at all.
      is capped by `backlog.add_note` regardless (see `_extract_diagnostic_tail`
      and H46, following on from H27); the `[state: blocked: ...]` tag itself
      only ever gets a single sanitised line, capped at 200 characters (H27).
-  5. On success: `git push origin main`. If the item is a design round —
+  5. On success: `git push origin main` (H156: only after every gate in
+     step 3 has passed; until then board writes commit locally without
+     pushing, see `_open_window`). If the item is a design round —
      flagged explicitly via `scripts/session.sh finish <ID> --uat-review`
      (recorded on the board as the item's `uat_review` flag) or, as a
      backstop, if the merge's own diff touches only
@@ -872,8 +874,38 @@ def _block(item_id: str, reason: str) -> None:
             _warn_if_not_committed(item_id, "block detail note", note_committed)
 
 
-def _rollback_and_restart(pre_sha: str, changed: set[str]) -> None:
-    _sh(["git", "reset", "--hard", "ORIG_HEAD"])
+WINDOW_PATH = REPO_ROOT / ".integrate-window"
+
+
+def _open_window() -> None:
+    """H156: from the moment the merge lands on local main until every gate
+    has passed and the push has succeeded (or the merge is rolled back),
+    board writes (`backlog._git_commit_and_push`, any process) commit locally
+    but do not push, so a concurrent `backlog.py note` can no longer publish
+    the unbuilt merge to origin/main (G475, 2026-11-17)."""
+    WINDOW_PATH.write_text(f"{os.getpid()}\n")
+
+
+def _close_window() -> None:
+    try:
+        WINDOW_PATH.unlink()
+    except FileNotFoundError:
+        pass
+
+
+def _rollback_and_restart(pre_sha: str, merge_sha: str, changed: set[str]) -> None:
+    # H156: reset to the recorded pre-merge sha, not ORIG_HEAD (any git
+    # operation in the window can move it), and carry across the board
+    # commits that were made on top of the merge meanwhile instead of
+    # discarding them with it.
+    rc, out = _sh(["git", "rev-list", "--first-parent", "--reverse", f"{merge_sha}..HEAD"])
+    replay = out.split() if rc == 0 and merge_sha else []
+    _sh(["git", "reset", "--hard", pre_sha])
+    for sha in replay:
+        rc, out = _sh(["git", "cherry-pick", sha])
+        if rc != 0:
+            _sh(["git", "cherry-pick", "--abort"])
+            print(f"warning: could not replay board commit {sha} after rollback:\n{out}", file=sys.stderr)
     # The reset above restores requirements.txt / package-lock.json to their
     # pre-merge contents, but does not touch a venv or node_modules that
     # _install_dependencies may have already updated for the merged
@@ -934,25 +966,34 @@ def _integrate_one(item: dict) -> tuple[str, str]:
         return "blocked", f"{item_id}: merge conflict with {branch}"
 
     changed = _changed_paths(f"{pre_sha}..HEAD")
+    head_rc, head_out = _sh(["git", "rev-parse", "HEAD"])
+    merge_sha = head_out.strip() if head_rc == 0 else ""
 
+    # H156: nothing reaches origin/main until every gate (tests, checks,
+    # staging build + swap, restarts, health) has passed. The window marker
+    # keeps concurrent board writes from pushing the unbuilt merge meanwhile.
+    _open_window()
     try:
-        _install_dependencies(changed)
-        _run_backend_tests()
-        _run_frontend_checks(changed)
-        _restart_services(changed)
-        _wait_and_check_health()
-    except IntegrateError as exc:
-        full_text = str(exc)
-        _rollback_and_restart(pre_sha, changed)
-        _block(item_id, full_text)
-        return "blocked", f"{item_id}: {_one_line_reason(full_text)}"
-
-    rc, out = _sh(["git", "push", "origin", "main"], timeout=60)
-    if rc != 0:
-        full_text = "git push origin main failed:\n" + out
-        _rollback_and_restart(pre_sha, changed)
-        _block(item_id, full_text)
-        return "blocked", f"{item_id}: push failed"
+        try:
+            _install_dependencies(changed)
+            _run_backend_tests()
+            _run_frontend_checks(changed)
+            _restart_services(changed)
+            _wait_and_check_health()
+            rc, out = _sh(["git", "push", "origin", "main"], timeout=60)
+            if rc != 0:
+                raise IntegrateError("git push origin main failed:\n" + out)
+        except IntegrateError as exc:
+            full_text = str(exc)
+            _rollback_and_restart(pre_sha, merge_sha, changed)
+            _close_window()
+            _block(item_id, full_text)
+            return "blocked", f"{item_id}: {_one_line_reason(full_text)}"
+        except Exception:
+            _rollback_and_restart(pre_sha, merge_sha, changed)
+            raise
+    finally:
+        _close_window()
 
     merge_sha_rc, merge_sha_out = _sh(["git", "rev-parse", "HEAD"])
     merge_sha = merge_sha_out.strip() if merge_sha_rc == 0 else ""

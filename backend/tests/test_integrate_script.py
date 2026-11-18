@@ -1152,6 +1152,13 @@ def test_review_items_missing_branch_returns_only_review_state_with_no_branch(mo
     assert all(i["state"] == "review" for i in missing)
 
 
+@pytest.fixture(autouse=True)
+def _integrate_window_in_tmp(monkeypatch, tmp_path):
+    """H156: `_integrate_one` opens a window marker; never let a test write it
+    into the real shared tree, where it would hold back live board pushes."""
+    monkeypatch.setattr(integrate, "WINDOW_PATH", tmp_path / ".integrate-window")
+
+
 def _fake_sh_factory(extra=None):
     def fake_sh(cmd, cwd=integrate.REPO_ROOT, timeout=integrate.GIT_TIMEOUT):
         if extra is not None:
