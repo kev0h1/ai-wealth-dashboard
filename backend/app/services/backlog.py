@@ -876,24 +876,29 @@ def _wait_for_git_index_lock(
 INTEGRATE_WINDOW_FILE = ".integrate-window"
 
 
+def _pid_is_integrate(pid: int) -> bool:
+    """True only if `pid` is a live process whose command line names
+    integrate.py. A dead pid, a pid recycled by an unrelated process, or one
+    we are not allowed to inspect all mean "not integrate" (H156)."""
+    try:
+        raw = Path(f"/proc/{pid}/cmdline").read_bytes()
+    except OSError:  # includes FileNotFoundError and PermissionError
+        return False
+    return "integrate.py" in raw.replace(b"\0", b" ").decode("utf-8", "replace")
+
+
 def integrate_window_active(repo_root: Path) -> bool:
     """H156: True while a live `scripts/integrate.py` process has a merge on
     local main that has not passed every gate and been pushed. The marker
     file holds the owning pid on its first line; a marker whose process is
-    gone (integrate crashed) is stale and ignored, so it can never wedge
-    board pushes."""
+    gone, was recycled by something else, or cannot be inspected is stale
+    and ignored, so it can never wedge board pushes."""
     try:
         first = (Path(repo_root) / INTEGRATE_WINDOW_FILE).read_text().split("\n", 1)[0].strip()
         pid = int(first)
     except (OSError, ValueError):
         return False
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        return True
-    return True
+    return _pid_is_integrate(pid)
 
 
 def _git_commit_and_push(paths: list[Path], message: str, repo_root: Path) -> bool:

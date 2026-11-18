@@ -13,6 +13,7 @@ local main, leaving unbuilt code on origin/main and the shared tree diverged.
 """
 from __future__ import annotations
 
+import fcntl
 import importlib.util
 import os
 import subprocess
@@ -107,7 +108,21 @@ def env(tmp_path, monkeypatch):
         return 0, ""
 
     e.pushes = pushes
-    monkeypatch.setattr(integrate, "_sh", fake_sh)
+    e.hooks = {}
+
+    def hooking_sh(cmd, cwd=None, timeout=30, env=None):
+        result = fake_sh(cmd, cwd=cwd, timeout=timeout, env=env)
+        if cmd[:3] == ["git", "merge", "--no-ff"] and e.hooks.get("after_merge"):
+            e.hooks["after_merge"]()
+        if cmd[:2] in (["git", "reset"], ["git", "cherry-pick"]) and e.hooks.get("on_rollback_step"):
+            e.hooks["on_rollback_step"](cmd)
+        return result
+
+    from app.services import backlog as _backlog
+    e.real_pid_check = _backlog._pid_is_integrate
+    # The code under test runs inside pytest, whose cmdline is not integrate.py.
+    monkeypatch.setattr(_backlog, "_pid_is_integrate", lambda pid: pid == os.getpid())
+    monkeypatch.setattr(integrate, "_sh", hooking_sh)
     monkeypatch.setattr(integrate, "REPO_ROOT", e.shared)
     monkeypatch.setattr(integrate, "WINDOW_PATH", e.shared / ".integrate-window", raising=False)
     monkeypatch.setenv("BACKLOG_ROOT", str(e.shared))
@@ -197,3 +212,148 @@ def test_stale_window_marker_from_a_dead_process_does_not_stop_board_pushes(env)
     _, committed, _t = backlog.add_note("A2", "after a crashed integrate", actor="claude")
     assert committed is True
     assert "after a crashed integrate" in _git(env.origin, "show", "main:TODO.md")
+
+
+def _other_clone_commit(env, tmp_path, filename, text):
+    n = 0
+    while (tmp_path / f"other-{n}").exists():
+        n += 1
+    clone = tmp_path / f"other-{n}"
+    _git(tmp_path, "clone", "-q", str(env.origin), str(clone))
+    _git(clone, "config", "user.email", "o@example.com")
+    _git(clone, "config", "user.name", "O")
+    (clone / filename).write_text(text, encoding="utf-8")
+    _git(clone, "add", "-A")
+    _git(clone, "commit", "-q", "-m", f"other {filename}")
+    _git(clone, "push", "-q", "origin", "main")
+
+
+def test_board_write_between_merge_and_the_old_window_open_never_reaches_origin(env, monkeypatch):
+    from app.services import backlog
+
+    # Fires the instant `git merge` returns: before H156 the window opened
+    # only after this point, so this write pushed the unbuilt merge.
+    env.hooks["after_merge"] = lambda: backlog.add_note("A2", "write in the old pre-window gap", actor="claude")
+    monkeypatch.setattr(integrate, "_restart_services", lambda changed: (_ for _ in ()).throw(integrate.IntegrateError("build failed")))
+
+    result, _ = integrate._integrate_one(_item())
+
+    assert result == "blocked"
+    assert not env.origin_has_file("feature.txt")
+    _git(env.shared, "fetch", "-q", "origin")
+    assert _git(env.shared, "rev-parse", "HEAD") == _git(env.shared, "rev-parse", "origin/main")
+    assert "write in the old pre-window gap" in _git(env.origin, "show", "main:TODO.md")
+
+
+def test_failure_opening_the_window_leaves_no_merge_on_main(env, monkeypatch):
+    def boom():
+        raise OSError("disk full")
+
+    monkeypatch.setattr(integrate, "_open_window", boom)
+    with pytest.raises(OSError):
+        integrate._integrate_one(_item())
+    assert _git(env.shared, "rev-parse", "HEAD") == env.pre_sha
+    assert not (env.shared / "feature.txt").exists()
+
+
+def test_marker_pid_reused_by_an_unrelated_process_is_not_active(env):
+    from app.services import backlog
+
+    backlog._pid_is_integrate = env.real_pid_check  # undo the fixture stub (monkeypatch restores it)
+    proc = subprocess.Popen(["sleep", "30"])
+    try:
+        (env.shared / ".integrate-window").write_text(f"{proc.pid}\n")
+        assert backlog.integrate_window_active(env.shared) is False
+        _, committed, _t = backlog.add_note("A2", "pid reuse note", actor="claude")
+        assert committed is True
+        assert "pid reuse note" in _git(env.origin, "show", "main:TODO.md")
+    finally:
+        proc.kill()
+        proc.wait()
+
+
+def test_marker_pid_of_a_live_integrate_process_is_active(env):
+    from app.services import backlog
+
+    backlog._pid_is_integrate = env.real_pid_check
+    proc = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)", "scripts/integrate.py"])
+    try:
+        (env.shared / ".integrate-window").write_text(f"{proc.pid}\n")
+        assert backlog.integrate_window_active(env.shared) is True
+        _, committed, _t = backlog.add_note("A2", "held back note", actor="claude")
+        assert committed is True
+        assert "held back note" not in _git(env.origin, "show", "main:TODO.md")
+    finally:
+        proc.kill()
+        proc.wait()
+
+
+def test_origin_gaining_a_board_commit_is_rebased_over_and_pushed(env, monkeypatch, tmp_path):
+    def build(changed):
+        if not (tmp_path / "other-0").exists():
+            _other_clone_commit(env, tmp_path, "TODO.md", TODO + "\n<!-- other session note -->\n")
+
+    monkeypatch.setattr(integrate, "_restart_services", build)
+
+    result, detail = integrate._integrate_one(_item())
+
+    assert result == "merged", detail
+    assert env.origin_has_file("feature.txt")
+    assert "other session note" in _git(env.origin, "show", "main:TODO.md")
+    _git(env.shared, "fetch", "-q", "origin")
+    assert _git(env.shared, "rev-parse", "HEAD") == _git(env.shared, "rev-parse", "origin/main")
+    assert _state(env) == "done"
+    # exactly one successful main push; no non-fast-forward attempt first
+    assert len([p for p in env.pushes if p[-1] == "main"]) == 1
+
+
+def test_origin_gaining_a_non_board_commit_rolls_back_and_blocks(env, monkeypatch, tmp_path):
+    done = []
+
+    def build(changed):
+        if not done:  # the rollback restarts services again; only advance origin once
+            done.append(1)
+            _other_clone_commit(env, tmp_path, "other.txt", "x\n")
+
+    monkeypatch.setattr(integrate, "_restart_services", build)
+
+    result, detail = integrate._integrate_one(_item())
+
+    assert result == "blocked"
+    assert not env.origin_has_file("feature.txt")
+    assert not (env.shared / "feature.txt").exists()
+    _git(env.shared, "fetch", "-q", "origin")
+    assert _git(env.shared, "rev-parse", "HEAD") == _git(env.shared, "rev-parse", "origin/main")
+    assert _state(env) == "blocked"
+
+
+def test_rollback_holds_the_board_lock_across_reset_and_replay(env, monkeypatch):
+    from app.services import backlog
+
+    held_during = []
+
+    def probe(cmd):
+        fh = open(env.shared / ".backlog.lock", "a+")
+        try:
+            try:
+                fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                held_during.append((cmd[1], False))
+                fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+            except BlockingIOError:
+                held_during.append((cmd[1], True))
+        finally:
+            fh.close()
+
+    env.hooks["on_rollback_step"] = probe
+
+    def failing_build(changed):
+        backlog.add_note("A2", "needs replaying", actor="claude")
+        raise integrate.IntegrateError("build failed")
+
+    monkeypatch.setattr(integrate, "_restart_services", failing_build)
+    integrate._integrate_one(_item())
+
+    steps = dict(held_during)
+    assert "reset" in steps and "cherry-pick" in steps, held_during
+    assert all(held for _, held in held_during), held_during
+    assert "needs replaying" in (env.shared / "TODO.md").read_text(encoding="utf-8")

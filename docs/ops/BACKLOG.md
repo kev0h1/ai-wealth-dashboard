@@ -952,11 +952,17 @@ changed at all (the worker imports services and core modules under
 stale), and checks both health endpoints. Only then does it `git push origin
 main`; nothing reaches origin before every gate, including the staging
 build, has passed (H156). While the merge sits unpushed on local main
-integrate holds a `.integrate-window` marker (its pid, git-ignored), and
+integrate holds a `.integrate-window` marker (its pid, git-ignored; opened
+before the merge so there is no gap, and honoured only while that pid's
+command line still names `integrate.py`), and
 any board write in that window (`backlog._git_commit_and_push`) commits
 locally without pushing, because `git push origin HEAD` would otherwise
 publish the unbuilt merge (G475, 2026-11-17); the commits go out with
-integrate's own push, or are replayed after a rollback. Any failure there,
+integrate's own push, or are replayed after a rollback. Just before the
+push it fetches origin: if origin/main gained only board commits (`TODO.md`
+or `docs/compliance/`), the merge is rebased onto it and pushed as a
+fast-forward; any other advance rolls back and blocks. The rollback holds
+the board write lock across its reset and replay. Any failure there,
 including a failed push, rolls the merge back (`git reset --hard` to the
 recorded pre-merge sha, board commits made meanwhile cherry-picked back),
 restores services from the reverted tree, and blocks the item; origin/main
