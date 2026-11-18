@@ -48,7 +48,7 @@
 // scripts/open-banking-access.test.mjs; the hook is a one-line binding of it
 // to component state.
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 // `SubscriptionInfo` is imported with `import type` rather than folded into
 // the value import above (the style lib/accountsCache.ts uses): Node's
 // --experimental-strip-types does not elide a type name sitting in a value
@@ -186,4 +186,75 @@ export function useOpenBankingAccessState(): { allowed: boolean; ready: boolean 
   const [access, setAccess] = useState({ allowed: false, ready: false });
   useEffect(() => watchOpenBankingAccess(allowed => setAccess({ allowed, ready: true })), []);
   return access;
+}
+
+// ── G477: a tri-state read for surfaces that must never show a silent dead button ──
+//
+// `watchOpenBankingAccess` above settles a failed read to TRUE and never says
+// "still loading", which is right for Home and signup but left the Accounts
+// Add menu with a disabled Connect a bank row and no way to tell a slow read
+// from a refusal or a failure. This sibling reports all four states and can
+// be retried, and it gives up waiting after `timeoutMs` (a WebView whose
+// request never settles would otherwise read "Checking…" for ever). A read
+// that lands after the timeout still wins, so a slow but healthy answer
+// replaces the retry line on its own.
+
+export type OpenBankingAccessStatus = "loading" | "allowed" | "denied" | "error";
+
+export const OPEN_BANKING_READ_TIMEOUT_MS = 8_000;
+
+export interface OpenBankingAccessWatch {
+  unsubscribe: () => void;
+  /** Starts a fresh read (status goes back to "loading"). */
+  retry: () => void;
+}
+
+export function watchOpenBankingAccessStatus(
+  onChange: (status: OpenBankingAccessStatus, timedOut?: boolean) => void,
+  timeoutMs: number = OPEN_BANKING_READ_TIMEOUT_MS,
+): OpenBankingAccessWatch {
+  let cancelled = false;
+  let attempt = 0;
+  let haveGood = false; // a read already answered allowed or denied
+  const read = (fresh: boolean): Promise<void> => {
+    const mine = ++attempt;
+    const gen = generation;
+    if (fresh) onChange("loading");
+    const live = () => !cancelled && mine === attempt && gen === generation;
+    // A re-read with a good value already cached keeps showing it: no timeout.
+    const timer = !fresh && haveGood ? null : setTimeout(() => { if (live()) onChange("error", true); }, timeoutMs);
+    return getSubscriptionCached()
+      .then((sub) => { if (timer) clearTimeout(timer); if (live()) { haveGood = true; onChange(openBankingAllowed(sub) ? "allowed" : "denied"); } })
+      .catch(() => { if (timer) clearTimeout(timer); if (live()) onChange("error", false); });
+  };
+  // A plan change re-reads without blinking back to "loading".
+  const onInvalidate = () => read(false);
+  readers.add(onInvalidate);
+  onChange("loading");
+  void read(false);
+  return {
+    unsubscribe: () => { cancelled = true; readers.delete(onInvalidate); },
+    retry: () => {
+      // A failed read is not cached, but a hung one is still the in-flight
+      // promise; drop it so retry really asks again.
+      cache = null;
+      inflight = null;
+      generation += 1; // the old hung request must not write the cache
+      void read(true);
+    },
+  };
+}
+
+/** Accounts Add menu: loading, allowed, denied (plan) or error (retry). */
+export function useOpenBankingAccessStatus(): { status: OpenBankingAccessStatus; timedOut: boolean; allowed: boolean; ready: boolean; retry: () => void } {
+  const [status, setStatus] = useState<OpenBankingAccessStatus>("loading");
+  const [timedOut, setTimedOut] = useState(false);
+  const watchRef = useRef<OpenBankingAccessWatch | null>(null);
+  useEffect(() => {
+    const watch = watchOpenBankingAccessStatus((next, late) => { setStatus(next); setTimedOut(next === "error" && !!late); });
+    watchRef.current = watch;
+    return () => { watch.unsubscribe(); watchRef.current = null; };
+  }, []);
+  const retry = useCallback(() => watchRef.current?.retry(), []);
+  return { status, timedOut, allowed: status === "allowed", ready: status !== "loading", retry };
 }
