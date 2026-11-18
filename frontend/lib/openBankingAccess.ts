@@ -210,20 +210,22 @@ export interface OpenBankingAccessWatch {
 }
 
 export function watchOpenBankingAccessStatus(
-  onChange: (status: OpenBankingAccessStatus) => void,
+  onChange: (status: OpenBankingAccessStatus, timedOut?: boolean) => void,
   timeoutMs: number = OPEN_BANKING_READ_TIMEOUT_MS,
 ): OpenBankingAccessWatch {
   let cancelled = false;
   let attempt = 0;
+  let haveGood = false; // a read already answered allowed or denied
   const read = (fresh: boolean): Promise<void> => {
     const mine = ++attempt;
     const gen = generation;
     if (fresh) onChange("loading");
     const live = () => !cancelled && mine === attempt && gen === generation;
-    const timer = setTimeout(() => { if (live()) onChange("error"); }, timeoutMs);
+    // A re-read with a good value already cached keeps showing it: no timeout.
+    const timer = !fresh && haveGood ? null : setTimeout(() => { if (live()) onChange("error", true); }, timeoutMs);
     return getSubscriptionCached()
-      .then((sub) => { clearTimeout(timer); if (live()) onChange(openBankingAllowed(sub) ? "allowed" : "denied"); })
-      .catch(() => { clearTimeout(timer); if (live()) onChange("error"); });
+      .then((sub) => { if (timer) clearTimeout(timer); if (live()) { haveGood = true; onChange(openBankingAllowed(sub) ? "allowed" : "denied"); } })
+      .catch(() => { if (timer) clearTimeout(timer); if (live()) onChange("error", false); });
   };
   // A plan change re-reads without blinking back to "loading".
   const onInvalidate = () => read(false);
@@ -237,20 +239,22 @@ export function watchOpenBankingAccessStatus(
       // promise; drop it so retry really asks again.
       cache = null;
       inflight = null;
+      generation += 1; // the old hung request must not write the cache
       void read(true);
     },
   };
 }
 
 /** Accounts Add menu: loading, allowed, denied (plan) or error (retry). */
-export function useOpenBankingAccessStatus(): { status: OpenBankingAccessStatus; allowed: boolean; ready: boolean; retry: () => void } {
+export function useOpenBankingAccessStatus(): { status: OpenBankingAccessStatus; timedOut: boolean; allowed: boolean; ready: boolean; retry: () => void } {
   const [status, setStatus] = useState<OpenBankingAccessStatus>("loading");
+  const [timedOut, setTimedOut] = useState(false);
   const watchRef = useRef<OpenBankingAccessWatch | null>(null);
   useEffect(() => {
-    const watch = watchOpenBankingAccessStatus(setStatus);
+    const watch = watchOpenBankingAccessStatus((next, late) => { setStatus(next); setTimedOut(next === "error" && !!late); });
     watchRef.current = watch;
     return () => { watch.unsubscribe(); watchRef.current = null; };
   }, []);
   const retry = useCallback(() => watchRef.current?.retry(), []);
-  return { status, allowed: status === "allowed", ready: status !== "loading", retry };
+  return { status, timedOut, allowed: status === "allowed", ready: status !== "loading", retry };
 }

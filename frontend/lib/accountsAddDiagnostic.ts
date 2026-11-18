@@ -11,7 +11,7 @@
 // that could be returned from a promise (A133).
 
 export type AddPath = "bank" | "statement" | "investment" | "offline";
-export type AddAccessState = "loading" | "allowed" | "denied" | "error";
+export type AddAccessState = "loading" | "timeout" | "allowed" | "denied" | "error";
 
 export interface AddSnapshot {
   access: AddAccessState;
@@ -72,7 +72,8 @@ export function createAddDiagnostic(deps: AddDiagnosticDeps) {
       if (sent) return () => {};
       return arm(ADD_ACCESS_CHECK_MS, () => {
         const snap = getSnapshot();
-        if (snap.access === "loading" || snap.access === "error") report("bank", "access-unresolved", snap);
+        // Only a still-pending read (or one that hit its own timeout) is unresolved; a fast failure (offline) is not.
+        if (snap.access === "loading" || snap.access === "timeout") report("bank", "access-unresolved", snap);
       });
     },
     /** Test and unmount hook: cancels any pending check. */

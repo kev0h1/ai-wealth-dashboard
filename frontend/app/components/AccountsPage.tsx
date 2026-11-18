@@ -326,8 +326,8 @@ export default function AccountsPage() {
   // page rather than gating it — see lib/openBankingAccess.ts.
   const bankAccess = useOpenBankingAccessStatus();
   // G477: what the on-device diagnostic reports (state names only).
-  const addSnapshotRef = useRef({ access: bankAccess.status, ready: bankAccess.ready, allowed: bankAccess.allowed });
-  useEffect(() => { addSnapshotRef.current = { access: bankAccess.status, ready: bankAccess.ready, allowed: bankAccess.allowed }; }, [bankAccess.status, bankAccess.ready, bankAccess.allowed]);
+  const addSnapshotRef = useRef({ access: (bankAccess.timedOut ? "timeout" : bankAccess.status) as "loading" | "timeout" | "allowed" | "denied" | "error", ready: bankAccess.ready, allowed: bankAccess.allowed });
+  useEffect(() => { addSnapshotRef.current = { access: (bankAccess.timedOut ? "timeout" : bankAccess.status) as "loading" | "timeout" | "allowed" | "denied" | "error", ready: bankAccess.ready, allowed: bankAccess.allowed }; }, [bankAccess.status, bankAccess.timedOut, bankAccess.ready, bankAccess.allowed]);
   useEffect(() => accountsAddDiagnostic().watchAccess(() => addSnapshotRef.current), []);
   const watchAddTap = (path: AddPath) => { accountsAddDiagnostic().tapped(path, () => addSnapshotRef.current); };
   const canConnectBank = bankAccess.allowed;

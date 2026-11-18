@@ -10,6 +10,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { api } from "../lib/api.ts";
 import { watchOpenBankingAccessStatus, invalidateOpenBankingAccess } from "../lib/openBankingAccess.ts";
 import AccountsAddMenu from "../components/AccountsAddMenu.tsx";
+import { consentErrorMessage } from "../lib/startConsent.ts";
 import { createAddDiagnostic } from "../lib/accountsAddDiagnostic.ts";
 
 const h = React.createElement;
@@ -72,10 +73,29 @@ await ok("denied: reason and Manage subscription shown", () => {
   const html = menu({ allowed: false, ready: true });
   assert.ok(bankDisabled(html)); assert.ok(html.includes("not included in your plan")); assert.ok(html.includes("Manage subscription"));
 });
-await ok("error: retry line and Try again, no plan wording", () => {
+await ok("error: Connect stays enabled (A67), warning and Try again shown, no plan wording", () => {
   const html = menu({ allowed: false, ready: true, error: true, onRetry: noop });
-  assert.ok(bankDisabled(html)); assert.ok(html.includes("could not check bank connection access")); assert.ok(html.includes("Try again"));
+  assert.ok(!bankDisabled(html)); assert.ok(html.includes("could not check bank connection access")); assert.ok(html.includes("Try again"));
   assert.ok(!html.includes("not included in your plan") && !html.includes("Manage subscription"));
+  assert.equal((html.match(/disabled=""/g) || []).length, 0);
+});
+await ok("a 402 from the bank flow still surfaces the server message (startConsent.consentErrorMessage)", () => {
+  const err = Object.assign(new Error("Bank connection is not included in your plan."), { name: "ApiError", status: 402, detail: null });
+  assert.deepEqual(consentErrorMessage(err), { message: "Bank connection is not included in your plan.", rejected: false });
+});
+await ok("retry supersedes a hung request: its late answer cannot overwrite", async () => {
+  let calls = 0; const releases = [];
+  const { seen, watch } = await track(() => { calls++; return new Promise((r) => releases.push(r)); }, 20);
+  await tick(60); watch.retry(); await tick();
+  releases[1](sub(false)); await tick(); assert.equal(seen.at(-1), "denied");
+  releases[0](sub(true)); await tick(); assert.equal(seen.at(-1), "denied"); watch.unsubscribe();
+});
+await ok("an invalidation re-read with a cached value arms no timeout and keeps the value", async () => {
+  const { seen, watch } = await track(async () => sub(true), 20);
+  await tick(); let release; api.getSubscription = () => new Promise((r) => { release = r; });
+  invalidateOpenBankingAccess(); await tick(60);
+  assert.deepEqual(seen, ["loading", "allowed"]);
+  release(sub(false)); await tick(); assert.equal(seen.at(-1), "denied"); watch.unsubscribe();
 });
 await ok("every row fires its handler (element tree)", () => {
   const calls = [];
@@ -132,6 +152,10 @@ await ok("at most one report per launch across taps and the watchdog", () => {
 });
 await ok("a sheet that opened is not reported", () => {
   const r = rig({ sheet: true }); r.d.tapped("investment", snap("allowed")); r.fire(); assert.equal(r.sent.length, 0);
+});
+await ok("offline failure (error) does not use up the report; a timeout does", () => {
+  const e = rig(); e.d.watchAccess(snap("error")); e.fire(); assert.equal(e.sent.length, 0);
+  const t = rig(); t.d.watchAccess(snap("timeout")); t.fire(); assert.equal(t.sent.length, 1);
 });
 await ok("access unresolved at 8s reports; resolved does not", () => {
   const a = rig(); a.d.watchAccess(snap("loading")); assert.equal(a.timers[0].ms, 8000); a.fire();
