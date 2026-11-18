@@ -357,3 +357,48 @@ def test_rollback_holds_the_board_lock_across_reset_and_replay(env, monkeypatch)
     assert "reset" in steps and "cherry-pick" in steps, held_during
     assert all(held for _, held in held_during), held_during
     assert "needs replaying" in (env.shared / "TODO.md").read_text(encoding="utf-8")
+
+
+def test_branch_already_contained_in_main_merges_nothing_and_never_uses_an_older_merge(env, monkeypatch):
+    from app.services import backlog
+
+    # Land the branch on main earlier (merge commit M), then put a board
+    # commit on top so HEAD is not M.
+    _git(env.shared, "merge", "-q", "--no-ff", "origin/feature-A1", "-m", "earlier merge")
+    older_merge = _git(env.shared, "rev-parse", "HEAD")
+    (env.shared / "README.md").write_text("later\n", encoding="utf-8")
+    _git(env.shared, "commit", "-q", "-am", "later commit")
+    _git(env.shared, "push", "-q", "origin", "main")
+    head_before = _git(env.shared, "rev-parse", "HEAD")
+    assert head_before != older_merge
+
+    def must_not_run(*a, **k):
+        raise AssertionError("gates must not run when nothing was merged")
+
+    for name in ("_run_backend_tests", "_restart_services", "_install_dependencies", "_run_frontend_checks"):
+        monkeypatch.setattr(integrate, name, must_not_run)
+
+    result, detail = integrate._integrate_one(_item())
+
+    assert result == "merged", detail
+    assert not (env.shared / ".integrate-window").exists()
+    doc = backlog.TodoDoc.parse((env.shared / "TODO.md").read_text(encoding="utf-8"))
+    item = doc.items["A1"]
+    assert item.done
+    assert item.commit == head_before, "ticked against current main, never the older merge commit"
+
+
+def test_changed_paths_raising_rolls_back_without_a_nameerror(env, monkeypatch):
+    monkeypatch.setattr(integrate, "_restart_services", lambda changed: None)
+
+    def boom(sha_range):
+        raise RuntimeError("git diff exploded")
+
+    monkeypatch.setattr(integrate, "_changed_paths", boom)
+
+    with pytest.raises(RuntimeError, match="git diff exploded"):
+        integrate._integrate_one(_item())
+
+    assert _git(env.shared, "rev-parse", "HEAD") == env.pre_sha
+    assert not (env.shared / "feature.txt").exists()
+    assert not (env.shared / ".integrate-window").exists()

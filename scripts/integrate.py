@@ -1040,7 +1040,15 @@ def _integrate_one(item: dict) -> tuple[str, str]:
     _open_window()
     merged = False
     merge_sha = ""
+    changed: set[str] = set()
     try:
+        # Re-read HEAD now that the window is open: a board commit made
+        # between the first read and the window opening must not be reset away.
+        head_rc, head_out = _sh(["git", "rev-parse", "HEAD"])
+        if head_rc != 0:
+            _close_window()
+            return "skipped", f"{item_id}: could not read current HEAD, skipping"
+        pre_sha = head_out.strip()
         rc, out = _sh(["git", "merge", "--no-ff", f"origin/{branch}", "-m", f"integrate: {item_id} {title} ({branch})"])
         if rc != 0:
             _sh(["git", "merge", "--abort"])
@@ -1051,23 +1059,36 @@ def _integrate_one(item: dict) -> tuple[str, str]:
             )
             _block(item_id, reason)
             return "blocked", f"{item_id}: merge conflict with {branch}"
-        merged = True
+        after_rc, after_out = _sh(["git", "rev-parse", "HEAD"])
+        if after_rc == 0 and after_out.strip() == pre_sha:
+            # "Already up to date": the branch is already contained in main, so
+            # nothing was merged and there is nothing to build, test or push.
+            # Same outcome as before H156 (the item is ticked against current
+            # main), just without running gates over an empty diff. Never fall
+            # back to an older merge commit for merge_sha.
+            _close_window()
+            merge_sha = pre_sha
+            print(f"{item_id}: origin/{branch} is already contained in main, nothing to merge")
+        else:
+            merged = True
 
-        changed = _changed_paths(f"{pre_sha}..HEAD")
-        # The merge commit itself, not HEAD: a board commit may already sit on top.
-        head_rc, head_out = _sh(["git", "rev-list", "--first-parent", "--merges", "-n", "1", "HEAD"])
-        merge_sha = head_out.strip() if head_rc == 0 else ""
+        if merged:
+            changed = _changed_paths(f"{pre_sha}..HEAD")
+            # The merge commit itself, not HEAD: a board commit may already sit on top.
+            head_rc, head_out = _sh(["git", "rev-list", "--first-parent", "--merges", "-n", "1", "HEAD"])
+            merge_sha = head_out.strip() if head_rc == 0 else ""
 
         try:
-            _install_dependencies(changed)
-            _run_backend_tests()
-            _run_frontend_checks(changed)
-            _restart_services(changed)
-            _wait_and_check_health()
-            pre_sha, merge_sha = _rebase_onto_board_only_origin(pre_sha, merge_sha)
-            rc, out = _sh(["git", "push", "origin", "main"], timeout=60)
-            if rc != 0:
-                raise IntegrateError("git push origin main failed:\n" + out)
+            if merged:
+                _install_dependencies(changed)
+                _run_backend_tests()
+                _run_frontend_checks(changed)
+                _restart_services(changed)
+                _wait_and_check_health()
+                pre_sha, merge_sha = _rebase_onto_board_only_origin(pre_sha, merge_sha)
+                rc, out = _sh(["git", "push", "origin", "main"], timeout=60)
+                if rc != 0:
+                    raise IntegrateError("git push origin main failed:\n" + out)
         except IntegrateError as exc:
             full_text = str(exc)
             _rollback_and_restart(pre_sha, merge_sha, changed)
