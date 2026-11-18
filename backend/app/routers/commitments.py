@@ -1575,6 +1575,23 @@ async def card_plan_prefill(card_account_id: str, user: dict = Depends(current_u
     return result
 
 
+@router.get("/commitments/card-plan-search")
+async def card_plan_search(
+    card_account_id: str, source_account_id: str, q: str = "", limit: int = 20, skip: int = 0,
+    user: dict = Depends(current_user),
+):
+    """G476: search one card's and its paying account's own transactions by text
+    or amount (raw bank narrative as well as the cleaned name), to recognise the
+    payment a plan should track. Scoped to those two accounts, both the
+    caller's own; paginated; long card numbers masked. Read-only."""
+    result = await card_repayment_plans.search(
+        user["email"], card_account_id, source_account_id, q, limit=max(1, min(limit, 50)), skip=max(0, skip),
+    )
+    if result is None:
+        raise HTTPException(404, "Card or paying account not found")
+    return result
+
+
 @router.get("/commitments/fill-candidates")
 async def plan_fill_candidates(
     source_account_id: str, pot_ids: str = "", user: dict = Depends(current_user),

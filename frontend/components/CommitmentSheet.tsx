@@ -7,8 +7,9 @@ import { Check, ChevronDown, CircleDashed } from "lucide-react";
 import { accountBrand, BankBadge } from "@/components/AccountMiniCard";
 import { AccountRadioPicker } from "@/components/AccountRadioPicker";
 import { isPlanSourceAccount } from "@/lib/upcomingPlans";
-import { api, Account, Commitment, CommitmentPreview, PlanFillCandidates } from "@/lib/api";
-import { CARD_PLAN_COPY, projectedMonthLine, isCardAccount, isCardPlan as isCardPlanRecord, offerLine, paidLine, prefillBasisLine } from "@/lib/cardRepaymentPlan";
+import { api, Account, CardPlanPrefill, Commitment, CommitmentPreview, PlanFillCandidates } from "@/lib/api";
+import { CARD_PLAN_COPY, projectedMonthLine, isCardAccount, isCardPlan as isCardPlanRecord, legMatchFor, offerLine, paidLine, prefillBasisLine } from "@/lib/cardRepaymentPlan";
+import { RecentRepayments, RecognisePayment } from "@/components/plans/CardPaymentHistory";
 import { FillRulePicker, type FillRuleValue } from "@/components/AllocationFields";
 import { usePreferences } from "@/components/PreferencesContext";
 import { periodRhythmLabel } from "@/lib/payPeriod";
@@ -108,7 +109,7 @@ interface CommitmentSheetProps {
  * fixtures without changing production behaviour. */
 export type CommitmentSheetOperations = Pick<typeof api,
   "accounts" | "previewCommitment" | "createCommitment" | "updateCommitment" | "cancelCommitment">
-  & Partial<Pick<typeof api, "planFillCandidates" | "previewGoalContribution" | "setGoalContribution" | "previewGoalSchedule" | "cardPlanPrefill" | "createCardPlan">>;
+  & Partial<Pick<typeof api, "planFillCandidates" | "previewGoalContribution" | "setGoalContribution" | "previewGoalSchedule" | "cardPlanPrefill" | "cardPlanSearch" | "createCardPlan">>;
 
 /** "1 Oct" from an ISO date. */
 function shortDate(iso: string): string {
@@ -276,13 +277,30 @@ export default function CommitmentSheet({
   const [startDate, setStartDate] = useState("");
   const [prefillNote, setPrefillNote] = useState<string | null>(null);
   const [cardTaken, setCardTaken] = useState(false);
+  // G476: the card's own history, read with the prefill.
+  const [cardHistory, setCardHistory] = useState<Pick<CardPlanPrefill, "repayments" | "sources" | "recent_credits"> | null>(null);
   const nameTouched = useRef(false);
   const prefillRun = useRef(0);
   const readCardPrefill = operations.cardPlanPrefill ?? api.cardPlanPrefill;
   const cardChoice = accountList.find(account => account.id === (commitment?.card_account_id ?? cardId));
+  // G476: picking a paying account (from the repayments list or the Pay from
+  // step) fills in its card-leg rule when its repayments paired with the card.
+  function chooseCardSource(id: string, usualAmount?: number) {
+    setSourceId(id);
+    setSourceTouched(true);
+    setSuggestion(null);
+    setCategoryTracking(null);
+    const pair = legMatchFor(cardHistory?.repayments, id);
+    if (pair?.fill_rule) { setRule({ ...pair.fill_rule, fill_display_name: pair.fill_rule.match_value }); setPaymentPickerOpen(true); }
+    else { setRule(EMPTY_RULE); setPaymentPickerOpen(false); }
+    setRuleTouched(true);
+    if (usualAmount != null) { setPerPeriod(String(usualAmount)); setPrefillNote(prefillBasisLine("usual_repayments", true)); }
+    setSaveError(false);
+  }
   async function chooseCard(id: string) {
     setCardId(id);
     setCardTaken(false);
+    setCardHistory(null);
     setSaveError(false);
     const run = ++prefillRun.current;
     try {
@@ -301,7 +319,8 @@ export default function CommitmentSheet({
         setPaymentPickerOpen(false);
       }
       setRuleTouched(true);
-      if (!nameTouched.current) setName(`${found.card_name} repayment`.slice(0, 40));
+      setCardHistory({ repayments: found.repayments ?? [], sources: found.sources ?? [], recent_credits: found.recent_credits ?? [] });
+      if (!nameTouched.current) setName((found.default_name ?? `${found.card_name} repayment plan`).slice(0, 40));
     } catch {
       // Nothing detected is a normal answer: the sheet simply asks.
     }
@@ -890,6 +909,8 @@ export default function CommitmentSheet({
                 </div>
                 <p className="mt-2 text-xs leading-5 text-slate-600 dark:text-slate-300">{prefillNote ?? "A fixed amount each pay period. After saving you can switch to any other schedule."}</p>
                 {cardChoice && cardChoice.balance < 0 && <p className="mt-1 text-xs leading-5 text-slate-600 dark:text-slate-300"><MoneyText text={`About £${Math.round(Math.abs(cardChoice.balance)).toLocaleString("en-GB")} is owed on this card now.`} /></p>}
+                {cardHistory && <RecentRepayments repayments={cardHistory.repayments ?? []} sources={cardHistory.sources ?? []} sourceId={sourceId}
+                  onPickSource={source => chooseCardSource(source.account_id, source.usual_amount)} onPickAmount={amount => { setPerPeriod(String(amount)); setPrefillNote(prefillBasisLine("usual_repayments", true)); setSaveError(false); }} />}
               </div> : editorView === "details" && commitment?.schedule && commitment.schedule.type !== "equal" ? <div className="space-y-3 text-sm text-slate-600 dark:text-slate-300"><p>{isCardPlan ? "The repayments come from your schedule. To change the amount, open Edit schedule from the plan." : "The total and date come from your schedule. To change them, open Edit schedule from the plan."}</p><p><MoneyText text={`£${commitment.amount.toLocaleString("en-GB")} by ${new Date(`${commitment.target_date.slice(0,10)}T12:00:00Z`).toLocaleDateString("en-GB", {day:"numeric",month:"short",year:"numeric",timeZone:"UTC"})}`} /></p></div> : editorView === "details" && <>
               <div>
                 <label htmlFor="commitment-amount" className="block text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400 mb-1">
@@ -1045,7 +1066,7 @@ export default function CommitmentSheet({
                   <AccountRadioPicker
                     accounts={sourceOptions}
                     value={sourceId}
-                    onChange={(id) => { setSourceId(id); setSourceTouched(true); setSuggestion(null); setRule(EMPTY_RULE); setCategoryTracking(null); setRuleTouched(true); setSaveError(false); }}
+                    onChange={(id) => { if (isCardPlan && !commitment && cardHistory) { chooseCardSource(id); return; } setSourceId(id); setSourceTouched(true); setSuggestion(null); setRule(EMPTY_RULE); setCategoryTracking(null); setRuleTouched(true); setSaveError(false); }}
                     label="Pay from"
                     helperText={sourceInferred
                       ? "Based on recent transfers. Saving the plan confirms this account."
@@ -1059,6 +1080,9 @@ export default function CommitmentSheet({
                   paying account. A suggestion is prefilled, never applied. */}
               {editorView === "tracking" && sourceOptions.length > 0 && sourceId && (
                 <div data-testid="plan-fill-rule-field" className="space-y-1.5">
+                  {isCardPlan && !commitment && cardHistory && <RecognisePayment cardId={cardId} sourceId={sourceId} legMatch={legMatchFor(cardHistory.repayments, sourceId)} credits={cardHistory.recent_credits ?? []} ruleChosen={rule.match_value.trim() !== ""}
+                    search={operations.cardPlanSearch ?? api.cardPlanSearch}
+                    onPickRule={picked => { setRule({ ...picked, fill_display_name: picked.match_value }); setPaymentPickerOpen(true); setCategoryTracking(null); setRuleTouched(true); setSaveError(false); }} />}
                   <PlanTrackingMethod hideCategory={isCardPlan} noneLabel={commitment ? "Not tracking" : undefined} value={categoryTracking ? "category" : paymentPickerOpen ? "payment" : "none"} onChange={method => { setCategoryTracking(method === "category" ? { category: allCategories.includes("Savings") ? "Savings" : allCategories[0] ?? "Other" } : null); setPaymentPickerOpen(method === "payment"); setRule(EMPTY_RULE); setRuleTouched(true); }} />
                   {categoryTracking && <PlanCategoryTracking kind="goal" sourceAccountId={sourceId} destinationAccountIds={pots.map((pot) => pot.account_id)} value={categoryTracking} commitmentId={commitment?.id} onChange={(value) => { setCategoryTracking(value); setPaymentPickerOpen(value === null); setRule(EMPTY_RULE); setRuleTouched(true); }} />}
                   {!categoryTracking && paymentPickerOpen && <>

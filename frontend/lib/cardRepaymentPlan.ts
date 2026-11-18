@@ -3,7 +3,7 @@
 // word the Debt row and the sheet say about one. Copy rules: British English,
 // no em dashes, no exclamation marks, predictions are hedged ("about",
 // "would"), never advice to pay a particular card, red is not used here.
-import type { Account, CardPlanFacts, Commitment } from "@/lib/api";
+import type { Account, CardPlanFacts, CardRepayment, Commitment } from "@/lib/api";
 
 export const CARD_PLAN_KIND = "card_repayment";
 
@@ -64,11 +64,51 @@ export function offerLine(facts: CardPlanFacts | null | undefined): string | nul
 /** What the sheet says about where a prefilled amount came from. */
 export function prefillBasisLine(basis: string | null | undefined, estimated: boolean): string | null {
   if (!basis) return null;
-  const what = basis === "direct_debit" ? "your usual direct debit" : basis === "fixed_payment" ? "the fixed payment on this card" : "the statement estimate";
+  const what = basis === "direct_debit" ? "your usual direct debit" : basis === "fixed_payment" ? "the fixed payment on this card" : basis === "usual_repayments" ? "what you usually pay this card" : "the statement estimate";
   return `${estimated ? "About, from" : "From"} ${what}. Change it if you like.`;
 }
 
+/** G476: "£200.00 on 24 Sep" style date for a repayment row. */
+export function shortRepaymentDate(iso: string | null | undefined): string {
+  if (!iso) return "date unavailable";
+  const d = new Date(`${iso.slice(0, 10)}T12:00:00Z`);
+  return Number.isFinite(d.getTime()) ? d.toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "UTC" }) : "date unavailable";
+}
+
+/** One repayment row, hedged: "About £200.00 on 24 Sep from Example Current". */
+export function repaymentLine(item: CardRepayment): string {
+  const from = item.source_account_name ? ` from ${item.source_account_name}` : "";
+  const tail = item.matched ? "" : ", paying account not found";
+  return `About ${gbp2(item.amount)} on ${shortRepaymentDate(item.date)}${from}${tail}`;
+}
+
+/** The newest repayment whose paying debit was found for this account and gives a rule to track. */
+export function legMatchFor(repayments: readonly CardRepayment[] | null | undefined, sourceId: string | null | undefined): CardRepayment | null {
+  if (!sourceId) return null;
+  return (repayments ?? []).find(item => item.matched && item.source_account_id === sourceId && item.fill_rule) ?? null;
+}
+
+/** What the automatic card-leg match found, in words. */
+export function legMatchLine(item: CardRepayment): string {
+  const left = shortRepaymentDate(item.debit_date ?? item.date);
+  const arrived = shortRepaymentDate(item.card_date);
+  const from = item.source_account_name ?? "your account";
+  return `Found a payment of about ${gbp2(item.amount)} that left ${from} on ${left} and appeared on the card on ${arrived}. It is tracked unless you choose another.`;
+}
+
 export const CARD_PLAN_COPY = {
+  exactWording: "This matches this exact wording, so a payment with a different reference may not be recognised.",
+  chooseDifferent: "Choose a different payment",
+  recentTitle: "Recent repayments",
+  recentHelper: "From this card's own history. Tap one to use its amount.",
+  sourcePick: "These came from more than one account. Choose the one this plan should use.",
+  noHistory: "No recent repayments found on this card.",
+  creditsTitle: "Recent payments into the card",
+  creditsHelper: "We could not match one to a payment from your account automatically. Pick one below, or search.",
+  searchLabel: "Search the card and your paying account",
+  searchHelper: "By words in the bank's own description (for example PAYMENT RECEIVED) or by amount.",
+  searchEmpty: "Nothing found in the last 180 days on these two accounts.",
+  searchUnmatched: "Could not be matched to a payment from your paying account.",
   setPlan: "Set a plan",
   debtFootnote: "The amounts above add up to the total owed. Balances stay in Accounts. Each card can have one repayment plan, set here.",
   emptyHint: "A plan replaces that card's usual payment in your figures, so it is counted once.",
