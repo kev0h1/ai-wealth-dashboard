@@ -47,7 +47,7 @@ vanish with no explanation at all.
      `wealth-worker` (the worker imports services and core modules under
      `backend/app`, not just `backend/app/workers`, so any backend change
      can affect its cron code); then checks both health endpoints.
-  4. On any failure in step 3: `git reset --hard ORIG_HEAD`, restart
+  4. On any failure in step 3 or the push: reset local main to the pre-merge sha (replaying board commits made meanwhile), restart
      services again from the restored tree, and block the item. The full
      failure output is logged at error level (in full); the board note is
      built from its diagnostic tail rather than the raw head, so it holds
@@ -55,7 +55,9 @@ vanish with no explanation at all.
      is capped by `backlog.add_note` regardless (see `_extract_diagnostic_tail`
      and H46, following on from H27); the `[state: blocked: ...]` tag itself
      only ever gets a single sanitised line, capped at 200 characters (H27).
-  5. On success: `git push origin main`. If the item is a design round —
+  5. On success: `git push origin main` (H156: only after every gate in
+     step 3 has passed; until then board writes commit locally without
+     pushing, see `_open_window`). If the item is a design round —
      flagged explicitly via `scripts/session.sh finish <ID> --uat-review`
      (recorded on the board as the item's `uat_review` flag) or, as a
      backstop, if the merge's own diff touches only
@@ -872,8 +874,114 @@ def _block(item_id: str, reason: str) -> None:
             _warn_if_not_committed(item_id, "block detail note", note_committed)
 
 
-def _rollback_and_restart(pre_sha: str, changed: set[str]) -> None:
-    _sh(["git", "reset", "--hard", "ORIG_HEAD"])
+WINDOW_PATH = REPO_ROOT / ".integrate-window"
+
+
+def _open_window() -> None:
+    """H156: from the moment the merge lands on local main until every gate
+    has passed and the push has succeeded (or the merge is rolled back),
+    board writes (`backlog._git_commit_and_push`, any process) commit locally
+    but do not push, so a concurrent `backlog.py note` can no longer publish
+    the unbuilt merge to origin/main (G475, 2026-11-17)."""
+    WINDOW_PATH.write_text(f"{os.getpid()}\n")
+
+
+def _close_window() -> None:
+    try:
+        WINDOW_PATH.unlink()
+    except FileNotFoundError:
+        pass
+
+
+# H156: files a concurrent board write touches. An origin/main that advanced
+# only in these is safe to rebase the merge onto without re-running the gates.
+def _is_board_path(path: str) -> bool:
+    return path == "TODO.md" or path.startswith("docs/compliance/")
+
+
+@contextmanager
+def _board_lock() -> Iterator[None]:
+    """Hold the backlog write lock (backlog._locked) so a concurrent board
+    write cannot land half-way through a reset / cherry-pick / rebase and be
+    dropped or wiped. Falls back to no lock, with a warning, if the lock
+    cannot be had (a stuck holder must not wedge a rollback)."""
+    cm = backlog._locked(backlog._repo_root())
+    try:
+        cm.__enter__()
+    except Exception as exc:  # noqa: BLE001 - BacklogError on timeout, or OSError
+        print(f"warning: proceeding without the board lock: {exc}", file=sys.stderr)
+        yield
+        return
+    try:
+        yield
+    finally:
+        cm.__exit__(None, None, None)
+
+
+def _rebase_onto_board_only_origin(pre_sha: str, merge_sha: str) -> tuple[str, str]:
+    """H156: right before the push, fetch origin. If origin/main moved only by
+    board commits (TODO.md / docs/compliance changes), rebase the merge (and
+    any board commits made here meanwhile) onto it so the push is a
+    fast-forward; returns the new (pre_sha, merge_sha) for rollback. Anything
+    else raises IntegrateError (the caller rolls back and blocks)."""
+    rc, out = _sh(["git", "fetch", "origin"], timeout=60)
+    if rc != 0:
+        raise IntegrateError("git fetch origin before push failed:\n" + out)
+    rc, out = _sh(["git", "rev-parse", "origin/main"])
+    if rc != 0:
+        raise IntegrateError("could not read origin/main before push:\n" + out)
+    origin_sha = out.strip()
+    if origin_sha == pre_sha:
+        return pre_sha, merge_sha
+    rc, _ = _sh(["git", "merge-base", "--is-ancestor", pre_sha, origin_sha])
+    if rc != 0:
+        raise IntegrateError("origin/main moved and no longer descends from the pre-merge main; not pushing")
+    rc, out = _sh(["git", "diff", "--name-only", f"{pre_sha}..{origin_sha}"])
+    if rc != 0:
+        raise IntegrateError("could not diff origin/main before push:\n" + out)
+    other = [p for p in out.split() if not _is_board_path(p)]
+    if other:
+        raise IntegrateError(
+            "origin/main advanced with non-board changes during the integrate pass "
+            f"({', '.join(other[:5])}); not pushing, re-run it"
+        )
+    with _board_lock():
+        rc, out = _sh(["git", "rebase", "--rebase-merges", origin_sha], timeout=120)
+        if rc != 0:
+            _sh(["git", "rebase", "--abort"])
+            raise IntegrateError("rebase onto the board-only origin/main failed:\n" + out)
+        rc, out = _sh(["git", "rev-list", "--first-parent", "--merges", "-n", "1", "HEAD"])
+        new_merge = out.strip() if rc == 0 and out.strip() else merge_sha
+    print(f"origin/main advanced by board commits only; rebased the merge onto {origin_sha[:7]}")
+    return origin_sha, new_merge
+
+
+def _rollback_and_restart(pre_sha: str, merge_sha: str, changed: set[str]) -> None:
+    # H156: reset to the recorded pre-merge sha, not ORIG_HEAD (any git
+    # operation in the window can move it), and carry across the board
+    # commits that were made on top of the merge meanwhile instead of
+    # discarding them with it. The board lock is held across the whole
+    # sequence so no board write lands half-way through and gets wiped.
+    with _board_lock():
+        rc, out = _sh(["git", "rev-list", "--first-parent", "--reverse", f"{merge_sha}..HEAD"])
+        replay = out.split() if rc == 0 and merge_sha else []
+        _sh(["git", "reset", "--hard", pre_sha])
+        for sha in replay:
+            rc, out = _sh(["git", "cherry-pick", sha])
+            if rc != 0:
+                _sh(["git", "cherry-pick", "--abort"])
+                print(f"warning: could not replay board commit {sha} after rollback:\n{out}", file=sys.stderr)
+        # Best effort: if origin/main moved meanwhile (the fetch before the
+        # push), bring local main back level with it so it never sits behind.
+        _sh(["git", "fetch", "origin"], timeout=60)
+        rc, _ = _sh(["git", "merge-base", "--is-ancestor", "HEAD", "origin/main"])
+        if rc != 0:
+            rc, out = _sh(["git", "rebase", "origin/main"], timeout=120)
+            if rc != 0:
+                _sh(["git", "rebase", "--abort"])
+                print(f"warning: could not rebase local main onto origin/main after rollback:\n{out}", file=sys.stderr)
+        else:
+            _sh(["git", "merge", "--ff-only", "origin/main"])
     # The reset above restores requirements.txt / package-lock.json to their
     # pre-merge contents, but does not touch a venv or node_modules that
     # _install_dependencies may have already updated for the merged
@@ -923,39 +1031,82 @@ def _integrate_one(item: dict) -> tuple[str, str]:
         return "skipped", f"{item_id}: could not read current HEAD, skipping"
     pre_sha = pre_sha_out.strip()
 
-    rc, out = _sh(["git", "merge", "--no-ff", f"origin/{branch}", "-m", f"integrate: {item_id} {title} ({branch})"])
-    if rc != 0:
-        _sh(["git", "merge", "--abort"])
-        reason = (
-            "conflict with main; merge origin/main into the branch (do not "
-            "rebase, it is already pushed) and re-run session.sh finish"
-        )
-        _block(item_id, reason)
-        return "blocked", f"{item_id}: merge conflict with {branch}"
-
-    changed = _changed_paths(f"{pre_sha}..HEAD")
-
+    # H156: the window opens BEFORE the merge so there is no gap in which a
+    # board write could push the merge. If opening it fails nothing has been
+    # merged yet, so the error propagates with main untouched. Nothing reaches
+    # origin/main until every gate (tests, checks, staging build + swap,
+    # restarts, health) has passed; the marker keeps concurrent board writes
+    # from pushing the unbuilt merge meanwhile.
+    _open_window()
+    merged = False
+    merge_sha = ""
+    changed: set[str] = set()
     try:
-        _install_dependencies(changed)
-        _run_backend_tests()
-        _run_frontend_checks(changed)
-        _restart_services(changed)
-        _wait_and_check_health()
-    except IntegrateError as exc:
-        full_text = str(exc)
-        _rollback_and_restart(pre_sha, changed)
-        _block(item_id, full_text)
-        return "blocked", f"{item_id}: {_one_line_reason(full_text)}"
+        # Re-read HEAD now that the window is open: a board commit made
+        # between the first read and the window opening must not be reset away.
+        head_rc, head_out = _sh(["git", "rev-parse", "HEAD"])
+        if head_rc != 0:
+            _close_window()
+            return "skipped", f"{item_id}: could not read current HEAD, skipping"
+        pre_sha = head_out.strip()
+        rc, out = _sh(["git", "merge", "--no-ff", f"origin/{branch}", "-m", f"integrate: {item_id} {title} ({branch})"])
+        if rc != 0:
+            _sh(["git", "merge", "--abort"])
+            _close_window()
+            reason = (
+                "conflict with main; merge origin/main into the branch (do not "
+                "rebase, it is already pushed) and re-run session.sh finish"
+            )
+            _block(item_id, reason)
+            return "blocked", f"{item_id}: merge conflict with {branch}"
+        after_rc, after_out = _sh(["git", "rev-parse", "HEAD"])
+        if after_rc == 0 and after_out.strip() == pre_sha:
+            # "Already up to date": the branch is already contained in main, so
+            # nothing was merged and there is nothing to build, test or push.
+            # Same outcome as before H156 (the item is ticked against current
+            # main), just without running gates over an empty diff. Never fall
+            # back to an older merge commit for merge_sha.
+            _close_window()
+            merge_sha = pre_sha
+            print(f"{item_id}: origin/{branch} is already contained in main, nothing to merge")
+        else:
+            merged = True
 
-    rc, out = _sh(["git", "push", "origin", "main"], timeout=60)
-    if rc != 0:
-        full_text = "git push origin main failed:\n" + out
-        _rollback_and_restart(pre_sha, changed)
-        _block(item_id, full_text)
-        return "blocked", f"{item_id}: push failed"
+        if merged:
+            changed = _changed_paths(f"{pre_sha}..HEAD")
+            # The merge commit itself, not HEAD: a board commit may already sit on top.
+            head_rc, head_out = _sh(["git", "rev-list", "--first-parent", "--merges", "-n", "1", "HEAD"])
+            merge_sha = head_out.strip() if head_rc == 0 else ""
 
-    merge_sha_rc, merge_sha_out = _sh(["git", "rev-parse", "HEAD"])
-    merge_sha = merge_sha_out.strip() if merge_sha_rc == 0 else ""
+        try:
+            if merged:
+                _install_dependencies(changed)
+                _run_backend_tests()
+                _run_frontend_checks(changed)
+                _restart_services(changed)
+                _wait_and_check_health()
+                pre_sha, merge_sha = _rebase_onto_board_only_origin(pre_sha, merge_sha)
+                rc, out = _sh(["git", "push", "origin", "main"], timeout=60)
+                if rc != 0:
+                    raise IntegrateError("git push origin main failed:\n" + out)
+        except IntegrateError as exc:
+            full_text = str(exc)
+            _rollback_and_restart(pre_sha, merge_sha, changed)
+            _close_window()
+            _block(item_id, full_text)
+            return "blocked", f"{item_id}: {_one_line_reason(full_text)}"
+    except Exception:
+        if merged:
+            _rollback_and_restart(pre_sha, merge_sha, changed)
+        else:
+            _sh(["git", "merge", "--abort"])
+        raise
+    finally:
+        _close_window()
+
+    if not merge_sha:
+        merge_sha_rc, merge_sha_out = _sh(["git", "rev-parse", "HEAD"])
+        merge_sha = merge_sha_out.strip() if merge_sha_rc == 0 else ""
 
     # H31: a design round (flagged explicitly via `--uat-review`, or caught
     # by the backstop heuristic when that flag was forgotten) lands in

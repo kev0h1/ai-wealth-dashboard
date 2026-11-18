@@ -873,6 +873,34 @@ def _wait_for_git_index_lock(
         time.sleep(poll_interval)
 
 
+INTEGRATE_WINDOW_FILE = ".integrate-window"
+
+
+def _pid_is_integrate(pid: int) -> bool:
+    """True only if `pid` is a live process whose command line names
+    integrate.py. A dead pid, a pid recycled by an unrelated process, or one
+    we are not allowed to inspect all mean "not integrate" (H156)."""
+    try:
+        raw = Path(f"/proc/{pid}/cmdline").read_bytes()
+    except OSError:  # includes FileNotFoundError and PermissionError
+        return False
+    return "integrate.py" in raw.replace(b"\0", b" ").decode("utf-8", "replace")
+
+
+def integrate_window_active(repo_root: Path) -> bool:
+    """H156: True while a live `scripts/integrate.py` process has a merge on
+    local main that has not passed every gate and been pushed. The marker
+    file holds the owning pid on its first line; a marker whose process is
+    gone, was recycled by something else, or cannot be inspected is stale
+    and ignored, so it can never wedge board pushes."""
+    try:
+        first = (Path(repo_root) / INTEGRATE_WINDOW_FILE).read_text().split("\n", 1)[0].strip()
+        pid = int(first)
+    except (OSError, ValueError):
+        return False
+    return _pid_is_integrate(pid)
+
+
 def _git_commit_and_push(paths: list[Path], message: str, repo_root: Path) -> bool:
     """Best-effort `git add` + `git commit` + `git push` of exactly `paths`.
 
@@ -905,6 +933,16 @@ def _git_commit_and_push(paths: list[Path], message: str, repo_root: Path) -> bo
     except Exception:
         logger.warning("backlog: git commit failed for %s", rel, exc_info=True)
         return False
+    if integrate_window_active(repo_root):
+        # H156: an integrate pass has an unbuilt, unpushed merge on local
+        # main right now. `git push origin HEAD` would publish that merge
+        # (and everything under it) along with this board commit, which is
+        # how G475's unbuilt code reached origin/main when its build then
+        # failed. The commit stays local; integrate publishes it with its
+        # own push once every gate has passed, or replays it onto the
+        # restored main if it rolls the merge back.
+        logger.info("backlog: integrate window open, commit for %s kept local (not pushed)", rel)
+        return True
     try:
         subprocess.run(
             ["git", "push", "origin", "HEAD"],

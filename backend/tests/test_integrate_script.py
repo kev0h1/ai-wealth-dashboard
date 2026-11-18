@@ -1152,14 +1152,27 @@ def test_review_items_missing_branch_returns_only_review_state_with_no_branch(mo
     assert all(i["state"] == "review" for i in missing)
 
 
+@pytest.fixture(autouse=True)
+def _integrate_window_in_tmp(monkeypatch, tmp_path):
+    """H156: `_integrate_one` opens a window marker; never let a test write it
+    into the real shared tree, where it would hold back live board pushes."""
+    monkeypatch.setattr(integrate, "WINDOW_PATH", tmp_path / ".integrate-window")
+
+
 def _fake_sh_factory(extra=None):
+    merged = []
+
     def fake_sh(cmd, cwd=integrate.REPO_ROOT, timeout=integrate.GIT_TIMEOUT):
         if extra is not None:
             handled = extra(cmd)
             if handled is not None:
                 return handled
+        if cmd[:3] == ["git", "merge", "--no-ff"]:
+            merged.append(1)
         if cmd[:2] == ["git", "rev-parse"]:
-            return 0, "deadbeef1234567890deadbeef1234567890dead"
+            # H156: HEAD moves when the merge makes a commit; an unchanged HEAD
+            # means "Already up to date" and skips the gates.
+            return 0, ("feedface" if merged else "deadbeef") + "1234567890deadbeef1234567890dead"
         return 0, ""
 
     return fake_sh

@@ -949,10 +949,25 @@ rebuilds the frontend and restarts `wealth-frontend` if `frontend/` or
 `shared/` changed, restarts `wealth-api` and `wealth-worker` if `backend/`
 changed at all (the worker imports services and core modules under
 `backend/app`, not just `backend/app/workers`, so cron code never runs
-stale), and checks both health endpoints. Any failure there rolls the merge back
-(`git reset --hard ORIG_HEAD`), restores services from the reverted tree,
-and blocks the item; main never sits on a broken merge waiting for someone
-to notice.
+stale), and checks both health endpoints. Only then does it `git push origin
+main`; nothing reaches origin before every gate, including the staging
+build, has passed (H156). While the merge sits unpushed on local main
+integrate holds a `.integrate-window` marker (its pid, git-ignored; opened
+before the merge so there is no gap, and honoured only while that pid's
+command line still names `integrate.py`), and
+any board write in that window (`backlog._git_commit_and_push`) commits
+locally without pushing, because `git push origin HEAD` would otherwise
+publish the unbuilt merge (G475, 2026-11-17); the commits go out with
+integrate's own push, or are replayed after a rollback. Just before the
+push it fetches origin: if origin/main gained only board commits (`TODO.md`
+or `docs/compliance/`), the merge is rebased onto it and pushed as a
+fast-forward; any other advance rolls back and blocks. The rollback holds
+the board write lock across its reset and replay. Any failure there,
+including a failed push, rolls the merge back (`git reset --hard` to the
+recorded pre-merge sha, board commits made meanwhile cherry-picked back),
+restores services from the reverted tree, and blocks the item; origin/main
+never sees the merge and main never sits on a broken merge waiting for
+someone to notice.
 
 The frontend rebuild is atomic (H51, after the 2026-09-17 blank-page
 outage, when an interrupted in-place `npm run build` left
