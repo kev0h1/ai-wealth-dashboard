@@ -5,6 +5,7 @@ this run already uses (the Motor client binds to one event loop, so it cannot
 share the test process's loop). Nothing here touches a real database: every
 test asserts the database name first.
 """
+import json
 import os
 import subprocess
 import sys
@@ -19,6 +20,7 @@ from app.db.guard import TEST_DB_NAME_RE
 
 BACKEND = Path(__file__).resolve().parents[1]
 SCRIPT = BACKEND / "scripts" / "seed_demo_account.py"
+SWEEP_DRIVER = BACKEND / "tests" / "_demo_sweep_driver.py"
 HASH_SCRIPT = BACKEND / "scripts" / "make_demo_password_hash.py"
 DEMO = "appreview@auriqltd.co.uk"
 OTHER = "seeder-bystander@example.test"
@@ -134,9 +136,9 @@ def test_seeded_account_is_complete_and_computed(bystander):
 
     sts = db.response_cache.find_one({"user_id": DEMO, "name": "safe_to_spend"})["payload"]
     assert sts["calculation_status"] == "complete"
-    # A reviewer's first screen is calm: comfortably positive, never "Short".
-    assert 300 <= sts["safe_to_spend"] <= 600, sts["safe_to_spend"]
-    assert sts["state"] in ("comfortable", "tight"), sts["state"]
+    # A reviewer's first screen is calm: comfortably positive, never "Tight" or "Short" (H157).
+    assert 350 <= sts["safe_to_spend"] <= 600, sts["safe_to_spend"]
+    assert sts["state"] == "comfortable", sts["state"]
     today = db.response_cache.find_one({"user_id": DEMO, "name": "today"})["payload"]
     assert any(i.get("type") == "move" for i in today["items"]), "a suggested move is part of the demo"
     elig = today["account_eligibility"]
@@ -152,6 +154,50 @@ def test_seeded_account_is_complete_and_computed(bystander):
     assert "@" not in blob.replace(DEMO, "")
 
 
+def test_today_flag_pins_the_seed_date(bystander):
+    """--today is a test aid: the real default stays today, a pinned date moves the dated rows."""
+    r = _seed("--confirm", "--today", "2026-12-05", db_name=config.MONGO_DB)
+    assert r.returncode == 0, r.stderr[-800:]
+    dates = [t["date"] for t in bystander.transactions.find({"user_id": DEMO}, {"date": 1})]
+    assert max(dates).date() <= date(2026, 12, 5)
+    assert max(dates).date() >= date(2026, 12, 1)
+    assert (max(dates) - min(dates)).days >= 80
+
+
+def _sweep(seeder_path, start, days):
+    """One subprocess seeds the demo account in-process for every day of the range, with the
+    clock pinned to that day (a Motor client binds to one event loop, so the sweep cannot share
+    the test process's). Returns one dict per day."""
+    env = {**os.environ, "MONGO_DB": config.MONGO_DB, "FORBID_LIVE_QUEUE": "1"}
+    r = subprocess.run([sys.executable, str(SWEEP_DRIVER), str(seeder_path), start, str(days)],
+                       cwd=BACKEND, env=env, capture_output=True, text=True, timeout=900)
+    assert r.returncode == 0, r.stderr[-1500:]
+    rows = [json.loads(line) for line in r.stdout.splitlines() if line.startswith("{")]
+    assert len(rows) == days, (len(rows), r.stderr[-800:])
+    return rows
+
+
+def test_demo_looks_on_track_with_a_cover_move_on_every_day_of_two_pay_periods():
+    """H157: the demo's Left to spend must not depend on the day it is seeded. Seed for each of
+    62 consecutive days (two full pay periods, payday the 28th) and check the first screen."""
+    seeder = os.environ.get("H157_SEEDER_UNDER_TEST") or SCRIPT
+    rows = _sweep(seeder, "2026-10-28", 62)
+    problems = []
+    for d in rows:
+        day = d["day"]
+        if d["status"] != "complete":
+            problems.append((day, "calculation_status", d["status"]))
+        if not 350 <= d["safe_to_spend"] <= 600:
+            problems.append((day, "left to spend out of 350 to 600", d["safe_to_spend"]))
+        if d["state"] != "comfortable":
+            problems.append((day, "state", d["state"]))
+        if d["moves"] < 1 or not d["cover_sources"] or set(d["cover_sources"]) != {"demo-acc-current"}:
+            problems.append((day, "cover move from the current account", d["moves"], d["cover_sources"]))
+        if d["accounts"] != 4 or d["goals"] != 1 or d["plans"] != 1:
+            problems.append((day, "shape", d["accounts"], d["goals"], d["plans"]))
+    assert not problems, problems[:8]
+
+
 def test_build_transactions_is_deterministic_and_relative_to_today():
     from scripts import seed_demo_account as s
     today = date(2026, 11, 13)
@@ -162,6 +208,10 @@ def test_build_transactions_is_deterministic_and_relative_to_today():
     assert max(r["date"] for r in rows) <= today
     salaries = [r for r in rows if r["category"] == "Income" and r["amount"] == s.SALARY]
     assert len(salaries) == 3 and all(r["date"].day == s.PAY_DAY for r in salaries)
+    # No date-seeded randomness: the same weekday and day of month gives the same amounts in any month.
+    jan, _ = s.build_transactions(date(2027, 1, 13))
+    groc = {r["amount"] for r in jan if r["merchant"] == "FRESHFIELD SUPERMARKET"}
+    assert groc == {22.0}
     # A different "today" moves every date with it.
     later, _ = s.build_transactions(date(2027, 2, 20))
     assert min(r["date"] for r in later) > today
