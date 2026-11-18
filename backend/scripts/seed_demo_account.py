@@ -39,6 +39,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import calendar
+import os
 import sys
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -99,8 +100,13 @@ def monthly_dates(day: int, today: date, window_start: date) -> list[date]:
 
 
 def next_business_day(d: date) -> date:
-    """Direct debits do not post on a weekend: they land on the following Monday."""
-    return d + timedelta(days=(7 - d.weekday()) % 7) if d.weekday() >= 5 else d
+    """Direct debits do not post on a weekend or an England and Wales bank holiday: they
+    land on the next working day. Uses the engine's own holiday set so the seed and the
+    engine's expected dates agree."""
+    from app.routers.analytics import UK_BANK_HOLIDAYS_EW
+    while d.weekday() >= 5 or d.isoformat() in UK_BANK_HOLIDAYS_EW:
+        d += timedelta(days=1)
+    return d
 
 
 def _dt(d: date) -> datetime:
@@ -150,7 +156,10 @@ def build_transactions(today: date) -> tuple[list[dict], dict]:
     monthly(24, BILLS_ID, 32.00, "debit", "FORMFIT GYM", "Health", "FORMFIT GYM MEMBERSHIP")
 
     # Each payday the main account tops up the bills account, both legs.
-    for d in monthly_dates(PAY_DAY + 1, today, start):
+    for d0 in monthly_dates(PAY_DAY + 1, today, start):
+        d = next_business_day(d0)
+        if d > today:
+            continue
         t.add(CURRENT_ID, d, BILLS_TRANSFER, "debit", "BILLS ACCOUNT", "Transfer", "STANDING ORDER BILLS ACCOUNT")
         t.add(BILLS_ID, d, BILLS_TRANSFER, "credit", "FROM EVERYDAY CURRENT", "Transfer", "STANDING ORDER FROM EVERYDAY CURRENT")
 
@@ -360,12 +369,15 @@ def main(argv=None) -> int:
     if not args.confirm:
         print("Refusing: pass --confirm to wipe and rebuild the demo user's data.", file=sys.stderr)
         return 2
-    from app.core import config
+    from app.core import config, timeutil
     if not args.db_name or args.db_name != config.MONGO_DB:
         print("Refusing: --db-name does not match the database this process is configured for.", file=sys.stderr)
         return 2
     print(f"Target database: {config.MONGO_DB}")
     pinned = date.fromisoformat(args.today) if args.today else None
+    if pinned is not None and pinned > timeutil.user_today() and os.environ.get("DEMO_SEED_ALLOW_FUTURE_TODAY") != "1":
+        print("Refusing: --today is later than today (test aid only; set DEMO_SEED_ALLOW_FUTURE_TODAY=1 in tests).", file=sys.stderr)
+        return 2
     result = asyncio.run(seed(today=pinned))
     print("Seeded: " + ", ".join(f"{k}={v}" for k, v in result.items()))
     return 0

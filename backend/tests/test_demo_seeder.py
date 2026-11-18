@@ -5,6 +5,7 @@ this run already uses (the Motor client binds to one event loop, so it cannot
 share the test process's loop). Nothing here touches a real database: every
 test asserts the database name first.
 """
+import calendar
 import json
 import os
 import subprocess
@@ -32,8 +33,8 @@ def _db():
     return client, client[config.MONGO_DB]
 
 
-def _seed(*args, db_name=None):
-    env = {**os.environ, "MONGO_DB": config.MONGO_DB, "FORBID_LIVE_QUEUE": "1"}
+def _seed(*args, db_name=None, extra_env=None):
+    env = {**os.environ, "MONGO_DB": config.MONGO_DB, "FORBID_LIVE_QUEUE": "1", **(extra_env or {})}
     cmd = [sys.executable, str(SCRIPT), *args]
     if db_name is not None:
         cmd += ["--db-name", db_name]
@@ -156,12 +157,42 @@ def test_seeded_account_is_complete_and_computed(bystander):
 
 def test_today_flag_pins_the_seed_date(bystander):
     """--today is a test aid: the real default stays today, a pinned date moves the dated rows."""
-    r = _seed("--confirm", "--today", "2026-12-05", db_name=config.MONGO_DB)
+    r = _seed("--confirm", "--today", "2026-12-05", db_name=config.MONGO_DB,
+              extra_env={"DEMO_SEED_ALLOW_FUTURE_TODAY": "1"})
     assert r.returncode == 0, r.stderr[-800:]
     dates = [t["date"] for t in bystander.transactions.find({"user_id": DEMO}, {"date": 1})]
     assert max(dates).date() <= date(2026, 12, 5)
     assert max(dates).date() >= date(2026, 12, 1)
     assert (max(dates) - min(dates)).days >= 80
+
+
+def test_future_today_is_refused_without_the_test_flag_and_writes_nothing(bystander):
+    before = bystander.accounts.count_documents({"user_id": DEMO})
+    future = (date.today() + timedelta(days=3)).isoformat()
+    env = {k: v for k, v in os.environ.items() if k != "DEMO_SEED_ALLOW_FUTURE_TODAY"}
+    r = subprocess.run([sys.executable, str(SCRIPT), "--confirm", "--today", future, "--db-name", config.MONGO_DB],
+                       cwd=BACKEND, env={**env, "MONGO_DB": config.MONGO_DB, "FORBID_LIVE_QUEUE": "1"},
+                       capture_output=True, text=True, timeout=240)
+    assert r.returncode != 0
+    assert "later than today" in r.stderr
+    assert bystander.accounts.count_documents({"user_id": DEMO}) == before
+
+
+def test_late_bills_and_transfer_roll_before_payday_in_every_month_2026_to_2028():
+    """Weekend and bank-holiday rolls (the engine's own set) must never push the late bills
+    or the bills transfer past that month's payday."""
+    from scripts import seed_demo_account as s
+    from app.routers.analytics import _next_working_day
+    for y in (2026, 2027, 2028):
+        for m in range(1, 13):
+            payday = date(y, m, s.PAY_DAY)
+            late = s.next_business_day(date(y, m, 24))
+            assert late == _next_working_day(date(y, m, 24))
+            assert late < payday, (y, m, late)
+            py, pmon = (y - 1, 12) if m == 1 else (y, m - 1)
+            pm = date(py, pmon, min(s.PAY_DAY + 1, calendar.monthrange(py, pmon)[1]))
+            transfer = s.next_business_day(pm)
+            assert pm <= transfer < payday, (y, m, transfer)
 
 
 def _sweep(seeder_path, start, days):
