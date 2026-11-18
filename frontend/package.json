@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "check:g476-card-plan-history": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g476-card-plan-history.test.mjs",
     "check:g475-card-plans": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g475-card-plans.test.mjs",
     "check:g473-install-id": "node --no-warnings --experimental-strip-types scripts/g473-install-id.test.mjs",
     "check:g467-penny-placeholder": "node scripts/g467-penny-placeholder.test.mjs",

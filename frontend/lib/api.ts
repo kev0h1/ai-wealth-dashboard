@@ -1042,16 +1042,49 @@ export type CardPlanFacts = {
   } | null;
 };
 
+/** G476: one payment into a card, from both legs. `matched` means the paying account's debit was found. */
+export type CardRepayment = {
+  date: string | null;
+  card_date: string | null;
+  debit_date: string | null;
+  amount: number;
+  source_account_id: string | null;
+  source_account_name: string | null;
+  matched: boolean;
+  narrative: string;
+  fill_rule: PlanFillRule | null;
+};
+
+/** G476: a paying account the card's repayments came from, with its usual amount. */
+export type CardRepaymentSource = {
+  account_id: string; name: string; count: number; usual_amount: number; last_date: string | null;
+};
+
+/** G476: one row from the card-plan search (the card's or the paying account's). */
+export type CardPlanSearchItem = {
+  id: string; account_id: string; account_name: string; on_card: boolean; date: string | null;
+  amount: number; direction: "in" | "out"; narrative: string; display_name: string; fill_rule: PlanFillRule | null;
+};
+
+export type CardPlanSearch = { items: CardPlanSearchItem[]; total: number; limit: number; skip: number; has_more: boolean };
+
 /** G475: what is already known about how a card is repaid. Empty fields mean ask. */
 export type CardPlanPrefill = {
   card_account_id: string;
   card_name: string;
+  /** G476: "<card name> repayment plan", never a person's name. */
+  default_name?: string;
+  repayments?: CardRepayment[];
+  sources?: CardRepaymentSource[];
+  source_choice_needed?: boolean;
+  card_leg_match?: CardRepayment | null;
+  recent_credits?: CardRepayment[];
   existing_plan_id: string | null;
   balance_owed: number | null;
   source_account_id: string | null;
   source_account_name: string | null;
   amount: number | null;
-  amount_basis: "direct_debit" | "statement_estimate" | "fixed_payment" | null;
+  amount_basis: "direct_debit" | "statement_estimate" | "fixed_payment" | "usual_repayments" | null;
   estimated: boolean;
   tracking_start: string;
   start_is_detected: boolean;
@@ -3957,6 +3990,9 @@ export const api = {
   /** G475: what is already known about how one card is repaid; read-only. */
   cardPlanPrefill: (cardAccountId: string) =>
     get<CardPlanPrefill>(`/commitments/card-plan-prefill?card_account_id=${encodeURIComponent(cardAccountId)}`),
+  /** G476: search the card's and its paying account's own transactions by text or amount; read-only. */
+  cardPlanSearch: (cardAccountId: string, sourceAccountId: string, q: string, skip = 0) =>
+    get<CardPlanSearch>(`/commitments/card-plan-search?card_account_id=${encodeURIComponent(cardAccountId)}&source_account_id=${encodeURIComponent(sourceAccountId)}&q=${encodeURIComponent(q)}&skip=${skip}`),
   /** G475: one repayment plan per card, paid from one account. */
   createCardPlan: (body: {
     card_account_id: string;
