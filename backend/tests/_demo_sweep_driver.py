@@ -27,14 +27,91 @@ def _load(path: str):
     return mod
 
 
+_PIN: dict = {"day": None}
+_REAL_DATETIME = datetime
+_REAL_DATE = date
+
+
+class _InstMeta(type):
+    """isinstance(real_datetime_from_mongo, FakeDatetime) must stay True."""
+
+    def __instancecheck__(cls, inst):
+        return isinstance(inst, cls._real)
+
+
+def _pinned_noon():
+    d = _PIN["day"]
+    return _REAL_DATETIME(d.year, d.month, d.day, 12, 0)
+
+
+class FakeDatetime(_REAL_DATETIME, metaclass=_InstMeta):
+    _real = _REAL_DATETIME
+
+    @classmethod
+    def now(cls, tz=None):
+        n = _pinned_noon()
+        if tz is None:
+            return cls(n.year, n.month, n.day, 12)
+        from app.core import timeutil
+        return cls.fromtimestamp(n.replace(tzinfo=timeutil.LONDON).timestamp(), tz)
+
+    @classmethod
+    def utcnow(cls):
+        n = _pinned_noon()
+        return cls(n.year, n.month, n.day, 12)
+
+    @classmethod
+    def today(cls):
+        return cls.now()
+
+
+class FakeDate(_REAL_DATE, metaclass=_InstMeta):
+    _real = _REAL_DATE
+
+    @classmethod
+    def today(cls):
+        d = _PIN["day"]
+        return cls(d.year, d.month, d.day)
+
+
+def install_clock() -> None:
+    """Pin datetime.now()/utcnow()/today() and date.today() to _PIN["day"] across
+    the app, so the whole recompute sees the pinned day, not the real one."""
+    import datetime as dtmod
+    dtmod.datetime = FakeDatetime
+    dtmod.date = FakeDate
+    for name, mod in list(sys.modules.items()):
+        if not (name.startswith("app") or name.startswith("scripts") or name.startswith("seed_demo")):
+            continue
+        for attr, val in list(vars(mod).items()):
+            if val is _REAL_DATETIME:
+                setattr(mod, attr, FakeDatetime)
+            elif val is _REAL_DATE:
+                setattr(mod, attr, FakeDate)
+
+
+async def _warm_imports(seeder) -> None:
+    """Import every module a seed touches before the clock is pinned, so the
+    pin reaches their `from datetime import ...` names too."""
+    from app.routers import analytics  # noqa: F401
+    from app.services import data_version, response_cache, warmup  # noqa: F401
+    from app.services import subscription_admin  # noqa: F401
+    from app.routers import profile  # noqa: F401
+    from app.services import categorisation  # noqa: F401
+
+
 async def _run(seeder, start: date, days: int) -> None:
     from app.core import config, timeutil
     from app.db import collections as dbc
     from app.db.guard import TEST_DB_NAME_RE
 
     assert TEST_DB_NAME_RE.match(config.MONGO_DB), "sweep only runs against a wealth_test_* database"
+    _PIN["day"] = start
+    await _warm_imports(seeder)
+    install_clock()
     for i in range(days):
         day = start + timedelta(days=i)
+        _PIN["day"] = day
         timeutil.user_today = lambda d=day: d
         timeutil.user_now = lambda d=day: datetime(d.year, d.month, d.day, 12, 0, tzinfo=timeutil.LONDON)
         await seeder.seed(today=day)

@@ -39,7 +39,6 @@ from __future__ import annotations
 import argparse
 import asyncio
 import calendar
-import random
 import sys
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -51,15 +50,20 @@ if str(_BACKEND) not in sys.path:
 PROFILE_NAME = "App Reviewer"
 HISTORY_DAYS = 92
 PAY_DAY = 28
-SALARY = 2650.00
+SALARY = 2400.00
 CURRENT_ID = "demo-acc-current"
 BILLS_ID = "demo-acc-bills"
-BILLS_TRANSFER = 1620.00
+BILLS_TRANSFER = 1480.00
 SAVER_ID = "demo-acc-saver"
 CARD_ID = "demo-acc-card"
-CURRENT_BALANCE = 700.00
-BILLS_BALANCE = 240.00
-SAVER_BALANCE = 4215.60
+# Balances are not constants: each is the figure carried into the pay period
+# plus everything posted since payday (see build_transactions), so the same
+# story reads the same on every day of the period (H157).
+CURRENT_CARRY = 150.00
+BILLS_CARRY = 20.00
+SAVER_CARRY = 4215.60
+CARD_STATEMENT_CLOSE_DAY = 6
+CARD_PAYMENT_DAY = 20
 
 # Collections in ERASURE_MANIFEST that are shared or operational: nothing in
 # them belongs to a person, and some are keyed by an email as _id (allowed
@@ -94,6 +98,11 @@ def monthly_dates(day: int, today: date, window_start: date) -> list[date]:
     return out
 
 
+def next_business_day(d: date) -> date:
+    """Direct debits do not post on a weekend: they land on the following Monday."""
+    return d + timedelta(days=(7 - d.weekday()) % 7) if d.weekday() >= 5 else d
+
+
 def _dt(d: date) -> datetime:
     return datetime(d.year, d.month, d.day)
 
@@ -116,24 +125,29 @@ class _Txns:
 
 
 def build_transactions(today: date) -> tuple[list[dict], dict]:
-    """Return (transactions, facts). Deterministic for a given `today`."""
-    rng = random.Random(f"c43-demo-{today.isoformat()}")
+    """Return (transactions, facts). Deterministic for a given `today`: no randomness at all (H157).
+
+    Amounts are fixed and spending follows the weekday and the day of the month, so
+    the same pay-period day looks the same whichever month it is seeded in.
+    """
     start = today - timedelta(days=HISTORY_DAYS)
     t = _Txns()
 
-    def monthly(day, account, amount, kind, merchant, category, description=None):
+    def monthly(day, account, amount, kind, merchant, category, description=None, roll=True):
         for d in monthly_dates(day, today, start):
-            t.add(account, d, amount, kind, merchant, category, description)
+            posted = next_business_day(d) if roll else d
+            if posted <= today:
+                t.add(account, posted, amount, kind, merchant, category, description)
 
     # Income and fixed bills, current account.
-    monthly(PAY_DAY, CURRENT_ID, SALARY, "credit", "BRIGHTWATER SOLUTIONS LTD", "Income", "BRIGHTWATER SOLUTIONS LTD SALARY")
-    monthly(1, BILLS_ID, 925.00, "debit", "FOXGLOVE LETTINGS", "Rent", "FOXGLOVE LETTINGS RENT")
-    monthly(2, BILLS_ID, 148.00, "debit", "WILLOWMERE DISTRICT COUNCIL", "Bills", "WILLOWMERE DISTRICT COUNCIL COUNCIL TAX")
-    monthly(5, BILLS_ID, 96.40, "debit", "SPARKWELL ENERGY", "Bills", "SPARKWELL ENERGY DIRECT DEBIT")
-    monthly(8, BILLS_ID, 31.00, "debit", "CLEARBROOK WATER", "Bills", "CLEARBROOK WATER DIRECT DEBIT")
-    monthly(15, BILLS_ID, 24.00, "debit", "BLUEWAVE MOBILE", "Bills", "BLUEWAVE MOBILE DIRECT DEBIT")
-    monthly(17, BILLS_ID, 29.99, "debit", "FIBREHOME BROADBAND", "Bills", "FIBREHOME BROADBAND DIRECT DEBIT")
-    monthly(10, BILLS_ID, 32.00, "debit", "FORMFIT GYM", "Health", "FORMFIT GYM MEMBERSHIP")
+    monthly(PAY_DAY, CURRENT_ID, SALARY, "credit", "BRIGHTWATER SOLUTIONS LTD", "Income", "BRIGHTWATER SOLUTIONS LTD SALARY", roll=False)
+    monthly(1, BILLS_ID, 1150.00, "debit", "FOXGLOVE LETTINGS", "Rent", "FOXGLOVE LETTINGS RENT")
+    monthly(2, BILLS_ID, 165.00, "debit", "WILLOWMERE DISTRICT COUNCIL", "Bills", "WILLOWMERE DISTRICT COUNCIL COUNCIL TAX")
+    monthly(5, BILLS_ID, 140.00, "debit", "SPARKWELL ENERGY", "Bills", "SPARKWELL ENERGY DIRECT DEBIT")
+    monthly(24, BILLS_ID, 31.00, "debit", "CLEARBROOK WATER", "Bills", "CLEARBROOK WATER DIRECT DEBIT")
+    monthly(24, BILLS_ID, 24.00, "debit", "BLUEWAVE MOBILE", "Bills", "BLUEWAVE MOBILE DIRECT DEBIT")
+    monthly(24, BILLS_ID, 29.99, "debit", "FIBREHOME BROADBAND", "Bills", "FIBREHOME BROADBAND DIRECT DEBIT")
+    monthly(24, BILLS_ID, 32.00, "debit", "FORMFIT GYM", "Health", "FORMFIT GYM MEMBERSHIP")
 
     # Each payday the main account tops up the bills account, both legs.
     for d in monthly_dates(PAY_DAY + 1, today, start):
@@ -145,56 +159,67 @@ def build_transactions(today: date) -> tuple[list[dict], dict]:
         t.add(CURRENT_ID, d, 150.00, "debit", "EASY ACCESS SAVER", "Transfer", "STANDING ORDER EASY ACCESS SAVER")
         t.add(SAVER_ID, d, 150.00, "credit", "FROM EVERYDAY CURRENT", "Transfer", "STANDING ORDER FROM EVERYDAY CURRENT")
     for d in monthly_dates(1, today, start):
-        t.add(SAVER_ID, d, round(rng.uniform(11.0, 13.5), 2), "credit", "INTEREST PAID", "Income", "GROSS INTEREST")
+        t.add(SAVER_ID, d, 12.40, "credit", "INTEREST PAID", "Income", "GROSS INTEREST")
 
     # Subscriptions, on the card.
     monthly(9, CARD_ID, 10.99, "debit", "STREAMBOX", "Subscriptions", "STREAMBOX MONTHLY")
     monthly(14, CARD_ID, 11.99, "debit", "TUNEHOUSE", "Subscriptions", "TUNEHOUSE PREMIUM")
     monthly(21, CARD_ID, 2.99, "debit", "PIXELCLOUD STORAGE", "Subscriptions", "PIXELCLOUD STORAGE 200GB")
 
-    # Day-to-day spending.
+    # Day-to-day spending: fixed amounts on fixed weekdays and days of the month.
     day = start
     while day <= today:
         wd = day.weekday()
-        if wd == 5 or (wd == 2 and rng.random() < 0.6):
-            shop = "FRESHFIELD SUPERMARKET" if rng.random() < 0.6 else "GREENLEAF MARKET"
-            t.add(CURRENT_ID, day, rng.uniform(22, 78), "debit", shop, "Groceries")
-        if wd < 5 and rng.random() < 0.5:
-            t.add(CURRENT_ID, day, rng.uniform(3.6, 6.2), "debit", "KESTREL COFFEE", "Eating Out")
-        if wd == 5 and rng.random() < 0.45:
-            t.add(CARD_ID, day, rng.uniform(18, 46), "debit", "THE ANCHOR INN", "Eating Out")
-        if rng.random() < 0.07:
-            t.add(CARD_ID, day, rng.uniform(12, 38), "debit", "SPICE ROUTE TAKEAWAY", "Eating Out")
-        if wd < 5 and rng.random() < 0.45:
-            t.add(CURRENT_ID, day, rng.uniform(2.8, 6.4), "debit", "CITYLINK TRAVEL", "Transport")
+        if wd == 5:
+            t.add(CURRENT_ID, day, 22.00, "debit", "FRESHFIELD SUPERMARKET", "Groceries")
+            t.add(CARD_ID, day, 24.50, "debit", "THE ANCHOR INN", "Eating Out")
+        if wd in (0, 4):
+            t.add(CURRENT_ID, day, 3.60, "debit", "KESTREL COFFEE", "Eating Out")
+        if wd == 1:
+            t.add(CURRENT_ID, day, 3.40, "debit", "CITYLINK TRAVEL", "Transport")
         day += timedelta(days=1)
 
-    # One-offs.
-    t.add(CARD_ID, today - timedelta(days=24), 219.00, "debit", "HOMESTYLE FURNITURE", "Shopping")
-    t.add(CARD_ID, today - timedelta(days=9), 34.99, "debit", "CORNERSTONE GIFTS", "Shopping")
-    t.add(CARD_ID, today - timedelta(days=40), 46.50, "debit", "PETHAVEN", "Shopping")
-    t.add(CURRENT_ID, today - timedelta(days=55), 65.00, "debit", "BRIGHTSMILE DENTAL", "Health")
+    # One-off, on the current account, dated by day of month so it does not drift.
+    for d in monthly_dates(11, today, start)[:1]:
+        t.add(CURRENT_ID, d, 65.00, "debit", "BRIGHTSMILE DENTAL", "Health")
 
-    # Card repayments: the statement closes on the 5th and is paid in full on
-    # the 22nd, from the current account. Amounts are the cycle's own spending.
+    # Card repayments: the statement closes on the 6th and is paid in full on
+    # the 20th, from the current account. Amounts are the cycle's own spending.
     card_spend = [r for r in t.rows if r["account_id"] == CARD_ID and r["transaction_type"] == "debit"]
-    for pay in monthly_dates(22, today, start):
-        close = _month_start(pay, 0).replace(day=5)
-        prev_close = _month_start(pay, -1).replace(day=5)
+    for pay in monthly_dates(CARD_PAYMENT_DAY, today, start):
+        close = _month_start(pay, 0).replace(day=CARD_STATEMENT_CLOSE_DAY)
+        prev_close = _month_start(pay, -1).replace(day=CARD_STATEMENT_CLOSE_DAY)
         owed = round(sum(r["amount"] for r in card_spend if prev_close < r["date"] <= close), 2)
         if owed < 50:
             continue
-        t.add(BILLS_ID, pay, owed, "debit", "RAINBOW CARD PAYMENT", "Debt", "RAINBOW CARD PAYMENT DIRECT DEBIT")
-        t.add(CARD_ID, pay, owed, "credit", "PAYMENT RECEIVED", "Transfer", "PAYMENT RECEIVED THANK YOU")
+        posted = next_business_day(pay)
+        if posted > today:
+            continue
+        t.add(CURRENT_ID, posted, owed, "debit", "RAINBOW CARD PAYMENT", "Debt", "RAINBOW CARD PAYMENT DIRECT DEBIT")
+        t.add(CARD_ID, posted, owed, "credit", "PAYMENT RECEIVED", "Transfer", "PAYMENT RECEIVED THANK YOU")
 
     # The card balance is what has been spent since the last statement paid.
     last_pay = max((r["date"] for r in t.rows if r["account_id"] == CARD_ID and r["transaction_type"] == "credit"), default=None)
     if last_pay is not None:
-        last_close = _month_start(last_pay, 0).replace(day=5)
+        last_close = _month_start(last_pay, 0).replace(day=CARD_STATEMENT_CLOSE_DAY)
         card_owed = sum(r["amount"] for r in card_spend if r["date"] > last_close)
     else:
         card_owed = sum(r["amount"] for r in card_spend)
-    facts = {"card_owed": round(card_owed, 2), "window_start": start}
+    pstart = _period_start(today)
+
+    def carried(account: str, carry: float) -> float:
+        posted = sum(r["amount"] if r["transaction_type"] == "credit" else -r["amount"]
+                     for r in t.rows if r["account_id"] == account and pstart <= r["date"] <= today)
+        return round(carry + posted, 2)
+
+    facts = {
+        "card_owed": round(card_owed, 2), "window_start": start,
+        "balances": {
+            CURRENT_ID: carried(CURRENT_ID, CURRENT_CARRY),
+            BILLS_ID: carried(BILLS_ID, BILLS_CARRY),
+            SAVER_ID: carried(SAVER_ID, SAVER_CARRY),
+        },
+    }
     return t.rows, facts
 
 
@@ -248,12 +273,12 @@ async def seed(uid: str | None = None, today: date | None = None) -> dict:
     common = {"user_id": uid, "currency": "GBP", "status": "connected", "provider": "Demo", "source": "demo"}
     await dbc.accounts_col.insert_many([
         {"_id": CURRENT_ID, "name": "Everyday Current", "type": "BANK", "subtype": "TRANSACTION",
-         "balance": CURRENT_BALANCE, "include_in_safe_to_spend": True, "overdraft_limit": 250.0,
+         "balance": facts["balances"][CURRENT_ID], "include_in_safe_to_spend": True, "overdraft_limit": 250.0,
          "balance_as_of": now_utc, **common},
         {"_id": BILLS_ID, "name": "Bills Account", "type": "BANK", "subtype": "TRANSACTION",
-         "balance": BILLS_BALANCE, "include_in_safe_to_spend": True, "balance_as_of": now_utc, **common},
+         "balance": facts["balances"][BILLS_ID], "include_in_safe_to_spend": True, "balance_as_of": now_utc, **common},
         {"_id": SAVER_ID, "name": "Easy Access Saver", "type": "BANK", "subtype": "SAVINGS",
-         "balance": SAVER_BALANCE, "include_in_safe_to_spend": True, "balance_as_of": now_utc, **common},
+         "balance": facts["balances"][SAVER_ID], "include_in_safe_to_spend": True, "balance_as_of": now_utc, **common},
         {"_id": CARD_ID, "name": "Rainbow Credit Card", "type": "CREDIT", "subtype": "CREDIT_CARD",
          "balance": -facts["card_owed"], "credit_limit": 3000.0, "include_in_safe_to_spend": True,
          "balance_as_of": now_utc, **common},
@@ -283,8 +308,8 @@ async def seed(uid: str | None = None, today: date | None = None) -> dict:
     })
     await dbc.card_terms_col.insert_one({
         "user_id": uid, "account_id": CARD_ID, "status": "confirmed", "apr_pct": 21.9, "promos": [],
-        "bt_offers": [], "statement_close_day": 5, "payment_due_day": 22, "payment_due_days_after_close": None,
-        "payment_method": "full", "payment_account_id": BILLS_ID, "fixed_payment_amount": None,
+        "bt_offers": [], "statement_close_day": CARD_STATEMENT_CLOSE_DAY, "payment_due_day": CARD_PAYMENT_DAY, "payment_due_days_after_close": None,
+        "payment_method": "full", "payment_account_id": CURRENT_ID, "fixed_payment_amount": None,
         "usage": "clear_monthly",
     })
     await dbc.commitments_col.insert_one({
@@ -325,6 +350,7 @@ async def seed(uid: str | None = None, today: date | None = None) -> dict:
 def parse_args(argv=None) -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Seed the synthetic App Review demo account (C43).")
     p.add_argument("--confirm", action="store_true", help="required: acknowledge this wipes and rebuilds the demo user")
+    p.add_argument("--today", default="", help="test aid only: build the account as of YYYY-MM-DD instead of today")
     p.add_argument("--db-name", default="", help="required: must equal the MONGO_DB this process resolved")
     return p.parse_args(argv)
 
@@ -339,7 +365,8 @@ def main(argv=None) -> int:
         print("Refusing: --db-name does not match the database this process is configured for.", file=sys.stderr)
         return 2
     print(f"Target database: {config.MONGO_DB}")
-    result = asyncio.run(seed())
+    pinned = date.fromisoformat(args.today) if args.today else None
+    result = asyncio.run(seed(today=pinned))
     print("Seeded: " + ", ".join(f"{k}={v}" for k, v in result.items()))
     return 0
 
