@@ -65,7 +65,9 @@ import { accountAvailability, formatAvailabilityAmount, type AccountAvailability
 import { tidyAccountText } from "@/lib/accountDisplay";
 import { useTutorialAction, useTutorialReady } from "@/components/TutorialContext";
 import { isLegacyBankSource } from "@/lib/legacyBankProvider";
-import { useOpenBankingAccessState } from "@/lib/openBankingAccess";
+import { useOpenBankingAccessStatus } from "@/lib/openBankingAccess";
+import { accountsAddDiagnostic } from "@/lib/accountsAddDiagnosticClient";
+import type { AddPath } from "@/lib/accountsAddDiagnostic";
 import { stampAccountDetailState, hasAccountDetailEntry } from "@/lib/accountSheetHistory";
 import { useAccountDetailHistory } from "@/lib/useAccountDetailHistory";
 import { openSheetHistoryCount } from "@/lib/useSheetA11y";
@@ -322,7 +324,12 @@ export default function AccountsPage() {
   const [connectNotice, setConnectNotice] = useState<null | { providerId?: string }>(null);
   // A67: does this plan include connecting a bank? Resolved alongside the
   // page rather than gating it — see lib/openBankingAccess.ts.
-  const bankAccess = useOpenBankingAccessState();
+  const bankAccess = useOpenBankingAccessStatus();
+  // G477: what the on-device diagnostic reports (state names only).
+  const addSnapshotRef = useRef({ access: bankAccess.status, ready: bankAccess.ready, allowed: bankAccess.allowed });
+  useEffect(() => { addSnapshotRef.current = { access: bankAccess.status, ready: bankAccess.ready, allowed: bankAccess.allowed }; }, [bankAccess.status, bankAccess.ready, bankAccess.allowed]);
+  useEffect(() => accountsAddDiagnostic().watchAccess(() => addSnapshotRef.current), []);
+  const watchAddTap = (path: AddPath) => { accountsAddDiagnostic().tapped(path, () => addSnapshotRef.current); };
   const canConnectBank = bankAccess.allowed;
 
   // Offline (manually-tracked) accounts
@@ -2785,10 +2792,12 @@ export default function AccountsPage() {
             <AccountsAddMenu
               allowed={canConnectBank}
               ready={bankAccess.ready}
-              onBank={provider => { setAddMenuOpen(false); setShowBankPicker(provider); }}
-              onStatement={() => { setAddMenuOpen(false); setShowStatementUpload(true); }}
-              onInvestment={() => { setAddMenuOpen(false); setShowInvestmentUpload(true); }}
-              onOffline={() => { setAddMenuOpen(false); openAddManual(); }}
+              error={bankAccess.status === "error"}
+              onRetry={bankAccess.retry}
+              onBank={provider => { watchAddTap("bank"); setAddMenuOpen(false); setShowBankPicker(provider); }}
+              onStatement={() => { watchAddTap("statement"); setAddMenuOpen(false); setShowStatementUpload(true); }}
+              onInvestment={() => { watchAddTap("investment"); setAddMenuOpen(false); setShowInvestmentUpload(true); }}
+              onOffline={() => { watchAddTap("offline"); setAddMenuOpen(false); openAddManual(); }}
             />
           ) : null}
         />
