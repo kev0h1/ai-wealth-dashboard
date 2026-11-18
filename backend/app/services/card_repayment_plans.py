@@ -261,6 +261,251 @@ def card_display_name(card: dict) -> str:
     return display_account_name(card.get("nickname") or card.get("display_name") or card.get("name") or "Card")
 
 
+# ── G476: what the card's own history says ───────────────────────────────────
+
+HISTORY_DAYS = 180
+CREDIT_DAYS = 90
+RECENT_REPAYMENTS = 6
+RECENT_CREDITS = 8
+SEARCH_PAGE = 20
+SEARCH_MAX_PAGE = 50
+SEARCH_MAX_TEXT = 60
+_PAYMENT_LOOKING = re.compile(
+    r"payment|pymt|pmt|repay|direct\s+debit|thank\s+you|transfer|bacs|faster|standing\s+order", re.I,
+)
+_PLAN_SUFFIX = " repayment plan"
+_NAME_MAX = 40
+
+
+def default_plan_name(card_name: str) -> str:
+    """"<card name> repayment plan", cut from the card name (never the suffix)
+    so it always fits the 40 characters a plan name may have."""
+    base = " ".join(str(card_name or "Card").split())[: _NAME_MAX - len(_PLAN_SUFFIX)].rstrip()
+    return f"{base or 'Card'}{_PLAN_SUFFIX}"
+
+
+def safe_card_name(card: dict) -> str:
+    """The card's display name, never a person's name (G473)."""
+    from app.services.account_names import holder_safe_name
+
+    return holder_safe_name(card) or card_display_name(card)
+
+
+def safe_account_name(account: dict | None) -> str:
+    from app.services.account_names import holder_safe_name
+    from app.services.account_plan_sources import account_label
+
+    return (holder_safe_name(account) if account else None) or account_label(account)
+
+
+def _mask(text) -> str:
+    from app.services.card_statements import mask_long_digits
+
+    return mask_long_digits(" ".join(str(text or "").split()))[:120]
+
+
+def _pence(row: dict) -> int | None:
+    try:
+        value = abs(float(row.get("amount")))
+    except (TypeError, ValueError):
+        return None
+    return int(round(value * 100)) if value == value else None
+
+
+def _row_id(row: dict) -> str:
+    return str(row.get("_id") or row.get("id") or "")
+
+
+async def _rows(uid: str, account_ids: list[str], days: int, kind: str | None = None) -> list[dict]:
+    """The caller's own rows on exactly these accounts, newest first. The user
+    id is always in the query, so another user's account id returns nothing."""
+    from app.db.collections import transactions_col, yapily_transactions_col
+
+    if not account_ids:
+        return []
+    cutoff = datetime.now(timezone.utc) - timedelta(days=days)  # naive-ok: lookback window, not a calendar date
+    query: dict = {"user_id": uid, "account_id": {"$in": list(account_ids)}, "date": {"$gte": cutoff}}
+    if kind:
+        query["transaction_type"] = kind
+    rows: list[dict] = []
+    for col in (transactions_col, yapily_transactions_col):
+        rows += [r for r in await col.find(query).to_list(None) if not r.get("is_pending")]
+    return sorted(rows, key=lambda r: r.get("date") or datetime.min, reverse=True)
+
+
+def _stamped_to_other_card(debit: dict, card_id: str) -> bool:
+    marker = debit.get("own_transfer_match")
+    link = marker.get("card_repayment") if isinstance(marker, dict) else None
+    return isinstance(link, dict) and bool(link.get("card_account_id")) and str(link["card_account_id"]) != str(card_id)
+
+
+def pair_card_legs(credits: list[dict], debits: list[dict], card_id: str, accounts: dict[str, dict]) -> list[tuple[dict, dict | None]]:
+    """[(credit into the card, the paying account's debit or None)], newest
+    credit first. The legs pair on the same amount, within the card's posting
+    lag (`pair_timing_ok`: CARD_REPAY_DAYS for a card), and may post on
+    different days. Each debit pairs once; the nearest in time wins."""
+    from app.services.own_account_transfers import pair_gap, pair_timing_ok
+
+    used: set[str] = set()
+    out: list[tuple[dict, dict | None]] = []
+    for credit in credits:
+        cp = _pence(credit)
+        best, best_gap = None, None
+        for debit in debits:
+            if (cp is None or _pence(debit) != cp or _row_id(debit) in used or str(debit.get("account_id")) == str(card_id)
+                    or _stamped_to_other_card(debit, card_id)):
+                continue
+            if not pair_timing_ok(credit, debit, accounts):
+                continue
+            gap = pair_gap(credit, debit)
+            if best is None or (gap is not None and (best_gap is None or gap < best_gap)):
+                best, best_gap = debit, gap
+        if best is not None:
+            used.add(_row_id(best))
+        out.append((credit, best))
+    return out
+
+
+def _median(values: list[float]) -> float:
+    ordered = sorted(values)
+    mid = len(ordered) // 2
+    return ordered[mid] if len(ordered) % 2 else round((ordered[mid - 1] + ordered[mid]) / 2, 2)
+
+
+def _credit_item(credit: dict, debit: dict | None, accounts: dict[str, dict]) -> dict:
+    source = accounts.get(str(debit.get("account_id"))) if debit else None
+    when = debit if debit is not None else credit
+    return {
+        "date": _day(when.get("date")).isoformat() if _day(when.get("date")) else None,
+        "card_date": _day(credit.get("date")).isoformat() if _day(credit.get("date")) else None,
+        "debit_date": _day(debit.get("date")).isoformat() if debit is not None and _day(debit.get("date")) else None,
+        "amount": round((_pence(credit) or 0) / 100, 2),
+        "source_account_id": str(debit.get("account_id")) if debit is not None else None,
+        "source_account_name": safe_account_name(source) if source else None,
+        "matched": debit is not None,
+        "narrative": _mask(credit.get("description") or credit.get("merchant_name")),
+        "fill_rule": _rule_from_debit(debit) if debit is not None else None,
+    }
+
+
+def latest_leg_match(repayments: list[dict], source_id: str | None) -> dict | None:
+    """The newest repayment whose card credit pairs with a debit from this paying
+    account and whose debit gives a rule that matches it, else None."""
+    if not source_id:
+        return None
+    return next((r for r in repayments if r["matched"] and r["source_account_id"] == str(source_id) and r["fill_rule"]), None)
+
+
+async def card_history(uid: str, card_id: str, account_map: dict[str, dict], eligible: dict[str, dict]) -> dict:
+    """The card's recent repayments from both legs, and its recent credits.
+
+    `repayments`: the last few payments into the card (a matched pair, or a
+    payment-looking credit whose paying debit was not found), newest first.
+    `sources`: the paying accounts those pairs came from, with a usual amount.
+    `recent_credits`: every recent credit on the card, for the fallback list."""
+    cid = str(card_id)
+    credits = await _rows(uid, [cid], HISTORY_DAYS, "credit")
+    pay_ids = [aid for aid in eligible if aid != cid]
+    debits = await _rows(uid, pay_ids, HISTORY_DAYS, "debit")
+    pairs = pair_card_legs(credits, debits, cid, account_map)
+    items = [_credit_item(c, d, account_map) for c, d in pairs]
+    repayments = [
+        item for item, (credit, debit) in zip(items, pairs)
+        if debit is not None or _PAYMENT_LOOKING.search(f"{credit.get('description') or ''} {credit.get('merchant_name') or ''}")
+        or isinstance(credit.get("own_transfer_match"), dict)
+    ][:RECENT_REPAYMENTS]
+    by_source: dict[str, list[dict]] = {}
+    for item in repayments:
+        if item["source_account_id"]:
+            by_source.setdefault(item["source_account_id"], []).append(item)
+    sources = [
+        {
+            "account_id": aid, "name": rows[0]["source_account_name"], "count": len(rows),
+            "usual_amount": _median([r["amount"] for r in rows]), "last_date": rows[0]["date"],
+        }
+        for aid, rows in by_source.items()
+    ]
+    sources.sort(key=lambda s: (s["count"], s["last_date"] or ""), reverse=True)
+    cutoff = timeutil.user_today() - timedelta(days=CREDIT_DAYS)
+    recent_credits = [
+        item for item in items if (_day(item["card_date"]) or date.min) >= cutoff
+    ][:RECENT_CREDITS]
+    return {"repayments": repayments, "sources": sources, "recent_credits": recent_credits}
+
+
+def _amount_query(text: str) -> int | None:
+    cleaned = re.sub(r"[£,\s]", "", text)
+    if not re.fullmatch(r"\d+(?:\.\d{1,2})?", cleaned):
+        return None
+    return int(round(float(cleaned) * 100))
+
+
+def _squash(text) -> str:
+    return re.sub(r"[^a-z0-9]", "", str(text or "").lower())
+
+
+async def search(uid: str, card_id: str, source_id: str, query: str, *, limit: int = SEARCH_PAGE, skip: int = 0,
+                 account_map: dict[str, dict] | None = None) -> dict | None:
+    """G476: search the card's and the paying account's own transactions by text
+    or amount, matching the raw bank narrative as well as the cleaned name.
+
+    Scoped to the two accounts only, and only when both are the caller's own
+    (None when the card is not theirs). A row from the card side carries the
+    rule of the paying account's debit it pairs with, if one is found. Narratives
+    shown have long digit runs cut to their last five."""
+    from app.services.account_plan_sources import owned_account_map
+    from app.services.plan_fulfilment import display_name
+
+    accounts = account_map if account_map is not None else await owned_account_map(uid)
+    card = await owned_card(uid, card_id)
+    source = accounts.get(str(source_id))
+    if card is None or source is None or str(source_id) == str(card_id):
+        return None
+    cid, sid = str(card_id), str(source_id)
+    text = " ".join(str(query or "").split())[:SEARCH_MAX_TEXT]
+    limit = max(1, min(int(limit), SEARCH_MAX_PAGE))
+    skip = max(0, int(skip))
+    rows = await _rows(uid, [cid, sid], HISTORY_DAYS)
+    pairs = pair_card_legs(
+        [r for r in rows if str(r.get("account_id")) == cid and r.get("transaction_type") == "credit"],
+        [r for r in rows if str(r.get("account_id")) == sid and r.get("transaction_type") == "debit"],
+        cid, accounts,
+    )
+    paired_debit = {_row_id(c): d for c, d in pairs if d is not None}
+    want_pence = _amount_query(text) if text else None
+    squashed = _squash(text)
+    hits = []
+    for row in rows:
+        if str(row.get("account_id")) not in (cid, sid):
+            continue  # never another account's row, whatever the query returned
+        if text:
+            hay = f"{row.get('description') or ''} {row.get('merchant_name') or ''} {display_name(row)}"
+            by_text = text.lower() in hay.lower() or (len(squashed) >= 3 and squashed in _squash(hay))
+            if not by_text and (want_pence is None or _pence(row) != want_pence):
+                continue
+        hits.append(row)
+    page = hits[skip: skip + limit]
+    items = []
+    for row in page:
+        on_card = str(row.get("account_id")) == cid
+        rule = _rule_from_debit(paired_debit[_row_id(row)]) if on_card and _row_id(row) in paired_debit else (
+            None if on_card else _rule_from_debit(row) if row.get("transaction_type") == "debit" else None
+        )
+        items.append({
+            "id": _row_id(row),
+            "account_id": str(row.get("account_id")),
+            "account_name": safe_card_name(card) if on_card else safe_account_name(source),
+            "on_card": on_card,
+            "date": _day(row.get("date")).isoformat() if _day(row.get("date")) else None,
+            "amount": round((_pence(row) or 0) / 100, 2),
+            "direction": "in" if row.get("transaction_type") == "credit" else "out",
+            "narrative": _mask(row.get("description") or row.get("merchant_name")),
+            "display_name": _mask(display_name(row)),
+            "fill_rule": rule,
+        })
+    return {"items": items, "total": len(hits), "limit": limit, "skip": skip, "has_more": skip + limit < len(hits)}
+
+
 async def prefill(uid: str, card_id: str, today: date | None = None) -> dict | None:
     """What the app already knows about how this card is repaid, so the plan
     sheet opens filled in. None when the card is not the user's own card.
@@ -316,18 +561,37 @@ async def prefill(uid: str, card_id: str, today: date | None = None) -> dict | N
     eligible = {
         aid: doc for aid, doc in eligible_source_account_map(account_map, set()).items() if is_counted(doc)
     }
+    try:
+        history = await card_history(uid, cid, account_map, eligible)
+    except Exception:
+        logger.warning("card plan prefill: card history unavailable", exc_info=True)
+        history = {"repayments": [], "sources": [], "recent_credits": []}
+    sources = history["sources"]
+    # A paying account the user saved wins. Repayments from SEVERAL accounts are
+    # offered grouped, never picked for the user. Otherwise the detected series'
+    # account, else the one account the history shows.
     source_id = None
-    for candidate in (terms.get("payment_account_id"), (detected or {}).get("account_id")):
-        if candidate is not None and str(candidate) in eligible:
-            source_id = str(candidate)
-            break
+    saved_source = terms.get("payment_account_id")
+    if saved_source is not None and str(saved_source) in eligible:
+        source_id = str(saved_source)
+    elif len(sources) <= 1:
+        for candidate in ((detected or {}).get("account_id"), sources[0]["account_id"] if sources else None):
+            if candidate is not None and str(candidate) in eligible:
+                source_id = str(candidate)
+                break
+    usual = next((x for x in sources if x["account_id"] == source_id), None)
 
     amount, basis = None, None
-    if statement and statement.get("payment_amount") and float(statement["payment_amount"]) > 0:
-        amount = float(statement["payment_amount"])
-        basis = "fixed_payment" if statement.get("payment_method") == "fixed" else "statement_estimate"
+    if statement and statement.get("payment_amount") and float(statement["payment_amount"]) > 0 and statement.get("payment_method") == "fixed":
+        amount, basis = float(statement["payment_amount"]), "fixed_payment"
+    elif usual and (usual["count"] >= 2 or not (statement or detected)):
+        amount, basis = float(usual["usual_amount"]), "usual_repayments"
+    elif statement and statement.get("payment_amount") and float(statement["payment_amount"]) > 0:
+        amount, basis = float(statement["payment_amount"]), "statement_estimate"
     elif detected and float(detected.get("avg_amount") or 0) > 0:
         amount, basis = float(detected["avg_amount"]), "direct_debit"
+    elif usual:
+        amount, basis = float(usual["usual_amount"]), "usual_repayments"
     if amount is not None:
         amount = round(amount, 2)
 
@@ -339,6 +603,9 @@ async def prefill(uid: str, card_id: str, today: date | None = None) -> dict | N
     elif saved and saved.get("kind") == "payment":
         hit = next((t for t in debits if row_matches_rule(t, saved)), None)
         rule = _rule_from_debit(hit) if hit else None
+    leg_match = latest_leg_match(history["repayments"], source_id)
+    if rule is None and leg_match:
+        rule = leg_match["fill_rule"]
     if rule is None and detected and detected.get("account_id") and str(detected["account_id"]) == source_id:
         key = str(detected.get("key") or "")
         from app.services.own_account_transfers import series_key, series_key_forms
@@ -358,17 +625,23 @@ async def prefill(uid: str, card_id: str, today: date | None = None) -> dict | N
         suggested = fixed_schedule(amount_pence, start or today, periods_to_clear(owed, amount_pence))
     return {
         "card_account_id": cid,
-        "card_name": card_display_name(card),
+        "card_name": safe_card_name(card),
+        "default_name": default_plan_name(safe_card_name(card)),
         "existing_plan_id": str(existing["_id"]) if existing else None,
         "balance_owed": None if owed is None else round(owed, 2),
         "source_account_id": source_id,
         "source_account_name": account_label(account_map.get(source_id)) if source_id else None,
         "amount": amount,
         "amount_basis": basis,
-        "estimated": basis in ("statement_estimate", "direct_debit"),
+        "estimated": basis in ("statement_estimate", "direct_debit", "usual_repayments"),
         "tracking_start": (start or today).isoformat(),
         "start_is_detected": start is not None,
         "fill_rule": rule,
         "schedule": suggested,
         "detected": bool(source_id or amount or rule),
+        "repayments": history["repayments"],
+        "sources": sources,
+        "source_choice_needed": len(sources) > 1 and source_id is None,
+        "card_leg_match": leg_match,
+        "recent_credits": history["recent_credits"],
     }
