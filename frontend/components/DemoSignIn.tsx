@@ -1,13 +1,15 @@
 "use client";
 
+import { isNativePlatform } from "@/lib/nativeAuth";
 import { useEffect, useState } from "react";
 import {
-  DEMO_FAILED_MESSAGE, DEMO_LIMITED_MESSAGE, DEMO_UNREACHABLE_MESSAGE,
-  demoLogin, fetchDemoEnabled,
+  DEMO_FAILED_MESSAGE, DEMO_LIMITED_MESSAGE, DEMO_UNAVAILABLE_MESSAGE, DEMO_UNREACHABLE_MESSAGE,
+  demoLogin, fetchDemoEnabled, resolveDemoEnabled,
 } from "@/lib/demoLogin";
 
 // C43: a low-key "Demo sign-in" for Apple App Review. Renders nothing unless
-// the backend says it is switched on. Existing input and button styles only.
+// the backend says it is switched on, except on native production builds
+// (C45), where the link always shows and the server decides at login. Existing input and button styles only.
 
 const INPUT =
   "w-full min-h-[44px] rounded-2xl border-2 border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-700 px-4 py-2.5 text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-500 dark:placeholder:text-slate-400";
@@ -89,7 +91,11 @@ export default function DemoSignIn({ onSignedIn }: DemoSignInProps) {
 
   useEffect(() => {
     const ctrl = new AbortController();
-    void fetchDemoEnabled(ctrl.signal).then(setEnabled);
+    void resolveDemoEnabled(
+      isNativePlatform(),
+      process.env.NEXT_PUBLIC_APP_ENV,
+      () => fetchDemoEnabled(ctrl.signal),
+    ).then(setEnabled);
     return () => ctrl.abort();
   }, []);
 
@@ -100,6 +106,7 @@ export default function DemoSignIn({ onSignedIn }: DemoSignInProps) {
     try {
       const result = await demoLogin(email, password);
       if (result === "limited") return setMessage(DEMO_LIMITED_MESSAGE);
+      if (result === "unavailable") return setMessage(DEMO_UNAVAILABLE_MESSAGE);
       if (result === "unreachable") return setMessage(DEMO_UNREACHABLE_MESSAGE);
       if (result !== "ok") return setMessage(DEMO_FAILED_MESSAGE);
       const outcome = await onSignedIn();

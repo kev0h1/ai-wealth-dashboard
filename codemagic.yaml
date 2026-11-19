@@ -630,7 +630,10 @@ workflows:
   #                             (submit_as_draft: true), so nothing reaches
   #                             users until Kevin reviews and rolls it out in
   #                             Play Console. scripts/release.py deploy starts
-  #                             this workflow after the iOS one.
+  #                             this workflow after the iOS one. Uploads are
+  #                             saved with changes_not_sent_for_review (C45),
+  #                             so Kevin sends the release for review in Play
+  #                             Console after each upload.
   #
   # Triggers (C30, 2026-10-20): android-capacitor fires on pushes to main
   # (it reuses the *uat_triggering anchor from ios-capacitor), because the
@@ -840,6 +843,11 @@ workflows:
       google_play:
         credentials: $GCLOUD_SERVICE_ACCOUNT_CREDENTIALS
         track: internal
+        # C45: Play rejects an edit commit with "Changes cannot be sent for
+        # review automatically" while the app has a rejected or pending
+        # update, whichever track the upload targets. Saving without
+        # auto-sending lets the upload land either way.
+        changes_not_sent_for_review: true
 
   android-capacitor-prod:
     name: Android Capacitor (Play production draft, production API)
@@ -884,3 +892,9 @@ workflows:
         # A draft release: nothing reaches users until Kevin reviews and
         # rolls it out in Play Console.
         submit_as_draft: true
+        # C45: while the app has a rejected or pending update, Play refuses
+        # to send changes for review automatically and the whole edit is
+        # discarded (version 29 was lost that way). Save the upload without
+        # sending it; after the upload Kevin sends the release for review in
+        # Play Console.
+        changes_not_sent_for_review: true
