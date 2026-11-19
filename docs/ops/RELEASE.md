@@ -274,6 +274,16 @@ the production smoke checks first and does not tag if any fail, then pushes the
 tag. It deploys nothing. Run from the shared tree, by Kevin or the coordinator
 (a developer session never releases).
 
+### Android: send the Play release for review (C45)
+
+`android-capacitor-prod` uploads to the Play production track as a draft, and
+both Android workflows set `changes_not_sent_for_review: true`. Play refuses
+to send changes for review automatically while the app has a rejected or
+pending update, and the upload used to be discarded with "Changes cannot be
+sent for review automatically". The upload is now saved without being sent,
+so after each upload Kevin opens Play Console, checks the release, and sends
+it for review himself.
+
 ## d) Rollback
 
 ```bash
