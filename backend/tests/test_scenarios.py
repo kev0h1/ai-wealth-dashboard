@@ -414,6 +414,9 @@ def _check_expected(snap: dict, spec: dict) -> None:
         got_lines = snap["safe_to_spend"].get("left_to_spend_lines") or {}
         for key, want in exp["lines"].items():
             chk.check(f"lines {key}", _r2(got_lines.get(key)), _r2(want))
+    if "dip_lines" in exp:
+        # G479: the headline's own sentence for each account that goes short, hand-written in the fixture.
+        chk.check("dip lines", [d["line"] for d in (snap["safe_to_spend"].get("left_to_spend_lines") or {}).get("dips", [])], exp["dip_lines"])
     if "spend_from_total" in exp:
         # G436: this fixture names every eligible current account. Each figure is
         # that account's own, and they add up to the named total (with Left to
@@ -430,6 +433,12 @@ def _check_expected(snap: dict, spec: dict) -> None:
         for key in ("after_payments", "low_point", "plans_reserved", "after_payments_and_plans", "headroom"):
             if key in want:
                 chk.check(f"{acct_id} {key}", _r2(got[key]), _r2(want[key]))
+        # G479: the account's lowest balance, what it contributes and what it is still short by.
+        for key in ("lowest_after_money_in", "contribution", "uncovered_shortfall"):
+            if key in want:
+                chk.check(f"{acct_id} {key}", _r2(got[key]), _r2(want[key]))
+        if "dip" in want:
+            chk.check(f"{acct_id} dip", got.get("dips_below_zero"), want["dip"])
         if "verdict" in want:
             chk.check(f"{acct_id} verdict", _verdict(got), want["verdict"])
         # G410: the earmark fields (absent from the payload when there is no earmark).

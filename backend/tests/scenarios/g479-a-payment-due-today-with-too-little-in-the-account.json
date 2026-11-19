@@ -1,0 +1,80 @@
+{
+  "name": "G479, today edge: the payment is due today and the account holds less than it, so it is short today",
+  "today": "2026-11-19",
+  "pay_period_config": {
+    "type": "last_friday"
+  },
+  "confirmed_income_streams": [],
+  "accounts": [
+    {
+      "_id": "acc-hb",
+      "name": "Harbour Current",
+      "provider": "barclays",
+      "type": "BANK",
+      "subtype": "TRANSACTION",
+      "balance": 34.89,
+      "currency": "GBP",
+      "status": "connected",
+      "include_in_safe_to_spend": true
+    }
+  ],
+  "manual_accounts": [],
+  "cashflow_cache": {
+    "recurring_spend": [
+      {
+        "key": "HOMEBRIDGE HOUSING",
+        "avg_amount": 77.91,
+        "avg_interval": 30,
+        "next_date": "2026-11-19",
+        "account_id": "acc-hb",
+        "account_name": "Harbour Current",
+        "account_bank": "barclays",
+        "account_balance": 34.89,
+        "is_credit_card": false,
+        "category": "Bills"
+      }
+    ],
+    "recurring_income": [],
+    "bnpl_commitments": [],
+    "avg_daily_spend": 0
+  },
+  "transactions": [],
+  "commitments": [],
+  "allocations": [],
+  "card_terms": [],
+  "expected": {
+    "left_to_spend": -43.02,
+    "spendable_balance": 34.89,
+    "lines": {
+      "accounts_total": -43.02,
+      "plans_total": 0.0,
+      "buffer": 0.0
+    },
+    "spend_from_total": -43.02,
+    "dip_lines": [
+      "£43 short today"
+    ],
+    "accounts": {
+      "acc-hb": {
+        "spend_from": -43.02,
+        "lowest_after_money_in": -43.02,
+        "contribution": 0.0,
+        "uncovered_shortfall": 43.02,
+        "dip": {
+          "short_by": 43.02,
+          "short_on": "2026-11-19"
+        },
+        "after_payments": -43.02,
+        "low_point": -43.02,
+        "verdict": "short"
+      }
+    },
+    "cover_plan": {
+      "moves_total": 0,
+      "moves": []
+    },
+    "payday_plan": null,
+    "at_risk_count": 1,
+    "notes": "Today is Thu 19 Nov 2026 and pay is the last Friday, so payday is Fri 27 Nov (8 days away): the window is days 0 to 7 (19 to 26 Nov), and anything dated on payday belongs to the next period. Harbour Current holds 34.89 and HOMEBRIDGE HOUSING 77.91 is dated today (day 0, inside the window). No money is expected. G479 (Kevin 2026-11-19, option A): Left to spend is what can be spent without any payment failing. Each counted current account contributes its LOWEST balance before payday (the lowest running balance after any of its payments, or its closing balance if that is lower, or its overdraft), money in counted only from its expected date; a dip below zero is a shortfall and reduces the total, never floored away (contribution = max(0, figure), uncovered shortfall = max(0, -figure), the total is their signed sum). Walk: 34.89 - 77.91 = -43.02 today. The lowest balance is -43.02, so the account is 43 short today (no money in follows, so the line has no 'before about' clause); Left to spend is -43.02. No other account, no move; at risk 1."
+  }
+}
