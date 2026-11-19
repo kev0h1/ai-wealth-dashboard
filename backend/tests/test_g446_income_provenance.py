@@ -165,7 +165,8 @@ def test_compute_describes_exact_pooled_lists_without_extra_reads_or_math_change
     calls = []
     _wire(monkeypatch, calls=calls)
     out = asyncio.run(analytics.compute_safe_to_spend(UID))
-    assert out["safe_to_spend"] == 650 and out["lowest_projected_balance"] == 650
+    # G479: Main 360 at its lowest + Joint 300 + Overdrawn -150 = 510 (the 650 closing figures, before G479).
+    assert out["safe_to_spend"] == 510 and out["lowest_projected_balance"] == 510
     assert out["next_payday"] == (ENGINE_TODAY + timedelta(days=10)).isoformat()
     assert out["income_before_payday"] == 240 and out["payday_income"] == 2000
     assert out["income_evidence"]["before_payday"]["total"] == 240

@@ -58,8 +58,9 @@ const detail = (account, snap, accounts) => {
   const { html, reading } = detail("acc-hs", snap, accounts);
   assert.ok(reading.working && reading.working.basis === 116 && reading.working.plans === 0 && reading.working.movesIn.length === 0 && reading.working.movesOut.length === 0);
   const t = text(html);
-  assert.equal((t.match(/After payments and money in/g) ?? []).length, 1, "the same figure is not repeated");
-  assert.match(t, /After payments and money in £116\.00/);
+  // G479: the working starts from the account's lowest balance before payday (here the same 116: nothing moves).
+  assert.equal((t.match(/Lowest balance before payday/g) ?? []).length, 1, "the same figure is not repeated");
+  assert.match(t, /Lowest balance before payday £116\.00/);
   assert.match(t, /Available to spend £116\.00/);
   assert.doesNotMatch(t, /After scheduled payments|Plans held back|Lowest after payments|Lowest after plans|Lowest point/, "the repeated rows are collapsed");
 
@@ -69,7 +70,7 @@ const detail = (account, snap, accounts) => {
     buffer: 0, state: "comfortable", estimated: false, spendable_now: 1950,
   }, snap.safe_to_spend.safe_to_spend);
   assert.deepEqual(ev.rows.map((r) => [r.label, r.value]), [
-    ["Your current accounts after predicted money in and out before payday", 1691], ["Set-asides", -300], ["Left to spend", 1391],
+    ["Your current accounts at their lowest point before payday", 1691], ["Set-asides", -300], ["Left to spend", 1391],
   ]);
 }
 

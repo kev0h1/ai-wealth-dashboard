@@ -67,7 +67,7 @@ def test_an_account_overdrawn_today_is_short_today_even_when_money_is_expected()
     w = _walk(-150.0, (3, 1000.0, True))
     assert aa.lowest_point(w) == -150.0
     assert aa.dip_detail(w, TODAY) == {
-        "short_by": 150.0, "short_on": "2026-11-19", "money_in_date": "2026-11-22", "money_in_amount": 1000.0,
+        "short_by": 150.0, "short_on": "2026-11-19", "short_today": True, "money_in_date": "2026-11-22", "money_in_amount": 1000.0,
     }
 
 
@@ -86,7 +86,7 @@ def test_the_dip_names_its_depth_its_date_and_the_money_that_follows():
 
 def test_a_dip_with_no_money_after_it_says_only_when_it_is_short():
     d = aa.dip_detail(_walk(34.89, (0, 77.91, False)), TODAY)
-    assert d == {"short_by": 43.02, "short_on": "2026-11-19"}
+    assert d == {"short_by": 43.02, "short_on": "2026-11-19", "short_today": True}
     assert aa.dip_line(d, TODAY) == "£43 short today"
 
 

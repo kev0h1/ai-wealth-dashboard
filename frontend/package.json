@@ -26,6 +26,7 @@
     "check:e18-stale-cashflow-retry": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/e18-stale-cashflow-retry.test.mjs",
     "check:g428-savings-cover": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g428-savings-cover.test.mjs",
     "check:g436-account-by-account": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g436-account-by-account.test.mjs",
+    "check:g479-low-point": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g479-low-point.test.mjs",
     "check:g424-tutorial-icons": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g424-tutorial-icons.test.mjs",
     "check:g423-bottom-nav": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g423-bottom-nav.test.mjs",
     "check:g420-upcoming-activity": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g420-upcoming-activity.test.mjs",

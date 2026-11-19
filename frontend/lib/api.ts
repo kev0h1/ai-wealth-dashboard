@@ -2056,7 +2056,7 @@ export type CompanionItem = {
 // of every counted current account add up to Left to spend (less the lines in
 // `left_to_spend_lines`). The client reads it as-is and never re-derives.
 /** G479: the dip an account's own walk makes (its lowest point is below zero). `short_by` is the deepest it goes, `short_on` the day, and, when money is expected after it, `money_in_date` and `money_in_amount`. `money_in_date` alone is the older G436 warning. */
-export type AccountDip = { short_by?: number; short_on?: string; money_in_date?: string; money_in_amount?: number };
+export type AccountDip = { short_by?: number; short_on?: string; short_today?: boolean; money_in_date?: string; money_in_amount?: number };
 
 export type AccountEligibility = {
   short: boolean;

@@ -3,7 +3,7 @@ import type { SafeToSpend } from "./api";
 type Forecast = Extract<SafeToSpend, { status: "ok" }>;
 export type EvidenceRow = { label: string; value: number; total?: boolean; detail?: string };
 /** G479: an account that goes short before its predicted money arrives. */
-export type LeftToSpendDip = { account_id: string; account_name: string; short_by: number; short_on: string; money_in_date?: string; money_in_amount?: number; line?: string };
+export type LeftToSpendDip = { account_id: string; account_name: string; short_by: number; short_on: string; money_in_date?: string; money_in_amount?: number; short_today?: boolean; line?: string };
 
 /** The server names the account in `line` only when more than one current account is counted. */
 export const dipNamed = (dip: LeftToSpendDip) => !!dip.line && dip.line.startsWith(`${dip.account_name}:`);
@@ -14,7 +14,7 @@ const dipDay = (iso: string) => new Date(`${iso.slice(0, 10)}T12:00:00Z`).toLoca
  * about £650 is expected on 26 Nov". `money` formats a pounds figure (and masks it when balances are
  * hidden); `name` prefixes the account when more than one account is counted. */
 export function dipSentence(dip: LeftToSpendDip, money: (value: number) => string, name = false): string {
-  const when = `short on ${dipDay(dip.short_on)}`;
+  const when = dip.short_today ? "short today" : `short on ${dipDay(dip.short_on)}`;
   const tail = dip.money_in_date && typeof dip.money_in_amount === "number" ? `, before about ${money(dip.money_in_amount)} is expected on ${dipDay(dip.money_in_date)}` : "";
   return `${name ? `${dip.account_name}: ` : ""}${money(dip.short_by)} ${when}${tail}.`;
 }
@@ -84,7 +84,7 @@ export function buildLeftToSpendEvidence(data: Forecast, summaryAmount: number):
     rows.push({ label: "Left to spend", value: data.safe_to_spend, total: true });
     if (!reconciledEnd && rows.length === 2 && pennies(rows[0].value) === pennies(rows[1].value)) {
       rows.shift();
-      if (reconciledLow) rows[0].label = "Left to spend at the cash low point";
+      if (reconciledLow) rows[0].label = byAccount && lines?.basis === "lowest_point" ? "Left to spend at each account's lowest point" : "Left to spend at the cash low point";
     }
   } else {
     // Older/mixed snapshots cannot justify an equation. Show the supplied

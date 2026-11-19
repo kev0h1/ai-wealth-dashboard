@@ -46,7 +46,7 @@ export default function AccountAvailabilityDetail({ reading, position, hidden, l
   // £650 is expected on 26 Nov". Amounts go through the hidden-balances mask.
   const dip = reading.dip;
   const dipNote = dip && typeof dip.short_by === "number"
-    ? `${amount(dip.short_by)} short ${dayLabel(dip.short_on) ? `on ${dayLabel(dip.short_on)}` : "before payday"}${dip.money_in_date && typeof dip.money_in_amount === "number" ? `, before about ${amount(dip.money_in_amount)} is expected on ${dayLabel(dip.money_in_date)}` : ""}.`
+    ? `${amount(dip.short_by)} short ${dip.short_today ? "today" : dayLabel(dip.short_on) ? `on ${dayLabel(dip.short_on)}` : "before payday"}${dip.money_in_date && typeof dip.money_in_amount === "number" ? `, before about ${amount(dip.money_in_amount)} is expected on ${dayLabel(dip.money_in_date)}` : ""}.`
     : dipDate ? `This account dips below zero before money arrives on ${dipDate}.` : null;
   const footnote = `Available is what this account can spend now without a payment failing: its lowest balance before payday, after predicted money in and out, goals and set-asides.${reading.requiresMove ? " This amount is available only after the suggested move." : ""}${position?.estimated ? " Some plan sources are estimated." : ""}${savingsNote ? ` ${savingsNote}` : ""}`;
   const coveredNote = covered?.split ? `${coverSplitSentence(covered.split, covered.shortAfterCover)} Nothing has been moved.` : covered ? (covered.shortAfterCover > 0

@@ -62,7 +62,8 @@
         "uncovered_shortfall": 43.02,
         "dip": {
           "short_by": 43.02,
-          "short_on": "2026-11-19"
+          "short_on": "2026-11-19",
+          "short_today": true
         },
         "after_payments": -43.02,
         "low_point": -43.02,

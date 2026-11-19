@@ -161,7 +161,8 @@ def dip_before_money_in(walk: Any, today: Any) -> dict | None:
 def dip_detail(walk: Any, today: Any) -> dict | None:
     """G479: the dip an account's walk makes, or None when its lowest point is not below zero.
 
-    {"short_by": pounds at the lowest point, "short_on": iso date of that point, and, when a credit follows
+    {"short_by": pounds at the lowest point, "short_on": iso date of that point ("short_today": true when it is
+    today), and, when a credit follows
     it, "money_in_date" / "money_in_amount" (the first dated credit after the low point, every credit on
     that day added up)}. `short_by` is the deepest the balance goes, so it is what a move must cover."""
     from datetime import timedelta
@@ -176,6 +177,8 @@ def dip_detail(walk: Any, today: Any) -> dict | None:
             low_day, low_idx = int(row.day), k
             break
     out: dict = {"short_by": round(-low, 2), "short_on": (today + timedelta(days=low_day)).isoformat()}
+    if low_day == 0:
+        out["short_today"] = True  # so a client can say "today" without knowing the date
     later_day = None
     amount = 0.0
     for row in walk.rows[low_idx + 1:]:
@@ -206,7 +209,7 @@ def dip_line(dip: dict, today: Any, *, account_name: str | None = None) -> str:
     """The one sentence for a dip, shared by Penny and the API (the web app builds the same words from
     the same fields so a hidden-balances view can mask the amounts): "£43 short on 23 Nov, before
     about £650 is expected on 26 Nov". Predictions are hedged, no em dashes."""
-    on = "today" if dip.get("short_on") == today.isoformat() else f"on {_day_label(dip['short_on'])}"
+    on = "today" if dip.get("short_today") or dip.get("short_on") == today.isoformat() else f"on {_day_label(dip['short_on'])}"
     line = f"{_pounds(dip['short_by'])} short {on}"
     if dip.get("money_in_date"):
         line += f", before about {_pounds(dip['money_in_amount'])} is expected on {_day_label(dip['money_in_date'])}"

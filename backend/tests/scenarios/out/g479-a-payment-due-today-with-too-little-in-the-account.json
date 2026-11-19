@@ -7,7 +7,8 @@
       "contribution": 0.0,
       "dips_below_zero": {
         "short_by": 43.02,
-        "short_on": "2026-11-19"
+        "short_on": "2026-11-19",
+        "short_today": true
       },
       "estimated": false,
       "headroom": -53.02,
@@ -158,7 +159,8 @@
           "account_name": "Harbour Current",
           "line": "\u00a343 short today",
           "short_by": 43.02,
-          "short_on": "2026-11-19"
+          "short_on": "2026-11-19",
+          "short_today": true
         }
       ],
       "plans_total": 0
