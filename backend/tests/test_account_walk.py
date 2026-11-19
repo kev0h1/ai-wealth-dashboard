@@ -489,7 +489,8 @@ def test_caller_output_equals_pre_extraction_golden(monkeypatch, name):
         #   idle: no events, so its balance 15.
         #   lowsrc: short 125 on 2026-11-04 (the 90 standing order and the 40 card repayment before 60 is
         #     expected on 2026-11-08); the suggested 135 move in covers it: -125 + 135 = 10.
-        #   natwest: lowest 30 (closing 330), no plans.
+        #   natwest: 90 - 60 (Gym) = 30; the 300 transfer from lowsrc is unfunded (lowsrc is short) so it is not credited (G479 follow-up, one rule on every surface: closing 30, was 330).
+        #   pot: 250 + 77 (Bonus) + 400 (funded) = 727; the 50 from an unknown source is never credited (was 777).
         #   man1, pot: non-current, no spending figure (0); their lowest is information only.
         g436 = {
             "barclays": {"after_payments_and_money_in": 5021.67, "lowest_after_money_in": 2521.67, "spend_from_headroom": 2346.67,
@@ -501,9 +502,9 @@ def test_caller_output_equals_pre_extraction_golden(monkeypatch, name):
                        "moves_in_total": 135.0, "spend_from_requires_move": True, "contribution": 10.0, "uncovered_shortfall": 0.0,
                        "dips_below_zero": {"money_in_date": "2026-11-08", "short_by": 125.0, "short_on": "2026-11-04", "money_in_amount": 60.0}},
             "man1": {"account_headroom_raw": 240.0, "after_payments_and_money_in": 250.0, "lowest_after_money_in": 250.0, "spend_from_headroom": 0.0},
-            "natwest": {"after_payments_and_money_in": 330.0, "lowest_after_money_in": 30.0, "spend_from_headroom": 30.0,
+            "natwest": {"after_payments_and_money_in": 30.0, "lowest_after_money_in": 30.0, "spend_from_headroom": 30.0,
                         "contribution": 30.0, "uncovered_shortfall": 0.0},
-            "pot": {"account_headroom_raw": 240.0, "after_payments_and_money_in": 777.0, "lowest_after_money_in": 777.0, "spend_from_headroom": 0.0},
+            "pot": {"account_headroom_raw": 240.0, "after_payments_and_money_in": 727.0, "lowest_after_money_in": 727.0, "spend_from_headroom": 0.0},
         }
         for acct, keys in g436.items():
             golden["eligibility"][acct].update(keys)

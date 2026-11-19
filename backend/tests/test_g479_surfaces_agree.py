@@ -2,10 +2,9 @@
 ledger dip are one number per account.
 
 The hero and Available read `account_available.account_ledger` (ungated: an expected own-account transfer
-credit counts on its date, G436). The cover engine and the Upcoming position read the gated walks (G360: a
-transfer credit counts only when its SOURCE is itself covered that day). They agree on every account
-unless a G360 gate drops a credit, where the gated walks are lower on the DESTINATION. That one divergence
-is pinned below so it can never change unnoticed (it is a decision for Kevin, see the G479 report).
+credit counts on its date, G436). The cover engine and the Upcoming position read the gated walks. Since the G479 ruling (Kevin 2026-11-19, "all figures must be
+consistent") there is ONE gate: a transfer its source cannot fund (G360) is excluded on both legs everywhere
+(`window_inputs`), so the surfaces agree even where the gate drops a transfer.
 """
 from datetime import date
 
@@ -70,17 +69,20 @@ def test_a_funded_transfer_credit_agrees_everywhere(monkeypatch):
     assert _moves_total(items) == 0.0
 
 
-def test_when_a_g360_gate_drops_a_transfer_credit_the_surfaces_still_differ_on_the_destination_only(monkeypatch):
-    # BC holds 100 and cannot fund the 300 order on day 2, so the gate drops HS's credit. HS 50 pays 120 on day 3.
+def test_when_a_g360_gate_drops_a_transfer_both_legs_go_and_every_surface_agrees(monkeypatch):
+    # Kevin 2026-11-19, "all figures must be consistent". BC holds 100 and is due to send 300 on day 2, so the
+    # G360 test says it cannot fund it: the transfer is excluded on BOTH legs everywhere. HS holds 50 and pays 120
+    # on day 3. BC keeps 100 with no dip; HS is 50 - 120 = -70. Total 30, the pooled 100 + 50 - 120.
     bills = [g._bill("To HSBC", 300.0, 2, TODAY, acct=g.BC, balance=100.0, kind=analytics.MOVEMENT),
              g._bill("Insurance", 120.0, 3, TODAY, acct=g.HS, balance=50.0)]
-    items, elig = g._run(monkeypatch, TODAY, bills, [], [g._inflow(300.0, 2, TODAY)], {g.HS: (50.0, "hsbc"), g.BC: (100.0, "barclays")})
-    # The source agrees on every surface: 100 - 300 = -200.
-    assert _ledger_dip(elig[g.BC]) == 200.0 == _gated_shortfall(elig[g.BC])
-    # The destination: the ledger credits the transfer (50 + 300 - 120 = 230, no dip) while the gated walks
-    # do not (50 - 120 = -70). PINNED so it cannot move unnoticed; one root cause (BC's 200) is shown twice
-    # by the cover plan and Upcoming. Whether to ungate them (reversing G360) or gate the ledger (reversing
-    # G436's netting) is Kevin's call.
-    assert _ledger_dip(elig[g.HS]) == 0.0
-    assert _gated_shortfall(elig[g.HS]) == 70.0
-    assert elig[g.HS]["spend_from_headroom"] == 230.0
+    inflows = [{**g._inflow(300.0, 2, TODAY), "name": "To HSBC", "destination_spendable": True}]
+    items, elig = g._run(monkeypatch, TODAY, bills, [], inflows, {g.HS: (50.0, "hsbc"), g.BC: (100.0, "barclays")})
+    # Ledger dip == gated shortfall (Upcoming's position and the cover plan) on every account.
+    assert (_ledger_dip(elig[g.BC]), _gated_shortfall(elig[g.BC])) == (0.0, 0.0)
+    assert (_ledger_dip(elig[g.HS]), _gated_shortfall(elig[g.HS])) == (70.0, 70.0)
+    # Exactly one shortfall (HS 70) and one cover move, sized from it: ceil5(70) + 10 = 80, taken from BC.
+    assert _moves_total(items) == _ceil5(70.0) + 10 == 80.0
+    assert elig[g.HS]["covered_by_move"]["shortfall"] == 70.0 and "covered_by_move" not in elig[g.BC]
+    # The total is the pooled 100 + 50 - 120 = 30 (the move nets to zero): BC 100 - 80 earmarked, HS -70 + 80.
+    assert round(elig[g.BC]["spend_from_headroom"] + elig[g.HS]["spend_from_headroom"], 2) == 30.0
+    assert (elig[g.BC]["spend_from_headroom"], elig[g.HS]["spend_from_headroom"]) == (20.0, 10.0)

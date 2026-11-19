@@ -14,6 +14,7 @@ import AccountAvailabilityDetail from "../components/AccountAvailabilityDetail.t
 import { accountAvailability, formatAvailabilityAmount } from "../lib/accountAvailability.ts";
 import { buildLeftToSpendEvidence, dipNamed, dipReading, dipSentence, DIP_TONE_CLASS } from "../lib/leftToSpendEvidence.ts";
 import { bestSpendAccount } from "../lib/spendFromAccount.ts";
+import { walkUpcomingAccounts } from "../lib/upcomingAccountWalk.ts";
 import { deriveSafeToSpendHeadline, homeForecastPresentation } from "../lib/pennyScreenViews.ts";
 const chip = (data) => homeForecastPresentation(data, deriveSafeToSpendHeadline(data)).status.label;
 
@@ -167,6 +168,23 @@ const detail = (snap, accounts, id, hidden = false) => {
       assert.equal(Math.round(serverShort * 100), Math.round((entry.dips_below_zero?.short_by ?? 0) * 100), `${prefix} ${id}: Upcoming/cover shortfall equals the ledger dip`);
     }
   }
+}
+
+// ── One rule everywhere: a transfer its source cannot fund is excluded on BOTH legs (hero, account, client walk) ──
+{
+  const { snap, accounts } = load("g479-a-transfer-its-source-cannot-fund");
+  assert.equal(snap.safe_to_spend.safe_to_spend, 30, "the pooled 100 + 50 - 120");
+  assert.equal(reading(snap, accounts, "acc-hb").value + reading(snap, accounts, "acc-md").value, 30, "the two accounts add up to the hero");
+  const walk = walkUpcomingAccounts(snap.cashflow, Date.parse("2026-11-26T23:59:59Z"), [], new Set());
+  const hb = walk.accounts.find((a) => a.id === "acc-hb");
+  const md = walk.accounts.find((a) => a.id === "acc-md");
+  assert.equal(hb.closing, 100, "the client does not deduct the unfunded order from Harbour");
+  assert.equal(hb.status, "covered");
+  assert.equal(md.closing, -70, "and does not credit Meadow: -70, the server's after payments");
+  assert.equal(md.status, "short");
+  assert.equal(md.closing, snap.account_eligibility["acc-md"].after_payments);
+  assert.equal(snap.account_eligibility["acc-md"].dips_below_zero.short_by, 70, "the ledger dip is the same 70");
+  assert.equal(snap.account_eligibility["acc-hb"].dips_below_zero, undefined);
 }
 
 // ── No copy rule broken: British English, no em dashes, no exclamation marks, hedged predictions ──
