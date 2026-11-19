@@ -58,8 +58,9 @@ const detail = (account, snap, accounts) => {
   const { html, reading } = detail("acc-hs", snap, accounts);
   assert.ok(reading.working && reading.working.basis === 116 && reading.working.plans === 0 && reading.working.movesIn.length === 0 && reading.working.movesOut.length === 0);
   const t = text(html);
-  assert.equal((t.match(/After payments and money in/g) ?? []).length, 1, "the same figure is not repeated");
-  assert.match(t, /After payments and money in £116\.00/);
+  // G479: the working starts from the account's lowest balance before payday (here the same 116: nothing moves).
+  assert.equal((t.match(/Lowest balance before payday/g) ?? []).length, 1, "the same figure is not repeated");
+  assert.match(t, /Lowest balance before payday £116\.00/);
   assert.match(t, /Available to spend £116\.00/);
   assert.doesNotMatch(t, /After scheduled payments|Plans held back|Lowest after payments|Lowest after plans|Lowest point/, "the repeated rows are collapsed");
 
@@ -69,7 +70,7 @@ const detail = (account, snap, accounts) => {
     buffer: 0, state: "comfortable", estimated: false, spendable_now: 1950,
   }, snap.safe_to_spend.safe_to_spend);
   assert.deepEqual(ev.rows.map((r) => [r.label, r.value]), [
-    ["Your current accounts after predicted money in and out before payday", 1691], ["Set-asides", -300], ["Left to spend", 1391],
+    ["Your current accounts at their lowest point before payday", 1691], ["Set-asides", -300], ["Left to spend", 1391],
   ]);
 }
 
@@ -91,13 +92,13 @@ const detail = (account, snap, accounts) => {
   assert.doesNotMatch(dest.html, /<button/, "a move is a recommendation sentence, never a button");
 }
 
-// ── An own-account standing order is money out on one account and in on another, nothing special ──
+// ── An own-account standing order is money out on one account and in on another, whether or not its source can fund it ──
 {
   const { snap, accounts } = load("g421-salary-account-standing-orders-day-before");
   const value = (id) => accountAvailability(accounts.find((a) => a.id === id), { status: "ready", positions: snap.account_eligibility }).value;
-  // Barclays cannot fund the three orders, but each destination still counts its money in on its date.
+  // Barclays cannot fund the three orders, but each destination still counts its money in on its date (G479 option 1).
   assert.deepEqual(["acc-hsbc", "acc-nw", "acc-mz"].map((id) => snap.account_eligibility[id].after_payments_and_money_in), [1050, 620, 280]);
-  assert.equal(value("acc-bc"), -900, "the source shows its shortfall (-1,150 plus the 250 suggested in), reducing the total");
+  assert.equal(value("acc-bc"), -1150, "the source shows its whole shortfall (its destinations are never offered as lenders), reducing the total");
   assert.equal(["acc-bc", "acc-hsbc", "acc-nw", "acc-mz"].reduce((n, id) => n + value(id), 0), 800);
   assert.equal(snap.safe_to_spend.safe_to_spend, 800, "the transfers net to zero: the total is the four balances less the council tax");
 }

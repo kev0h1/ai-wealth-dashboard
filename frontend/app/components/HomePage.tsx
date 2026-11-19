@@ -306,6 +306,11 @@ export default function HomePage() {
   // first paint.
   const [coverMoveVisible, setCoverMoveVisible] = useState(false);
   const [coverMoveReserves, setCoverMoveReserves] = useState<Record<string, number>>({});
+  // G479: accounts whose dip a live suggested move (G410) fully covers, read from the same stored eligibility.
+  const coveredDipAccountIds = useMemo(
+    () => Object.entries(accountEligibility ?? {}).filter(([, e]) => (e.covered_by_move?.amount ?? 0) > 0 && (e.short_after_cover ?? 0) <= 0).map(([id]) => id),
+    [accountEligibility],
+  );
   const [coverMoveDestinations, setCoverMoveDestinations] = useState<Record<string, string[]>>({});
   const onCoverMoveVisibleChange = useCallback((visible: boolean, reserves: Record<string, number> = {}, destinations: Record<string, string[]> = {}) => {
     setCoverMoveVisible(visible);
@@ -1192,6 +1197,7 @@ export default function HomePage() {
                   coverMoveVisible={coverMoveVisible}
                   coverMoveReserves={coverMoveReserves}
                   coverMoveDestinations={coverMoveDestinations}
+                  coveredDipAccountIds={coveredDipAccountIds}
                   syncing={heroSync ?? undefined}
                   onSyncRetry={() => { void (refreshFailed ? handleSync() : handleSyncRetry()); }}
                 />

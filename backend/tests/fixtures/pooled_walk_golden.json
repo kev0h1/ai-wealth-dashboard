@@ -38,7 +38,7 @@
   "bills_total": 490.0,
   "buffer": 0.0,
   "calculation_status": "complete",
-  "calculation_version": 4,
+  "calculation_version": 5,
   "card_debt": 350.0,
   "card_growth_due_date": null,
   "card_growth_total": 90.0,
@@ -126,11 +126,22 @@
   },
   "last_synced": null,
   "left_to_spend_lines": {
-   "accounts_total": 650.0,
+   "accounts_total": 510.0,
+   "basis": "lowest_point",
    "buffer": 0.0,
+   "dips": [
+    {
+     "account_id": "over",
+     "account_name": "Overdrawn",
+     "line": "Overdrawn: \u00a3150 short today",
+     "short_by": 150.0,
+     "short_on": "2026-10-12",
+     "short_today": true
+    }
+   ],
    "plans_total": 0
   },
-  "lowest_projected_balance": 650.0,
+  "lowest_projected_balance": 510.0,
   "next_payday": "2026-10-22",
   "payday_income": 2000.0,
   "period": {
@@ -148,8 +159,8 @@
   },
   "plans_only_short": false,
   "pooled_transfers_excluded": 150.0,
-  "safe_to_spend": 650.0,
-  "safe_to_spend_cash": 650.0,
+  "safe_to_spend": 510.0,
+  "safe_to_spend_cash": 510.0,
   "short_reason": null,
   "spendable_now": 1300.0,
   "state": "comfortable",

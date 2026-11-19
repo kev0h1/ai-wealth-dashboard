@@ -38,15 +38,17 @@ assert.equal(r.shortFor?.label, shortWalk.shortFor?.label);
 assert.equal(reconcileWithServerPosition(shortWalk, undefined).status, "short");
 assert.equal(reconcileWithServerPosition(shortWalk, pos({ uncertain: true })).status, "short");
 
-// Client funded-inflow gate (mirrors backend services/inflow_credit.py).
+// G479 (Kevin 2026-11-19, option 1): there is no inbound gate. A predicted own transfer counts on BOTH legs
+// whether or not its source can fund it (this replaces the G360 funded-inflow rule, mirroring the backend).
 const inflow = (o = {}) => ({ name: "Standing order", amount: 1886, account_id: "h", source_account_id: "b", expected_date: "2026-10-29", days_away: 0, ...o });
 const move = (o = {}) => bill({ name: "To HSBC", amount: 1886, account_id: "b", account_bank: "Barclays", account_balance: 5000, kind: "movement", ...o });
 const salary = (o = {}) => ({ name: "Pay", amount: 4800, account_id: "b", expected_date: "2026-10-29", days_away: 0, credit_basis: "steady", ...o });
 const hsbc = (bills, income, inflows) => summary(bills, income, inflows).find((a) => a.id === "h");
-assert.equal(hsbc([bill(), move()], [], [inflow()]).closing, 1897.39, "covered source funds the transfer");
-assert.equal(hsbc([bill(), move({ account_balance: 0 })], [], [inflow()]).closing, 11.39, "empty source never funds it");
-assert.equal(hsbc([bill(), move({ account_balance: 0 })], [salary()], [inflow()]).closing, 1897.39, "credited salary on the source funds it");
-assert.equal(hsbc([bill(), move({ account_balance: 0 })], [salary({ credit_basis: null })], [inflow()]).closing, 11.39, "uncredited income never funds the source");
-assert.equal(hsbc([bill(), move({ account_balance: 0 })], [salary({ expected_date: "2026-10-28" })], [inflow()]).closing, 1897.39, "earlier salary funds it");
-assert.equal(hsbc([bill()], [], [inflow({ source_account_id: null })]).closing, 11.39, "unknown source never funds");
+const barclays = (bills, income, inflows) => summary(bills, income, inflows).find((a) => a.id === "b");
+assert.equal(hsbc([bill(), move()], [], [inflow()]).closing, 1897.39, "covered source: the destination is credited");
+assert.equal(hsbc([bill(), move({ account_balance: 0 })], [], [inflow()]).closing, 1897.39, "empty source: the destination is still credited, never flagged short for a transfer due to arrive");
+assert.equal(barclays([bill(), move({ account_balance: 0 })], [], [inflow()]).closing, -1886, "the empty SOURCE carries the shortfall");
+assert.equal(barclays([bill(), move({ account_balance: 0 })], [], [inflow()]).status, "short");
+assert.equal(hsbc([bill(), move({ account_balance: 0 })], [salary({ credit_basis: null })], [inflow()]).closing, 1897.39, "uncredited income changes nothing for the destination");
+assert.equal(hsbc([bill()], [], [inflow({ source_account_id: null })]).closing, 1897.39, "a transfer with an unknown source is still credited");
 console.log("g360-one-account-walk ok");

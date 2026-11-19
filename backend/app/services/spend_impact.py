@@ -346,8 +346,8 @@ async def _cashflow_window(uid: str) -> dict | None:
     # no preview salary. It stays in lockstep with companion.py and
     # analytics.at_risk_count, which read the same builder. G167: no
     # reliability gate on an inflow and no late-income line for one (see the
-    # comment block above `walk_sort_key` in services/companion.py). G360: an
-    # inflow counts only when its SOURCE account is covered that day. G163:
+    # comment block above `walk_sort_key` in services/companion.py). G479: an
+    # inflow always counts, whether or not its SOURCE can fund it (the G360 gate is gone). G163:
     # same-day, credits before debits.
     from app.services.account_walk import window_events
 

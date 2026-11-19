@@ -875,12 +875,12 @@ export type SafeToSpend =
       /** Lowest projected balance after scheduled bills and pre-payday income,
        * before buffer, plans and allocations. */
       lowest_projected_balance?: number;
-      /** G436: what Left to spend is made of. `accounts_total` is every counted current
-       * account's own figure before its plans, added up (negatives included): balance plus
-       * predicted money in less predicted money out over the pay period, an own-account transfer
-       * being out on its source and in on its destination. Then `plans_total` and `buffer` come
+      /** G436, G479: what Left to spend is made of. `accounts_total` is every counted current
+       * account's own figure before its plans, added up (negatives included): its LOWEST running
+       * balance before payday (`basis: "lowest_point"`), predicted money in counted only from its
+       * expected date. `dips` are the accounts that go short, earliest first. Then `plans_total` and `buffer` come
        * off. Null/absent when the per-account figures could not be read (degraded). */
-      left_to_spend_lines?: { accounts_total: number; plans_total: number; buffer: number } | null;
+      left_to_spend_lines?: { accounts_total: number; plans_total: number; buffer: number; basis?: "lowest_point"; dips?: (AccountDip & { account_id: string; account_name: string; short_by: number; short_on: string; line: string })[] } | null;
       /** Positive net card-balance growth observed this pay period (all
        * debits minus all credits, includes balance transfers). An information
        * fact only (G413): never subtracted from cash. */
@@ -2055,6 +2055,9 @@ export type CompanionItem = {
 // covers the shortfall. No pool, no preference order, no allocation: the figures
 // of every counted current account add up to Left to spend (less the lines in
 // `left_to_spend_lines`). The client reads it as-is and never re-derives.
+/** G479: the dip an account's own walk makes (its lowest point is below zero). `short_by` is the deepest it goes, `short_on` the day, and, when money is expected after it, `money_in_date` and `money_in_amount`. `money_in_date` alone is the older G436 warning. */
+export type AccountDip = { short_by?: number; short_on?: string; short_today?: boolean; money_in_date?: string; money_in_amount?: number };
+
 export type AccountEligibility = {
   short: boolean;
   headroom: number;
@@ -2064,7 +2067,12 @@ export type AccountEligibility = {
   /** G436: the closing figure of the account's own walk (balance + predicted money in - out), before its plans. */
   after_payments_and_money_in?: number;
   /** G436: the account runs below zero before this money arrives (a warning, never part of the figure). */
-  dips_below_zero?: { money_in_date: string };
+  /** G479: the account's lowest running balance before payday (its own walk, the opening balance included, predicted money in only from its date). This is the figure Available starts from. */
+  lowest_after_money_in?: number;
+  /** G479: what the account contributes to Left to spend (never below 0) and what it is still short by after any suggested move in. The signed `spend_from_headroom` is contribution minus shortfall. */
+  contribution?: number;
+  uncovered_shortfall?: number;
+  dips_below_zero?: AccountDip;
   /** G436: the amount counted from suggested moves in from other current accounts (absent when none). */
   moves_in_total?: number;
   /** RETIRED by G436 (G414's preference-filled allocation); never sent now. Optional so old payloads and /design fixtures still type-check. */

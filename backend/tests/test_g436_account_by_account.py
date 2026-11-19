@@ -123,13 +123,17 @@ def _headline(monkeypatch, **kw):
     return asyncio.run(analytics.compute_safe_to_spend(UID))
 
 
-def test_headline_is_each_counted_accounts_own_closing_figure_added_up(monkeypatch):
+def test_headline_is_each_counted_accounts_lowest_balance_added_up(monkeypatch):
     out = _headline(monkeypatch)
-    # Main 1,000 - 400 - 150 (transfer out, no inflow leg in this fake) - 30 - 60 + 140 (Side gig: two
-    # sightings, attributed to Main, due after today, so predicted; Refund has none and does not count)
-    # = 500; Joint 300; Overdrawn -150.
-    assert out["left_to_spend_lines"] == {"accounts_total": 650.0, "plans_total": 0, "buffer": 0.0}
-    assert out["safe_to_spend"] == 650.0 == out["lowest_projected_balance"]
+    # G479, hand-derived. Main 1,000 - 400 (day 2) - 150 (transfer out, day 3, no inflow leg in this fake)
+    # - 30 - 60 (day 5) = 360 after its last payment, then + 140 (Side gig: two sightings, attributed to
+    # Main, day 7) lands, closing 500. The lowest point is 360 (the side gig is later, so it cannot lift
+    # it; Refund has one sighting and does not count). Joint 300 (nothing moves). Overdrawn is already -150
+    # today (a dip, shown short today). Total 360 + 300 - 150 = 510.
+    lines = out["left_to_spend_lines"]
+    assert (lines["accounts_total"], lines["plans_total"], lines["buffer"], lines["basis"]) == (510.0, 0, 0.0, "lowest_point")
+    assert [(d["account_id"], d["short_by"], d["line"]) for d in lines["dips"]] == [("over", 150.0, "Overdrawn: £150 short today")]
+    assert out["safe_to_spend"] == 510.0 == out["lowest_projected_balance"]
     assert out["calculation_status"] == "complete"
 
 
@@ -147,20 +151,24 @@ def _with_inflow(monkeypatch):
 
 
 def test_a_standing_order_between_two_counted_accounts_leaves_the_total_unchanged(monkeypatch):
-    # No transfer at all: Main 1,000 - 400 - 30 - 60 + 140 = 650, Joint 300, Overdrawn -150 = 800.
+    # No transfer at all: Main 1,000 - 400 - 30 - 60 = 510 at its lowest (+ 140 lands later, closing 650),
+    # Joint 300, Overdrawn -150: 510 + 300 - 150 = 660.
     no_transfer = [b for b in _bills() if b["name"] != "Move to Joint"]
     plain = _headline(monkeypatch, bills=no_transfer)["safe_to_spend"]
-    assert plain == 800.0
-    # The same standing order: out of Main (-150) and in on Joint (+150) on its date, no special handling.
+    assert plain == 660.0
+    # The same standing order: out of Main (-150, so its lowest is 360) and in on Joint (+150 on day 3, no
+    # payment of Joint's before it, so Joint's lowest is its 450 closing): 360 + 450 - 150 = 660. It nets
+    # to zero because the destination has no earlier payment (see account_available's own-transfer note).
     _wire(monkeypatch)
     _with_inflow(monkeypatch)
     out = asyncio.run(analytics.compute_safe_to_spend(UID))
     assert out["safe_to_spend"] == plain and out["left_to_spend_lines"]["accounts_total"] == plain
 
 
-def test_an_unfunded_standing_order_still_credits_the_destination_and_the_total_is_unchanged(monkeypatch):
-    # Source cannot afford it: 100 against a 300 order. The destination counts its predicted money in
-    # (no G360 gate on this figure); the source is the one shown short and given the cover engine's move.
+def test_an_unfunded_standing_order_counts_on_both_legs_the_source_is_short_and_the_total_is_unchanged(monkeypatch):
+    # G479 option 1 (Kevin 2026-11-19): a transfer counts on BOTH legs whether or not its source can fund it.
+    # Source cannot afford it (100 against a 300 order): the destination is still credited on its date, and the
+    # source is the one shown short and given the cover engine's move. Sum 100 - 300 + 50 + 300 = 150.
     from datetime import date
 
     import tests.test_g360_one_account_walk as g
@@ -168,7 +176,7 @@ def test_an_unfunded_standing_order_still_credits_the_destination_and_the_total_
     bills = [g._bill("To HSBC", 300.0, 2, today, acct=g.BC, balance=100.0, kind=analytics.MOVEMENT)]
     inflows = [g._inflow(300.0, 2, today)]
     _items, elig = g._run(monkeypatch, today, bills, [], inflows, {g.HS: (50.0, "hsbc"), g.BC: (100.0, "barclays")})
-    assert elig[g.BC]["after_payments"] == -200.0 and elig[g.BC]["low_point"] == -200.0  # flagged short, as today
+    assert elig[g.BC]["after_payments"] == -200.0 and elig[g.BC]["low_point"] == -200.0  # flagged short
     assert elig[g.HS]["after_payments_and_money_in"] == 350.0  # credited on its date although BC cannot fund it
     assert elig[g.BC]["after_payments_and_money_in"] == -200.0
     # Moves between the two net to zero: the sum is what the two hold (100 + 50) before any plan.
@@ -223,7 +231,7 @@ def test_unreadable_account_figures_fail_closed_to_degraded_and_never_positive(m
     def boom(*_a, **_k):
         raise RuntimeError("walk unavailable")
 
-    monkeypatch.setattr(account_available, "account_bases", boom)
+    monkeypatch.setattr(account_available, "account_ledger", boom)
     out = asyncio.run(analytics.compute_safe_to_spend(UID))
     assert out["calculation_status"] == "degraded"
     assert "account_positions" in out["unavailable_components"]
@@ -395,7 +403,7 @@ def test_a_plan_sourced_from_savings_is_deducted_from_no_current_account(monkeyp
     assert elig["sav"]["plans_reserved"] == 80.0 and elig["sav"]["spend_from_headroom"] == 0.0
 
 
-def test_a_dip_below_zero_before_money_arrives_is_a_warning_with_its_date_and_not_part_of_the_figure(monkeypatch):
+def test_a_dip_below_zero_before_money_arrives_is_a_shortfall_with_its_date_and_the_money_that_follows(monkeypatch):
     from datetime import timedelta
 
     from test_cover_plan_account_eligibility import TODAY, _salary
@@ -404,9 +412,16 @@ def test_a_dip_below_zero_before_money_arrives_is_a_warning_with_its_date_and_no
     _run(monkeypatch, [_bill("Rent", 2, 300.0, "A", 100.0)], accounts=[_account("A", 100.0)], account_eligibility_out=elig,
          income_streams=[{"key": "Salary", "status": "confirmed"}], window_income=[_salary("A")])
     a = elig["A"]
-    assert a["dips_below_zero"] == {"money_in_date": (TODAY + timedelta(days=8)).isoformat()}
-    assert a["spend_from_headroom"] == 800.0 and a["after_payments_and_money_in"] == 800.0  # 100 - 300 + 1,000: the dip is not in it
-    assert a["low_point"] == -200.0  # still reported, and the cover engine still sees the account short
+    # G479, hand-derived: 100 - 300 (day 2) = -200, then + 1,000 (day 8) = 800. The lowest point is -200, so the
+    # account is short 200 on day 2 before 1,000 is expected on day 8; its figure is -200 (contribution 0).
+    assert a["dips_below_zero"] == {
+        "money_in_date": (TODAY + timedelta(days=8)).isoformat(), "short_by": 200.0,
+        "short_on": (TODAY + timedelta(days=2)).isoformat(), "money_in_amount": 1000.0,
+    }
+    assert a["spend_from_headroom"] == -200.0 and a["lowest_after_money_in"] == -200.0
+    assert a["after_payments_and_money_in"] == 800.0  # closing, information only
+    assert a["contribution"] == 0.0 and a["uncovered_shortfall"] == 200.0
+    assert a["low_point"] == -200.0  # the cover engine sees the same dip
 
 
 # ── Money in counts only after today, and only when predicted ────────────────

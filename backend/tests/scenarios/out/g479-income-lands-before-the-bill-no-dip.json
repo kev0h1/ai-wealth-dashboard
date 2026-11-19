@@ -1,0 +1,188 @@
+{
+  "account_eligibility": {
+    "acc-hb": {
+      "after_payments": 606.57,
+      "after_payments_and_money_in": 606.57,
+      "after_payments_and_plans": 606.57,
+      "contribution": 606.57,
+      "estimated": false,
+      "headroom": 24.89,
+      "is_current_account": true,
+      "low_point": 34.89,
+      "low_point_and_plans": 34.89,
+      "lowest_after_money_in": 606.57,
+      "plans_reserved": 0.0,
+      "short": false,
+      "spend_from_headroom": 606.57,
+      "uncertain": false,
+      "uncovered_shortfall": 0.0
+    }
+  },
+  "account_plans": [],
+  "accounts": [
+    {
+      "balance": 34.89,
+      "currency": "GBP",
+      "id": "acc-hb",
+      "include_in_safe_to_spend": true,
+      "name": "Harbour Current",
+      "provider": "barclays",
+      "status": "connected",
+      "subtype": "TRANSACTION",
+      "type": "BANK"
+    }
+  ],
+  "at_risk_count": 0,
+  "cashflow": {
+    "internal_inflows": [],
+    "next_payday": "2026-11-27",
+    "observed_pending_bills": [],
+    "period": {
+      "day_number": 21,
+      "end": "2026-11-26",
+      "label": "30 Oct to 26 Nov",
+      "length_days": 28,
+      "payday": "2026-11-27",
+      "payday_observed": null,
+      "start": "2026-10-30",
+      "type": "last_friday"
+    },
+    "spendable_balance": 34.89,
+    "upcoming_bills": [
+      {
+        "account_balance": 34.89,
+        "account_bank": "Barclays",
+        "account_id": "acc-hb",
+        "account_name": "Harbour Current",
+        "amount": 77.91,
+        "amount_basis": null,
+        "card_dest_account_bank": null,
+        "card_dest_account_id": null,
+        "card_dest_account_name": null,
+        "category": "Bills",
+        "days_away": 4,
+        "days_past_due": 0,
+        "dest_account_bank": null,
+        "dest_account_id": null,
+        "dest_account_name": null,
+        "dest_account_spendable": null,
+        "edited": false,
+        "expected_date": "2026-11-23",
+        "is_card_repayment": false,
+        "is_credit_card": false,
+        "kind": "commitment",
+        "name": "HOMEBRIDGE HOUSING",
+        "observed_pending": false,
+        "original_date": null,
+        "pending": false,
+        "rule_label": null
+      },
+      {
+        "account_balance": 34.89,
+        "account_bank": "Barclays",
+        "account_id": "acc-hb",
+        "account_name": "Harbour Current",
+        "amount": 77.91,
+        "amount_basis": null,
+        "card_dest_account_bank": null,
+        "card_dest_account_id": null,
+        "card_dest_account_name": null,
+        "category": "Bills",
+        "days_away": 34,
+        "days_past_due": 0,
+        "dest_account_bank": null,
+        "dest_account_id": null,
+        "dest_account_name": null,
+        "dest_account_spendable": null,
+        "edited": false,
+        "expected_date": "2026-12-23",
+        "is_card_repayment": false,
+        "is_credit_card": false,
+        "kind": "commitment",
+        "name": "HOMEBRIDGE HOUSING",
+        "observed_pending": false,
+        "original_date": null,
+        "pending": false,
+        "rule_label": null
+      }
+    ],
+    "upcoming_income": [
+      {
+        "account_balance": 34.89,
+        "account_bank": "Barclays",
+        "account_id": "acc-hb",
+        "account_name": "Harbour Current",
+        "amount": 649.59,
+        "amounts_recent": [
+          649.59,
+          649.59
+        ],
+        "avg_interval": 30,
+        "category": "Income",
+        "confirmed_alias": null,
+        "credit_basis": "steady",
+        "days_away": 3,
+        "display_name": "Transfer from another bank",
+        "edited": false,
+        "estimated": true,
+        "expected_date": "2026-11-22",
+        "income_history": null,
+        "monthly_anchor": null,
+        "name": "transfer|other-bank::acc-hb",
+        "occurrences": 2,
+        "rule_label": null,
+        "source": null,
+        "steady_salary": true
+      },
+      {
+        "account_balance": 34.89,
+        "account_bank": "Barclays",
+        "account_id": "acc-hb",
+        "account_name": "Harbour Current",
+        "amount": 649.59,
+        "amounts_recent": [
+          649.59,
+          649.59
+        ],
+        "avg_interval": 30,
+        "category": "Income",
+        "confirmed_alias": null,
+        "credit_basis": null,
+        "days_away": 33,
+        "display_name": "Transfer from another bank",
+        "edited": false,
+        "expected_date": "2026-12-22",
+        "income_history": null,
+        "monthly_anchor": null,
+        "name": "transfer|other-bank::acc-hb",
+        "occurrences": 2,
+        "rule_label": null,
+        "source": null,
+        "steady_salary": false
+      }
+    ]
+  },
+  "days_to_payday": 8,
+  "items": [],
+  "name": "G479, the same figures with the money landing first (invented names): about 649.59 expected 22 Nov before the 77.91 bill on 23 Nov, so there is no dip and Left to spend is 606.57",
+  "period": {
+    "end": "2026-11-26",
+    "start": "2026-10-30"
+  },
+  "safe_to_spend": {
+    "allocations_reserved": 0.0,
+    "calculation_status": "complete",
+    "commitments_reserved": 0,
+    "left_to_spend_lines": {
+      "accounts_total": 606.57,
+      "basis": "lowest_point",
+      "buffer": 0.0,
+      "dips": [],
+      "plans_total": 0
+    },
+    "lowest_projected_balance": 606.57,
+    "safe_to_spend": 606.57,
+    "safe_to_spend_cash": 606.57
+  },
+  "today": "2026-11-19"
+}

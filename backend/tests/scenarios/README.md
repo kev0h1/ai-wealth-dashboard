@@ -65,15 +65,19 @@ is fixed. Assertion keys are of the form `<check name>: <account id>` (for examp
 `frontend/scripts/scenarios.test.mjs`. A gap whose assertion now passes FAILS the
 run (stale gap). No scenario currently carries one (the G363 client income gap was closed by G372).
 
-`spend_from` is the figure Home shows (`spend_from_headroom`): the account's own Available, signed (G436,
-Kevin 2026-11-07, "every account in isolation, money in vs money out"): the closing figure of its own walk
-(balance plus predicted money in less predicted money out, an own-account transfer being out on its source and
-in on its destination with no gate), less its goals and set-asides, less any move set aside out of it, plus any
-suggested move in from another current account. There is no pool and no allocation, and the low point is only a
-warning. Left to spend is the sum of the counted current accounts' figures, less goals and set-asides on no
+`spend_from` is the figure Home shows (`spend_from_headroom`): the account's own Available, signed (G479, Kevin
+2026-11-19, option A, which replaced G436's closing figure): the account's LOWEST balance before payday (the
+lowest running balance of its own walk after any payment, or its closing balance if that is lower, or its
+overdraft if it is overdrawn today), money in counted only from its expected date, an own-account transfer
+being out on its source and in on its destination on its date with no gate, less its goals and set-asides, less
+any move set aside out of it, plus any suggested move in from another current account. There is no pool and no
+allocation. A dip below zero is a shortfall, never floored away: `contribution` is max(0, figure) and
+`uncovered_shortfall` max(0, -figure), and `dips_below_zero` names the depth, the date and the money expected
+after it. Left to spend is the sum of the counted current accounts' figures, less goals and set-asides on no
 counted account and the buffer (`expected.lines`: `accounts_total`, `plans_total`, `buffer`, hand-derived in the
-notes). A fixture may set `spend_from_total` when it names every eligible current account. `verdict` is "short"
-exactly when `after_payments < 0` or `low_point < 0`, otherwise "covered".
+notes; `expected.dip_lines` is the headline's own sentence for each account that goes short). A fixture may set
+`spend_from_total` when it names every eligible current account. `verdict` is "short" exactly when
+`after_payments < 0` or `low_point < 0`, otherwise "covered" (the cover engine's gated walks, unchanged).
 
 ## Snapshots (`out/<slug>.json`)
 
@@ -101,6 +105,8 @@ verdict context), Penny and any LLM call.
 - (frontend) the client walk, positions and availability agree with the server.
 
 ## Coverage
+
+G479 (Kevin 2026-11-19): the `g479-*` scenarios pin Kevin's production shape with invented names (34.89 now, 77.91 out on 23 Nov, +649.59 predicted later, payday 27 Nov): the account is short before the money lands (Left to spend -43.02, "£43 short on 23 Nov, before about £650 is expected on 26 Nov"); the same figures with the money first (606.57, no dip); one account dips and another covers it (G410, counted once, 724); one dips with nothing to cover it (-264); a payment due today; and a bill and money dated payday (next period, so 34.89). `g479-a-transfer-counts-on-both-legs-even-when-its-source-cannot-fund-it`: Harbour 100 is due to send 300 to Meadow (50, pays 120): the transfer counts on both legs (Kevin's option 1, the G360 gate is gone), so Harbour is short 200, Meadow is fine (230) and the total is 30. The G436 scenarios whose figure moved are re-derived in their own notes: `hsbc-incoming-transfer-then-mortgage-mid-window` 610 to 260, `natwest-three-answers` 2,315.27 to 2,257.96, `standing-orders-funded-mid-period` 2,470 to 870.
 
 Step 1 (H140): eve of payday, where everything dated on payday belongs to the next period (G359, G360), the same standing orders funded by a steady salary mid-period (G359, G360 funded-inflow rule),
 monthly bills on the 1st with month-end pay (G354), a reconnected account with

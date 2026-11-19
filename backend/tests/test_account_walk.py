@@ -311,7 +311,7 @@ def _legacy_closing_events(wi, preview_salary):
         if acct in running and income_credit_ok(i, acct, wi.confirmed_income_keys):
             events.append((i["days_away"], acct, float(i["amount"]), True, i))
             credited_incomes.setdefault(acct, []).append(i)
-    for n in wi.funded_window_inflows:
+    for n in wi.window_inflows:
         acct = str(n.get("account_id") or "")
         if acct and acct not in running and acct in live_balances:
             running[acct] = live_balances[acct]
@@ -340,7 +340,7 @@ def _legacy_source_min_running(wi, sid, start_balance):
     ]
     ev += [
         (n["days_away"], float(n["amount"]))
-        for n in wi.funded_window_inflows
+        for n in wi.window_inflows
         if str(n.get("account_id") or "") == sid
     ]
     ev.sort(key=lambda e: (e[0], 0 if e[1] > 0 else 1))
@@ -361,7 +361,7 @@ def _legacy_walk_min(wi, credited_incomes, dest, extra_income=None):
     ev += [(i2["days_away"], float(i2["amount"])) for i2 in credited_incomes.get(dest, [])]
     ev += [
         (n["days_away"], float(n["amount"]))
-        for n in wi.funded_window_inflows
+        for n in wi.window_inflows
         if str(n.get("account_id") or "") == dest
     ]
     if extra_income is not None:
@@ -477,15 +477,34 @@ def test_caller_output_equals_pre_extraction_golden(monkeypatch, name):
         #     another current account (the source is earmarked, so the two net to zero).
         #   dips_below_zero: new warning key, lowsrc goes below zero before money arrives (never in the figure).
         #   account_headroom_raw: now kept for non-current accounts (man1, pot) as consolidation capacity.
+        # G479 (Kevin 2026-11-19, option A): spend_from_headroom is now the account's LOWEST balance
+        # (lowest_after_money_in, the lowest running balance after any payment, or its closing figure
+        # if lower, or its overdraft) less plans, then earmarks out and moves in. New display keys:
+        # lowest_after_money_in, contribution (max(0, figure)) and uncovered_shortfall (max(0, -figure)),
+        # and dips_below_zero now also carries short_by, short_on and money_in_amount. Per account:
+        #   barclays: lowest 2521.67 (the same figure the gated walk reports as low_point; closing 5021.67 is
+        #     later), no plans, 175 earmarked out for the suggested move, so 2521.67 - 175 = 2346.67.
+        #   hsbc: 12 + 1758.33 (funded inflow, day 2) - 100 (Council Tax, day 4) = 1670.33, then + 15 (Refund,
+        #     day 7) closes at 1685.33; the lowest after a payment is 1670.33. No plans or moves.
+        #   idle: no events, so its balance 15.
+        #   lowsrc: short 125 on 2026-11-04 (the 90 standing order and the 40 card repayment before 60 is
+        #     expected on 2026-11-08); the suggested 135 move in covers it: -125 + 135 = 10.
+        #   natwest: 90 - 60 (Gym) + 300 (the transfer from lowsrc, credited although lowsrc is short, G479 option 1) = 330, lowest 30.
+        #   pot: 250 + 77 (Bonus) + 400 + 50 (the transfer from an untracked source, credited) = 777.
+        #   man1, pot: non-current, no spending figure (0); their lowest is information only.
         g436 = {
-            "barclays": {"after_payments_and_money_in": 5021.67, "spend_from_headroom": 4846.67},
-            "hsbc": {"after_payments_and_money_in": 1685.33, "spend_from_headroom": 1685.33},
-            "idle": {"after_payments_and_money_in": 15.0},
-            "lowsrc": {"after_payments_and_money_in": -90.0, "spend_from_headroom": 45.0, "moves_in_total": 135.0,
-                       "spend_from_requires_move": True, "dips_below_zero": {"money_in_date": "2026-11-08"}},
-            "man1": {"account_headroom_raw": 240.0, "after_payments_and_money_in": 250.0, "spend_from_headroom": 0.0},
-            "natwest": {"after_payments_and_money_in": 330.0, "spend_from_headroom": 330.0},
-            "pot": {"account_headroom_raw": 240.0, "after_payments_and_money_in": 777.0, "spend_from_headroom": 0.0},
+            "barclays": {"after_payments_and_money_in": 5021.67, "lowest_after_money_in": 2521.67, "spend_from_headroom": 2346.67,
+                         "contribution": 2346.67, "uncovered_shortfall": 0.0},
+            "hsbc": {"after_payments_and_money_in": 1685.33, "lowest_after_money_in": 1670.33, "spend_from_headroom": 1670.33,
+                     "contribution": 1670.33, "uncovered_shortfall": 0.0},
+            "idle": {"after_payments_and_money_in": 15.0, "lowest_after_money_in": 15.0, "contribution": 15.0, "uncovered_shortfall": 0.0},
+            "lowsrc": {"after_payments_and_money_in": -90.0, "lowest_after_money_in": -125.0, "spend_from_headroom": 10.0,
+                       "moves_in_total": 135.0, "spend_from_requires_move": True, "contribution": 10.0, "uncovered_shortfall": 0.0,
+                       "dips_below_zero": {"money_in_date": "2026-11-08", "short_by": 125.0, "short_on": "2026-11-04", "money_in_amount": 60.0}},
+            "man1": {"account_headroom_raw": 240.0, "after_payments_and_money_in": 250.0, "lowest_after_money_in": 250.0, "spend_from_headroom": 0.0},
+            "natwest": {"after_payments_and_money_in": 330.0, "lowest_after_money_in": 30.0, "spend_from_headroom": 30.0,
+                        "contribution": 30.0, "uncovered_shortfall": 0.0},
+            "pot": {"account_headroom_raw": 240.0, "after_payments_and_money_in": 777.0, "lowest_after_money_in": 777.0, "spend_from_headroom": 0.0},
         }
         for acct, keys in g436.items():
             golden["eligibility"][acct].update(keys)
@@ -615,20 +634,21 @@ def test_low_point_is_a_running_minimum_from_the_opening_balance(wi):
 # ── one test per W-difference, flipping only that keyword ────────────────────
 
 def test_wd1_wd4_inflow_admit_flips_only_which_accounts_an_inflow_reaches(wi):
-    # pot has no bill: a funded inflow reaches it only when it may seed it or any
+    # pot has no bill: an inflow reaches it only when it may seed it or any
     seeded = aw.walk_account("pot", wi, opening=250.0, inflow_admit="seeded")
     seed_live = aw.walk_account("pot", wi, opening=250.0, inflow_admit="seed_live")
     anyone = aw.walk_account("pot", wi, opening=250.0, inflow_admit="any")
     assert seeded.events == [] and seeded.closing == 250.0
-    assert [e[2] for e in seed_live.events] == [400.0] and seed_live.closing == 650.0
+    # G479: both inflows reach it (400 from barclays and 50 from an untracked source: no inbound gate any more)
+    assert [e[2] for e in seed_live.events] == [400.0, 50.0] and seed_live.closing == 700.0
     assert anyone.events == seed_live.events
     # a bill-seeded account takes its funded inflow in every mode
     for mode in ("seeded", "seed_live", "any"):
         hs = aw.walk_account("hsbc", wi, opening=12.0, inflow_admit=mode)
         assert 1758.33 in [e[2] for e in hs.events]
-    # the unfunded inflow (its source is short) is never in the funded list
+    # G479: the inflow whose source is short is credited too (it was never in the old funded list)
     nw = aw.walk_account("natwest", wi, opening=90.0, inflow_admit="any")
-    assert 300.0 not in [e[2] for e in nw.events]
+    assert 300.0 in [e[2] for e in nw.events]
     # the window walk tracks pot only with seed_live
     _e, tracked_seeded, _c = aw.window_events(wi, inflow_admit="seeded")
     _e, tracked_live, _c = aw.window_events(wi, inflow_admit="seed_live")
@@ -758,7 +778,7 @@ def test_credited_incomes_keep_the_window_income_key_order():
         assessable_bills=[_bill("a", 1, 10.0, "A", 500.0), _bill("b", 1, 10.0, "B", 500.0)],
         window_income=[inc("B", 5), inc("A", 3)],  # B's income first, A seeded first
         confirmed_income_keys={"Pay A", "Pay B"},
-        funded_window_inflows=[], live_balances={"A": 500.0, "B": 500.0},
+        window_inflows=[], live_balances={"A": 500.0, "B": 500.0},
         running_seed={"A": 500.0, "B": 500.0}, days_to_pay=10,
     )
     _events, seed, credited = aw.window_events(inputs)

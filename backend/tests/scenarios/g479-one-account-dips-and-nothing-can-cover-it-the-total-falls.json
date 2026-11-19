@@ -1,0 +1,140 @@
+{
+  "name": "G479: Meadow goes short before its money lands and no other account has room to cover it, so the shortfall stays visible and reduces the total",
+  "today": "2026-11-19",
+  "pay_period_config": {
+    "type": "last_friday"
+  },
+  "confirmed_income_streams": [],
+  "accounts": [
+    {
+      "_id": "acc-hb",
+      "name": "Harbour Current",
+      "provider": "barclays",
+      "type": "BANK",
+      "subtype": "TRANSACTION",
+      "balance": 12.0,
+      "currency": "GBP",
+      "status": "connected",
+      "include_in_safe_to_spend": true
+    },
+    {
+      "_id": "acc-md",
+      "name": "Meadow Current",
+      "provider": "natwest",
+      "type": "BANK",
+      "subtype": "TRANSACTION",
+      "balance": 124.0,
+      "currency": "GBP",
+      "status": "connected",
+      "include_in_safe_to_spend": true
+    }
+  ],
+  "manual_accounts": [],
+  "cashflow_cache": {
+    "recurring_spend": [
+      {
+        "key": "RENT SHARE",
+        "avg_amount": 400.0,
+        "avg_interval": 30,
+        "next_date": "2026-11-21",
+        "account_id": "acc-md",
+        "account_name": "Meadow Current",
+        "account_bank": "natwest",
+        "account_balance": 124.0,
+        "is_credit_card": false,
+        "category": "Bills"
+      }
+    ],
+    "recurring_income": [
+      {
+        "key": "side|income::acc-md",
+        "display_name": "Side income",
+        "avg_amount": 500.0,
+        "avg_interval": 30,
+        "next_date": "2026-11-24",
+        "account_id": "acc-md",
+        "account_name": "Meadow Current",
+        "account_bank": "natwest",
+        "account_balance": 124.0,
+        "category": "Income",
+        "occurrences": 2,
+        "amounts_recent": [
+          500.0,
+          500.0
+        ]
+      }
+    ],
+    "bnpl_commitments": [],
+    "avg_daily_spend": 0
+  },
+  "transactions": [
+    {
+      "account_id": "acc-md",
+      "date": "2026-09-26",
+      "amount": 500.0,
+      "transaction_type": "credit",
+      "description": "SIDE INCOME",
+      "merchant_name": "SIDE INCOME",
+      "category": "Income"
+    },
+    {
+      "account_id": "acc-md",
+      "date": "2026-10-26",
+      "amount": 500.0,
+      "transaction_type": "credit",
+      "description": "SIDE INCOME",
+      "merchant_name": "SIDE INCOME",
+      "category": "Income"
+    }
+  ],
+  "commitments": [],
+  "allocations": [],
+  "card_terms": [],
+  "expected": {
+    "left_to_spend": -264.0,
+    "spendable_balance": 136.0,
+    "lines": {
+      "accounts_total": -264.0,
+      "plans_total": 0.0,
+      "buffer": 0.0
+    },
+    "spend_from_total": -264.0,
+    "dip_lines": [
+      "Meadow Current: £276 short on 23 Nov, before about £500 is expected on 24 Nov"
+    ],
+    "accounts": {
+      "acc-hb": {
+        "spend_from": 12.0,
+        "lowest_after_money_in": 12.0,
+        "contribution": 12.0,
+        "uncovered_shortfall": 0.0,
+        "after_payments": 12.0,
+        "low_point": 12.0,
+        "verdict": "covered",
+        "no_earmark": true
+      },
+      "acc-md": {
+        "spend_from": -276.0,
+        "lowest_after_money_in": -276.0,
+        "contribution": 0.0,
+        "uncovered_shortfall": 276.0,
+        "dip": {
+          "short_by": 276.0,
+          "short_on": "2026-11-23",
+          "money_in_date": "2026-11-24",
+          "money_in_amount": 500.0
+        },
+        "after_payments": 224.0,
+        "low_point": -276.0,
+        "verdict": "short"
+      }
+    },
+    "cover_plan": {
+      "moves_total": 0,
+      "moves": []
+    },
+    "payday_plan": null,
+    "at_risk_count": 1,
+    "notes": "Today is Thu 19 Nov 2026 and pay is the last Friday, so payday is Fri 27 Nov (8 days away): the window is days 0 to 7 (19 to 26 Nov), and anything dated on payday belongs to the next period. The Meadow figures of the covered scenario, but Harbour Current holds only 12. G479 (Kevin 2026-11-19, option A): Left to spend is what can be spent without any payment failing. Each counted current account contributes its LOWEST balance before payday (the lowest running balance after any of its payments, or its closing balance if that is lower, or its overdraft), money in counted only from its expected date; a dip below zero is a shortfall and reduces the total, never floored away (contribution = max(0, figure), uncovered shortfall = max(0, -figure), the total is their signed sum). Harbour: 12, no events: contributes 12. Meadow: 124 - 400 = -276 on 23 Nov, + 500 = 224 on 24 Nov; lowest -276: contributes 0 and is 276 short. Left to spend: 12 + (-276) = -264. The cover engine finds no source: a source needs headroom of at least 5 after keeping 10, and Harbour's is 12 - 10 = 2, so there is no move and no earmark; the shortfall is uncovered and stays on Meadow, reducing the total by exactly 276. At risk 1."
+  }
+}

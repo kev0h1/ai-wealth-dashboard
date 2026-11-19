@@ -22,7 +22,7 @@ What is shared (identical in all three, now written once):
   `pay_period.in_current_window`; the assessable-bill filter
   (`is_assessable_bill`); the starting balance per account, seeded from the
   live balance else the bill's own `account_balance`; the confirmed income
-  keys; and the G360 funded-inflow gate (`inflow_credit.funded_inflows`).
+  keys. G479 (Kevin 2026-11-19): there is no inbound-transfer gate; a predicted own transfer counts on both legs.
 
 Differences (each is an argument; the value shown is what each caller passes,
 which is also what its hand-copied preamble did before G364):
@@ -105,7 +105,6 @@ class WindowInputs:
     all_uk_accounts: list[dict]
     offline_accounts: list[dict]
     running_seed: dict[str, float]  # starting balance per account the walk tracks (a bill sits on it)
-    funded_window_inflows: list[dict]  # window_inflows gated by the G360 funded-inflow rule
 
 
 # ── balance loaders (one per caller; see the differences table) ──────────────
@@ -232,7 +231,6 @@ async def build_window_inputs(
     from app.routers.analytics import stamp_credit_basis as _stamp
     from app.services import pay_period as _pp
     from app.services.income import get_confirmed_payday as _get_confirmed_payday
-    from app.services.inflow_credit import funded_inflows
 
     pay_cfg = prefs.get("pay_period_config", {"type": "calendar_month"})
     today_d = timeutil.user_today()
@@ -301,13 +299,6 @@ async def build_window_inputs(
         if acct not in running_seed:
             running_seed[acct] = live_balances.get(str(acct), float(b.get("account_balance") or 0))
 
-    # G360: an inflow is credited only when its SOURCE account is itself
-    # covered that day (`funded_inflows`, one rule for every walk).
-    funded_window_inflows = funded_inflows(
-        window_inflows, assessable_bills, window_income, {**live_balances, **running_seed},
-        lambda i, a: income_credit_ok(i, a, confirmed_income_keys),
-    )
-
     return WindowInputs(
         uid=uid,
         prefs=prefs,
@@ -331,5 +322,4 @@ async def build_window_inputs(
         all_uk_accounts=loaded.all_uk_accounts,
         offline_accounts=loaded.offline_accounts,
         running_seed=running_seed,
-        funded_window_inflows=funded_window_inflows,
     )

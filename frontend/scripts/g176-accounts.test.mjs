@@ -23,14 +23,14 @@ accounts = summary([bill({ amount: 200 })], [credit()]);
 assert.equal(accounts[0].closing, 0, "Same-day named income funds the payment first");
 assert.equal(accounts[0].status, "covered");
 assert.equal(accounts[0].events[0].name, "Example employer");
-// G360: an inflow counts only when its source account is itself covered that day.
+// G479 (Kevin 2026-11-19, option 1): an inflow always counts, whether or not its source can fund it (the G360 gate is gone).
 const sourceMove = (overrides = {}) => bill({ name: "Move out", account_id: "s", account_balance: 1000, amount: 100, kind: "movement", ...overrides });
 assert.equal(summary([bill(), sourceMove()], [], [credit({ source_account_name: "Everyday account", source_account_id: "s" })])[0].closing, 120);
-assert.equal(summary([bill(), sourceMove({ account_balance: 50 })], [], [credit({ source_account_id: "s" })])[0].closing, 20, "G360: an unfunded source never credits the destination");
-assert.equal(summary([bill()], [], [credit({ source_account_id: "s" })])[0].closing, 20, "G360: an untracked source never credits the destination");
-assert.equal(summary([bill()], [], [credit({ source_account_name: "Everyday account" })])[0].closing, 20, "G360: an unknown source never credits the destination");
-assert.equal(summary([bill(), sourceMove({ account_balance: 0 })], [credit({ account_id: "s", amount: 100, credit_basis: "steady" })], [credit({ source_account_id: "s" })])[0].closing, 120, "G360: a credited salary on the source funds the transfer");
-assert.equal(summary([bill(), sourceMove({ account_balance: 0 })], [credit({ account_id: "s", amount: 100, credit_basis: null })], [credit({ source_account_id: "s" })])[0].closing, 20, "G360: income the server did not credit never funds the source");
+assert.equal(summary([bill(), sourceMove({ account_balance: 50 })], [], [credit({ source_account_id: "s" })])[0].closing, 120, "G479: an unfunded source still credits the destination");
+assert.equal(summary([bill()], [], [credit({ source_account_id: "s" })])[0].closing, 120, "G479: an untracked source still credits the destination");
+assert.equal(summary([bill()], [], [credit({ source_account_name: "Everyday account" })])[0].closing, 120, "G479: an unknown source still credits the destination");
+assert.equal(summary([bill(), sourceMove({ account_balance: 0 })], [credit({ account_id: "s", amount: 100, credit_basis: "steady" })], [credit({ source_account_id: "s" })])[0].closing, 120, "G479: a credited salary on the source changes nothing for the destination");
+assert.equal(summary([bill(), sourceMove({ account_balance: 0 })], [credit({ account_id: "s", amount: 100, credit_basis: null })], [credit({ source_account_id: "s" })])[0].closing, 120, "G479: income the server did not credit changes nothing for the destination");
 assert.equal(summary([bill({ account_balance: 20 })], [credit({ account_id: "b" })])[0].shortfall, 60, "Other-account income never funds this payment");
 const lateIncome = credit({ expected_date: "2026-10-04", amount: 200 });
 accounts = summary([bill({ amount: 130 }), bill({ amount: 50, expected_date: "2026-10-03" })], [lateIncome]);

@@ -4,6 +4,7 @@
       "after_payments": -900.0,
       "after_payments_and_money_in": -900.0,
       "after_payments_and_plans": -900.0,
+      "contribution": 10.0,
       "covered_by_move": {
         "amount": 910.0,
         "from": [
@@ -16,23 +17,30 @@
         ],
         "shortfall": 900.0
       },
+      "dips_below_zero": {
+        "short_by": 900.0,
+        "short_on": "2026-10-16"
+      },
       "estimated": false,
       "headroom": -910.0,
       "is_current_account": true,
       "low_point": -900.0,
       "low_point_and_plans": -900.0,
+      "lowest_after_money_in": -900.0,
       "moves_in_total": 910.0,
       "plans_reserved": 0.0,
       "short": true,
       "short_after_cover": 0.0,
       "spend_from_headroom": 10.0,
       "spend_from_requires_move": true,
-      "uncertain": false
+      "uncertain": false,
+      "uncovered_shortfall": 0.0
     },
     "acc-st": {
       "after_payments": 2000.0,
       "after_payments_and_money_in": 2000.0,
       "after_payments_and_plans": 2000.0,
+      "contribution": 1090.0,
       "earmarked_total": 910.0,
       "earmarks_out": [
         {
@@ -46,10 +54,12 @@
       "is_current_account": true,
       "low_point": 2000.0,
       "low_point_and_plans": 2000.0,
+      "lowest_after_money_in": 2000.0,
       "plans_reserved": 0.0,
       "short": false,
       "spend_from_headroom": 1090.0,
-      "uncertain": false
+      "uncertain": false,
+      "uncovered_shortfall": 0.0
     }
   },
   "account_plans": [],
@@ -217,7 +227,17 @@
     "commitments_reserved": 0,
     "left_to_spend_lines": {
       "accounts_total": 1100.0,
+      "basis": "lowest_point",
       "buffer": 0.0,
+      "dips": [
+        {
+          "account_id": "acc-bc",
+          "account_name": "Barclays Current",
+          "line": "Barclays Current: \u00a3900 short on 16 Oct",
+          "short_by": 900.0,
+          "short_on": "2026-10-16"
+        }
+      ],
       "plans_total": 0
     },
     "lowest_projected_balance": 1100.0,

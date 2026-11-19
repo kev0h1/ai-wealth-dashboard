@@ -618,9 +618,10 @@ def test_unreadable_plans_fail_closed(monkeypatch):
     assert e["uncertain"] is True and e["spend_from_headroom"] == 0.0
 
 
-# ── G238 clamp: source_min_run feeds Spend from through the real engine ──────
+# ── G238 clamp, restored by G479: source_min_run feeds Spend from through the real engine ──
 # Live 150, bill 100 on day 3 (running 50), confirmed salary 1000 on day 8
-# (running 1050). Closing is 1050 but the low point is 50, so Spend from is 50.
+# (running 1050). Closing is 1050 but the low point is 50, so Spend from is 50: the salary lands
+# after the payment, so it cannot lift the account's lowest point (G479, Kevin 2026-11-19).
 
 def _salary(account_id):
     return {
@@ -641,27 +642,31 @@ def _dip_run(monkeypatch, *, extra_accounts=(), plans=None):
     return eligibility
 
 
-def test_a_dip_before_money_arrives_is_not_part_of_the_figure(monkeypatch):
-    # G436 (Kevin 2026-11-07, money in vs money out): Available is the closing figure, 1,050; the
-    # low point (50) is only reported. The running balance never goes below zero here, so no dip warning.
+def test_money_in_after_the_payment_does_not_lift_the_figure(monkeypatch):
+    # G479: the account's figure is its lowest balance before payday, 50 (150 - 100 on day 3); the 1,000
+    # salary lands on day 8, after the payment, so it does not lift it. The closing figure, 1,050, is
+    # information. The balance never goes below zero, so there is no dip.
     e = _dip_run(monkeypatch)["A"]
     assert e["after_payments"] == 1050.0
     assert e["low_point"] == 50.0
-    assert e["spend_from_headroom"] == 1050.0 and e["after_payments_and_money_in"] == 1050.0
+    assert e["spend_from_headroom"] == 50.0 and e["lowest_after_money_in"] == 50.0
+    assert e["after_payments_and_money_in"] == 1050.0
+    assert e["contribution"] == 50.0 and e["uncovered_shortfall"] == 0.0
     assert "dips_below_zero" not in e
 
 
-def test_clamp_is_each_accounts_own_figure_and_nothing_is_shared_out(monkeypatch):
-    # G436: the engine's figure is final: A's own 1,050 and B's own 2,000: no pool, no preference fill, no cap.
+def test_each_accounts_figure_is_its_own_lowest_balance_and_nothing_is_shared_out(monkeypatch):
+    # G479: A's own 50 (lowest after its payment) and B's own 2,000 (nothing leaves it): no pool, no
+    # preference fill, no cap.
     elig = _dip_run(monkeypatch, extra_accounts=[_account("B", 2000.0, provider="monzo")])
-    assert elig["A"]["spend_from_headroom"] == 1050.0
+    assert elig["A"]["spend_from_headroom"] == 50.0
     assert elig["B"]["spend_from_headroom"] == 2000.0
     assert not any(k in e for e in elig.values() for k in ("allocation_order", "allocation_unassigned", "spend_from_capped"))
 
 
-def test_a_chosen_goal_is_subtracted_from_the_closing_figure(monkeypatch):
+def test_a_chosen_goal_is_subtracted_from_the_lowest_balance(monkeypatch):
     goal = dict(_JAPAN, source_account_id="A", source_basis="chosen", remaining=30, period_amount=30)
     e = _dip_run(monkeypatch, plans=[goal])["A"]
     assert e["low_point_and_plans"] == 20.0
     assert e["after_payments_and_plans"] == 1020.0
-    assert e["spend_from_headroom"] == 1020.0
+    assert e["spend_from_headroom"] == 20.0  # 50 lowest - 30 goal

@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 # Persisted response-cache entries outlive deployments. Bump this whenever
 # Safe-to-Spend arithmetic or response semantics change so an older payload
 # cannot briefly contradict the current Home card after a release.
-SAFE_TO_SPEND_CALCULATION_VERSION = 4
+SAFE_TO_SPEND_CALCULATION_VERSION = 5
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
@@ -3495,8 +3495,8 @@ async def at_risk_count(user: dict = Depends(current_user)):
     # actually landed in, and only when the prediction is reliable (see
     # `income_credit_ok`). G167: no reliability gate on an inflow and no
     # late-income line for one (see the comment block above `walk_sort_key`
-    # in services/companion.py). G360: an inflow counts only when its SOURCE
-    # account is covered that day. G163: same-day, credits before debits.
+    # in services/companion.py). G479: an inflow always counts, whether or
+    # not its SOURCE can fund it (the G360 gate is gone). G163: same-day, credits before debits.
     from app.services.account_walk import count_at_risk, walk_events, window_events
 
     events, seed, _credited = window_events(_wi)
@@ -5587,10 +5587,27 @@ async def compute_safe_to_spend(uid: str) -> dict:
     # be read the result is "degraded" and clamped below.
     lowest_projected = min_running
     accounts_total = None
+    left_to_spend_dips: list[dict] = []
     plans_total = round((commitments_reserved or 0) + (allocations_reserved or 0), 2)
     try:
-        from app.services.account_available import account_bases, counted_current_ids
-        accounts_total = round(sum(account_bases(wi, counted_current_ids(all_accs_raw)).values()), 2)
+        from app.services.account_available import account_ledger, counted_current_ids, dip_line
+        _counted_ids = counted_current_ids(all_accs_raw)
+        _ledger = account_ledger(wi, _counted_ids, _today_d)
+        # G479 (Kevin 2026-11-19, option A): each counted account contributes its LOWEST running
+        # balance before payday, so an account that goes short before its predicted income lands
+        # is short, never spendable. The signed sum keeps a dip no account covers as a reduction.
+        accounts_total = round(sum(row["low_point"] for row in _ledger.values()), 2)
+        _names = {str(a["_id"]): (a.get("name") or "Account") for a in all_accs_raw if a.get("_id") is not None}
+        _many = len(_ledger) > 1
+        for _sid, _row in sorted(_ledger.items(), key=lambda kv: (kv[1]["dip"] or {}).get("short_on", "9999")):
+            _dip = _row["dip"]
+            if not _dip:
+                continue
+            _nm = _names.get(_sid, "Account")
+            left_to_spend_dips.append({
+                "account_id": _sid, "account_name": _nm, **_dip,
+                "line": dip_line(_dip, _today_d, account_name=_nm if _many else None),
+            })
         lowest_projected = accounts_total
         safe_to_spend = round(accounts_total - buffer - plans_total, 2)
     except Exception:
@@ -5800,6 +5817,10 @@ async def compute_safe_to_spend(uid: str) -> dict:
             "accounts_total": accounts_total,
             "plans_total": plans_total,
             "buffer": buffer,
+            # G479: "lowest_point" says accounts_total is the sum of each account's lowest running
+            # balance before payday; `dips` are the accounts that go short, earliest first.
+            "basis": "lowest_point",
+            "dips": left_to_spend_dips,
         }),
         "payday_income":       payday_income,
         "card_debt":           card_debt,

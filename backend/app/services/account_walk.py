@@ -14,7 +14,7 @@ Four places used to compute a per-account running balance over the same
 They now all read this module:
 
   `account_events(sid, inputs, ...)`  the events one account's walk consumes,
-      with the G360 funded-inflow rule, G163 same-day order (credits before
+      with every predicted own-transfer credit counted (G479; there is no inbound gate), G163 same-day order (credits before
       debits) and the G359/C1 income-credit rule applied once;
   `walk_account(sid, inputs, *, opening, ...)`  that account's `AccountWalk`:
       closing, low point, first short bill, every bounced bill, the dated rows
@@ -35,7 +35,7 @@ numbers below are the differences between the four walks of this step):
 
 | Id  | Difference | Keyword | closing (W2) | at-risk (W5) | low point (W3) | with-extra-income (W4) |
 |-----|------------|---------|--------------|--------------|----------------|------------------------|
-| WD1 | Which accounts are walked | tracked set (`window_events`) / caller | accounts with an assessable bill, plus an account a funded inflow lands in when it has a live balance, plus the preview salary account | accounts with an assessable bill only | every source-eligible account, caller loops | any destination, caller loops |
+| WD1 | Which accounts are walked | tracked set (`window_events`) / caller | accounts with an assessable bill, plus an account an inflow lands in when it has a live balance, plus the preview salary account | accounts with an assessable bill only | every source-eligible account, caller loops | any destination, caller loops |
 | WD2 | Opening balance | `opening` | `inputs.running_seed` (live balance, else the bill's own `account_balance`); an inflow-only account opens at its live balance; the preview salary account at `live_balances.get(acct, 0.0)` | `inputs.running_seed` | `live_balances.get(sid, account.balance or 0)` | `live_balances.get(dest, 0.0)` |
 | WD3 | Income needs an account seeded by a bill of its own | `income_admit` | `"seeded"` | `"seeded"` | `"any"`: an attributed, credit-ok income counts even with no bill on the account | `"seeded"` (it reads the closing walk's credited incomes) |
 | WD4 | Funded inflows | `inflow_admit` | `"seed_live"`: counted for a bill-seeded account, or an account with a live balance (which then opens at that balance) | `"seeded"`: counted only for a bill-seeded account, never seeds a new one | `"any"` | `"any"` |
@@ -61,7 +61,7 @@ move to the per-account credit rule is a separate decision for Kevin.
 |-----|------------|----------------------|---------------------------|-----------------------|
 | SD1 | Income credit | `income_credit` | `"all"` (C2): every income in the window, no attribution, no reliability test | `"credit_ok"` (C1): `income_credit_ok` per account (WD3) |
 | SD2 | Same-day order | `same_day` | `"debits_first"`: a spending-permission figure never assumes an income clears before a direct debit | `"credits_first"` (G163, WD8 `is_income`) |
-| SD3 | Own-account transfer legs | `transfer_legs` | `"drop"`: a movement whose destination is a pooled spendable account removes both legs (its amount is reported as `pooled_transfers_excluded`) | `"keep"`: the debit leg stays on its source and the credit lands through `funded_window_inflows` |
+| SD3 | Own-account transfer legs | `transfer_legs` | `"drop"`: a movement whose destination is a pooled spendable account removes both legs (its amount is reported as `pooled_transfers_excluded`) | `"keep"`: the debit leg stays on its source and the credit lands through `window_inflows` |
 | SD4 | Card charges | `card_charges` | `"exclude"`: a charge ON a credit card is out of the walk and out of the cash walk and never held back (G413, `card_charges_excluded_from_walk`); repayments stay debits (G109) | `"keep"` |
 | SD5 | Seed | `negative_seed` | `"exclude"`: spendable cash of every counted, GBP, non-card, non-savings account, a negative balance counted as 0 (`_live_pool_balances`); it is debt, tracked separately as `card_debt` | `"include"`: each account opens at its own balance, negative or not (WD2) |
 | SD6 | Window source and end | `window_end` | `"before_payday"`: `WindowInputs.window_*` (strictly before payday, B-table: G231 re-dropped from the account rows, B10); the payday-day slice only feeds `payday_income` | `"through_payday"` adds the payday-day slice (not used by any caller) |
@@ -213,7 +213,7 @@ def account_events(
     else:
         inflow_ok = seeded
     if inflow_ok:
-        for pos, n in enumerate(inputs.funded_window_inflows):
+        for pos, n in enumerate(inputs.window_inflows):
             if str(n.get("account_id") or "") == sid:
                 entries.append(((n["days_away"], sid, float(n["amount"]), True, n), (_P_INFLOW, pos)))
     if preview_salary is not None and str(preview_salary.get("account_id") or "") == sid:
@@ -260,11 +260,11 @@ def tracked_openings(
 ) -> dict[str, float]:
     """The accounts a window walk tracks, in the old `running` key order, with
     their opening balances (WD1, WD2). Bill-seeded accounts first; then, for
-    `inflow_admit="seed_live"`, an account a funded inflow lands in that has a
+    `inflow_admit="seed_live"`, an account an inflow lands in that has a
     live balance; then the preview salary's account at `live_balances.get`."""
     opening: dict[str, float] = dict(inputs.running_seed)
     if inflow_admit == "seed_live":
-        for n in inputs.funded_window_inflows:
+        for n in inputs.window_inflows:
             acct = str(n.get("account_id") or "")
             if acct and acct not in opening and acct in inputs.live_balances:
                 opening[acct] = inputs.live_balances[acct]

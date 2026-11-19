@@ -1,0 +1,280 @@
+{
+  "account_eligibility": {
+    "acc-hb": {
+      "after_payments": -200.0,
+      "after_payments_and_money_in": -200.0,
+      "after_payments_and_plans": -200.0,
+      "contribution": 0.0,
+      "dips_below_zero": {
+        "short_by": 200.0,
+        "short_on": "2026-11-23"
+      },
+      "estimated": false,
+      "headroom": -210.0,
+      "is_current_account": true,
+      "low_point": -200.0,
+      "low_point_and_plans": -200.0,
+      "lowest_after_money_in": -200.0,
+      "plans_reserved": 0.0,
+      "short": true,
+      "spend_from_headroom": -200.0,
+      "uncertain": false,
+      "uncovered_shortfall": 200.0
+    },
+    "acc-md": {
+      "after_payments": 230.0,
+      "after_payments_and_money_in": 230.0,
+      "after_payments_and_plans": 230.0,
+      "contribution": 230.0,
+      "estimated": false,
+      "headroom": -80.0,
+      "is_current_account": true,
+      "low_point": 50.0,
+      "low_point_and_plans": 50.0,
+      "lowest_after_money_in": 230.0,
+      "plans_reserved": 0.0,
+      "short": true,
+      "spend_from_headroom": 230.0,
+      "uncertain": false,
+      "uncovered_shortfall": 0.0
+    }
+  },
+  "account_plans": [],
+  "accounts": [
+    {
+      "balance": 100.0,
+      "currency": "GBP",
+      "id": "acc-hb",
+      "include_in_safe_to_spend": true,
+      "name": "Harbour Current",
+      "provider": "barclays",
+      "status": "connected",
+      "subtype": "TRANSACTION",
+      "type": "BANK"
+    },
+    {
+      "balance": 50.0,
+      "currency": "GBP",
+      "id": "acc-md",
+      "include_in_safe_to_spend": true,
+      "name": "Meadow Current",
+      "provider": "natwest",
+      "status": "connected",
+      "subtype": "TRANSACTION",
+      "type": "BANK"
+    }
+  ],
+  "at_risk_count": 1,
+  "cashflow": {
+    "internal_inflows": [
+      {
+        "account_bank": "NatWest",
+        "account_id": "acc-md",
+        "account_name": "Meadow Current",
+        "amount": 300.0,
+        "days_away": 4,
+        "destination_spendable": true,
+        "expected_date": "2026-11-23",
+        "name": "HARBOUR TO MEADOW STO",
+        "source_account_id": "acc-hb",
+        "source_account_name": "Harbour Current"
+      },
+      {
+        "account_bank": "NatWest",
+        "account_id": "acc-md",
+        "account_name": "Meadow Current",
+        "amount": 300.0,
+        "days_away": 34,
+        "destination_spendable": true,
+        "expected_date": "2026-12-23",
+        "name": "HARBOUR TO MEADOW STO",
+        "source_account_id": "acc-hb",
+        "source_account_name": "Harbour Current"
+      }
+    ],
+    "next_payday": "2026-11-27",
+    "observed_pending_bills": [],
+    "period": {
+      "day_number": 21,
+      "end": "2026-11-26",
+      "label": "30 Oct to 26 Nov",
+      "length_days": 28,
+      "payday": "2026-11-27",
+      "payday_observed": null,
+      "start": "2026-10-30",
+      "type": "last_friday"
+    },
+    "spendable_balance": 150.0,
+    "upcoming_bills": [
+      {
+        "account_balance": 100.0,
+        "account_bank": "Barclays",
+        "account_id": "acc-hb",
+        "account_name": "Harbour Current",
+        "amount": 300.0,
+        "amount_basis": null,
+        "card_dest_account_bank": null,
+        "card_dest_account_id": null,
+        "card_dest_account_name": null,
+        "category": "Transfer",
+        "days_away": 4,
+        "days_past_due": 0,
+        "dest_account_bank": "NatWest",
+        "dest_account_id": "acc-md",
+        "dest_account_name": "Meadow Current",
+        "dest_account_spendable": true,
+        "edited": false,
+        "expected_date": "2026-11-23",
+        "is_card_repayment": false,
+        "is_credit_card": false,
+        "kind": "movement",
+        "name": "HARBOUR TO MEADOW STO",
+        "observed_pending": false,
+        "original_date": null,
+        "pending": false,
+        "rule_label": null
+      },
+      {
+        "account_balance": 50.0,
+        "account_bank": "NatWest",
+        "account_id": "acc-md",
+        "account_name": "Meadow Current",
+        "amount": 120.0,
+        "amount_basis": null,
+        "card_dest_account_bank": null,
+        "card_dest_account_id": null,
+        "card_dest_account_name": null,
+        "category": "Bills",
+        "days_away": 5,
+        "days_past_due": 0,
+        "dest_account_bank": null,
+        "dest_account_id": null,
+        "dest_account_name": null,
+        "dest_account_spendable": null,
+        "edited": false,
+        "expected_date": "2026-11-24",
+        "is_card_repayment": false,
+        "is_credit_card": false,
+        "kind": "commitment",
+        "name": "HOME INSURANCE",
+        "observed_pending": false,
+        "original_date": null,
+        "pending": false,
+        "rule_label": null
+      },
+      {
+        "account_balance": 100.0,
+        "account_bank": "Barclays",
+        "account_id": "acc-hb",
+        "account_name": "Harbour Current",
+        "amount": 300.0,
+        "amount_basis": null,
+        "card_dest_account_bank": null,
+        "card_dest_account_id": null,
+        "card_dest_account_name": null,
+        "category": "Transfer",
+        "days_away": 34,
+        "days_past_due": 0,
+        "dest_account_bank": "NatWest",
+        "dest_account_id": "acc-md",
+        "dest_account_name": "Meadow Current",
+        "dest_account_spendable": true,
+        "edited": false,
+        "expected_date": "2026-12-23",
+        "is_card_repayment": false,
+        "is_credit_card": false,
+        "kind": "movement",
+        "name": "HARBOUR TO MEADOW STO",
+        "observed_pending": false,
+        "original_date": null,
+        "pending": false,
+        "rule_label": null
+      },
+      {
+        "account_balance": 50.0,
+        "account_bank": "NatWest",
+        "account_id": "acc-md",
+        "account_name": "Meadow Current",
+        "amount": 120.0,
+        "amount_basis": null,
+        "card_dest_account_bank": null,
+        "card_dest_account_id": null,
+        "card_dest_account_name": null,
+        "category": "Bills",
+        "days_away": 35,
+        "days_past_due": 0,
+        "dest_account_bank": null,
+        "dest_account_id": null,
+        "dest_account_name": null,
+        "dest_account_spendable": null,
+        "edited": false,
+        "expected_date": "2026-12-24",
+        "is_card_repayment": false,
+        "is_credit_card": false,
+        "kind": "commitment",
+        "name": "HOME INSURANCE",
+        "observed_pending": false,
+        "original_date": null,
+        "pending": false,
+        "rule_label": null
+      }
+    ],
+    "upcoming_income": []
+  },
+  "days_to_payday": 8,
+  "items": [
+    {
+      "id": "move:acc-hb:2026-11-27:3795da03df",
+      "plan_dest": {
+        "account_id": "acc-hb",
+        "balance": 100.0,
+        "bills": [
+          {
+            "amount": 300,
+            "expected_date": "2026-11-23",
+            "label": "Harbour TO Meadow"
+          }
+        ],
+        "display_label": "Barclays Harbour Current",
+        "is_overdraft": false,
+        "name": "Harbour Current",
+        "needs_by": "Monday",
+        "needs_by_date": "2026-11-23",
+        "needs_by_last": "Monday",
+        "needs_by_last_date": "2026-11-23",
+        "needs_total": 300,
+        "provider": "barclays"
+      },
+      "type": "move"
+    }
+  ],
+  "name": "G479 option 1: a transfer counts on BOTH legs even when its source cannot fund it (Harbour has 100 and is due to send 300, Meadow has 50 and pays 120): Harbour is short 200, Meadow is fine, total 30",
+  "period": {
+    "end": "2026-11-26",
+    "start": "2026-10-30"
+  },
+  "safe_to_spend": {
+    "allocations_reserved": 0.0,
+    "calculation_status": "complete",
+    "commitments_reserved": 0,
+    "left_to_spend_lines": {
+      "accounts_total": 30.0,
+      "basis": "lowest_point",
+      "buffer": 0.0,
+      "dips": [
+        {
+          "account_id": "acc-hb",
+          "account_name": "Harbour Current",
+          "line": "Harbour Current: \u00a3200 short on 23 Nov",
+          "short_by": 200.0,
+          "short_on": "2026-11-23"
+        }
+      ],
+      "plans_total": 0
+    },
+    "lowest_projected_balance": 30.0,
+    "safe_to_spend": 30.0,
+    "safe_to_spend_cash": 30.0
+  },
+  "today": "2026-11-19"
+}

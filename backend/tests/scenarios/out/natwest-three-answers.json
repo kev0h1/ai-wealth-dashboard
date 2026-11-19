@@ -4,6 +4,7 @@
       "after_payments": 2000.0,
       "after_payments_and_money_in": 2000.0,
       "after_payments_and_plans": 2000.0,
+      "contribution": 1700.0,
       "earmarked_total": 300.0,
       "earmarks_out": [
         {
@@ -17,15 +18,18 @@
       "is_current_account": true,
       "low_point": 2000.0,
       "low_point_and_plans": 2000.0,
+      "lowest_after_money_in": 2000.0,
       "plans_reserved": 0.0,
       "short": false,
       "spend_from_headroom": 1700.0,
-      "uncertain": false
+      "uncertain": false,
+      "uncovered_shortfall": 0.0
     },
     "acc-nw": {
       "after_payments": -288.65,
       "after_payments_and_money_in": 315.27,
       "after_payments_and_plans": -288.65,
+      "contribution": 557.96,
       "covered_by_move": {
         "amount": 300.0,
         "from": [
@@ -43,12 +47,14 @@
       "is_current_account": true,
       "low_point": -288.65,
       "low_point_and_plans": -288.65,
+      "lowest_after_money_in": 257.96,
       "moves_in_total": 300.0,
       "plans_reserved": 0.0,
       "short": true,
       "short_after_cover": 0.0,
-      "spend_from_headroom": 615.27,
-      "uncertain": false
+      "spend_from_headroom": 557.96,
+      "uncertain": false,
+      "uncovered_shortfall": 0.0
     }
   },
   "account_plans": [],
@@ -585,13 +591,15 @@
     "calculation_status": "complete",
     "commitments_reserved": 0,
     "left_to_spend_lines": {
-      "accounts_total": 2315.27,
+      "accounts_total": 2257.96,
+      "basis": "lowest_point",
       "buffer": 0.0,
+      "dips": [],
       "plans_total": 0
     },
-    "lowest_projected_balance": 2315.27,
-    "safe_to_spend": 2315.27,
-    "safe_to_spend_cash": 2315.27
+    "lowest_projected_balance": 2257.96,
+    "safe_to_spend": 2257.96,
+    "safe_to_spend_cash": 2257.96
   },
   "today": "2026-11-02"
 }
