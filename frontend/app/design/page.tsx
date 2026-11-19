@@ -32,6 +32,26 @@ type PreviewRoute = {
 
 const ROUTES: PreviewRoute[] = [
   {
+    slug: "left-to-spend-money-in",
+    name: "Left to spend with money still to come in · G480",
+    description:
+      "G480 design round, impeccable · Kevin 2026-11-19: money leaving counts at once, money in only once it lands. Six scenarios on Kevin's real figures (waiting on money in, landed, short, short with a move that covers it, on track, paid mid-period on its own pay period), each showing the Home hero, How we got this, the cover plan and the Upcoming By account and day rows. A £0 and waiting / B Signed reality / C Two numbers · hand-authored over fixtures, no production component changed · ?variant=a|b|c&state=waiting|landed|short|short-cover|on-track|mid-period&mode=light|dark",
+    states: [
+      { label: "S1 Waiting", value: "waiting" },
+      { label: "S2 Landed", value: "landed" },
+      { label: "S3 Short", value: "short" },
+      { label: "S3b Move covers", value: "short-cover" },
+      { label: "S4 On track", value: "on-track" },
+      { label: "S5 Mid-period pay", value: "mid-period" },
+    ],
+    variants: [
+      { label: "A · £0 and waiting", value: "a" },
+      { label: "B · Signed reality", value: "b" },
+      { label: "C · Two numbers", value: "c" },
+    ],
+    group: "current",
+  },
+  {
     slug: "play-extras",
     name: "Google Play extras · C42",
     description: "A 30-second landscape C22 product film with original sound and English captions, plus a launch template and two text-free promotional image examples. Both themes, exact-size downloads, crop-safe guides and event conditions. Fictional production UI; review before upload.",
