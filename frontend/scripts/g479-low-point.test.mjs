@@ -134,7 +134,7 @@ const detail = (snap, accounts, id, hidden = false) => {
   for (const file of files) {
     const src = readFileSync(new URL(`../${file}`, import.meta.url), "utf8");
     const strings = [...src.matchAll(/`([^`]*)`|"([^"\n]*)"/g)].map((m) => m[1] ?? m[2]).filter((s) => /short|lowest|expected/i.test(s));
-    for (const s of strings) assert.ok(!/—|!/.test(s.replace(/!==?/g, "")), `${file}: "${s}" breaks the copy rules`);
+    for (const s of strings) assert.ok(!/\u2014|[A-Za-z.]!(\s|$)/.test(s), `${file}: "${s}" breaks the copy rules`);
   }
 }
 

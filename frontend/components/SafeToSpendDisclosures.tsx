@@ -100,7 +100,7 @@ export default function SafeToSpendDisclosures({
           {evidence.rows.map((row) => <LedgerRow key={row.label} {...row} format={format} onIncomeEvidence={row.label === "Income before payday" ? () => setSheet("before_payday") : undefined} expanded={sheet === "before_payday"} />)}
         </dl>
         {evidence.ledgerNote && <p className={styles.note}><MoneyText text={evidence.ledgerNote} /></p>}
-        {evidence.dips.map((dip) => <p key={dip.account_id} data-g479-dip className={styles.note}><MoneyText text={dipSentence(dip, (v) => format(v), dipNamed(dip))} /></p>)}
+        {(evidence.dips ?? []).map((dip) => <p key={dip.account_id} data-g479-dip className={styles.note}><MoneyText text={dipSentence(dip, (v) => format(v), dipNamed(dip))} /></p>)}
         {reservationDetails}
         {(data.pooled_transfers_excluded ?? 0) > 0 && <p>Transfers between your own included accounts are counted on the day they move, each account on its own.</p>}
         <dl className={styles.facts}>

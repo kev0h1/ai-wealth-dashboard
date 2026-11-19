@@ -29,7 +29,7 @@ export default function AccountAvailabilityDetail({ reading, position, hidden, l
   // Available. The working is withheld when it would not add up.
   const working = reading.working;
   const evidence: [string, number][] = working ? [
-    [working.basisLabel, working.basis],
+    [working.basisLabel ?? "After payments and money in", working.basis],
     ...(working.plans > 0 ? [["Goals and set-asides", -working.plans] as [string, number]] : []),
     ...working.movesOut.map((m): [string, number] => [m.label, -m.amount]),
     ...working.movesIn.map((m): [string, number] => [m.label, m.amount]),

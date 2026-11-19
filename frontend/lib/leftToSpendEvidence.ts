@@ -27,7 +27,7 @@ export type LeftToSpendEvidence = {
   dailyAmount: number | null;
   incomeBeforePayday: number | null;
   /** G479: accounts that go short before their money arrives, earliest first. */
-  dips: LeftToSpendDip[];
+  dips?: LeftToSpendDip[];
 };
 
 const finite = (n: unknown): n is number => typeof n === "number" && Number.isFinite(n);

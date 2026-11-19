@@ -13,7 +13,8 @@ import { coverSplitSentence, uncoveredSentence, type CoverSplit } from "@/lib/co
 export type AvailabilityWorking = {
   /** G479: the account's lowest running balance before payday (or, for an older payload, its closing figure). */
   basis: number;
-  basisLabel: string;
+  /** Absent on a hand-built working (older tests and previews): the closing-figure wording. */
+  basisLabel?: string;
   plans: number;
   movesOut: { label: string; amount: number }[];
   movesIn: { label: string; amount: number }[];

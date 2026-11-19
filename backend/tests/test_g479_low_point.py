@@ -97,7 +97,7 @@ def test_two_credits_on_the_day_after_a_dip_are_added_up():
 
 def test_copy_has_no_em_dash_no_exclamation_and_hedges_the_prediction():
     line = aa.dip_line({"short_by": 43.02, "short_on": "2026-11-23", "money_in_date": "2026-11-26", "money_in_amount": 649.59}, TODAY)
-    assert "—" not in line and "!" not in line and "about" in line and "expected" in line
+    assert "\u2014" not in line and "!" not in line and "about" in line and "expected" in line
 
 
 # ── The headline, through the real compute_safe_to_spend ─────────────────────
