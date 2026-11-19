@@ -160,7 +160,7 @@ assert.doesNotMatch(text(cardRepaymentSheet), /£25 short for/, "card-repayment 
 for (const status of ["loading", "error"]) {
   const unavailableCard = card(false, status);
   assert.match(unavailableCard, /Figures show payments only/);
-  assert.match(text(row(unavailableCard, "source")), /£722Left after payments/, `${status}: authoritative payment baseline remains visible`);
+  assert.match(text(row(unavailableCard, "source")), /£722Left at close of period/, `${status}: authoritative payment baseline remains visible`);
   assert.match(unavailableCard, /Figures show payments only/, `${status}: plans remain explicitly qualified outside the row`);
   assert.doesNotMatch(unavailableCard, /data-suggested-bridge|data-suggested-move/, `${status}: recommendation rows are suppressed`);
   const unavailableSheet = sourceSheet(false, status);

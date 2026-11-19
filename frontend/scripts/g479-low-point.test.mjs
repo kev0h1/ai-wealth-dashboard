@@ -12,7 +12,7 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import AccountAvailabilityDetail from "../components/AccountAvailabilityDetail.tsx";
 import { accountAvailability, formatAvailabilityAmount } from "../lib/accountAvailability.ts";
-import { buildLeftToSpendEvidence, dipNamed, dipSentence } from "../lib/leftToSpendEvidence.ts";
+import { buildLeftToSpendEvidence, dipNamed, dipReading, dipSentence, DIP_TONE_CLASS } from "../lib/leftToSpendEvidence.ts";
 import { bestSpendAccount } from "../lib/spendFromAccount.ts";
 import { deriveSafeToSpendHeadline, homeForecastPresentation } from "../lib/pennyScreenViews.ts";
 const chip = (data) => homeForecastPresentation(data, deriveSafeToSpendHeadline(data)).status.label;
@@ -126,6 +126,47 @@ const detail = (snap, accounts, id, hidden = false) => {
   const payday = load("g479-a-bill-and-money-on-payday");
   assert.equal(reading(payday.snap, payday.accounts, "acc-hb").value, 34.89);
   assert.deepEqual(buildLeftToSpendEvidence(ok(payday.snap), 34.89).dips, []);
+}
+
+// ── Dip colour: red only for a Short dip nothing covers; a covered or absorbed dip is amber ──
+{
+  const money = formatAvailabilityAmount;
+  const kevin = load("g479-bill-before-the-income").snap.safe_to_spend.left_to_spend_lines.dips[0];
+  const short = dipReading(kevin, { short: true }, money);
+  assert.equal(short.tone, "risk");
+  assert.match(DIP_TONE_CLASS[short.tone], /rose/, "a Short dip is red");
+  const covered = load("g479-one-account-dips-another-has-room").snap.safe_to_spend.left_to_spend_lines.dips[0];
+  const c = dipReading(covered, { short: false, coveredIds: [covered.account_id] }, money);
+  assert.equal(c.tone, "covered");
+  assert.doesNotMatch(DIP_TONE_CLASS[c.tone], /rose/, "a covered dip is not red");
+  assert.equal(c.text, "Meadow Current dips £276 on 23 Nov; a move would cover it.");
+  // Covered wins even when the total is Short, and a dip the other accounts absorb is amber, not red.
+  assert.equal(dipReading(covered, { short: true, coveredIds: [covered.account_id] }, money).tone, "covered");
+  const absorbed = dipReading(covered, { short: false }, money);
+  assert.equal(absorbed.tone, "watch");
+  assert.doesNotMatch(DIP_TONE_CLASS[absorbed.tone], /rose/);
+  assert.ok(!/\u2014|!/.test(c.text));
+}
+
+{
+  const card = readFileSync(new URL("../components/SafeToSpendCard.tsx", import.meta.url), "utf8");
+  const list = readFileSync(new URL("../components/SafeToSpendDisclosures.tsx", import.meta.url), "utf8");
+  for (const [name, src] of [["hero", card], ["disclosure list", list]]) {
+    assert.match(src, /DIP_TONE_CLASS\[/, `${name} takes the dip colour from the tone`);
+    assert.ok(!/data-g479-dip[^>]*rose/.test(src), `${name} never hard-codes red on the dip line`);
+  }
+}
+
+// ── Upcoming By account reads the same dip as the ledger (the client walk, replayed on the snapshots) ──
+{
+  for (const prefix of ["g479-bill-before-the-income", "g479-one-account-dips-another-has-room", "g479-one-account-dips-and-nothing-can-cover-it"]) {
+    const { snap, accounts } = load(prefix);
+    for (const [id, entry] of Object.entries(snap.account_eligibility)) {
+      if (!entry.is_current_account) continue;
+      const serverShort = Math.max(0, -Math.min(entry.after_payments ?? 0, entry.low_point ?? 0));
+      assert.equal(Math.round(serverShort * 100), Math.round((entry.dips_below_zero?.short_by ?? 0) * 100), `${prefix} ${id}: Upcoming/cover shortfall equals the ledger dip`);
+    }
+  }
 }
 
 // ── No copy rule broken: British English, no em dashes, no exclamation marks, hedged predictions ──

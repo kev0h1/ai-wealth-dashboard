@@ -20,7 +20,7 @@ import {
 import { BANK_META, bankKey, bankLogoSrc } from "@/components/AccountMiniCard";
 import MoneyText from "@/components/MoneyText";
 import SafeToSpendDisclosures from "@/components/SafeToSpendDisclosures";
-import { buildLeftToSpendEvidence, dipNamed, dipSentence } from "@/lib/leftToSpendEvidence";
+import { buildLeftToSpendEvidence, DIP_TONE_CLASS, dipReading } from "@/lib/leftToSpendEvidence";
 import { formatAvailabilityAmount } from "@/lib/accountAvailability";
 import PooledLedgerExplainer from "@/components/PooledLedgerExplainer";
 import SpendFromAccountList from "@/components/SpendFromAccountList";
@@ -58,6 +58,8 @@ interface SafeToSpendCardProps {
   /** Legacy presentation metadata. Reserves are already included in headroom. */
   coverMoveReserves?: Record<string, number>;
   coverMoveDestinations?: Record<string, string[]>;
+  /** G479: accounts whose dip a suggested move (G410) fully covers, so the dip line reads amber, not red. */
+  coveredDipAccountIds?: string[];
   /**
    * Design-history seam. Production renders G320 approved B account rows
    * when absent. Other open design rounds may inject their own treatment.
@@ -236,7 +238,7 @@ function listPhrase(items: string[]): string {
   return `${items.slice(0, -1).join(", ")} and ${items.at(-1)}`;
 }
 
-export default function SafeToSpendCard({ data, loading, error, onRetry, spendFrom, coverMoveVisible = false, coverMoveReserves, coverMoveDestinations, spendFromPreview, syncing, onSyncRetry, previewBalancesVisible = false }: SafeToSpendCardProps) {
+export default function SafeToSpendCard({ data, loading, error, onRetry, spendFrom, coverMoveVisible = false, coverMoveReserves, coverMoveDestinations, coveredDipAccountIds, spendFromPreview, syncing, onSyncRetry, previewBalancesVisible = false }: SafeToSpendCardProps) {
   const { hideNetWorth, preferencesReady } = usePreferences();
   const router = useRouter();
   const hidden = spendFromPreview?.hideBalances === true || (!previewBalancesVisible && (hideNetWorth || !preferencesReady));
@@ -494,7 +496,10 @@ export default function SafeToSpendCard({ data, loading, error, onRetry, spendFr
 
       <p id="safe-to-spend-scope" className="mt-3 text-wrap text-[13px] leading-5 text-slate-600 dark:text-slate-300"><MoneyText text={data.estimated ? heroSupport.replace(/\.$/, "") : heroSupport} />{data.estimated && <span className="text-xs text-slate-500 dark:text-slate-400"> · early estimate</span>}</p>
 
-      {!sync && evidence.dips && evidence.dips.length > 0 && <p data-g479-dip className="mt-2 text-wrap text-[13px] leading-5 text-rose-700 dark:text-rose-300"><MoneyText text={dipSentence(evidence.dips[0], (v) => amount(Math.abs(v)), dipNamed(evidence.dips[0]))} /></p>}
+      {!sync && evidence.dips && evidence.dips.length > 0 && (() => {
+        const r = dipReading(evidence.dips[0], { short: state === "short", coveredIds: coveredDipAccountIds }, (v) => amount(Math.abs(v)));
+        return <p data-g479-dip data-dip-tone={r.tone} className={`mt-2 text-wrap text-[13px] leading-5 ${DIP_TONE_CLASS[r.tone]}`}><MoneyText text={r.text} /></p>;
+      })()}
 
       <p data-sts-counts className="mt-2 text-wrap text-[12px] leading-[1.45] text-slate-700 dark:text-slate-200">{COUNTS_INTRO}</p>
 
@@ -528,6 +533,8 @@ export default function SafeToSpendCard({ data, loading, error, onRetry, spendFr
       onRetry={onRetry}
       showCardsLink={showCardsLink}
       freshnessLabel={freshnessLabel}
+      shortState={state === "short"}
+      coveredDipAccountIds={coveredDipAccountIds}
       reservationDetails={<PooledLedgerExplainer
         pooled={spendFromPlan.entries.length > 1}
         envelope={{ amount: data.allocations_reserved ?? 0, count: data.allocations_count }}

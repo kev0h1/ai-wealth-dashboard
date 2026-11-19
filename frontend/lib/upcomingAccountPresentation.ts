@@ -67,7 +67,7 @@ export function accountActionReading(account: UpcomingAccountSummary, plans: Pla
     : moves.length ? "move" as const : null;
   const hasPlans = combinedKnown && (result.reservedPence > 0 || result.assigned.length > 0);
   const caption = headline === null ? "Check balance" : gap > 0 ? earlierGap ? "Short before payday" : "Short"
-    : ready && !combinedKnown ? "Payments only" : hasPlans ? "Left after plans" : "Left after payments";
+    : ready && !combinedKnown ? "Payments only" : hasPlans ? "Left after plans" : "Left at close of period";
   const futureIncome = earlierGap && paymentGap > 0 && account.firstShortDate !== null
     && account.events.some(event => event.credited !== false && event.kind === "income" && event.date > account.firstShortDate!);
   return { result, ready, combinedKnown, afterPayments, afterPlans, headline, gap, paymentGap, earlierGap, moves, incoming, outgoing, afterMove, remainingGap, signal, hasPlans, caption, futureIncome };

@@ -46,7 +46,7 @@ export function statusFor(account: UpcomingAccountSummary, plans: Plan[]): Accou
     };
   }
   if (account.status === "covered" && account.closing !== null) {
-    return { amount: account.closing, label: "Left after payments", signal: null, estimated: false };
+    return { amount: account.closing, label: "Left at close of period", signal: null, estimated: false };
   }
   return { amount: null, label: "Coverage unavailable", signal: "unknown", estimated: false };
 }

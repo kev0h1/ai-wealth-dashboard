@@ -19,6 +19,24 @@ export function dipSentence(dip: LeftToSpendDip, money: (value: number) => strin
   return `${name ? `${dip.account_name}: ` : ""}${money(dip.short_by)} ${when}${tail}.`;
 }
 
+/** G479 follow-up: how a dip reads. Red ("risk") only when Left to spend is Short and nothing covers the
+ * dip; a dip a suggested move (G410) covers reads amber ("covered", the existing "a move would cover it"
+ * pattern); a dip the other accounts absorb, so the total is not Short, reads amber too ("watch"). */
+export type DipTone = "risk" | "covered" | "watch";
+export function dipReading(dip: LeftToSpendDip, ctx: { short: boolean; coveredIds?: readonly string[] }, money: (value: number) => string): { text: string; tone: DipTone } {
+  const covered = !!ctx.coveredIds?.includes(dip.account_id);
+  if (covered) {
+    const when = dip.short_today ? "today" : `on ${dipDay(dip.short_on)}`;
+    return { text: `${dip.account_name} dips ${money(dip.short_by)} ${when}; a move would cover it.`, tone: "covered" };
+  }
+  return { text: dipSentence(dip, money, dipNamed(dip)), tone: ctx.short ? "risk" : "watch" };
+}
+export const DIP_TONE_CLASS: Record<DipTone, string> = {
+  risk: "text-rose-700 dark:text-rose-300",
+  covered: "text-amber-800 dark:text-amber-200",
+  watch: "text-amber-800 dark:text-amber-200",
+};
+
 export type LeftToSpendEvidence = {
   summaryLabel: string;
   summaryAmount: number;
