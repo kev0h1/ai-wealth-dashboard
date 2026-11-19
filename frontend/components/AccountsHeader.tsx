@@ -15,6 +15,7 @@
 
 import { useEffect, type ReactNode, type RefObject, type KeyboardEvent } from "react";
 import { EyeOff, Plus, RefreshCw } from "lucide-react";
+import { ADD_MENU_ITEM_SELECTOR } from "@/lib/accountsAddMenuLayer";
 
 export interface AccountsHeaderNetWorth {
   value: number;
@@ -59,7 +60,7 @@ const focusRing = "focus-visible:outline-none focus-visible:ring-2 focus-visible
 export default function AccountsHeader({ netWorth, hidden, showChip, onShow, onAdd, updated, addOpen = false, addRef, onAddClose, addMenu, refresh, directory = false }: AccountsHeaderProps) {
   const text = netWorth ? money(netWorth.value, hidden) : "";
   useEffect(() => {
-    if (addOpen) addRef?.current?.querySelector<HTMLElement>('[role="menuitem"]:not(:disabled)')?.focus();
+    if (addOpen) document.querySelector<HTMLElement>(ADD_MENU_ITEM_SELECTOR)?.focus();
   }, [addOpen, addRef]);
   const onKeyDown = (e: KeyboardEvent) => {
     if (e.key === "Escape" && addOpen && onAddClose) {
@@ -68,7 +69,7 @@ export default function AccountsHeader({ netWorth, hidden, showChip, onShow, onA
       e.preventDefault();
     }
     if (addOpen && ["ArrowDown", "ArrowUp", "Home", "End"].includes(e.key)) {
-      const items = [...(addRef?.current?.querySelectorAll<HTMLElement>('[role="menuitem"]:not(:disabled)') ?? [])];
+      const items = [...document.querySelectorAll<HTMLElement>(ADD_MENU_ITEM_SELECTOR)];
       const current = items.indexOf(document.activeElement as HTMLElement);
       const next = e.key === "Home" ? 0 : e.key === "End" ? items.length - 1 : (current + (e.key === "ArrowDown" ? 1 : -1) + items.length) % items.length;
       items[next]?.focus();
@@ -87,7 +88,7 @@ export default function AccountsHeader({ netWorth, hidden, showChip, onShow, onA
               title="Refresh connected banks"
               className={`inline-flex size-11 shrink-0 items-center justify-center rounded-xl bg-indigo-50 text-indigo-700 hover:bg-indigo-100 active:scale-95 disabled:opacity-50 dark:bg-indigo-400/15 dark:text-indigo-300 dark:hover:bg-indigo-400/25 ${focusRing}`}
             ><RefreshCw size={20} aria-hidden="true" /></button>}
-            <div ref={addRef} onKeyDown={onKeyDown} onBlur={e => { if (e.relatedTarget && !e.currentTarget.contains(e.relatedTarget as Node)) onAddClose?.(); }} className={refresh ? "relative shrink-0" : "relative -mr-1 -mt-1 shrink-0"}>
+            <div ref={addRef} onKeyDown={onKeyDown} className={refresh ? "relative shrink-0" : "relative -mr-1 -mt-1 shrink-0"}>
               <button
                 type="button"
                 data-add-control
