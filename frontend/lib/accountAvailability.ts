@@ -1,4 +1,4 @@
-import type { Account, AccountEligibility } from "@/lib/api";
+import type { Account, AccountDip, AccountEligibility } from "@/lib/api";
 import { isCountedInLeftToSpend } from "@/lib/accountCounted";
 import { accountKind } from "@/lib/accountKind";
 import { coverSplitSentence, uncoveredSentence, type CoverSplit } from "@/lib/coverNarrative";
@@ -11,7 +11,9 @@ import { coverSplitSentence, uncoveredSentence, type CoverSplit } from "@/lib/co
  * basis - plans + movesIn - movesOut does not equal `value` (an old payload) the working is
  * withheld rather than shown unbalanced. */
 export type AvailabilityWorking = {
+  /** G479: the account's lowest running balance before payday (or, for an older payload, its closing figure). */
   basis: number;
+  basisLabel: string;
   plans: number;
   movesOut: { label: string; amount: number }[];
   movesIn: { label: string; amount: number }[];
@@ -20,7 +22,7 @@ export type AvailabilityWorking = {
 
 export type AccountAvailabilityReading =
   | { kind: "checking" | "unavailable" }
-  | { kind: "ready"; value: number; warning?: "payments" | "plans"; note?: string; requiresMove?: boolean; working: AvailabilityWorking | null; dipsBelowZeroUntil?: string; coveredByMove?: { fromLabel: string; shortAfterCover: number; coversPlans?: boolean; split?: CoverSplit } };
+  | { kind: "ready"; value: number; warning?: "payments" | "plans"; note?: string; requiresMove?: boolean; working: AvailabilityWorking | null; dipsBelowZeroUntil?: string; dip?: AccountDip; coveredByMove?: { fromLabel: string; shortAfterCover: number; coversPlans?: boolean; split?: CoverSplit } };
 
 export type AccountAvailabilitySnapshot = {
   status: "loading" | "ready" | "failed";
@@ -48,8 +50,10 @@ const fromLabel = (row: { name: string; display_label?: string | null }) => row.
 
 /** G436: build the working from the server position. Reads server figures only. */
 function workingFor(position: AccountEligibility, value: number): AvailabilityWorking | null {
-  const basis = position.after_payments_and_money_in;
+  const lowest = position.lowest_after_money_in;
+  const basis = typeof lowest === "number" ? lowest : position.after_payments_and_money_in;
   if (typeof basis !== "number" || !Number.isFinite(basis)) return null;
+  const basisLabel = typeof lowest === "number" ? "Lowest balance before payday" : "After payments and money in";
   const plans = typeof position.plans_reserved === "number" && Number.isFinite(position.plans_reserved) ? position.plans_reserved : 0;
   const movesOut = (position.earmarks_out ?? []).map((e) => ({ label: `Set aside for the move to ${e.to_name}`, amount: e.amount }));
   const rows = position.covered_by_move?.from ?? [];
@@ -60,7 +64,7 @@ function workingFor(position: AccountEligibility, value: number): AvailabilityWo
   const inTotal = typeof position.moves_in_total === "number" ? position.moves_in_total : movesIn.reduce((sum, m) => sum + m.amount, 0);
   const outTotal = movesOut.reduce((sum, m) => sum + m.amount, 0);
   if (Math.abs(basis - plans + inTotal - outTotal - value) > 0.011) return null;
-  return { basis, plans, movesOut, movesIn, savingsMove };
+  return { basis, basisLabel, plans, movesOut, movesIn, savingsMove };
 }
 
 /** Read the same conservative server figure as Spend from; never derive from bank balances or substitute the payday closing projection. */
@@ -102,6 +106,7 @@ export function accountAvailability(
     kind: "ready", value,
     working: workingFor(position, value),
     ...(position.dips_below_zero?.money_in_date ? { dipsBelowZeroUntil: position.dips_below_zero.money_in_date } : {}),
+    ...(position.dips_below_zero && typeof position.dips_below_zero.short_by === "number" ? { dip: position.dips_below_zero } : {}),
     warning,
     requiresMove: position.spend_from_requires_move === true,
     coveredByMove: covered,
@@ -112,6 +117,6 @@ export function accountAvailability(
         : `${covered.coversPlans ? "Payments and plans" : warning === "payments" ? "Payments" : "Plans"} look short this pay period, covered by the suggested move from ${covered.fromLabel}. Open the account for the working.`)
       : paymentGap ? "Payments look short this pay period. Open the account for the working."
       : plansGap ? "Short after plans this pay period. Open the account for the working."
-      : `Left after predicted money in and out, goals and set-asides this pay period${position.estimated ? "; some plan sources are estimated" : ""}${position.spend_from_requires_move ? ". This amount is available after the suggested move." : "."}`,
+      : `Left at its lowest point before payday, after predicted money in and out, goals and set-asides${position.estimated ? "; some plan sources are estimated" : ""}${position.spend_from_requires_move ? ". This amount is available after the suggested move." : "."}`,
   };
 }

@@ -20,7 +20,7 @@ import {
 import { BANK_META, bankKey, bankLogoSrc } from "@/components/AccountMiniCard";
 import MoneyText from "@/components/MoneyText";
 import SafeToSpendDisclosures from "@/components/SafeToSpendDisclosures";
-import { buildLeftToSpendEvidence } from "@/lib/leftToSpendEvidence";
+import { buildLeftToSpendEvidence, dipNamed, dipSentence } from "@/lib/leftToSpendEvidence";
 import { formatAvailabilityAmount } from "@/lib/accountAvailability";
 import PooledLedgerExplainer from "@/components/PooledLedgerExplainer";
 import SpendFromAccountList from "@/components/SpendFromAccountList";
@@ -493,6 +493,8 @@ export default function SafeToSpendCard({ data, loading, error, onRetry, spendFr
       ) : null}
 
       <p id="safe-to-spend-scope" className="mt-3 text-wrap text-[13px] leading-5 text-slate-600 dark:text-slate-300"><MoneyText text={data.estimated ? heroSupport.replace(/\.$/, "") : heroSupport} />{data.estimated && <span className="text-xs text-slate-500 dark:text-slate-400"> · early estimate</span>}</p>
+
+      {!sync && evidence.dips.length > 0 && <p data-g479-dip className="mt-2 text-wrap text-[13px] leading-5 text-rose-700 dark:text-rose-300"><MoneyText text={dipSentence(evidence.dips[0], (v) => amount(Math.abs(v)), dipNamed(evidence.dips[0]))} /></p>}
 
       <p data-sts-counts className="mt-2 text-wrap text-[12px] leading-[1.45] text-slate-700 dark:text-slate-200">{COUNTS_INTRO}</p>
 

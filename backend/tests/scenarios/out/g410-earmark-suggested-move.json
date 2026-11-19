@@ -4,6 +4,7 @@
       "after_payments": 2000.0,
       "after_payments_and_money_in": 2000.0,
       "after_payments_and_plans": 2000.0,
+      "contribution": 1800.0,
       "earmarked_total": 200.0,
       "earmarks_out": [
         {
@@ -17,15 +18,18 @@
       "is_current_account": true,
       "low_point": 2000.0,
       "low_point_and_plans": 2000.0,
+      "lowest_after_money_in": 2000.0,
       "plans_reserved": 0.0,
       "short": false,
       "spend_from_headroom": 1800.0,
-      "uncertain": false
+      "uncertain": false,
+      "uncovered_shortfall": 0.0
     },
     "acc-mc": {
       "after_payments": -190.0,
       "after_payments_and_money_in": -190.0,
       "after_payments_and_plans": -190.0,
+      "contribution": 10.0,
       "covered_by_move": {
         "amount": 200.0,
         "from": [
@@ -38,18 +42,24 @@
         ],
         "shortfall": 190.0
       },
+      "dips_below_zero": {
+        "short_by": 190.0,
+        "short_on": "2026-11-20"
+      },
       "estimated": false,
       "headroom": -200.0,
       "is_current_account": true,
       "low_point": -190.0,
       "low_point_and_plans": -190.0,
+      "lowest_after_money_in": -190.0,
       "moves_in_total": 200.0,
       "plans_reserved": 0.0,
       "short": true,
       "short_after_cover": 0.0,
       "spend_from_headroom": 10.0,
       "spend_from_requires_move": true,
-      "uncertain": false
+      "uncertain": false,
+      "uncovered_shortfall": 0.0
     }
   },
   "account_plans": [],
@@ -317,7 +327,17 @@
     "commitments_reserved": 0,
     "left_to_spend_lines": {
       "accounts_total": 1810.0,
+      "basis": "lowest_point",
       "buffer": 0.0,
+      "dips": [
+        {
+          "account_id": "acc-mc",
+          "account_name": "Meadow Current",
+          "line": "Meadow Current: \u00a3190 short on 20 Nov",
+          "short_by": 190.0,
+          "short_on": "2026-11-20"
+        }
+      ],
       "plans_total": 0
     },
     "lowest_projected_balance": 1810.0,

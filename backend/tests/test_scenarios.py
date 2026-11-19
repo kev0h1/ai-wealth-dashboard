@@ -604,7 +604,26 @@ def _check_headline_is_the_sum(snap: dict, where: str) -> None:
         f"{where} Left to spend {sts['safe_to_spend']} is not the account figures added up ({round(total, 2)}) "
         f"less plans not on an account ({round(plans_off, 2)}) and the buffer: {expected}"
     )
-    assert set(lines) == {"accounts_total", "plans_total", "buffer"}, f"{where} unexpected Left to spend lines {sorted(lines)}"
+    assert set(lines) == {"accounts_total", "plans_total", "buffer", "basis", "dips"}, f"{where} unexpected Left to spend lines {sorted(lines)}"
+    # G479: the headline's dips are exactly the per-account dips (one stored reading, read twice), each
+    # naming the same shortfall, date and money in.
+    assert lines["basis"] == "lowest_point"
+    per_account = {
+        aid: snap["account_eligibility"][aid]["dips_below_zero"] for aid in counted
+        if snap["account_eligibility"][aid].get("dips_below_zero", {}).get("short_by")
+    }
+    assert {d["account_id"] for d in lines["dips"]} == set(per_account), f"{where} headline dips differ from the account dips"
+    for d in lines["dips"]:
+        mine = per_account[d["account_id"]]
+        assert (d["short_by"], d["short_on"], d.get("money_in_date"), d.get("money_in_amount")) == (
+            mine["short_by"], mine["short_on"], mine.get("money_in_date"), mine.get("money_in_amount")), f"{where} dip differs on {d['account_id']}"
+    # G479: contribution and uncovered shortfall split the signed figure, so the headline is contributions minus shortfalls.
+    for aid in counted:
+        pos = snap["account_eligibility"][aid]
+        if pos.get("uncertain"):
+            continue
+        assert round(pos["contribution"] - pos["uncovered_shortfall"], 2) == round(pos["spend_from_headroom"], 2), f"{where} {aid} contribution and shortfall do not make its figure"
+        assert pos["contribution"] >= 0 and pos["uncovered_shortfall"] >= 0
     assert abs(float(lines["accounts_total"]) - float(sts["lowest_projected_balance"])) < 0.015, f"{where} lowest_projected_balance is not the accounts line"
 
 

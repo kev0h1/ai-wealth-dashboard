@@ -4,29 +4,35 @@
       "after_payments": 5005.0,
       "after_payments_and_money_in": 2005.0,
       "after_payments_and_plans": 5005.0,
+      "contribution": 2005.0,
       "estimated": false,
       "headroom": 4190.0,
       "is_current_account": true,
       "low_point": 4200.0,
       "low_point_and_plans": 4200.0,
+      "lowest_after_money_in": 2005.0,
       "plans_reserved": 0.0,
       "short": false,
       "spend_from_headroom": 2005.0,
-      "uncertain": false
+      "uncertain": false,
+      "uncovered_shortfall": 0.0
     },
     "acc-hsbc": {
       "after_payments": 860.0,
       "after_payments_and_money_in": 860.0,
       "after_payments_and_plans": 860.0,
+      "contribution": 860.0,
       "estimated": false,
       "headroom": 70.0,
       "is_current_account": true,
       "low_point": 80.0,
       "low_point_and_plans": 80.0,
+      "lowest_after_money_in": 860.0,
       "plans_reserved": 0.0,
       "short": false,
       "spend_from_headroom": 860.0,
-      "uncertain": false
+      "uncertain": false,
+      "uncovered_shortfall": 0.0
     }
   },
   "account_plans": [],
@@ -403,7 +409,9 @@
     "commitments_reserved": 0,
     "left_to_spend_lines": {
       "accounts_total": 2865.0,
+      "basis": "lowest_point",
       "buffer": 0.0,
+      "dips": [],
       "plans_total": 0
     },
     "lowest_projected_balance": 2865.0,

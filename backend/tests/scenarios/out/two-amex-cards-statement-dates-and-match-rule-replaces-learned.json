@@ -4,15 +4,18 @@
       "after_payments": 900.0,
       "after_payments_and_money_in": 900.0,
       "after_payments_and_plans": 900.0,
+      "contribution": 900.0,
       "estimated": false,
       "headroom": 890.0,
       "is_current_account": true,
       "low_point": 900.0,
       "low_point_and_plans": 900.0,
+      "lowest_after_money_in": 900.0,
       "plans_reserved": 0.0,
       "short": false,
       "spend_from_headroom": 900.0,
-      "uncertain": false
+      "uncertain": false,
+      "uncovered_shortfall": 0.0
     }
   },
   "account_plans": [],
@@ -177,7 +180,9 @@
     "commitments_reserved": 0,
     "left_to_spend_lines": {
       "accounts_total": 900.0,
+      "basis": "lowest_point",
       "buffer": 0.0,
+      "dips": [],
       "plans_total": 0
     },
     "lowest_projected_balance": 900.0,

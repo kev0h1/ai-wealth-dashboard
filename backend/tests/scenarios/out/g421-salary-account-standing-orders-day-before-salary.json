@@ -4,6 +4,7 @@
       "after_payments": -1150.0,
       "after_payments_and_money_in": -1150.0,
       "after_payments_and_plans": -1150.0,
+      "contribution": 0.0,
       "covered_by_move": {
         "amount": 250.0,
         "from": [
@@ -22,22 +23,29 @@
         ],
         "shortfall": 1150.0
       },
+      "dips_below_zero": {
+        "short_by": 1150.0,
+        "short_on": "2026-11-26"
+      },
       "estimated": false,
       "headroom": -1160.0,
       "is_current_account": true,
       "low_point": -1150.0,
       "low_point_and_plans": -1150.0,
+      "lowest_after_money_in": -1150.0,
       "moves_in_total": 250.0,
       "plans_reserved": 0.0,
       "short": true,
       "short_after_cover": 900.0,
       "spend_from_headroom": -900.0,
-      "uncertain": false
+      "uncertain": false,
+      "uncovered_shortfall": 900.0
     },
     "acc-hsbc": {
       "after_payments": 150.0,
       "after_payments_and_money_in": 1050.0,
       "after_payments_and_plans": 150.0,
+      "contribution": 910.0,
       "earmarked_total": 140.0,
       "earmarks_out": [
         {
@@ -51,29 +59,35 @@
       "is_current_account": true,
       "low_point": 150.0,
       "low_point_and_plans": 150.0,
+      "lowest_after_money_in": 1050.0,
       "plans_reserved": 0.0,
       "short": false,
       "spend_from_headroom": 910.0,
-      "uncertain": false
+      "uncertain": false,
+      "uncovered_shortfall": 0.0
     },
     "acc-mz": {
       "after_payments": 80.0,
       "after_payments_and_money_in": 280.0,
       "after_payments_and_plans": 80.0,
+      "contribution": 280.0,
       "estimated": false,
       "headroom": 70.0,
       "is_current_account": true,
       "low_point": 80.0,
       "low_point_and_plans": 80.0,
+      "lowest_after_money_in": 280.0,
       "plans_reserved": 0.0,
       "short": false,
       "spend_from_headroom": 280.0,
-      "uncertain": false
+      "uncertain": false,
+      "uncovered_shortfall": 0.0
     },
     "acc-nw": {
       "after_payments": 120.0,
       "after_payments_and_money_in": 620.0,
       "after_payments_and_plans": 120.0,
+      "contribution": 510.0,
       "earmarked_total": 110.0,
       "earmarks_out": [
         {
@@ -87,10 +101,12 @@
       "is_current_account": true,
       "low_point": 120.0,
       "low_point_and_plans": 120.0,
+      "lowest_after_money_in": 620.0,
       "plans_reserved": 0.0,
       "short": false,
       "spend_from_headroom": 510.0,
-      "uncertain": false
+      "uncertain": false,
+      "uncovered_shortfall": 0.0
     }
   },
   "account_plans": [],
@@ -614,7 +630,17 @@
     "commitments_reserved": 0,
     "left_to_spend_lines": {
       "accounts_total": 800.0,
+      "basis": "lowest_point",
       "buffer": 0.0,
+      "dips": [
+        {
+          "account_id": "acc-bc",
+          "account_name": "Barclays Current",
+          "line": "Barclays Current: \u00a31,150 short on 26 Nov",
+          "short_by": 1150.0,
+          "short_on": "2026-11-26"
+        }
+      ],
       "plans_total": 0
     },
     "lowest_projected_balance": 800.0,

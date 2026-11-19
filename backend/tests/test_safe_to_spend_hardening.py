@@ -533,15 +533,17 @@ def test_safe_to_spend_pins_against_a_fixed_transaction_fixture(monkeypatch):
     ]
     # income_before_payday = 300.0; payday_income = 2000.0.
 
-    # G436: the headline is each counted current account on its own, balance plus predicted money
-    # in less predicted money out: 1000 - 600 (Rent) - 150 (Council Tax) - 100 (Move to savings)
-    # + 300 (Freelance, reliable and on the account) = 450 = lowest_projected_balance (the
-    # accounts line). The 200 own-account move has no paying account here and no counted
+    # G479 (Kevin 2026-11-19, option A): the headline is each counted current account at its LOWEST
+    # balance before payday, money in counted only from its date. Walk: 1000 - 600 (Rent, day 3) = 400,
+    # - 100 (Move to savings, day 6) = 300, + 300 (Freelance, day 7, reliable and on the account) = 600,
+    # - 150 (Council Tax, day 10) = 450. The lowest point after a payment is 300 (day 6), before the
+    # freelance money lands, so the accounts line is 300 = lowest_projected_balance. (G436 took the
+    # 450 closing figure.) The 200 own-account move has no paying account here and no counted
     # destination, so no account carries it (the pooled walk's pooled_transfers_excluded still
-    # reports it). Less buffer 50, commitments 40, allocations 30.5: 450 - 50 - 40 - 30.5 = 329.5
+    # reports it). Less buffer 50, commitments 40, allocations 30.5: 300 - 50 - 40 - 30.5 = 179.5
     # (== safe_to_spend_cash). card_growth_total = 120 (Card A, learned) + 80 (Card B, unlearned)
     # = 200.0; G413: no card reserve.
-    # final safe_to_spend: 329.5
+    # final safe_to_spend: 179.5
 
     def fake_confirmed_payday(_prefs, _today):
         return (next_payday, {"schedule": "fixed"})
@@ -601,8 +603,8 @@ def test_safe_to_spend_pins_against_a_fixed_transaction_fixture(monkeypatch):
     assert result["unavailable_components"] == []
 
     # The composed headline figure and its cash twin (equal since G413).
-    assert result["safe_to_spend"] == 329.5
-    assert result["safe_to_spend_cash"] == 329.5
+    assert result["safe_to_spend"] == 179.5
+    assert result["safe_to_spend_cash"] == 179.5
 
     # Every named component that feeds it, so a future change can never
     # move the headline number without this test naming exactly which
@@ -615,8 +617,8 @@ def test_safe_to_spend_pins_against_a_fixed_transaction_fixture(monkeypatch):
     assert result["payday_income"] == 2000.0
     assert result["buffer"] == 50.0
     assert result["spendable_now"] == 1000.0
-    assert result["lowest_projected_balance"] == 450.0
-    assert result["left_to_spend_lines"] == {"accounts_total": 450.0, "plans_total": 70.5, "buffer": 50.0}
+    assert result["lowest_projected_balance"] == 300.0
+    assert result["left_to_spend_lines"] == {"accounts_total": 300.0, "plans_total": 70.5, "buffer": 50.0, "basis": "lowest_point", "dips": []}
     assert result["card_debt"] == 550.0
     assert result["card_growth_total"] == 200.0
     assert result["card_new_spend_total"] == 170.0
@@ -632,8 +634,9 @@ def test_safe_to_spend_pins_against_a_fixed_transaction_fixture(monkeypatch):
 
     # state/short_reason/estimated derive from the figures above; pinned so
     # a change to their thresholds is also forced through this test.
-    # 329.5 is above the tight threshold (10 percent of 2,000 monthly spend = 200); it was 179.5, tight, on the pooled walk.
-    assert result["state"] == "comfortable"
+    # 179.5 is below the tight threshold (10 percent of 2,000 monthly spend = 200): tight (G436 read 329.5, comfortable,
+    # off the closing figure; the pooled walk read 179.5 too).
+    assert result["state"] == "tight"
     assert result["short_reason"] is None
     assert result["estimated"] is False
 

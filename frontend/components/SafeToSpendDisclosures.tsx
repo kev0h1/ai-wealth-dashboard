@@ -3,7 +3,7 @@
 import { useState, type ReactNode } from "react";
 import Link from "next/link";
 import type { SafeToSpend } from "@/lib/api";
-import type { LeftToSpendEvidence } from "@/lib/leftToSpendEvidence";
+import { dipNamed, dipSentence, type LeftToSpendEvidence } from "@/lib/leftToSpendEvidence";
 import { DisclosureSummary } from "@/components/Disclosure";
 import MoneyText from "@/components/MoneyText";
 import IncomeEvidenceSheet from "@/components/IncomeEvidenceSheet";
@@ -100,8 +100,9 @@ export default function SafeToSpendDisclosures({
           {evidence.rows.map((row) => <LedgerRow key={row.label} {...row} format={format} onIncomeEvidence={row.label === "Income before payday" ? () => setSheet("before_payday") : undefined} expanded={sheet === "before_payday"} />)}
         </dl>
         {evidence.ledgerNote && <p className={styles.note}><MoneyText text={evidence.ledgerNote} /></p>}
+        {evidence.dips.map((dip) => <p key={dip.account_id} data-g479-dip className={styles.note}><MoneyText text={dipSentence(dip, (v) => format(v), dipNamed(dip))} /></p>)}
         {reservationDetails}
-        {(data.pooled_transfers_excluded ?? 0) > 0 && <p>Transfers between your own included accounts do not change the total, so they are left out of this calculation.</p>}
+        {(data.pooled_transfers_excluded ?? 0) > 0 && <p>Transfers between your own included accounts are counted on the day they move, each account on its own.</p>}
         <dl className={styles.facts}>
           <Fact label="Daily amount">{evidence.dailyAmount === null ? "Not available" : <MoneyText text={`${format(evidence.dailyAmount, true)} a day`} />}</Fact>
           <IncomeFact label="Expected pay" amount={expectedPay} caption={expectedPay > 0 ? `Expected on ${paydayLabel}` : `Pay period ends ${paydayLabel}`} emptyLabel="Not known yet" formatIncome={formatIncome} about expanded={sheet === "expected_pay"} onOpen={() => setSheet("expected_pay")} />

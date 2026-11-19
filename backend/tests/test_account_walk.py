@@ -477,15 +477,33 @@ def test_caller_output_equals_pre_extraction_golden(monkeypatch, name):
         #     another current account (the source is earmarked, so the two net to zero).
         #   dips_below_zero: new warning key, lowsrc goes below zero before money arrives (never in the figure).
         #   account_headroom_raw: now kept for non-current accounts (man1, pot) as consolidation capacity.
+        # G479 (Kevin 2026-11-19, option A): spend_from_headroom is now the account's LOWEST balance
+        # (lowest_after_money_in, the lowest running balance after any payment, or its closing figure
+        # if lower, or its overdraft) less plans, then earmarks out and moves in. New display keys:
+        # lowest_after_money_in, contribution (max(0, figure)) and uncovered_shortfall (max(0, -figure)),
+        # and dips_below_zero now also carries short_by, short_on and money_in_amount. Per account:
+        #   barclays: lowest 2521.67 (the same figure the gated walk reports as low_point; closing 5021.67 is
+        #     later), no plans, 175 earmarked out for the suggested move, so 2521.67 - 175 = 2346.67.
+        #   hsbc: 12 + 1758.33 (funded inflow, day 2) - 100 (Council Tax, day 4) = 1670.33, then + 15 (Refund,
+        #     day 7) closes at 1685.33; the lowest after a payment is 1670.33. No plans or moves.
+        #   idle: no events, so its balance 15.
+        #   lowsrc: short 125 on 2026-11-04 (the 90 standing order and the 40 card repayment before 60 is
+        #     expected on 2026-11-08); the suggested 135 move in covers it: -125 + 135 = 10.
+        #   natwest: lowest 30 (closing 330), no plans.
+        #   man1, pot: non-current, no spending figure (0); their lowest is information only.
         g436 = {
-            "barclays": {"after_payments_and_money_in": 5021.67, "spend_from_headroom": 4846.67},
-            "hsbc": {"after_payments_and_money_in": 1685.33, "spend_from_headroom": 1685.33},
-            "idle": {"after_payments_and_money_in": 15.0},
-            "lowsrc": {"after_payments_and_money_in": -90.0, "spend_from_headroom": 45.0, "moves_in_total": 135.0,
-                       "spend_from_requires_move": True, "dips_below_zero": {"money_in_date": "2026-11-08"}},
-            "man1": {"account_headroom_raw": 240.0, "after_payments_and_money_in": 250.0, "spend_from_headroom": 0.0},
-            "natwest": {"after_payments_and_money_in": 330.0, "spend_from_headroom": 330.0},
-            "pot": {"account_headroom_raw": 240.0, "after_payments_and_money_in": 777.0, "spend_from_headroom": 0.0},
+            "barclays": {"after_payments_and_money_in": 5021.67, "lowest_after_money_in": 2521.67, "spend_from_headroom": 2346.67,
+                         "contribution": 2346.67, "uncovered_shortfall": 0.0},
+            "hsbc": {"after_payments_and_money_in": 1685.33, "lowest_after_money_in": 1670.33, "spend_from_headroom": 1670.33,
+                     "contribution": 1670.33, "uncovered_shortfall": 0.0},
+            "idle": {"after_payments_and_money_in": 15.0, "lowest_after_money_in": 15.0, "contribution": 15.0, "uncovered_shortfall": 0.0},
+            "lowsrc": {"after_payments_and_money_in": -90.0, "lowest_after_money_in": -125.0, "spend_from_headroom": 10.0,
+                       "moves_in_total": 135.0, "spend_from_requires_move": True, "contribution": 10.0, "uncovered_shortfall": 0.0,
+                       "dips_below_zero": {"money_in_date": "2026-11-08", "short_by": 125.0, "short_on": "2026-11-04", "money_in_amount": 60.0}},
+            "man1": {"account_headroom_raw": 240.0, "after_payments_and_money_in": 250.0, "lowest_after_money_in": 250.0, "spend_from_headroom": 0.0},
+            "natwest": {"after_payments_and_money_in": 330.0, "lowest_after_money_in": 30.0, "spend_from_headroom": 30.0,
+                        "contribution": 30.0, "uncovered_shortfall": 0.0},
+            "pot": {"account_headroom_raw": 240.0, "after_payments_and_money_in": 777.0, "lowest_after_money_in": 777.0, "spend_from_headroom": 0.0},
         }
         for acct, keys in g436.items():
             golden["eligibility"][acct].update(keys)

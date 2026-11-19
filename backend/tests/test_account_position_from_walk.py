@@ -161,14 +161,25 @@ def test_compute_today_items_equals_the_pre_change_golden(monkeypatch):
     #   dips_below_zero: new warning key, lowsrc goes below zero before money arrives on 2026-11-08.
     #   account_headroom_raw: now kept for non-current accounts (consolidation capacity), 240 each.
     #   non-current accounts (man1, pot) have no spending figure, so spend_from_headroom is 0.
+    # G479 (Kevin 2026-11-19, option A) replaces the closing figure with the account's lowest balance
+    # (lowest_after_money_in) less plans, and adds the display keys contribution (max(0, figure)) and
+    # uncovered_shortfall (max(0, -figure)); dips_below_zero also carries short_by, short_on and money_in_amount.
+    #   hsbc: lowest 1670.33, 20 plans: 1650.33 (closing 1685.33).
+    #   lowsrc: short 125 on 2026-11-04 before 60 is expected on 2026-11-08; no source covers it here: -125.
+    #   natwest: lowest 30 (closing 330), 40 of plans: -10, short 10 for plans (no source covers it in this fixture).
+    #   salary: 2800, nothing leaves it.
     g436 = {
-        "hsbc": {"after_payments_and_money_in": 1685.33, "spend_from_headroom": 1665.33},
-        "lowsrc": {"after_payments_and_money_in": -90.0, "spend_from_headroom": -90.0,
-                   "dips_below_zero": {"money_in_date": "2026-11-08"}},
-        "man1": {"account_headroom_raw": 240.0, "after_payments_and_money_in": 250.0, "spend_from_headroom": 0.0},
-        "natwest": {"after_payments_and_money_in": 330.0, "spend_from_headroom": 290.0},
-        "pot": {"account_headroom_raw": 240.0, "after_payments_and_money_in": 777.0, "spend_from_headroom": 0.0},
-        "salary": {"after_payments_and_money_in": 2800.0, "spend_from_headroom": 2800.0},
+        "hsbc": {"after_payments_and_money_in": 1685.33, "lowest_after_money_in": 1670.33, "spend_from_headroom": 1650.33,
+                 "contribution": 1650.33, "uncovered_shortfall": 0.0},
+        "lowsrc": {"after_payments_and_money_in": -90.0, "lowest_after_money_in": -125.0, "spend_from_headroom": -125.0,
+                   "contribution": 0.0, "uncovered_shortfall": 125.0,
+                   "dips_below_zero": {"money_in_date": "2026-11-08", "short_by": 125.0, "short_on": "2026-11-04", "money_in_amount": 60.0}},
+        "man1": {"account_headroom_raw": 240.0, "after_payments_and_money_in": 250.0, "lowest_after_money_in": 250.0, "spend_from_headroom": 0.0},
+        "natwest": {"after_payments_and_money_in": 330.0, "lowest_after_money_in": 30.0, "spend_from_headroom": -10.0,
+                    "contribution": 0.0, "uncovered_shortfall": 10.0},
+        "pot": {"account_headroom_raw": 240.0, "after_payments_and_money_in": 777.0, "lowest_after_money_in": 777.0, "spend_from_headroom": 0.0},
+        "salary": {"after_payments_and_money_in": 2800.0, "lowest_after_money_in": 2800.0, "spend_from_headroom": 2800.0,
+                   "contribution": 2800.0, "uncovered_shortfall": 0.0},
     }
     if isinstance(expected, dict):
         for acct, keys in g436.items():

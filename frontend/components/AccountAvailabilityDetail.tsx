@@ -29,7 +29,7 @@ export default function AccountAvailabilityDetail({ reading, position, hidden, l
   // Available. The working is withheld when it would not add up.
   const working = reading.working;
   const evidence: [string, number][] = working ? [
-    ["After payments and money in", working.basis],
+    [working.basisLabel, working.basis],
     ...(working.plans > 0 ? [["Goals and set-asides", -working.plans] as [string, number]] : []),
     ...working.movesOut.map((m): [string, number] => [m.label, -m.amount]),
     ...working.movesIn.map((m): [string, number] => [m.label, m.amount]),
@@ -41,8 +41,14 @@ export default function AccountAvailabilityDetail({ reading, position, hidden, l
     ? `A suggested move of ${formatAvailabilityAmount(working.savingsMove.amount)} from ${working.savingsMove.label} would cover the rest. It counts once you make the move.`
     : null;
   const dipDate = reading.dipsBelowZeroUntil ? new Date(`${reading.dipsBelowZeroUntil.slice(0, 10)}T12:00:00Z`).toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "UTC" }) : null;
-  const dipNote = dipDate ? `This account dips below zero before money arrives on ${dipDate}.` : null;
-  const footnote = `Available is what is left in this account after its predicted money in and out, goals and set-asides this pay period.${reading.requiresMove ? " This amount is available only after the suggested move." : ""}${position?.estimated ? " Some plan sources are estimated." : ""}${savingsNote ? ` ${savingsNote}` : ""}`;
+  const dayLabel = (iso?: string) => iso ? new Date(`${iso.slice(0, 10)}T12:00:00Z`).toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "UTC" }) : null;
+  // G479: the dip in the same words as the Home hero and Penny: "£43 short on 23 Nov, before about
+  // £650 is expected on 26 Nov". Amounts go through the hidden-balances mask.
+  const dip = reading.dip;
+  const dipNote = dip && typeof dip.short_by === "number"
+    ? `${amount(dip.short_by)} short ${dayLabel(dip.short_on) ? `on ${dayLabel(dip.short_on)}` : "before payday"}${dip.money_in_date && typeof dip.money_in_amount === "number" ? `, before about ${amount(dip.money_in_amount)} is expected on ${dayLabel(dip.money_in_date)}` : ""}.`
+    : dipDate ? `This account dips below zero before money arrives on ${dipDate}.` : null;
+  const footnote = `Available is what this account can spend now without a payment failing: its lowest balance before payday, after predicted money in and out, goals and set-asides.${reading.requiresMove ? " This amount is available only after the suggested move." : ""}${position?.estimated ? " Some plan sources are estimated." : ""}${savingsNote ? ` ${savingsNote}` : ""}`;
   const coveredNote = covered?.split ? `${coverSplitSentence(covered.split, covered.shortAfterCover)} Nothing has been moved.` : covered ? (covered.shortAfterCover > 0
     ? `A suggested move from ${covered.fromLabel} would cover part of this${covered.coversPlans ? ", including the linked plans" : ""}. Nothing has been moved.`
     : `A suggested move from ${covered.fromLabel} would cover this${covered.coversPlans ? ", including the linked plans" : ""}. Nothing has been moved.`) : null;

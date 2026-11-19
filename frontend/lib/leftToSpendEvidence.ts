@@ -2,6 +2,23 @@ import type { SafeToSpend } from "./api";
 
 type Forecast = Extract<SafeToSpend, { status: "ok" }>;
 export type EvidenceRow = { label: string; value: number; total?: boolean; detail?: string };
+/** G479: an account that goes short before its predicted money arrives. */
+export type LeftToSpendDip = { account_id: string; account_name: string; short_by: number; short_on: string; money_in_date?: string; money_in_amount?: number; line?: string };
+
+/** The server names the account in `line` only when more than one current account is counted. */
+export const dipNamed = (dip: LeftToSpendDip) => !!dip.line && dip.line.startsWith(`${dip.account_name}:`);
+
+const dipDay = (iso: string) => new Date(`${iso.slice(0, 10)}T12:00:00Z`).toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "UTC" });
+
+/** G479: the one dip sentence, the same words the server gives Penny: "£43 short on 23 Nov, before
+ * about £650 is expected on 26 Nov". `money` formats a pounds figure (and masks it when balances are
+ * hidden); `name` prefixes the account when more than one account is counted. */
+export function dipSentence(dip: LeftToSpendDip, money: (value: number) => string, name = false): string {
+  const when = `short on ${dipDay(dip.short_on)}`;
+  const tail = dip.money_in_date && typeof dip.money_in_amount === "number" ? `, before about ${money(dip.money_in_amount)} is expected on ${dipDay(dip.money_in_date)}` : "";
+  return `${name ? `${dip.account_name}: ` : ""}${money(dip.short_by)} ${when}${tail}.`;
+}
+
 export type LeftToSpendEvidence = {
   summaryLabel: string;
   summaryAmount: number;
@@ -9,6 +26,8 @@ export type LeftToSpendEvidence = {
   ledgerNote: string | null;
   dailyAmount: number | null;
   incomeBeforePayday: number | null;
+  /** G479: accounts that go short before their money arrives, earliest first. */
+  dips: LeftToSpendDip[];
 };
 
 const finite = (n: unknown): n is number => typeof n === "number" && Number.isFinite(n);
@@ -42,8 +61,10 @@ export function buildLeftToSpendEvidence(data: Forecast, summaryAmount: number):
 
   if (reconciledHold) {
     if (byAccount && lines) {
-      rows.push({ label: "Your current accounts after predicted money in and out before payday", value: lines.accounts_total });
-      ledgerNote = "Each current account on its own: its balance plus the money expected in, less the payments expected out. A move between your own accounts does not change it.";
+      rows.push({ label: lines.basis === "lowest_point" ? "Your current accounts at their lowest point before payday" : "Your current accounts after predicted money in and out before payday", value: lines.accounts_total });
+      ledgerNote = lines.basis === "lowest_point"
+        ? "Each current account on its own, at its lowest balance before payday: its balance, less the payments expected out, with money expected in counted only from the day it is due. Money that arrives after a payment cannot cover it."
+        : "Each current account on its own: its balance plus the money expected in, less the payments expected out. A move between your own accounts does not change it.";
     } else if (reconciledEnd) {
       rows.push({ label: "Cash now", value: data.spendable_now! });
       if (data.bills_total > 0) rows.push({ label: "Bills before payday", value: -data.bills_total });
@@ -79,5 +100,6 @@ export function buildLeftToSpendEvidence(data: Forecast, summaryAmount: number):
     summaryAmount, rows, ledgerNote,
     dailyAmount: pace && ["comfortable", "on_pace", "ahead", "early"].includes(pace.state) && finite(pace.sustainable) && pace.sustainable >= 0 ? pace.sustainable : null,
     incomeBeforePayday: !reconciledEnd && finite(income) && income > 0 ? income : null,
+    dips: byAccount && lines?.dips ? lines.dips.filter((d) => finite(d.short_by) && d.short_by > 0 && typeof d.short_on === "string") : [],
   };
 }
