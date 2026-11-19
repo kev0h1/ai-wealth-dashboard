@@ -2853,8 +2853,8 @@ async def compute_today_items(
     # Internal inflows are deliberately NOT in `credited_incomes`: that dict
     # discloses ASSUMED INCOME, and an own-account transfer is not income.
     # G167: no reliability gate on an inflow and no late-income line for one
-    # (see the comment block above `walk_sort_key`). G360: an inflow counts
-    # only when its SOURCE account is covered that day (`funded_inflows`).
+    # (see the comment block above `walk_sort_key`). G479: an inflow always counts,
+    # whether or not its SOURCE can fund it (the G360 gate is gone).
     # G163: same-day, credits before debits (`walk_sort_key`).
     #
     # Tracks whether `_pp_salary_income` was actually injected into the walk:
@@ -3013,8 +3013,8 @@ async def compute_today_items(
         # G365/G366: the low point is the one per-account walk
         # (services/account_walk.walk_account via account_position.
         # source_low_walk), with this caller's rules: any attributed credit-ok
-        # income counts even with no bill on the account, every funded inbound
-        # own-account transfer (G360) counts, and the same-day order is the
+        # income counts even with no bill on the account, every inbound
+        # own-account transfer counts (G479), and the same-day order is the
         # equivalent inline `(day, delta)` key. The whole AccountWalk is kept
         # (`source_walks`): account positions (G366) read it, not a copy of
         # its low point.
@@ -3189,9 +3189,9 @@ async def compute_today_items(
             # G436 (Kevin 2026-11-07, "every account in isolation, money in vs money out"):
             # Available starts from the closing figure of the account's OWN walk, with its
             # predicted money in (an own-account transfer's destination leg is credited on its
-            # date, no G360 gate) less its predicted money out, then its goals and set-asides.
+            # date, no gate) less its predicted money out, then its goals and set-asides.
             # The positions above (After payments, Lowest, the shortfall verdict and the cover
-            # engine) keep the gated walks; only this figure reads the ungated one.
+            # engine) read the same window events (G479: one rule, no gate).
             _acc_doc = _account_map.get(_sid)
             _entry["spend_from_headroom"] = 0.0
             if not _pos.get("uncertain") and _acc_doc is not None:

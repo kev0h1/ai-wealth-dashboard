@@ -166,7 +166,7 @@ def test_compute_today_items_equals_the_pre_change_golden(monkeypatch):
     # uncovered_shortfall (max(0, -figure)); dips_below_zero also carries short_by, short_on and money_in_amount.
     #   hsbc: lowest 1670.33, 20 plans: 1650.33 (closing 1685.33).
     #   lowsrc: short 125 on 2026-11-04 before 60 is expected on 2026-11-08; no source covers it here: -125.
-    #   natwest: closing 30 (the 300 transfer from lowsrc is unfunded, so it is not credited, one rule on every surface, G479 follow-up; was 330), lowest 30, 40 of plans: -10, short 10 for plans (no source covers it in this fixture).
+    #   natwest: closing 330 (the 300 transfer from lowsrc is credited although lowsrc is short, G479 option 1), lowest 30, 40 of plans: -10, short 10 for plans (no source covers it in this fixture).
     #   salary: 2800, nothing leaves it.
     g436 = {
         "hsbc": {"after_payments_and_money_in": 1685.33, "lowest_after_money_in": 1670.33, "spend_from_headroom": 1650.33,
@@ -175,9 +175,9 @@ def test_compute_today_items_equals_the_pre_change_golden(monkeypatch):
                    "contribution": 0.0, "uncovered_shortfall": 125.0,
                    "dips_below_zero": {"money_in_date": "2026-11-08", "short_by": 125.0, "short_on": "2026-11-04", "money_in_amount": 60.0}},
         "man1": {"account_headroom_raw": 240.0, "after_payments_and_money_in": 250.0, "lowest_after_money_in": 250.0, "spend_from_headroom": 0.0},
-        "natwest": {"after_payments_and_money_in": 30.0, "lowest_after_money_in": 30.0, "spend_from_headroom": -10.0,
+        "natwest": {"after_payments_and_money_in": 330.0, "lowest_after_money_in": 30.0, "spend_from_headroom": -10.0,
                     "contribution": 0.0, "uncovered_shortfall": 10.0},
-        "pot": {"account_headroom_raw": 240.0, "after_payments_and_money_in": 727.0, "lowest_after_money_in": 727.0, "spend_from_headroom": 0.0},
+        "pot": {"account_headroom_raw": 240.0, "after_payments_and_money_in": 777.0, "lowest_after_money_in": 777.0, "spend_from_headroom": 0.0},
         "salary": {"after_payments_and_money_in": 2800.0, "lowest_after_money_in": 2800.0, "spend_from_headroom": 2800.0,
                    "contribution": 2800.0, "uncovered_shortfall": 0.0},
     }

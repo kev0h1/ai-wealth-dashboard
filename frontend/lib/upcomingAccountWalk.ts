@@ -52,37 +52,10 @@ export function walkUpcomingAccounts(
   const credited = income.filter((item) => Boolean(item.credit_basis));
   const pennies = (amount: number) => Math.round(amount * 100);
   const allInflows = (cashflow.internal_inflows ?? []).filter((item) => inWindow(item.expected_date) && counted(item.account_id));
-  // G360: the ONE funded-inflow rule, mirroring backend services/inflow_credit.py.
-  // An expected inbound own-account transfer counts only when its SOURCE account
-  // is itself covered that day: a tracked account with a known balance whose own
-  // bills and server-credited incomes (credit_basis set), credits first, leave
-  // it >= 0 after the transfer's day. One level only: the source's own inflows
-  // are not counted when judging it. Unknown or untracked sources never fund.
-  const fundedInflow = (inflow: (typeof allInflows)[number]) => {
-    const sid = inflow.source_account_id || "";
-    if (!sid) return false;
-    const sourceBills = bills.filter((bill) => bill.account_id === sid);
-    const planBalance = planSources.find((account) => account.id === sid)?.balance;
-    const opening = sourceBills[0]?.account_balance ?? planBalance;
-    if (typeof opening !== "number" || !Number.isFinite(opening)) return false;
-    const day = Date.parse(inflow.expected_date);
-    const steps = [
-      ...credited.filter((item) => item.account_id === sid).map((item) => ({ date: Date.parse(item.expected_date), delta: pennies(item.amount) })),
-      ...sourceBills.map((bill) => ({ date: Date.parse(bill.expected_date), delta: -pennies(bill.amount) })),
-    ].filter((step) => step.date <= day).sort((a, b) => a.date - b.date || Number(a.delta < 0) - Number(b.delta < 0));
-    return steps.reduce((total, step) => total + step.delta, pennies(opening)) >= 0;
-  };
-  const inflows = allInflows.filter(fundedInflow);
-  // G479: the same rule on the other leg. A transfer whose source cannot fund it is excluded on BOTH legs: its
-  // credit is not credited (above) and its debit is not deducted from the source (a visible zero-delta event,
-  // like an uncredited income). Mirrors backend window_inputs.unfunded_transfer_bills.
-  const unfundedDebits = new Set<UpcomingBill>();
-  for (const inflow of allInflows) {
-    if (inflows.includes(inflow) || inflow.destination_spendable !== true) continue; // a payment into savings stays an ordinary payment (G438)
-    const debit = bills.find((bill) => !unfundedDebits.has(bill) && isOwnAccountMove(bill) && bill.account_id === inflow.source_account_id
-      && bill.name === inflow.name && bill.expected_date === inflow.expected_date && pennies(bill.amount) === pennies(inflow.amount));
-    if (debit) unfundedDebits.add(debit);
-  }
+  // G479 (Kevin 2026-11-19, option 1): a predicted own transfer counts on BOTH legs, whether or not its source can
+  // fund it. The source shows the shortfall; the destination is credited and never flagged short for money due to
+  // arrive. (The G360 funded-inflow gate is gone, mirrored by the backend.)
+  const inflows = allInflows;
   const unknownIncome = income.some((item) => !item.account_id);
   const ids = [...new Set([...bills.map((bill) => bill.account_id || "__unknown__"), ...planSources.filter((account) => counted(account.id)).map((account) => account.id)])];
   const atRisk: RiskBill[] = [];
@@ -107,7 +80,7 @@ export function walkUpcomingAccounts(
       ...credits.map((item, index) => ({ id: `income-${index}`, name: upcomingDisplayName(item), category: item.category, expected_date: item.expected_date, type: "income" as const, kind: "income" as const, amount: pennies(item.amount), credited: true as boolean, bill: undefined, ref: item as object })),
       ...uncredited.map((item, index) => ({ id: `uncredited-${index}`, name: upcomingDisplayName(item), category: item.category, expected_date: item.expected_date, type: "income" as const, kind: "income" as const, amount: pennies(item.amount), credited: false as boolean, bill: undefined, ref: item as object })),
       ...transfers.map((item, index) => ({ id: `inflow-${index}`, name: item.source_account_name ? `From ${item.source_account_name}` : "Transfer in", category: "Transfer", expected_date: item.expected_date, type: "inflow" as const, kind: "inflow" as const, amount: pennies(item.amount), credited: true as boolean, bill: undefined, ref: item as object })),
-      ...payments.map((item, index) => ({ id: `payment-${index}`, name: upcomingDisplayName(item), category: item.category, expected_date: item.expected_date, type: "bill" as const, kind: isOwnAccountMove(item) ? "movement" as const : "payment" as const, amount: -pennies(item.amount), credited: !unfundedDebits.has(item) as boolean, bill: item, ref: item as object })),
+      ...payments.map((item, index) => ({ id: `payment-${index}`, name: upcomingDisplayName(item), category: item.category, expected_date: item.expected_date, type: "bill" as const, kind: isOwnAccountMove(item) ? "movement" as const : "payment" as const, amount: -pennies(item.amount), credited: true as boolean, bill: item, ref: item as object })),
     ].sort(compareUpcomingEvents);
     const knownWorking = balanceKnown && rawEvents.every((item) => Number.isFinite(item.amount));
     let running = knownWorking ? pennies(opening!) : null;
@@ -120,7 +93,7 @@ export function walkUpcomingAccounts(
     const events = rawEvents.map((event): UpcomingAccountEvent => {
       const before = running;
       if (running !== null && event.credited !== false) running += event.amount;
-      if (running !== null && event.bill && event.credited !== false) {
+      if (running !== null && event.bill) {
         const shortfall = Math.max(0, -running);
         gap = Math.max(gap, shortfall);
         if (shortfall > 0) firstShortDate ??= event.expected_date;

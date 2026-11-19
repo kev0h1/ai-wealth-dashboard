@@ -2,59 +2,26 @@
  "at_risk": {
   "events_unsorted": [
    [
-    2,
-    "barclays",
-    1758.33,
-    false,
-    [
-     "movement",
-     false
-    ]
-   ],
-   [
-    3,
-    "barclays",
-    400.0,
-    false,
-    [
-     "movement",
-     false
-    ]
-   ],
-   [
-    5,
-    "barclays",
-    120.0,
-    false,
-    [
-     "commitment",
-     false
-    ]
-   ],
-   [
-    4,
-    "hsbc",
-    100.0,
-    false,
-    [
-     "commitment",
-     false
-    ]
-   ],
-   [
-    3,
-    "natwest",
-    60.0,
-    false,
-    [
-     "commitment",
-     false
-    ]
-   ],
-   [
     1,
     "lowsrc",
     90.0,
+    false,
+    [
+     "movement",
+     false
+    ]
+   ],
+   [
+    2,
+    "hsbc",
+    1758.33,
+    true,
+    null
+   ],
+   [
+    2,
+    "barclays",
+    1758.33,
     false,
     [
      "movement",
@@ -72,9 +39,29 @@
     ]
    ],
    [
-    6,
-    "lowsrc",
-    25.0,
+    3,
+    "barclays",
+    400.0,
+    false,
+    [
+     "movement",
+     false
+    ]
+   ],
+   [
+    3,
+    "natwest",
+    60.0,
+    false,
+    [
+     "commitment",
+     false
+    ]
+   ],
+   [
+    4,
+    "hsbc",
+    100.0,
     false,
     [
      "commitment",
@@ -102,23 +89,33 @@
     ]
    ],
    [
-    6,
-    "barclays",
-    2500.0,
-    true,
-    null
-   ],
-   [
-    7,
-    "hsbc",
-    15.0,
+    5,
+    "excl",
+    900.0,
     true,
     null
    ],
    [
     5,
-    "excl",
-    900.0,
+    "natwest",
+    300.0,
+    true,
+    null
+   ],
+   [
+    5,
+    "barclays",
+    120.0,
+    false,
+    [
+     "commitment",
+     false
+    ]
+   ],
+   [
+    6,
+    "barclays",
+    2500.0,
     true,
     null
    ],
@@ -130,9 +127,19 @@
     null
    ],
    [
-    2,
+    6,
+    "lowsrc",
+    25.0,
+    false,
+    [
+     "commitment",
+     false
+    ]
+   ],
+   [
+    7,
     "hsbc",
-    1758.33,
+    15.0,
     true,
     null
    ]
@@ -145,7 +152,9 @@
   "eligibility": {
    "barclays": {
     "after_payments": 7521.67,
+    "after_payments_and_money_in": 5021.67,
     "after_payments_and_plans": 7521.67,
+    "contribution": 2346.67,
     "earmarked_total": 175.0,
     "earmarks_out": [
      {
@@ -164,40 +173,52 @@
     "is_current_account": true,
     "low_point": 2521.67,
     "low_point_and_plans": 2521.67,
+    "lowest_after_money_in": 2521.67,
     "plans_reserved": 0.0,
     "short": false,
     "spend_from_headroom": 2346.67,
-    "uncertain": false
+    "uncertain": false,
+    "uncovered_shortfall": 0.0
    },
    "hsbc": {
     "after_payments": 1685.33,
+    "after_payments_and_money_in": 1685.33,
     "after_payments_and_plans": 1685.33,
+    "contribution": 1670.33,
     "estimated": false,
     "headroom": 2.0,
     "is_current_account": true,
     "low_point": 12.0,
     "low_point_and_plans": 12.0,
+    "lowest_after_money_in": 1670.33,
     "plans_reserved": 0.0,
     "short": true,
-    "spend_from_headroom": 12.0,
-    "uncertain": false
+    "spend_from_headroom": 1670.33,
+    "uncertain": false,
+    "uncovered_shortfall": 0.0
    },
    "idle": {
     "after_payments": 15.0,
+    "after_payments_and_money_in": 15.0,
     "after_payments_and_plans": 15.0,
+    "contribution": 15.0,
     "estimated": false,
     "headroom": 5.0,
     "is_current_account": true,
     "low_point": 15.0,
     "low_point_and_plans": 15.0,
+    "lowest_after_money_in": 15.0,
     "plans_reserved": 0.0,
     "short": false,
     "spend_from_headroom": 15.0,
-    "uncertain": false
+    "uncertain": false,
+    "uncovered_shortfall": 0.0
    },
    "lowsrc": {
     "after_payments": -90.0,
+    "after_payments_and_money_in": -90.0,
     "after_payments_and_plans": -90.0,
+    "contribution": 10.0,
     "covered_by_move": {
      "amount": 135.0,
      "from": [
@@ -209,54 +230,74 @@
      ],
      "shortfall": 125.0
     },
+    "dips_below_zero": {
+     "money_in_amount": 60.0,
+     "money_in_date": "2026-11-08",
+     "short_by": 125.0,
+     "short_on": "2026-11-04"
+    },
     "estimated": false,
     "headroom": -135.0,
     "is_current_account": true,
     "low_point": -125.0,
     "low_point_and_plans": -125.0,
+    "lowest_after_money_in": -125.0,
+    "moves_in_total": 135.0,
     "plans_reserved": 0.0,
     "short": true,
     "short_after_cover": 0.0,
-    "spend_from_headroom": -125.0,
-    "uncertain": false
+    "spend_from_headroom": 10.0,
+    "spend_from_requires_move": true,
+    "uncertain": false,
+    "uncovered_shortfall": 0.0
    },
    "man1": {
+    "account_headroom_raw": 240.0,
     "after_payments": 250.0,
+    "after_payments_and_money_in": 250.0,
     "after_payments_and_plans": 250.0,
     "estimated": false,
     "headroom": 240.0,
     "is_current_account": false,
     "low_point": 250.0,
     "low_point_and_plans": 250.0,
+    "lowest_after_money_in": 250.0,
     "plans_reserved": 0.0,
     "short": false,
-    "spend_from_headroom": 250.0,
+    "spend_from_headroom": 0.0,
     "uncertain": false
    },
    "natwest": {
-    "after_payments": 30.0,
-    "after_payments_and_plans": 30.0,
+    "after_payments": 330.0,
+    "after_payments_and_money_in": 330.0,
+    "after_payments_and_plans": 330.0,
+    "contribution": 30.0,
     "estimated": false,
     "headroom": 20.0,
     "is_current_account": true,
     "low_point": 30.0,
     "low_point_and_plans": 30.0,
+    "lowest_after_money_in": 30.0,
     "plans_reserved": 0.0,
     "short": false,
     "spend_from_headroom": 30.0,
-    "uncertain": false
+    "uncertain": false,
+    "uncovered_shortfall": 0.0
    },
    "pot": {
-    "after_payments": 650.0,
-    "after_payments_and_plans": 650.0,
+    "account_headroom_raw": 240.0,
+    "after_payments": 700.0,
+    "after_payments_and_money_in": 777.0,
+    "after_payments_and_plans": 700.0,
     "estimated": false,
     "headroom": 240.0,
     "is_current_account": false,
     "low_point": 250.0,
     "low_point_and_plans": 250.0,
+    "lowest_after_money_in": 777.0,
     "plans_reserved": 0.0,
     "short": false,
-    "spend_from_headroom": 250.0,
+    "spend_from_headroom": 0.0,
     "uncertain": false
    }
   },
@@ -382,7 +423,7 @@
     ],
     [
      "natwest",
-     30.0
+     330.0
     ],
     [
      "lowsrc",
@@ -390,7 +431,7 @@
     ],
     [
      "pot",
-     650.0
+     700.0
     ],
     [
      "idle",
@@ -636,6 +677,19 @@
     ],
     [
      5,
+     "natwest",
+     300.0,
+     true,
+     {
+      "account_id": "natwest",
+      "amount": 300.0,
+      "days_away": 5,
+      "name": "OWN TRANSFER",
+      "source_account_id": "lowsrc"
+     }
+    ],
+    [
+     5,
      "barclays",
      120.0,
      false,
@@ -733,6 +787,19 @@
      }
     ],
     [
+     7,
+     "pot",
+     50.0,
+     true,
+     {
+      "account_id": "pot",
+      "amount": 50.0,
+      "days_away": 7,
+      "name": "OWN TRANSFER",
+      "source_account_id": "ghost"
+     }
+    ],
+    [
      10,
      "barclays",
      2500.0,
@@ -792,7 +859,7 @@
     ],
     [
      "natwest",
-     30.0
+     330.0
     ],
     [
      "lowsrc",
@@ -804,7 +871,7 @@
     ],
     [
      "pot",
-     650.0
+     700.0
     ]
    ],
    "shortfall_bill": [
@@ -941,6 +1008,13 @@
     ],
     [
      5,
+     "natwest",
+     300.0,
+     true,
+     "OWN TRANSFER"
+    ],
+    [
+     5,
      "barclays",
      120.0,
      false,
@@ -973,6 +1047,13 @@
      15.0,
      true,
      "Refund"
+    ],
+    [
+     7,
+     "pot",
+     50.0,
+     true,
+     "OWN TRANSFER"
     ],
     [
      10,
@@ -1019,7 +1100,7 @@
     ],
     [
      "natwest",
-     30.0
+     330.0
     ],
     [
      "lowsrc",
@@ -1031,7 +1112,7 @@
     ],
     [
      "pot",
-     650.0
+     700.0
     ]
    ],
    "seed": [
@@ -1153,6 +1234,10 @@
      [
       3,
       -60.0
+     ],
+     [
+      5,
+      300.0
      ]
     ],
     "low_point": 30.0,
@@ -1167,6 +1252,10 @@
      [
       5,
       77.0
+     ],
+     [
+      7,
+      50.0
      ]
     ],
     "low_point": 250.0,
@@ -1266,6 +1355,10 @@
      [
       3,
       -60.0
+     ],
+     [
+      5,
+      300.0
      ]
     ],
     "min": 30.0,
@@ -1292,6 +1385,10 @@
      [
       3,
       400.0
+     ],
+     [
+      7,
+      50.0
      ]
     ],
     "min": 250.0,

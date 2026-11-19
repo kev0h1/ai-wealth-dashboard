@@ -311,7 +311,7 @@ def _legacy_closing_events(wi, preview_salary):
         if acct in running and income_credit_ok(i, acct, wi.confirmed_income_keys):
             events.append((i["days_away"], acct, float(i["amount"]), True, i))
             credited_incomes.setdefault(acct, []).append(i)
-    for n in wi.funded_window_inflows:
+    for n in wi.window_inflows:
         acct = str(n.get("account_id") or "")
         if acct and acct not in running and acct in live_balances:
             running[acct] = live_balances[acct]
@@ -340,7 +340,7 @@ def _legacy_source_min_running(wi, sid, start_balance):
     ]
     ev += [
         (n["days_away"], float(n["amount"]))
-        for n in wi.funded_window_inflows
+        for n in wi.window_inflows
         if str(n.get("account_id") or "") == sid
     ]
     ev.sort(key=lambda e: (e[0], 0 if e[1] > 0 else 1))
@@ -361,7 +361,7 @@ def _legacy_walk_min(wi, credited_incomes, dest, extra_income=None):
     ev += [(i2["days_away"], float(i2["amount"])) for i2 in credited_incomes.get(dest, [])]
     ev += [
         (n["days_away"], float(n["amount"]))
-        for n in wi.funded_window_inflows
+        for n in wi.window_inflows
         if str(n.get("account_id") or "") == dest
     ]
     if extra_income is not None:
@@ -489,8 +489,8 @@ def test_caller_output_equals_pre_extraction_golden(monkeypatch, name):
         #   idle: no events, so its balance 15.
         #   lowsrc: short 125 on 2026-11-04 (the 90 standing order and the 40 card repayment before 60 is
         #     expected on 2026-11-08); the suggested 135 move in covers it: -125 + 135 = 10.
-        #   natwest: 90 - 60 (Gym) = 30; the 300 transfer from lowsrc is unfunded (lowsrc is short) so it is not credited (G479 follow-up, one rule on every surface: closing 30, was 330).
-        #   pot: 250 + 77 (Bonus) + 400 (funded) = 727; the 50 from an unknown source is never credited (was 777).
+        #   natwest: 90 - 60 (Gym) + 300 (the transfer from lowsrc, credited although lowsrc is short, G479 option 1) = 330, lowest 30.
+        #   pot: 250 + 77 (Bonus) + 400 + 50 (the transfer from an untracked source, credited) = 777.
         #   man1, pot: non-current, no spending figure (0); their lowest is information only.
         g436 = {
             "barclays": {"after_payments_and_money_in": 5021.67, "lowest_after_money_in": 2521.67, "spend_from_headroom": 2346.67,
@@ -502,9 +502,9 @@ def test_caller_output_equals_pre_extraction_golden(monkeypatch, name):
                        "moves_in_total": 135.0, "spend_from_requires_move": True, "contribution": 10.0, "uncovered_shortfall": 0.0,
                        "dips_below_zero": {"money_in_date": "2026-11-08", "short_by": 125.0, "short_on": "2026-11-04", "money_in_amount": 60.0}},
             "man1": {"account_headroom_raw": 240.0, "after_payments_and_money_in": 250.0, "lowest_after_money_in": 250.0, "spend_from_headroom": 0.0},
-            "natwest": {"after_payments_and_money_in": 30.0, "lowest_after_money_in": 30.0, "spend_from_headroom": 30.0,
+            "natwest": {"after_payments_and_money_in": 330.0, "lowest_after_money_in": 30.0, "spend_from_headroom": 30.0,
                         "contribution": 30.0, "uncovered_shortfall": 0.0},
-            "pot": {"account_headroom_raw": 240.0, "after_payments_and_money_in": 727.0, "lowest_after_money_in": 727.0, "spend_from_headroom": 0.0},
+            "pot": {"account_headroom_raw": 240.0, "after_payments_and_money_in": 777.0, "lowest_after_money_in": 777.0, "spend_from_headroom": 0.0},
         }
         for acct, keys in g436.items():
             golden["eligibility"][acct].update(keys)
@@ -634,20 +634,21 @@ def test_low_point_is_a_running_minimum_from_the_opening_balance(wi):
 # ── one test per W-difference, flipping only that keyword ────────────────────
 
 def test_wd1_wd4_inflow_admit_flips_only_which_accounts_an_inflow_reaches(wi):
-    # pot has no bill: a funded inflow reaches it only when it may seed it or any
+    # pot has no bill: an inflow reaches it only when it may seed it or any
     seeded = aw.walk_account("pot", wi, opening=250.0, inflow_admit="seeded")
     seed_live = aw.walk_account("pot", wi, opening=250.0, inflow_admit="seed_live")
     anyone = aw.walk_account("pot", wi, opening=250.0, inflow_admit="any")
     assert seeded.events == [] and seeded.closing == 250.0
-    assert [e[2] for e in seed_live.events] == [400.0] and seed_live.closing == 650.0
+    # G479: both inflows reach it (400 from barclays and 50 from an untracked source: no inbound gate any more)
+    assert [e[2] for e in seed_live.events] == [400.0, 50.0] and seed_live.closing == 700.0
     assert anyone.events == seed_live.events
     # a bill-seeded account takes its funded inflow in every mode
     for mode in ("seeded", "seed_live", "any"):
         hs = aw.walk_account("hsbc", wi, opening=12.0, inflow_admit=mode)
         assert 1758.33 in [e[2] for e in hs.events]
-    # the unfunded inflow (its source is short) is never in the funded list
+    # G479: the inflow whose source is short is credited too (it was never in the old funded list)
     nw = aw.walk_account("natwest", wi, opening=90.0, inflow_admit="any")
-    assert 300.0 not in [e[2] for e in nw.events]
+    assert 300.0 in [e[2] for e in nw.events]
     # the window walk tracks pot only with seed_live
     _e, tracked_seeded, _c = aw.window_events(wi, inflow_admit="seeded")
     _e, tracked_live, _c = aw.window_events(wi, inflow_admit="seed_live")
@@ -777,7 +778,7 @@ def test_credited_incomes_keep_the_window_income_key_order():
         assessable_bills=[_bill("a", 1, 10.0, "A", 500.0), _bill("b", 1, 10.0, "B", 500.0)],
         window_income=[inc("B", 5), inc("A", 3)],  # B's income first, A seeded first
         confirmed_income_keys={"Pay A", "Pay B"},
-        funded_window_inflows=[], live_balances={"A": 500.0, "B": 500.0},
+        window_inflows=[], live_balances={"A": 500.0, "B": 500.0},
         running_seed={"A": 500.0, "B": 500.0}, days_to_pay=10,
     )
     _events, seed, credited = aw.window_events(inputs)

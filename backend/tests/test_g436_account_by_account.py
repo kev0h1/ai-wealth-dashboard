@@ -165,20 +165,21 @@ def test_a_standing_order_between_two_counted_accounts_leaves_the_total_unchange
     assert out["safe_to_spend"] == plain and out["left_to_spend_lines"]["accounts_total"] == plain
 
 
-def test_an_unfunded_standing_order_is_excluded_on_both_legs_and_the_total_is_unchanged(monkeypatch):
-    # G479 (Kevin 2026-11-19, "all figures must be consistent"): the source cannot afford it (100 against a 300
-    # order), so the G360 test excludes the transfer on BOTH legs: HSBC is not credited and Barclays is not
-    # debited. Barclays keeps its 100 with no dip, HSBC keeps its 50: 100 + 50 = 150 (the pooled figure).
+def test_an_unfunded_standing_order_counts_on_both_legs_the_source_is_short_and_the_total_is_unchanged(monkeypatch):
+    # G479 option 1 (Kevin 2026-11-19): a transfer counts on BOTH legs whether or not its source can fund it.
+    # Source cannot afford it (100 against a 300 order): the destination is still credited on its date, and the
+    # source is the one shown short and given the cover engine's move. Sum 100 - 300 + 50 + 300 = 150.
     from datetime import date
 
     import tests.test_g360_one_account_walk as g
     today = date(2026, 10, 10)
     bills = [g._bill("To HSBC", 300.0, 2, today, acct=g.BC, balance=100.0, kind=analytics.MOVEMENT)]
-    inflows = [{**g._inflow(300.0, 2, today), "name": "To HSBC", "destination_spendable": True}]
+    inflows = [g._inflow(300.0, 2, today)]
     _items, elig = g._run(monkeypatch, today, bills, [], inflows, {g.HS: (50.0, "hsbc"), g.BC: (100.0, "barclays")})
-    assert elig[g.BC]["after_payments"] == 100.0 and elig[g.BC]["low_point"] == 100.0  # not short: the order is not deducted
-    assert elig[g.HS]["after_payments_and_money_in"] == 50.0  # and not credited
-    assert "dips_below_zero" not in elig[g.BC]
+    assert elig[g.BC]["after_payments"] == -200.0 and elig[g.BC]["low_point"] == -200.0  # flagged short
+    assert elig[g.HS]["after_payments_and_money_in"] == 350.0  # credited on its date although BC cannot fund it
+    assert elig[g.BC]["after_payments_and_money_in"] == -200.0
+    # Moves between the two net to zero: the sum is what the two hold (100 + 50) before any plan.
     assert round(elig[g.BC]["spend_from_headroom"] + elig[g.HS]["spend_from_headroom"], 2) == 150.0
 
 

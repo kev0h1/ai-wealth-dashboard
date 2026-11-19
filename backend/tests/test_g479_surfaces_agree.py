@@ -2,9 +2,8 @@
 ledger dip are one number per account.
 
 The hero and Available read `account_available.account_ledger` (ungated: an expected own-account transfer
-credit counts on its date, G436). The cover engine and the Upcoming position read the gated walks. Since the G479 ruling (Kevin 2026-11-19, "all figures must be
-consistent") there is ONE gate: a transfer its source cannot fund (G360) is excluded on both legs everywhere
-(`window_inputs`), so the surfaces agree even where the gate drops a transfer.
+credit counts on its date, G436). The cover engine and the Upcoming position read the same window events. Since the G479 ruling (Kevin 2026-11-19, option 1) there
+is NO inbound-transfer gate: a predicted own transfer counts on both legs everywhere, so the surfaces agree.
 """
 from datetime import date
 
@@ -69,20 +68,36 @@ def test_a_funded_transfer_credit_agrees_everywhere(monkeypatch):
     assert _moves_total(items) == 0.0
 
 
-def test_when_a_g360_gate_drops_a_transfer_both_legs_go_and_every_surface_agrees(monkeypatch):
-    # Kevin 2026-11-19, "all figures must be consistent". BC holds 100 and is due to send 300 on day 2, so the
-    # G360 test says it cannot fund it: the transfer is excluded on BOTH legs everywhere. HS holds 50 and pays 120
-    # on day 3. BC keeps 100 with no dip; HS is 50 - 120 = -70. Total 30, the pooled 100 + 50 - 120.
+def _edge_world(monkeypatch, *, third=False):
+    # Kevin's option 1 (2026-11-19): BC holds 100 and is due to send 300 on day 2; HS holds 50 and pays 120 on day 3.
+    # The transfer counts on BOTH legs whether or not BC can fund it: BC is -200 short, HS is fine (50 + 300 - 120).
     bills = [g._bill("To HSBC", 300.0, 2, TODAY, acct=g.BC, balance=100.0, kind=analytics.MOVEMENT),
              g._bill("Insurance", 120.0, 3, TODAY, acct=g.HS, balance=50.0)]
-    inflows = [{**g._inflow(300.0, 2, TODAY), "name": "To HSBC", "destination_spendable": True}]
-    items, elig = g._run(monkeypatch, TODAY, bills, [], inflows, {g.HS: (50.0, "hsbc"), g.BC: (100.0, "barclays")})
-    # Ledger dip == gated shortfall (Upcoming's position and the cover plan) on every account.
-    assert (_ledger_dip(elig[g.BC]), _gated_shortfall(elig[g.BC])) == (0.0, 0.0)
-    assert (_ledger_dip(elig[g.HS]), _gated_shortfall(elig[g.HS])) == (70.0, 70.0)
-    # Exactly one shortfall (HS 70) and one cover move, sized from it: ceil5(70) + 10 = 80, taken from BC.
-    assert _moves_total(items) == _ceil5(70.0) + 10 == 80.0
-    assert elig[g.HS]["covered_by_move"]["shortfall"] == 70.0 and "covered_by_move" not in elig[g.BC]
-    # The total is the pooled 100 + 50 - 120 = 30 (the move nets to zero): BC 100 - 80 earmarked, HS -70 + 80.
+    balances = {g.HS: (50.0, "hsbc"), g.BC: (100.0, "barclays")}
+    if third:
+        balances["acc-third"] = (5000.0, "monzo")
+    return g._run(monkeypatch, TODAY, bills, [], [g._inflow(300.0, 2, TODAY)], balances)
+
+
+def test_an_unfundable_standing_order_is_one_shortfall_on_the_source_on_every_surface(monkeypatch):
+    items, elig = _edge_world(monkeypatch)
+    # Ledger dip == gated shortfall (Upcoming's position and the cover plan) on every account: BC 200, HS 0.
+    assert (_ledger_dip(elig[g.BC]), _gated_shortfall(elig[g.BC])) == (200.0, 200.0)
+    assert (_ledger_dip(elig[g.HS]), _gated_shortfall(elig[g.HS])) == (0.0, 0.0)
+    # HS is fine on its own (50 + 300 - 120 = 230, never flagged short for money due to arrive) and is the only
+    # account with any room, so it can lend BC 40 (230 - 10 cushion... its headroom is 40): HS 230 - 40, BC -200 + 40.
+    assert elig[g.HS]["earmarked_total"] == 40.0 and elig[g.HS]["spend_from_headroom"] == 190.0
+    assert elig[g.BC]["spend_from_headroom"] == -160.0 and elig[g.BC]["short_after_cover"] == 160.0
+    # BC stays short after the move and the total shows it: -200 + 230 = 30 (the move nets to zero).
     assert round(elig[g.BC]["spend_from_headroom"] + elig[g.HS]["spend_from_headroom"], 2) == 30.0
-    assert (elig[g.BC]["spend_from_headroom"], elig[g.HS]["spend_from_headroom"]) == (20.0, 10.0)
+    assert _moves_total(items) == 40.0
+
+
+def test_the_cover_move_goes_into_the_source_so_the_standing_order_does_not_bounce(monkeypatch):
+    items, elig = _edge_world(monkeypatch, third=True)
+    assert (_ledger_dip(elig[g.BC]), _gated_shortfall(elig[g.BC])) == (200.0, 200.0)
+    assert elig[g.BC]["covered_by_move"]["shortfall"] == 200.0 and "covered_by_move" not in elig[g.HS]
+    assert _moves_total(items) == _ceil5(200.0) + 10 == 210.0  # one move, from the room-rich third account
+    # The move nets to zero in the total: BC -200 + 210 = 10, the third 5,000 - 210, HS 230.
+    assert elig[g.BC]["spend_from_headroom"] == 10.0
+    assert round(sum(e["spend_from_headroom"] for e in elig.values()), 2) == 5030.0

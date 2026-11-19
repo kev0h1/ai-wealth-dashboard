@@ -6,14 +6,16 @@ past payday on the last day.
 Rules pinned here:
   1. The current period ends the day before the next payday, for every
      days_to_pay (no last-day lookahead).
-  2. ONE funded-inflow rule (`services/inflow_credit.funded_inflows`): an
-     expected inbound own-account transfer counts only when its SOURCE account
-     is itself covered that day, in every walk.
+  2. (REPLACED by G479, Kevin 2026-11-19, option 1.) The G360 rule was that an
+     expected inbound own-account transfer counts only when its SOURCE is covered
+     that day. There is no gate any more: a predicted own transfer counts on BOTH
+     legs in every walk, whether or not its source can fund it. The source shows
+     the shortfall and gets the cover move; the destination is never flagged short
+     for money that is due to arrive.
   3. after_payments and low_point agree, so an account is never both covered
      and short.
 """
 import asyncio
-import re
 from datetime import date, timedelta
 from pathlib import Path
 
@@ -22,9 +24,8 @@ import pytest
 import app.db.collections as db_collections
 import app.services.companion as companion
 from app.core import timeutil
-from app.routers.analytics import income_credit_ok, stamp_credit_basis
+from app.routers.analytics import stamp_credit_basis
 from app.services.categories import MOVEMENT
-from app.services.inflow_credit import funded_inflows
 from tests.test_g359_steady_salary import FakeCol, _account
 
 UID = "g360-user"
@@ -278,7 +279,10 @@ def test_funded_inflow_credited_in_both_walks(monkeypatch):
     assert not _short(h)
 
 
-def test_unfunded_inflow_credited_in_neither_walk(monkeypatch):
+def test_an_inflow_is_credited_in_both_walks_whether_or_not_its_source_can_fund_it(monkeypatch):
+    # G479 (replaces test_unfunded_inflow_credited_in_neither_walk, which pinned the G360 gate): BC holds 0 and
+    # cannot fund the 1,886 order, but HS is still credited it, so HS is fine (100 + 1,886 - 400) and BC,
+    # the source, carries the shortfall (0 - 1,886).
     today = date(2026, 10, 10)
     bills = [
         _bill("Rent", 400.0, 3, today, acct=HS, balance=100.0),
@@ -288,9 +292,37 @@ def test_unfunded_inflow_credited_in_neither_walk(monkeypatch):
     _, elig = _run(monkeypatch, today, bills, [], inflows,
                    {HS: (100.0, "hsbc"), BC: (0.0, "barclays")})
     h = elig[HS]
-    assert h["after_payments"] == pytest.approx(-300.0)
-    assert h["low_point"] == pytest.approx(-300.0)
-    assert _short(h)
+    assert h["after_payments"] == pytest.approx(1586.0)
+    assert h["low_point"] == pytest.approx(100.0)
+    assert not _short(h)
+    assert elig[BC]["after_payments"] == pytest.approx(-1886.0) and _short(elig[BC])
+
+
+def test_a_source_that_cannot_fund_a_standing_order_shows_the_shortfall_and_gets_the_cover_move(monkeypatch):
+    # G479 option 1: BC holds 100 and is due to send 300 on day 2; HS holds 50 and pays 120 on day 3; a third
+    # account has room. BC is short 200 and the cover move goes INTO BC (200 rounded up to 5 plus the 10 cushion
+    # = 210), so the standing order does not bounce. HS is fine (50 + 300 - 120 = 230).
+    today = date(2026, 10, 10)
+    third = "acc-third"
+    bills = [_bill("To HSBC", 300.0, 2, today, acct=BC, balance=100.0, kind=MOVEMENT),
+             _bill("Insurance", 120.0, 3, today, acct=HS, balance=50.0)]
+    items, elig = _run(monkeypatch, today, bills, [], [_inflow(300.0, 2, today)],
+                       {HS: (50.0, "hsbc"), BC: (100.0, "barclays"), third: (5000.0, "monzo")})
+    assert _short(elig[BC]) and elig[BC]["after_payments"] == pytest.approx(-200.0)
+    assert not _short(elig[HS]) and elig[HS]["after_payments"] == pytest.approx(230.0)
+    moves = [(m["move_map"]["from"]["account_id"], m["move_map"]["to"]["account_id"], m["amount"])
+             for i in items if i.get("type") == "move" for m in i.get("moves") or []]
+    assert moves == [(third, BC, 210.0)]
+
+
+def test_a_source_that_cannot_fund_a_standing_order_with_no_other_room_stays_short(monkeypatch):
+    today = date(2026, 10, 10)
+    bills = [_bill("To HSBC", 300.0, 2, today, acct=BC, balance=100.0, kind=MOVEMENT)]
+    items, elig = _run(monkeypatch, today, bills, [], [_inflow(300.0, 2, today)],
+                       {HS: (5.0, "hsbc"), BC: (100.0, "barclays")})
+    assert _short(elig[BC]) and not _short(elig[HS])
+    legs = [m for i in items if i.get("type") == "move" for m in i.get("moves") or []]
+    assert legs == [], "no account has room, so the source stays short with no leg (a no-source note only)"
 
 
 # ── 3. Bills on or after the next payday never touch this period ───────────
@@ -373,57 +405,33 @@ def _scenario(today, source_balance, with_salary):
     return bills, income, [_inflow(1886.0, 1, today)]
 
 
-def test_at_risk_count_follows_the_funded_rule(monkeypatch):
+def test_at_risk_count_credits_the_destination_and_flags_the_source(monkeypatch):
     today = timeutil.user_today()
     # Source covered by its own balance: HSBC credited, rent covered, nothing at risk.
     bills, income, inflows = _scenario(today, 5000.0, False)
     assert _run_at_risk(monkeypatch, bills, income, inflows) == 0
-    # Source empty, no credited income: HSBC not credited, rent and (G438) the
-    # empty source's own bounced movement are both at risk.
+    # Source empty, no credited income (G479): HSBC is STILL credited, so its rent is covered; only the
+    # empty source's own bounced movement is at risk.
     bills, income, inflows = _scenario(today, 0.0, False)
-    assert _run_at_risk(monkeypatch, bills, income, inflows) == 2
+    assert _run_at_risk(monkeypatch, bills, income, inflows) == 1
 
 
-def test_spend_impact_window_follows_the_funded_rule(monkeypatch):
+def test_spend_impact_window_credits_the_destination_either_way(monkeypatch):
     today = timeutil.user_today()
-    for source_balance, expect in ((5000.0, 1), (0.0, 0)):
+    for source_balance, expect in ((5000.0, 1), (0.0, 1)):
         bills, income, inflows = _scenario(today, source_balance, False)
         window = _run_spend_window(monkeypatch, bills, income, inflows)
         credited = [e for e in window["events"] if e[3] and e[1] == HS and e[2] == 1886.0]
         assert len(credited) == expect
 
 
-def test_funded_inflows_helper_unit():
-    today = date(2026, 10, 10)
-    bills = [_bill("To HSBC", 1886.0, 1, today, acct=BC, balance=0.0, kind=MOVEMENT)]
-    inflow = _inflow(1886.0, 1, today)
-    ok = lambda i, a: income_credit_ok(i, a, frozenset())
-    assert funded_inflows([inflow], bills, [], {BC: 5000.0}, ok) == [inflow]
-    assert funded_inflows([inflow], bills, [], {BC: 0.0}, ok) == []
-    assert funded_inflows([inflow], bills, [], {}, ok) == [], "untracked source"
-    assert funded_inflows([_inflow(1886.0, 1, today, source=None)], bills, [], {BC: 5000.0}, ok) == [], "unknown source"
-    sal = _salary(4800.0, 1, today)
-    stamp_credit_basis([sal], PAY_CFG, frozenset(), today)
-    assert funded_inflows([inflow], bills, [sal], {BC: 0.0}, ok) == [inflow], "same-day credit before debit"
-    # One level only: the source's own inbound inflow never funds it.
-    own = _inflow(5000.0, 0, today, dest=BC, source="acc-third")
-    assert funded_inflows([inflow, own], bills, [], {BC: 0.0, "acc-third": 9000.0}, ok) == [own]
+# ── 5. Lockstep: no gate survives, every walk reads the raw window inflows ─
 
-
-# ── 5. Lockstep: no ungated inflow append survives ─────────────────────────
-
-def test_every_inflow_walk_goes_through_the_funded_helper():
+def test_the_g360_inflow_gate_is_gone_and_every_walk_reads_the_window_inflows():
     root = Path(__file__).resolve().parent.parent / "app"
-    # G364: the gate is applied once, in the shared window-inputs builder.
-    # G365: the walks read its `funded_window_inflows` through the one
-    # per-account walk (services/account_walk.py) rather than each caller
-    # looping over it.
-    assert "funded_inflows(" in (root / "services/window_inputs.py").read_text()
-    assert "funded_window_inflows" in (root / "services/account_walk.py").read_text()
-    for rel in ("services/companion.py", "routers/analytics.py", "services/spend_impact.py"):
+    assert not (root / "services/inflow_credit.py").exists(), "the G360 gate module must not come back"
+    for rel in ("services/window_inputs.py", "services/account_walk.py", "services/account_available.py",
+                "services/companion.py", "routers/analytics.py", "services/spend_impact.py"):
         src = (root / rel).read_text()
-        assert "funded_window_inflows" in src or "account_walk" in src, rel
-        # No loop appends a raw window_inflows entry into a walk.
-        assert not re.search(r"for\s+\w+\s+in\s+window_inflows\s*:", src), (
-            f"{rel}: iterate funded inflows, never raw window_inflows"
-        )
+        assert "funded_inflows" not in src and "funded_window_inflows" not in src and "unfunded_transfer_bills" not in src, rel
+    assert "inputs.window_inflows" in (root / "services/account_walk.py").read_text()

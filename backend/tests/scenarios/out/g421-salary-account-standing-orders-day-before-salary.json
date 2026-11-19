@@ -1,70 +1,110 @@
 {
   "account_eligibility": {
     "acc-bc": {
-      "after_payments": 450.0,
-      "after_payments_and_money_in": 450.0,
-      "after_payments_and_plans": 450.0,
-      "contribution": 450.0,
+      "after_payments": -1150.0,
+      "after_payments_and_money_in": -1150.0,
+      "after_payments_and_plans": -1150.0,
+      "contribution": 0.0,
+      "covered_by_move": {
+        "amount": 250.0,
+        "from": [
+          {
+            "account_id": "acc-hsbc",
+            "amount": 140.0,
+            "display_label": "HSBC Current",
+            "name": "HSBC Current"
+          },
+          {
+            "account_id": "acc-nw",
+            "amount": 110.0,
+            "display_label": "NatWest Current",
+            "name": "NatWest Current"
+          }
+        ],
+        "shortfall": 1150.0
+      },
+      "dips_below_zero": {
+        "short_by": 1150.0,
+        "short_on": "2026-11-26"
+      },
       "estimated": false,
-      "headroom": 440.0,
+      "headroom": -1160.0,
       "is_current_account": true,
-      "low_point": 450.0,
-      "low_point_and_plans": 450.0,
-      "lowest_after_money_in": 450.0,
+      "low_point": -1150.0,
+      "low_point_and_plans": -1150.0,
+      "lowest_after_money_in": -1150.0,
+      "moves_in_total": 250.0,
       "plans_reserved": 0.0,
-      "short": false,
-      "spend_from_headroom": 450.0,
+      "short": true,
+      "short_after_cover": 900.0,
+      "spend_from_headroom": -900.0,
       "uncertain": false,
-      "uncovered_shortfall": 0.0
+      "uncovered_shortfall": 900.0
     },
     "acc-hsbc": {
-      "after_payments": 150.0,
-      "after_payments_and_money_in": 150.0,
-      "after_payments_and_plans": 150.0,
-      "contribution": 150.0,
+      "after_payments": 1050.0,
+      "after_payments_and_money_in": 1050.0,
+      "after_payments_and_plans": 1050.0,
+      "contribution": 910.0,
+      "earmarked_total": 140.0,
+      "earmarks_out": [
+        {
+          "amount": 140.0,
+          "to_account_id": "acc-bc",
+          "to_name": "Barclays Current"
+        }
+      ],
       "estimated": false,
       "headroom": 140.0,
       "is_current_account": true,
       "low_point": 150.0,
       "low_point_and_plans": 150.0,
-      "lowest_after_money_in": 150.0,
+      "lowest_after_money_in": 1050.0,
       "plans_reserved": 0.0,
       "short": false,
-      "spend_from_headroom": 150.0,
+      "spend_from_headroom": 910.0,
       "uncertain": false,
       "uncovered_shortfall": 0.0
     },
     "acc-mz": {
-      "after_payments": 80.0,
-      "after_payments_and_money_in": 80.0,
-      "after_payments_and_plans": 80.0,
-      "contribution": 80.0,
+      "after_payments": 280.0,
+      "after_payments_and_money_in": 280.0,
+      "after_payments_and_plans": 280.0,
+      "contribution": 280.0,
       "estimated": false,
       "headroom": 70.0,
       "is_current_account": true,
       "low_point": 80.0,
       "low_point_and_plans": 80.0,
-      "lowest_after_money_in": 80.0,
+      "lowest_after_money_in": 280.0,
       "plans_reserved": 0.0,
       "short": false,
-      "spend_from_headroom": 80.0,
+      "spend_from_headroom": 280.0,
       "uncertain": false,
       "uncovered_shortfall": 0.0
     },
     "acc-nw": {
-      "after_payments": 120.0,
-      "after_payments_and_money_in": 120.0,
-      "after_payments_and_plans": 120.0,
-      "contribution": 120.0,
+      "after_payments": 620.0,
+      "after_payments_and_money_in": 620.0,
+      "after_payments_and_plans": 620.0,
+      "contribution": 510.0,
+      "earmarked_total": 110.0,
+      "earmarks_out": [
+        {
+          "amount": 110.0,
+          "to_account_id": "acc-bc",
+          "to_name": "Barclays Current"
+        }
+      ],
       "estimated": false,
       "headroom": 110.0,
       "is_current_account": true,
       "low_point": 120.0,
       "low_point_and_plans": 120.0,
-      "lowest_after_money_in": 120.0,
+      "lowest_after_money_in": 620.0,
       "plans_reserved": 0.0,
       "short": false,
-      "spend_from_headroom": 120.0,
+      "spend_from_headroom": 510.0,
       "uncertain": false,
       "uncovered_shortfall": 0.0
     }
@@ -116,7 +156,7 @@
       "type": "BANK"
     }
   ],
-  "at_risk_count": 0,
+  "at_risk_count": 4,
   "cashflow": {
     "internal_inflows": [
       {
@@ -488,7 +528,97 @@
     ]
   },
   "days_to_payday": 2,
-  "items": [],
+  "items": [
+    {
+      "amount": 250,
+      "covered": false,
+      "id": "plan:2026-11-27:f5552518c3",
+      "moves": [
+        {
+          "amount": 140,
+          "headline": "Move \u00a3140 from HSBC Current",
+          "move_map": {
+            "from": {
+              "account_id": "acc-hsbc",
+              "balance": 150.0,
+              "display_label": "HSBC Current",
+              "name": "HSBC Current",
+              "provider": "hsbc",
+              "reserved_for_allocations": 0.0,
+              "safe_note": "Nothing due from this account before tomorrow"
+            },
+            "to": {
+              "account_id": "acc-bc",
+              "balance": 600.0,
+              "display_label": "Barclays Current",
+              "incoming": "\u00a3900 Test Owner Hsbc expected tomorrow",
+              "name": "Barclays Current",
+              "provider": "barclays"
+            }
+          }
+        },
+        {
+          "amount": 110,
+          "headline": "Move \u00a3110 from NatWest Current",
+          "move_map": {
+            "from": {
+              "account_id": "acc-nw",
+              "balance": 120.0,
+              "display_label": "NatWest Current",
+              "name": "NatWest Current",
+              "provider": "natwest",
+              "reserved_for_allocations": 0.0,
+              "safe_note": "Nothing due from this account before tomorrow"
+            },
+            "to": {
+              "account_id": "acc-bc",
+              "balance": 600.0,
+              "display_label": "Barclays Current",
+              "incoming": "\u00a3900 Test Owner Hsbc expected tomorrow",
+              "name": "Barclays Current",
+              "provider": "barclays"
+            }
+          }
+        }
+      ],
+      "plan_dest": {
+        "account_id": "acc-bc",
+        "balance": 600.0,
+        "bills": [
+          {
+            "amount": 900,
+            "expected_date": "2026-11-26",
+            "label": "Test Owner Hsbc"
+          },
+          {
+            "amount": 500,
+            "expected_date": "2026-11-26",
+            "label": "Test Owner Natwest"
+          },
+          {
+            "amount": 200,
+            "expected_date": "2026-11-26",
+            "label": "Test Owner Monzo"
+          },
+          {
+            "amount": 150,
+            "expected_date": "2026-11-26",
+            "label": "Council Tax"
+          }
+        ],
+        "display_label": "Barclays Current",
+        "is_overdraft": false,
+        "name": "Barclays Current",
+        "needs_by": "tomorrow",
+        "needs_by_date": "2026-11-26",
+        "needs_by_last": "tomorrow",
+        "needs_by_last_date": "2026-11-26",
+        "needs_total": 1750,
+        "provider": "barclays"
+      },
+      "type": "move"
+    }
+  ],
   "name": "Salary account standing orders dated the day before the salary stay a genuine shortfall, covered by at most two sources (G421)",
   "period": {
     "end": "2026-11-26",
@@ -502,7 +632,15 @@
       "accounts_total": 800.0,
       "basis": "lowest_point",
       "buffer": 0.0,
-      "dips": [],
+      "dips": [
+        {
+          "account_id": "acc-bc",
+          "account_name": "Barclays Current",
+          "line": "Barclays Current: \u00a31,150 short on 26 Nov",
+          "short_by": 1150.0,
+          "short_on": "2026-11-26"
+        }
+      ],
       "plans_total": 0
     },
     "lowest_projected_balance": 800.0,

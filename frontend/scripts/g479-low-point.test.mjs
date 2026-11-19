@@ -170,21 +170,23 @@ const detail = (snap, accounts, id, hidden = false) => {
   }
 }
 
-// ── One rule everywhere: a transfer its source cannot fund is excluded on BOTH legs (hero, account, client walk) ──
+// ── One rule everywhere (Kevin 2026-11-19, option 1): a transfer counts on BOTH legs even when its source cannot fund it ──
 {
-  const { snap, accounts } = load("g479-a-transfer-its-source-cannot-fund");
+  const { snap, accounts } = load("g479-a-transfer-counts-on-both-legs");
   assert.equal(snap.safe_to_spend.safe_to_spend, 30, "the pooled 100 + 50 - 120");
   assert.equal(reading(snap, accounts, "acc-hb").value + reading(snap, accounts, "acc-md").value, 30, "the two accounts add up to the hero");
+  assert.equal(reading(snap, accounts, "acc-hb").value, -160, "Harbour, the source, carries the shortfall: -200 plus the 40 that Meadow can lend");
   const walk = walkUpcomingAccounts(snap.cashflow, Date.parse("2026-11-26T23:59:59Z"), [], new Set());
   const hb = walk.accounts.find((a) => a.id === "acc-hb");
   const md = walk.accounts.find((a) => a.id === "acc-md");
-  assert.equal(hb.closing, 100, "the client does not deduct the unfunded order from Harbour");
-  assert.equal(hb.status, "covered");
-  assert.equal(md.closing, -70, "and does not credit Meadow: -70, the server's after payments");
-  assert.equal(md.status, "short");
+  assert.equal(hb.closing, -200, "the client deducts the order from Harbour");
+  assert.equal(hb.status, "short");
+  assert.equal(md.closing, 230, "and credits Meadow, never flagging it short for a transfer due to arrive");
+  assert.equal(md.status, "covered");
+  assert.equal(hb.closing, snap.account_eligibility["acc-hb"].after_payments);
   assert.equal(md.closing, snap.account_eligibility["acc-md"].after_payments);
-  assert.equal(snap.account_eligibility["acc-md"].dips_below_zero.short_by, 70, "the ledger dip is the same 70");
-  assert.equal(snap.account_eligibility["acc-hb"].dips_below_zero, undefined);
+  assert.equal(snap.account_eligibility["acc-hb"].dips_below_zero.short_by, 200, "the ledger dip is the same 200");
+  assert.equal(snap.account_eligibility["acc-md"].dips_below_zero, undefined);
 }
 
 // ── No copy rule broken: British English, no em dashes, no exclamation marks, hedged predictions ──

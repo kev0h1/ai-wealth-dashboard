@@ -1,0 +1,137 @@
+{
+  "name": "G479 option 1: a transfer counts on BOTH legs even when its source cannot fund it (Harbour has 100 and is due to send 300, Meadow has 50 and pays 120): Harbour is short 200, Meadow is fine, total 30",
+  "today": "2026-11-19",
+  "pay_period_config": {
+    "type": "last_friday"
+  },
+  "confirmed_income_streams": [],
+  "accounts": [
+    {
+      "_id": "acc-hb",
+      "name": "Harbour Current",
+      "provider": "barclays",
+      "type": "BANK",
+      "subtype": "TRANSACTION",
+      "balance": 100.0,
+      "currency": "GBP",
+      "status": "connected",
+      "include_in_safe_to_spend": true
+    },
+    {
+      "_id": "acc-md",
+      "name": "Meadow Current",
+      "provider": "natwest",
+      "type": "BANK",
+      "subtype": "TRANSACTION",
+      "balance": 50.0,
+      "currency": "GBP",
+      "status": "connected",
+      "include_in_safe_to_spend": true
+    }
+  ],
+  "manual_accounts": [],
+  "cashflow_cache": {
+    "recurring_spend": [
+      {
+        "key": "HARBOUR TO MEADOW STO",
+        "avg_amount": 300.0,
+        "avg_interval": 30,
+        "next_date": "2026-11-23",
+        "account_id": "acc-hb",
+        "account_name": "Harbour Current",
+        "account_bank": "barclays",
+        "account_balance": 100.0,
+        "is_credit_card": false,
+        "category": "Transfer",
+        "dest_account_id": "acc-md",
+        "dest_account_name": "Meadow Current",
+        "dest_account_bank": "natwest",
+        "dest_account_spendable": true
+      },
+      {
+        "key": "HOME INSURANCE",
+        "avg_amount": 120.0,
+        "avg_interval": 30,
+        "next_date": "2026-11-24",
+        "account_id": "acc-md",
+        "account_name": "Meadow Current",
+        "account_bank": "natwest",
+        "account_balance": 50.0,
+        "is_credit_card": false,
+        "category": "Bills"
+      }
+    ],
+    "recurring_income": [],
+    "bnpl_commitments": [],
+    "avg_daily_spend": 0
+  },
+  "transactions": [],
+  "commitments": [],
+  "allocations": [],
+  "card_terms": [],
+  "expected": {
+    "left_to_spend": 30.0,
+    "spendable_balance": 150.0,
+    "lines": {
+      "accounts_total": 30.0,
+      "plans_total": 0.0,
+      "buffer": 0.0
+    },
+    "spend_from_total": 30.0,
+    "dip_lines": [
+      "Harbour Current: £200 short on 23 Nov"
+    ],
+    "accounts": {
+      "acc-hb": {
+        "spend_from": -160.0,
+        "after_payments": -200.0,
+        "low_point": -200.0,
+        "lowest_after_money_in": -200.0,
+        "verdict": "short",
+        "dip": {
+          "short_by": 200.0,
+          "short_on": "2026-11-23"
+        },
+        "covered_by_move": {
+          "amount": 40.0,
+          "from": [
+            {
+              "account_id": "acc-md",
+              "amount": 40.0
+            }
+          ]
+        },
+        "short_after_cover": 160.0,
+        "contribution": 0.0,
+        "uncovered_shortfall": 160.0
+      },
+      "acc-md": {
+        "spend_from": 190.0,
+        "after_payments": 230.0,
+        "low_point": 50.0,
+        "lowest_after_money_in": 230.0,
+        "verdict": "covered",
+        "earmarked_total": 40.0,
+        "earmarks_out": [
+          {
+            "to": "acc-hb",
+            "amount": 40.0
+          }
+        ]
+      }
+    },
+    "cover_plan": {
+      "moves_total": 40.0,
+      "moves": [
+        {
+          "from": "acc-md",
+          "to": "acc-hb",
+          "amount": 40.0
+        }
+      ]
+    },
+    "payday_plan": null,
+    "at_risk_count": 1,
+    "notes": "Today is Thu 19 Nov 2026, pay is the last Friday, so payday is Fri 27 Nov: the window is 19 to 26 Nov. Harbour Current holds 100 and has a standing order of 300 to Meadow Current on Mon 23 Nov (day 4). Meadow Current holds 50 and pays home insurance 120 on Tue 24 Nov (day 5). No income is expected. G479 (Kevin 2026-11-19, option 1): a predicted own transfer counts on BOTH legs on every surface (ledger, Upcoming, cover plan, at-risk badge, client walk, payday plan, spend impact), whether or not the source can fund it; the G360 inbound gate is gone. Harbour: 100 - 300 = -200 on 23 Nov: it is short 200 (after payments -200, low point -200, verdict short), the dip line reads 'Harbour Current: £200 short on 23 Nov' (no money follows it). Meadow: 50 + 300 (credited on 23 Nov) = 350, - 120 = 230 on 24 Nov: after payments 230, lowest 230 (nothing lower after a payment), never flagged short for a transfer due to arrive; the cover engine's low point is its opening 50 (credits cannot lower it), covered. Left to spend: -200 + 230 = 30, the pooled 100 + 50 - 120. Cover plan: the move goes INTO Harbour so the standing order does not bounce. Shortfall 200 needs ceil5(200) + 10 = 210, but the only other current account, Meadow, has headroom 50 - 10 = 40 (its source walk's low point is its opening 50), so one move of 40 and Harbour stays short 160 after it. Earmark: Meadow 230 - 40 = 190; Harbour -200 + 40 = -160 (not positive, so no 'requires move'); 190 + (-160) = 30, the move nets to zero and the total shows the uncovered 160. At risk count 1: the bounced 300 standing order (G438: an own-account move counts like any payment); the insurance is covered."
+  }
+}

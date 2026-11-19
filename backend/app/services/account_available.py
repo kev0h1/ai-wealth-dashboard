@@ -18,7 +18,7 @@ never penalised twice (once as the destination's shortfall and again as the sour
 cover plan never changes the headline (G410: "pool never changes", G436: moves net to zero).
 
 Own-account transfers. A transfer is money out of its source and money in on its destination on its
-date; one its source cannot fund (G360) is excluded on both legs, on every surface. Between accounts that have no earlier payment it nets to zero (the destination's
+date, on every surface, whether or not its source can fund it (Kevin 2026-11-19, option 1; the G360 inbound gate is gone). When the source cannot fund it the SOURCE shows the shortfall and gets the cover move, and the destination is never flagged short for money that is due to arrive. Between accounts that have no earlier payment it nets to zero (the destination's
 closing balance carries the credit). It stops netting only when the destination has a payment BEFORE the
 credit lands, because that payment sets the destination's low point and the later credit cannot lift
 it. That is a doctrine question for Kevin (reported on G479), not something this rule papers over.
@@ -43,7 +43,7 @@ intention."
       - any earmarked move out of it (G410)
       + any suggested move into it from another CURRENT account (savings moves are shown, never counted).
   An own-account transfer is money out on its source and money in on its destination on its date,
-  with no special handling and no G360 gate on this figure (`money_in_out_window`), so a transfer
+  with no special handling and no gate (`money_in_out_window`), so a transfer
   between counted accounts nets to zero. A dip below zero before money arrives is a warning on the
   account (`dip_before_money_in`, plus the cover engine's move) and never changes the figure.
 
@@ -93,14 +93,9 @@ def predicted_money_in(item: dict, account_id: str, confirmed_keys: Any = frozen
 
 def money_in_out_window(window: Any) -> Any:
     """The window the per-account Available is read from (Kevin 2026-11-07, "every account in
-    isolation, money in vs money out"): the same inputs, with one difference from the other walks.
+    isolation, money in vs money out"): the same inputs, with one difference from the other walks (G479, Kevin 2026-11-19: an own transfer counts on BOTH legs everywhere, whether or not its source can fund it, so there is no transfer difference).
 
-      1. (G479, Kevin 2026-11-19, "all figures must be consistent") There is NO ledger-only transfer rule
-         any more. An own-account transfer its source cannot fund (the G360 test, `inflow_credit`) is
-         excluded on BOTH legs everywhere, in `window_inputs`: the credit is not credited to the
-         destination and the debit is not deducted from the source, so the ledger, Upcoming, the cover
-         plan, the at-risk badge and the client walk all read the same events.
-      2. Expected INCOME counts only when its date is after today. An occurrence dated today that has
+      Expected INCOME counts only when its date is after today. An occurrence dated today that has
          not been observed (G362 closes one only once its credit has posted) may already be in the
          balance, so counting it would credit it twice, the dangerous direction; if it has not landed
          yet the figure is briefly lower until it posts. (Occurrences before today are never in the

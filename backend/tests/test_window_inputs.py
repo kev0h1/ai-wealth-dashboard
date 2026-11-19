@@ -27,7 +27,6 @@ import app.db.collections as db_collections
 import app.routers.analytics as analytics
 import app.services.account_walk as account_walk
 import app.services.companion as companion
-import app.services.inflow_credit as inflow_credit
 import app.services.income as income
 import app.services.pay_period as pay_period
 import app.services.spend_impact as spend_impact
@@ -126,24 +125,6 @@ def _patch_common(monkeypatch):
     monkeypatch.setattr(analytics, "_build_cashflow_response", fake_resp)
 
 
-def _spy_funded(monkeypatch, store):
-    real = inflow_credit.funded_inflows
-
-    def spy(inflows, bills, incomes, balances, credit_ok):
-        store["funded_args"] = {
-            "inflows": list(inflows), "bills": list(bills),
-            "incomes": list(incomes), "balances": dict(balances),
-        }
-        out = real(inflows, bills, incomes, balances, credit_ok)
-        store["funded_out"] = list(out)
-        return out
-
-    monkeypatch.setattr(inflow_credit, "funded_inflows", spy)
-    # companion imported the name at module level before the extraction.
-    if hasattr(companion, "funded_inflows"):
-        monkeypatch.setattr(companion, "funded_inflows", spy)
-
-
 def _norm(x):
     return json.loads(json.dumps(x, default=str, sort_keys=True))
 
@@ -151,7 +132,6 @@ def _norm(x):
 def _capture_at_risk(monkeypatch):
     _patch_common(monkeypatch)
     store: dict = {}
-    _spy_funded(monkeypatch, store)
     monkeypatch.setattr(
         analytics, "cashflow_cache_col",
         FakeCol([{"_id": UID, "patterns_version": PATTERNS_VERSION}]),
@@ -187,7 +167,6 @@ def _capture_at_risk(monkeypatch):
 def _capture_spend_impact(monkeypatch):
     _patch_common(monkeypatch)
     store: dict = {}
-    _spy_funded(monkeypatch, store)
     monkeypatch.setattr(spend_impact, "cashflow_cache_col", FakeCol([{"_id": UID}]))
     monkeypatch.setattr(spend_impact, "preferences_col", FakeCol([PREFS]))
     monkeypatch.setattr(spend_impact, "accounts_col", FakeCol(ACCOUNTS))
@@ -199,7 +178,6 @@ def _capture_spend_impact(monkeypatch):
 def _capture_companion(monkeypatch):
     _patch_common(monkeypatch)
     store: dict = {}
-    _spy_funded(monkeypatch, store)
     monkeypatch.setattr(companion, "cashflow_cache_col", FakeCol([{"_id": UID, "patterns_version": PATTERNS_VERSION}]))
     monkeypatch.setattr(companion, "_build_cashflow_response", analytics._build_cashflow_response)
     monkeypatch.setattr(companion, "preferences_col", FakeCol([PREFS]))
@@ -278,6 +256,9 @@ def _attributed(pairs):
 def test_caller_output_equals_pre_extraction_golden(monkeypatch, name):
     golden = json.loads(GOLDEN.read_text())[name]
     got = CAPTURES[name](monkeypatch)
+    # G479: the funded-inflow spy is gone with the G360 gate; the builder lists are asserted by test_builder_lists...
+    golden.pop("funded_args", None)
+    golden.pop("funded_out", None)
     if name == "at_risk":
         # G365: compared in walk order (the golden holds insertion order).
         golden["events_unsorted"] = sorted(
@@ -332,7 +313,7 @@ def test_builder_lists_equal_what_each_caller_computed_before(monkeypatch, calle
     assert _norm(wi.assessable_bills) == fa["bills"]
     assert _norm(wi.window_income) == fa["incomes"]
     assert _norm({**wi.live_balances, **wi.running_seed}) == fa["balances"]
-    assert _norm(wi.funded_window_inflows) == golden["funded_out"]
+    # G479: no inbound gate, so the walks read `window_inflows` itself (the golden's old funded_out is not asserted).
     if caller == "spend_impact":
         assert _norm(wi.running_seed) == golden["window"]["balances"]
 

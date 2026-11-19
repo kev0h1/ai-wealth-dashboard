@@ -92,15 +92,15 @@ const detail = (account, snap, accounts) => {
   assert.doesNotMatch(dest.html, /<button/, "a move is a recommendation sentence, never a button");
 }
 
-// ── A standing order its source cannot fund is excluded on BOTH legs (G479, Kevin 2026-11-19) ──
+// ── An own-account standing order is money out on one account and in on another, whether or not its source can fund it ──
 {
   const { snap, accounts } = load("g421-salary-account-standing-orders-day-before");
   const value = (id) => accountAvailability(accounts.find((a) => a.id === id), { status: "ready", positions: snap.account_eligibility }).value;
-  // Barclays cannot fund the three orders before the salary lands, so none is deducted from it and none credits a destination.
-  assert.deepEqual(["acc-hsbc", "acc-nw", "acc-mz"].map((id) => snap.account_eligibility[id].after_payments_and_money_in), [150, 120, 80]);
-  assert.equal(value("acc-bc"), 450, "Barclays keeps its cash: 600 less the council tax");
+  // Barclays cannot fund the three orders, but each destination still counts its money in on its date (G479 option 1).
+  assert.deepEqual(["acc-hsbc", "acc-nw", "acc-mz"].map((id) => snap.account_eligibility[id].after_payments_and_money_in), [1050, 620, 280]);
+  assert.equal(value("acc-bc"), -900, "the source shows its shortfall (-1,150 plus the 250 suggested in), reducing the total");
   assert.equal(["acc-bc", "acc-hsbc", "acc-nw", "acc-mz"].reduce((n, id) => n + value(id), 0), 800);
-  assert.equal(snap.safe_to_spend.safe_to_spend, 800, "the total is the four balances less the council tax, on every surface");
+  assert.equal(snap.safe_to_spend.safe_to_spend, 800, "the transfers net to zero: the total is the four balances less the council tax");
 }
 
 // ── A shortfall only savings can cover: shown, never counted ──

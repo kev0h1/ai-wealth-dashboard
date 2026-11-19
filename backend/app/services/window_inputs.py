@@ -22,7 +22,7 @@ What is shared (identical in all three, now written once):
   `pay_period.in_current_window`; the assessable-bill filter
   (`is_assessable_bill`); the starting balance per account, seeded from the
   live balance else the bill's own `account_balance`; the confirmed income
-  keys; and the G360 funded-inflow gate (`inflow_credit.funded_inflows`).
+  keys. G479 (Kevin 2026-11-19): there is no inbound-transfer gate; a predicted own transfer counts on both legs.
 
 Differences (each is an argument; the value shown is what each caller passes,
 which is also what its hand-copied preamble did before G364):
@@ -105,11 +105,6 @@ class WindowInputs:
     all_uk_accounts: list[dict]
     offline_accounts: list[dict]
     running_seed: dict[str, float]  # starting balance per account the walk tracks (a bill sits on it)
-    funded_window_inflows: list[dict]  # window_inflows gated by the G360 funded-inflow rule
-    # G479 (Kevin 2026-11-19, "all figures must be consistent"): the DEBIT legs of own-account transfers the
-    # G360 rule judged unfunded. They are removed from `assessable_bills` (so no walk deducts them) exactly as
-    # the unfunded credit is not credited: a transfer its source cannot fund is excluded on BOTH legs.
-    unfunded_transfer_bills: list[dict] = field(default_factory=list)
 
 
 # ── balance loaders (one per caller; see the differences table) ──────────────
@@ -236,8 +231,6 @@ async def build_window_inputs(
     from app.routers.analytics import stamp_credit_basis as _stamp
     from app.services import pay_period as _pp
     from app.services.income import get_confirmed_payday as _get_confirmed_payday
-    from app.services.categories import MOVEMENT
-    from app.services.inflow_credit import funded_inflows
 
     pay_cfg = prefs.get("pay_period_config", {"type": "calendar_month"})
     today_d = timeutil.user_today()
@@ -306,40 +299,6 @@ async def build_window_inputs(
         if acct not in running_seed:
             running_seed[acct] = live_balances.get(str(acct), float(b.get("account_balance") or 0))
 
-    # G360: an inflow is credited only when its SOURCE account is itself
-    # covered that day (`funded_inflows`, one rule for every walk).
-    funded_window_inflows = funded_inflows(
-        window_inflows, assessable_bills, window_income, {**live_balances, **running_seed},
-        lambda i, a: income_credit_ok(i, a, confirmed_income_keys),
-    )
-
-    # G479: the same rule on the other leg. A transfer between counted current accounts whose source cannot fund it
-    # is not deducted from the source either, so the source keeps its cash and the destination carries the shortfall, once. The gate
-    # is judged ONCE on the source's own cash with every transfer debit counted (conservative): dropping one
-    # transfer never makes another fundable, and a suggested move INTO the source is not counted (no loop).
-    funded_ids = {id(n) for n in funded_window_inflows}
-    unfunded_transfer_bills: list[dict] = []
-    taken: set[int] = set()
-    excluded_ids = loaded.excluded_account_ids or set()
-    for n in window_inflows:
-        # Only a transfer INTO a counted current account: its credit is a leg of a walk we show. A payment
-        # into savings or an account that is not counted has no destination walk, so it stays an ordinary
-        # predicted payment that can bounce (G438, G422, G426): hiding it would hide a genuine shortfall.
-        if id(n) in funded_ids or n.get("destination_spendable") is not True or str(n.get("account_id") or "") in excluded_ids:
-            continue
-        for b in assessable_bills:
-            if (
-                id(b) not in taken and b.get("kind") == MOVEMENT
-                and str(b.get("account_id") or "") == str(n.get("source_account_id") or "")
-                and b.get("name") == n.get("name") and b.get("expected_date") == n.get("expected_date")
-                and round(float(b.get("amount") or 0), 2) == round(float(n.get("amount") or 0), 2)
-            ):
-                taken.add(id(b))
-                unfunded_transfer_bills.append(b)
-                break
-    if taken:
-        assessable_bills = [b for b in assessable_bills if id(b) not in taken]
-
     return WindowInputs(
         uid=uid,
         prefs=prefs,
@@ -363,6 +322,4 @@ async def build_window_inputs(
         all_uk_accounts=loaded.all_uk_accounts,
         offline_accounts=loaded.offline_accounts,
         running_seed=running_seed,
-        funded_window_inflows=funded_window_inflows,
-        unfunded_transfer_bills=unfunded_transfer_bills,
     )
