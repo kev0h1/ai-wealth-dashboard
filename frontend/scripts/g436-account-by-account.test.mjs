@@ -98,7 +98,7 @@ const detail = (account, snap, accounts) => {
   const value = (id) => accountAvailability(accounts.find((a) => a.id === id), { status: "ready", positions: snap.account_eligibility }).value;
   // Barclays cannot fund the three orders, but each destination still counts its money in on its date (G479 option 1).
   assert.deepEqual(["acc-hsbc", "acc-nw", "acc-mz"].map((id) => snap.account_eligibility[id].after_payments_and_money_in), [1050, 620, 280]);
-  assert.equal(value("acc-bc"), -900, "the source shows its shortfall (-1,150 plus the 250 suggested in), reducing the total");
+  assert.equal(value("acc-bc"), -1150, "the source shows its whole shortfall (its destinations are never offered as lenders), reducing the total");
   assert.equal(["acc-bc", "acc-hsbc", "acc-nw", "acc-mz"].reduce((n, id) => n + value(id), 0), 800);
   assert.equal(snap.safe_to_spend.safe_to_spend, 800, "the transfers net to zero: the total is the four balances less the council tax");
 }

@@ -175,7 +175,9 @@ const detail = (snap, accounts, id, hidden = false) => {
   const { snap, accounts } = load("g479-a-transfer-counts-on-both-legs");
   assert.equal(snap.safe_to_spend.safe_to_spend, 30, "the pooled 100 + 50 - 120");
   assert.equal(reading(snap, accounts, "acc-hb").value + reading(snap, accounts, "acc-md").value, 30, "the two accounts add up to the hero");
-  assert.equal(reading(snap, accounts, "acc-hb").value, -160, "Harbour, the source, carries the shortfall: -200 plus the 40 that Meadow can lend");
+  assert.equal(reading(snap, accounts, "acc-hb").value, -200, "Harbour, the source, carries the shortfall; Meadow, the destination, is never offered as its lender");
+  assert.equal(snap.account_eligibility["acc-hb"].covered_by_move, undefined);
+  assert.equal(snap.account_eligibility["acc-md"].earmarks_out, undefined);
   const walk = walkUpcomingAccounts(snap.cashflow, Date.parse("2026-11-26T23:59:59Z"), [], new Set());
   const hb = walk.accounts.find((a) => a.id === "acc-hb");
   const md = walk.accounts.find((a) => a.id === "acc-md");

@@ -3048,6 +3048,34 @@ async def compute_today_items(
             # this is not a second, conflicting notion of "safe".
             source_capacity[sid] = mn - reserved_by_source.get(sid, 0.0)
 
+    # G479 (Kevin 2026-11-19, option 1): an account's LENDABLE capacity excludes the predicted credits of own
+    # transfers whose SOURCE is short in the window (its own full walk goes below zero): that money will not
+    # arrive, so it can only lend what is genuinely its own, and a cover move never goes back to the source of
+    # the transfer that gives the lender its headroom. Judged once on the source's own walk (no recursion). Only
+    # this capacity changes: the positions above read `source_walks` as before, so a destination is never
+    # flagged short for a transfer due to arrive. The same capacity feeds the cover plan, Upcoming, Penny and
+    # the payday plan.
+    import dataclasses as _dc
+
+    _short_sources = {
+        sid for sid, w in source_walks.items() if w.low_point is not None and w.low_point < 0
+    }
+    _lend_inflows = [n for n in wi.window_inflows if str(n.get("source_account_id") or "") not in _short_sources]
+    if len(_lend_inflows) != len(wi.window_inflows):
+        _wi_lend = _dc.replace(wi, window_inflows=_lend_inflows)
+        _dest_of_dropped = {
+            str(n.get("account_id") or "") for n in wi.window_inflows
+            if str(n.get("source_account_id") or "") in _short_sources
+        }
+        for acc in all_uk_accounts + offline_accounts:
+            sid = acc["_str_id"]
+            if sid not in _dest_of_dropped or sid not in source_walks:
+                continue
+            bal = live_balances.get(sid, float(acc.get("balance") or 0))
+            mn = _source_low_walk(sid, _wi_lend, bal).low_point
+            source_min_run[sid] = mn
+            source_capacity[sid] = mn - reserved_by_source.get(sid, 0.0)
+
     # `_account_headroom` (G50, 2026-09-12): the ONE definition of a source's
     # spare capacity — its own min-running balance (bills/income already
     # netted off, above) less the £10 buffer every source keeps. This is
@@ -3303,6 +3331,15 @@ async def compute_today_items(
     def _acct_is_savings(acc: dict | None) -> bool:
         return bool(acc) and bool(_is_savings(acc)) and not is_credit_card_account(acc)
 
+    # G479 (Kevin 2026-11-19, option 1): the destination of a predicted own transfer is never offered as a source
+    # for a shortfall on that transfer's SOURCE, whatever its own cash: the money would only go round in a circle
+    # (the transfer it receives is the one that will bounce). Keyed source -> its transfer destinations.
+    _transfer_dests_of: dict[str, set[str]] = {}
+    for _n in wi.window_inflows:
+        _src, _dst = str(_n.get("source_account_id") or ""), str(_n.get("account_id") or "")
+        if _src and _dst:
+            _transfer_dests_of.setdefault(_src, set()).add(_dst)
+
     def _find_legs_for_destination(dest_acct: str, amount_needed: float, build_move_map, existing_sources: frozenset = frozenset(), exclude_sources: frozenset = frozenset()) -> list[dict]:
         # `exclude_sources` (G422): accounts that may never fund this cover,
         # e.g. the savings account a standing order pays into, since moving
@@ -3332,6 +3369,8 @@ async def compute_today_items(
                 sid = acc["_str_id"]
                 if sid == dest_acct or sid in excluded_sources or sid in used_sources or sid in exclude_sources:
                     continue
+                if sid in _transfer_dests_of.get(dest_acct, ()):
+                    continue  # G479: never lend back to the source of the transfer that credits you
                 if _same_bank_account(acc, _dest_doc):
                     continue
                 if exclude_sources and any(_same_bank_account(acc, _account_map.get(x)) for x in exclude_sources):

@@ -39,7 +39,7 @@ whose default is the OLD behaviour (PD1 to PD4 below), not unified silently.
 | Id  | Difference | Keyword | Default (old behaviour) | Other value |
 |-----|------------|---------|--------------------------|-------------|
 | PD1 | Which accounts get a position | `accounts` | `"eligible"`: every id passed (every entry of `account_eligibility_out`, i.e. every source-eligible account, walked or not) | `"walked"`: only an account the closing walk touched |
-| PD2 | Closing for an account the closing walk never touched (no bill, no funded inflow, not the preview salary account: an idle account, a manual account) | `closing_fallback` | `"live"`: its live balance, else 0.0 (what `running.get(sid, live_balances.get(sid, 0.0))` gave; an overdraft account seeded into `running` is the same live balance) | `"none"`: closing unknown, so After payments and the plan figures are None |
+| PD2 | Closing for an account the closing walk never touched (no bill, no inflow, not the preview salary account: an idle account, a manual account) | `closing_fallback` | `"live"`: its live balance, else 0.0 (what `running.get(sid, live_balances.get(sid, 0.0))` gave; an overdraft account seeded into `running` is the same live balance) | `"none"`: closing unknown, so After payments and the plan figures are None |
 | PD3 | Low point taken before the allocation reservation | `low_point_basis` | `"pre_reservation"`: the walk's own `low_point`, because `plans_reserved` already takes the plans off once (R3 not deducted twice) | `"post_reservation"`: `low_point` less `reserved_by_source[sid]`, the figure `source_capacity` uses (R3 deducted a second time for an allocation-funded plan) |
 | PD4 | Preview salary on the low-point walk | `source_low_walk(preview_salary=...)` | none: the closing walk credits the payday-plan salary on its account (and seeds a bill-less salary account at its live balance), the low-point walk never credits it | the salary event is walked on its account too (a credit cannot lower a low point, so the figure is unchanged for non-negative amounts) |
 | PD5 | Uncertain and estimated flags | none | read from the plans exactly as before (same kernel) | no difference to table |
@@ -174,7 +174,7 @@ def source_low_walk(
 ) -> AccountWalk:
     """W3: the source's own low-point walk (the old `_source_min_running`):
     any attributed credit-ok income counts even with no bill on the account,
-    every funded inbound own-account transfer (G360) counts, and the same-day
+    every inbound own-account transfer counts (G479: whether or not its source can fund it), and the same-day
     order is the inline `(day, delta)` key. `preview_salary` is PD4 (default
     none, as the old caller)."""
     return walk_account(
@@ -241,7 +241,7 @@ def seed_spend_from(position: dict) -> float:
     2026-11-07, every account in isolation, money in vs money out): the low point no longer clamps
     it; a dip below zero before money arrives is a warning, never part of the figure. It stays
     signed. (`compute_today_items` feeds the ungated walk's closing instead, see
-    `account_available.available_walk`; the two agree whenever no G360 gate drops a credit.)"""
+    `account_available.available_walk`; the two now read the same window events, G479.)"""
     if position.get("uncertain") or position.get("after_payments_and_plans") is None:
         return 0.0
     return float(position["after_payments_and_plans"])

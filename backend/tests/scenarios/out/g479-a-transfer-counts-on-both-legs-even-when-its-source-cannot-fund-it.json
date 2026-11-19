@@ -5,18 +5,6 @@
       "after_payments_and_money_in": -200.0,
       "after_payments_and_plans": -200.0,
       "contribution": 0.0,
-      "covered_by_move": {
-        "amount": 40.0,
-        "from": [
-          {
-            "account_id": "acc-md",
-            "amount": 40.0,
-            "display_label": "NatWest Meadow Current",
-            "name": "Meadow Current"
-          }
-        ],
-        "shortfall": 200.0
-      },
       "dips_below_zero": {
         "short_by": 200.0,
         "short_on": "2026-11-23"
@@ -27,36 +15,26 @@
       "low_point": -200.0,
       "low_point_and_plans": -200.0,
       "lowest_after_money_in": -200.0,
-      "moves_in_total": 40.0,
       "plans_reserved": 0.0,
       "short": true,
-      "short_after_cover": 160.0,
-      "spend_from_headroom": -160.0,
+      "spend_from_headroom": -200.0,
       "uncertain": false,
-      "uncovered_shortfall": 160.0
+      "uncovered_shortfall": 200.0
     },
     "acc-md": {
       "after_payments": 230.0,
       "after_payments_and_money_in": 230.0,
       "after_payments_and_plans": 230.0,
-      "contribution": 190.0,
-      "earmarked_total": 40.0,
-      "earmarks_out": [
-        {
-          "amount": 40.0,
-          "to_account_id": "acc-hb",
-          "to_name": "Harbour Current"
-        }
-      ],
+      "contribution": 230.0,
       "estimated": false,
-      "headroom": 40.0,
+      "headroom": -80.0,
       "is_current_account": true,
       "low_point": 50.0,
       "low_point_and_plans": 50.0,
       "lowest_after_money_in": 230.0,
       "plans_reserved": 0.0,
-      "short": false,
-      "spend_from_headroom": 190.0,
+      "short": true,
+      "spend_from_headroom": 230.0,
       "uncertain": false,
       "uncovered_shortfall": 0.0
     }
@@ -246,34 +224,7 @@
   "days_to_payday": 8,
   "items": [
     {
-      "amount": 40,
-      "covered": false,
-      "id": "plan:2026-11-27:3795da03df",
-      "moves": [
-        {
-          "amount": 40,
-          "headline": "Move \u00a340 from Meadow Current",
-          "move_map": {
-            "from": {
-              "account_id": "acc-md",
-              "balance": 50.0,
-              "display_label": "NatWest Meadow Current",
-              "name": "Meadow Current",
-              "provider": "natwest",
-              "reserved_for_allocations": 0.0,
-              "safe_note": "Covers its own \u00a3120 of bills with room to spare"
-            },
-            "to": {
-              "account_id": "acc-hb",
-              "balance": 100.0,
-              "display_label": "Barclays Harbour Current",
-              "incoming": "\u00a3300 Harbour TO Meadow expected Monday",
-              "name": "Harbour Current",
-              "provider": "barclays"
-            }
-          }
-        }
-      ],
+      "id": "move:acc-hb:2026-11-27:3795da03df",
       "plan_dest": {
         "account_id": "acc-hb",
         "balance": 100.0,

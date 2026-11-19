@@ -3495,8 +3495,8 @@ async def at_risk_count(user: dict = Depends(current_user)):
     # actually landed in, and only when the prediction is reliable (see
     # `income_credit_ok`). G167: no reliability gate on an inflow and no
     # late-income line for one (see the comment block above `walk_sort_key`
-    # in services/companion.py). G360: an inflow counts only when its SOURCE
-    # account is covered that day. G163: same-day, credits before debits.
+    # in services/companion.py). G479: an inflow always counts, whether or
+    # not its SOURCE can fund it (the G360 gate is gone). G163: same-day, credits before debits.
     from app.services.account_walk import count_at_risk, walk_events, window_events
 
     events, seed, _credited = window_events(_wi)

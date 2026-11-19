@@ -68,14 +68,14 @@ def test_a_funded_transfer_credit_agrees_everywhere(monkeypatch):
     assert _moves_total(items) == 0.0
 
 
-def _edge_world(monkeypatch, *, third=False):
+def _edge_world(monkeypatch, *, third=False, third_balance=5000.0):
     # Kevin's option 1 (2026-11-19): BC holds 100 and is due to send 300 on day 2; HS holds 50 and pays 120 on day 3.
     # The transfer counts on BOTH legs whether or not BC can fund it: BC is -200 short, HS is fine (50 + 300 - 120).
     bills = [g._bill("To HSBC", 300.0, 2, TODAY, acct=g.BC, balance=100.0, kind=analytics.MOVEMENT),
              g._bill("Insurance", 120.0, 3, TODAY, acct=g.HS, balance=50.0)]
     balances = {g.HS: (50.0, "hsbc"), g.BC: (100.0, "barclays")}
     if third:
-        balances["acc-third"] = (5000.0, "monzo")
+        balances["acc-third"] = (third_balance, "monzo")
     return g._run(monkeypatch, TODAY, bills, [], [g._inflow(300.0, 2, TODAY)], balances)
 
 
@@ -84,13 +84,27 @@ def test_an_unfundable_standing_order_is_one_shortfall_on_the_source_on_every_su
     # Ledger dip == gated shortfall (Upcoming's position and the cover plan) on every account: BC 200, HS 0.
     assert (_ledger_dip(elig[g.BC]), _gated_shortfall(elig[g.BC])) == (200.0, 200.0)
     assert (_ledger_dip(elig[g.HS]), _gated_shortfall(elig[g.HS])) == (0.0, 0.0)
-    # HS is fine on its own (50 + 300 - 120 = 230, never flagged short for money due to arrive) and is the only
-    # account with any room, so it can lend BC 40 (230 - 10 cushion... its headroom is 40): HS 230 - 40, BC -200 + 40.
-    assert elig[g.HS]["earmarked_total"] == 40.0 and elig[g.HS]["spend_from_headroom"] == 190.0
-    assert elig[g.BC]["spend_from_headroom"] == -160.0 and elig[g.BC]["short_after_cover"] == 160.0
-    # BC stays short after the move and the total shows it: -200 + 230 = 30 (the move nets to zero).
+    # HS is fine on its own (50 + 300 - 120 = 230, never flagged short for money due to arrive) but its headroom
+    # only exists because of the transfer that will bounce: without BC's 300 its own 50 cannot cover the 120
+    # bill, so it cannot lend (G479 review: the destination of an unfunded transfer is never offered as the source
+    # for that shortfall). BC stays short and the total shows it: -200 + 230 = 30. Only the recommendation is absent.
+    assert elig[g.HS]["spend_from_headroom"] == 230.0 and "earmarked_total" not in elig[g.HS]
+    assert elig[g.BC]["spend_from_headroom"] == -200.0 and "covered_by_move" not in elig[g.BC]
     assert round(elig[g.BC]["spend_from_headroom"] + elig[g.HS]["spend_from_headroom"], 2) == 30.0
-    assert _moves_total(items) == 40.0
+    assert _moves_total(items) == 0.0
+
+
+def test_the_destination_of_an_unfunded_transfer_is_never_offered_as_a_source_for_that_shortfall(monkeypatch):
+    # The third account has only 100 (90 of headroom), so on its own it cannot cover the 210 target and the engine
+    # would reach for a second source: HS, the destination of BC's order. It must not: the third lends its 90 and
+    # BC stays short 110 after it.
+    items, elig = _edge_world(monkeypatch, third=True, third_balance=100.0)
+    sources = {f["account_id"] for m in [elig[g.BC].get("covered_by_move") or {}] for f in m.get("from") or []}
+    assert g.HS not in sources and sources == {"acc-third"}
+    assert elig[g.BC]["short_after_cover"] == 110.0
+    for item in items:
+        for move in item.get("moves") or []:
+            assert move["move_map"]["from"]["account_id"] != g.HS
 
 
 def test_the_cover_move_goes_into_the_source_so_the_standing_order_does_not_bounce(monkeypatch):

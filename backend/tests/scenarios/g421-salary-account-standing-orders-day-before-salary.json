@@ -145,48 +145,41 @@
     "left_to_spend": 800.0,
     "accounts": {
       "acc-bc": {
-        "spend_from": -900.0,
+        "spend_from": -1150.0,
         "after_payments": -1150.0,
         "low_point": -1150.0,
-        "verdict": "short"
+        "verdict": "short",
+        "no_earmark": true
       },
       "acc-hsbc": {
-        "spend_from": 910.0,
+        "spend_from": 1050.0,
         "after_payments": 1050.0,
         "low_point": 150.0,
-        "verdict": "covered"
+        "verdict": "covered",
+        "no_earmark": true
       },
       "acc-nw": {
-        "spend_from": 510.0,
+        "spend_from": 620.0,
         "after_payments": 620.0,
         "low_point": 120.0,
-        "verdict": "covered"
+        "verdict": "covered",
+        "no_earmark": true
       },
       "acc-mz": {
         "spend_from": 280.0,
         "after_payments": 280.0,
         "low_point": 80.0,
-        "verdict": "covered"
+        "verdict": "covered",
+        "no_earmark": true
       }
     },
     "cover_plan": {
-      "moves_total": 250.0,
-      "moves": [
-        {
-          "from": "acc-hsbc",
-          "to": "acc-bc",
-          "amount": 140.0
-        },
-        {
-          "from": "acc-nw",
-          "to": "acc-bc",
-          "amount": 110.0
-        }
-      ]
+      "moves_total": 0,
+      "moves": []
     },
     "payday_plan": null,
     "at_risk_count": 4,
-    "notes": "G421. The honest counterpart to the on-payday scenario: the same salary account, but the three standing orders are dated Thu 26 Nov, one day BEFORE the Fri 27 Nov salary. An outflow that lands before the income that funds it is a real gap in this window and is never hidden. Today is Wed 25 Nov, payday in 2 days, window 25 and 26 Nov. Every account is read in isolation, money in against money out; an own-account standing order is money out on its source and money in on its destination on its date, whether or not the source can afford it. Barclays 600 - 150 (council tax) - 1,600 (standing orders) = -1,150 after payments and at the low point, short. HSBC 150 + 900 = 1,050; NatWest 120 + 500 = 620; Monzo 80 + 200 = 280. Left to spend is the sum, -1,150 + 1,050 + 620 + 280 = 800, which equals the four balances less the council tax (950 - 150) because the transfers net to zero. Every standing order is an ordinary predicted payment, so Barclays is an ordinary shortfall. Cover plan (at most two sources): the amount needed is ceil5(1,150) + 10 = 1,160. Headroom is balance minus the 10 buffer: HSBC 140, NatWest 110, Monzo 70. No single source covers it, so the two largest are used and never a third: HSBC 140 and NatWest 110, 250 in all, leaving 900 short after cover. Spend from after the moves: Barclays -1,150 + 250 = -900, HSBC 1,050 - 140 = 910, NatWest 620 - 110 = 510, Monzo 280; the sum is 800 again. At risk count 4: every bounced item counts, own-account standing orders like any payment. Same-day items walk largest first (900, 500, 200, then the 150 council tax): 600 - 900 = -300 (the HSBC order bounces first), -800 (NatWest order), -1,000 (Monzo order), -1,150 (council tax). The card names the 900 HSBC order. G479 option 1 (Kevin 2026-11-19), which replaces the G360 gate this scenario's earlier notes lean on: a predicted own transfer counts on BOTH legs on every surface whether or not its source can fund it, so the cover engine's walks credit the destinations too. Barclays is short 1,150 on 26 Nov (600 - 150 - 1,600) and carries the shortfall; the cover moves go INTO Barclays (HSBC 140 and NatWest 110, unchanged). HSBC 150 + 900 = 1,050, NatWest 120 + 500 = 620, Monzo 80 + 200 = 280 after payments (they read 150, 120 and 80 under the gate, which dropped the credits because Barclays could not fund them); their low points stay at the opening balances 150, 120 and 80 (credits cannot lower a low point). Every other figure is as derived above: Left to spend 800, Spend from -900, 910, 510, 280, at risk 4. The destinations are never flagged short for a transfer due to arrive.",
+    "notes": "G421. The honest counterpart to the on-payday scenario: the same salary account, but the three standing orders are dated Thu 26 Nov, one day BEFORE the Fri 27 Nov salary. An outflow that lands before the income that funds it is a real gap in this window and is never hidden. Today is Wed 25 Nov, payday in 2 days, window 25 and 26 Nov. Every account is read in isolation, money in against money out; an own-account standing order is money out on its source and money in on its destination on its date, whether or not the source can afford it. Barclays 600 - 150 (council tax) - 1,600 (standing orders) = -1,150 after payments and at the low point, short. HSBC 150 + 900 = 1,050; NatWest 120 + 500 = 620; Monzo 80 + 200 = 280. Left to spend is the sum, -1,150 + 1,050 + 620 + 280 = 800, which equals the four balances less the council tax (950 - 150) because the transfers net to zero. Every standing order is an ordinary predicted payment, so Barclays is an ordinary shortfall. Cover plan (at most two sources): the amount needed is ceil5(1,150) + 10 = 1,160. Headroom is balance minus the 10 buffer: HSBC 140, NatWest 110, Monzo 70. No single source covers it, so the two largest are used and never a third: HSBC 140 and NatWest 110, 250 in all, leaving 900 short after cover. Spend from after the moves: Barclays -1,150 + 250 = -900, HSBC 1,050 - 140 = 910, NatWest 620 - 110 = 510, Monzo 280; the sum is 800 again. At risk count 4: every bounced item counts, own-account standing orders like any payment. Same-day items walk largest first (900, 500, 200, then the 150 council tax): 600 - 900 = -300 (the HSBC order bounces first), -800 (NatWest order), -1,000 (Monzo order), -1,150 (council tax). The card names the 900 HSBC order. G479 option 1 (Kevin 2026-11-19), which replaces the G360 gate this scenario's earlier notes lean on: a predicted own transfer counts on BOTH legs on every surface whether or not its source can fund it, so the cover engine's walks credit the destinations too. Barclays is short 1,150 on 26 Nov (600 - 150 - 1,600) and carries the shortfall; the cover moves go INTO Barclays (HSBC 140 and NatWest 110, unchanged). HSBC 150 + 900 = 1,050, NatWest 120 + 500 = 620, Monzo 80 + 200 = 280 after payments (they read 150, 120 and 80 under the gate, which dropped the credits because Barclays could not fund them); their low points stay at the opening balances 150, 120 and 80 (credits cannot lower a low point). Every other figure is as derived above: Left to spend 800, Spend from -900, 910, 510, 280, at risk 4. The destinations are never flagged short for a transfer due to arrive. G479 review (Kevin 2026-11-19): the destination of an unfunded own transfer is never offered as a source for a shortfall on that transfer's SOURCE (the money would go round in a circle: the order that will bounce is what credits it). Barclays' shortfall is 1,150 and the only other current accounts, HSBC, NatWest and Monzo, are exactly the destinations of its three orders, so nobody can lend: no cover move, no earmark, Barclays stays short 1,150 and the total shows it. Spend from is therefore BC -1,150, HSBC 1,050, NatWest 620, Monzo 280 (the cover moves of 140 and 110 above are gone); the sum is still 800, because moves net to zero. At risk stays 4.",
     "lines": {
       "accounts_total": 800.0,
       "plans_total": 0.0,

@@ -5,24 +5,6 @@
       "after_payments_and_money_in": -1150.0,
       "after_payments_and_plans": -1150.0,
       "contribution": 0.0,
-      "covered_by_move": {
-        "amount": 250.0,
-        "from": [
-          {
-            "account_id": "acc-hsbc",
-            "amount": 140.0,
-            "display_label": "HSBC Current",
-            "name": "HSBC Current"
-          },
-          {
-            "account_id": "acc-nw",
-            "amount": 110.0,
-            "display_label": "NatWest Current",
-            "name": "NatWest Current"
-          }
-        ],
-        "shortfall": 1150.0
-      },
       "dips_below_zero": {
         "short_by": 1150.0,
         "short_on": "2026-11-26"
@@ -33,27 +15,17 @@
       "low_point": -1150.0,
       "low_point_and_plans": -1150.0,
       "lowest_after_money_in": -1150.0,
-      "moves_in_total": 250.0,
       "plans_reserved": 0.0,
       "short": true,
-      "short_after_cover": 900.0,
-      "spend_from_headroom": -900.0,
+      "spend_from_headroom": -1150.0,
       "uncertain": false,
-      "uncovered_shortfall": 900.0
+      "uncovered_shortfall": 1150.0
     },
     "acc-hsbc": {
       "after_payments": 1050.0,
       "after_payments_and_money_in": 1050.0,
       "after_payments_and_plans": 1050.0,
-      "contribution": 910.0,
-      "earmarked_total": 140.0,
-      "earmarks_out": [
-        {
-          "amount": 140.0,
-          "to_account_id": "acc-bc",
-          "to_name": "Barclays Current"
-        }
-      ],
+      "contribution": 1050.0,
       "estimated": false,
       "headroom": 140.0,
       "is_current_account": true,
@@ -62,7 +34,7 @@
       "lowest_after_money_in": 1050.0,
       "plans_reserved": 0.0,
       "short": false,
-      "spend_from_headroom": 910.0,
+      "spend_from_headroom": 1050.0,
       "uncertain": false,
       "uncovered_shortfall": 0.0
     },
@@ -87,15 +59,7 @@
       "after_payments": 620.0,
       "after_payments_and_money_in": 620.0,
       "after_payments_and_plans": 620.0,
-      "contribution": 510.0,
-      "earmarked_total": 110.0,
-      "earmarks_out": [
-        {
-          "amount": 110.0,
-          "to_account_id": "acc-bc",
-          "to_name": "Barclays Current"
-        }
-      ],
+      "contribution": 620.0,
       "estimated": false,
       "headroom": 110.0,
       "is_current_account": true,
@@ -104,7 +68,7 @@
       "lowest_after_money_in": 620.0,
       "plans_reserved": 0.0,
       "short": false,
-      "spend_from_headroom": 510.0,
+      "spend_from_headroom": 620.0,
       "uncertain": false,
       "uncovered_shortfall": 0.0
     }
@@ -530,57 +494,7 @@
   "days_to_payday": 2,
   "items": [
     {
-      "amount": 250,
-      "covered": false,
-      "id": "plan:2026-11-27:f5552518c3",
-      "moves": [
-        {
-          "amount": 140,
-          "headline": "Move \u00a3140 from HSBC Current",
-          "move_map": {
-            "from": {
-              "account_id": "acc-hsbc",
-              "balance": 150.0,
-              "display_label": "HSBC Current",
-              "name": "HSBC Current",
-              "provider": "hsbc",
-              "reserved_for_allocations": 0.0,
-              "safe_note": "Nothing due from this account before tomorrow"
-            },
-            "to": {
-              "account_id": "acc-bc",
-              "balance": 600.0,
-              "display_label": "Barclays Current",
-              "incoming": "\u00a3900 Test Owner Hsbc expected tomorrow",
-              "name": "Barclays Current",
-              "provider": "barclays"
-            }
-          }
-        },
-        {
-          "amount": 110,
-          "headline": "Move \u00a3110 from NatWest Current",
-          "move_map": {
-            "from": {
-              "account_id": "acc-nw",
-              "balance": 120.0,
-              "display_label": "NatWest Current",
-              "name": "NatWest Current",
-              "provider": "natwest",
-              "reserved_for_allocations": 0.0,
-              "safe_note": "Nothing due from this account before tomorrow"
-            },
-            "to": {
-              "account_id": "acc-bc",
-              "balance": 600.0,
-              "display_label": "Barclays Current",
-              "incoming": "\u00a3900 Test Owner Hsbc expected tomorrow",
-              "name": "Barclays Current",
-              "provider": "barclays"
-            }
-          }
-        }
-      ],
+      "id": "move:acc-bc:2026-11-27:f5552518c3",
       "plan_dest": {
         "account_id": "acc-bc",
         "balance": 600.0,
