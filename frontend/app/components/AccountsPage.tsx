@@ -66,6 +66,7 @@ import { tidyAccountText } from "@/lib/accountDisplay";
 import { useTutorialAction, useTutorialReady } from "@/components/TutorialContext";
 import { isLegacyBankSource } from "@/lib/legacyBankProvider";
 import { useOpenBankingAccessStatus } from "@/lib/openBankingAccess";
+import { attachAddMenuOutsideClose } from "@/lib/accountsAddMenuLayer";
 import { accountsAddDiagnostic } from "@/lib/accountsAddDiagnosticClient";
 import type { AddPath } from "@/lib/accountsAddDiagnostic";
 import { stampAccountDetailState, hasAccountDetailEntry } from "@/lib/accountSheetHistory";
@@ -489,22 +490,12 @@ export default function AccountsPage() {
     .filter(account => !account.manual && isCountedInLeftToSpend(account) && account.currency === "GBP" && accountKind(account) === "Current")
     .map(account => ({ id: account.id, name: displayAccountName(account.name), provider: account.provider })), [accounts]);
 
-  // Close the "+ Add" menu on outside tap (same pattern as SpendTrends' widget menu)
+  // Close the "+ Add" menu on an outside tap. G478: the menu is portalled to
+  // document.body, so "inside" means the menu or the trigger; pointerup, never
+  // blur or touchstart (iOS WebKit does not focus buttons on tap).
   useEffect(() => {
     if (!addMenuOpen) return;
-    const close = (e: MouseEvent | TouchEvent) => {
-      // Ignore taps on the tour card itself — otherwise pressing "Next" while
-      // the tour has this menu open (via accounts:add-menu:open below) would
-      // register as an outside tap and close the menu out from under it.
-      if ((e.target as Element)?.closest?.("[data-tutorial-overlay]")) return;
-      if (addMenuRef.current && !addMenuRef.current.contains(e.target as Node)) setAddMenuOpen(false);
-    };
-    document.addEventListener("mousedown", close);
-    document.addEventListener("touchstart", close);
-    return () => {
-      document.removeEventListener("mousedown", close);
-      document.removeEventListener("touchstart", close);
-    };
+    return attachAddMenuOutsideClose(document, () => addMenuRef.current, () => setAddMenuOpen(false));
   }, [addMenuOpen]);
 
   // Imperative tour actions (contract: components/TutorialContext.tsx) — the
@@ -2790,6 +2781,7 @@ export default function AccountsPage() {
           onAddClose={() => setAddMenuOpen(false)}
           addMenu={addMenuOpen ? (
             <AccountsAddMenu
+              anchorRef={addMenuRef}
               allowed={canConnectBank}
               ready={bankAccess.ready}
               error={bankAccess.status === "error"}

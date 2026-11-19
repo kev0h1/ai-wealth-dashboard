@@ -9,7 +9,7 @@ import { readFileSync } from "node:fs";
 import { renderToStaticMarkup } from "react-dom/server";
 import { api } from "../lib/api.ts";
 import { watchOpenBankingAccessStatus, invalidateOpenBankingAccess } from "../lib/openBankingAccess.ts";
-import AccountsAddMenu from "../components/AccountsAddMenu.tsx";
+import { AccountsAddMenuContent as AccountsAddMenu } from "../components/AccountsAddMenu.tsx";
 import { consentErrorMessage } from "../lib/startConsent.ts";
 import { createAddDiagnostic } from "../lib/accountsAddDiagnostic.ts";
 
