@@ -45,7 +45,7 @@ const TONE_TEXT: Record<Tone, string> = {
 function Badge({ tone, label }: { tone: Tone; label: string }) {
   const Icon = tone === "risk" ? AlertTriangle : tone === "watch" ? AlertCircle : ShieldCheck;
   return (
-    <span role="status" data-tone={tone} className={`inline-flex min-h-7 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold leading-[1.3] dark:bg-slate-700 ${TONE_TEXT[tone]}`}>
+    <span data-tone={tone} className={`inline-flex min-h-7 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold leading-[1.3] dark:bg-slate-700 ${TONE_TEXT[tone]}`}>
       <Icon size={13} className="shrink-0" aria-hidden="true" />{label}
     </span>
   );
@@ -142,6 +142,19 @@ function waitingFor(d: Derived) {
   return { total, day: rows[0]?.dayLabel ?? "", date: rows[0]?.date ?? "", n: rows.length };
 }
 
+/** When the bill falls after the money is due, say why it still relies on it. */
+function relianceWhy(d: Derived) {
+  if (!d.reliesOn) return null;
+  const w = waitingFor(d);
+  const r = d.reliesOn.row;
+  if (w.date === r.date) return null;
+  return (
+    <p className="mt-2 text-[12px] leading-[1.45] text-slate-600 dark:text-slate-300">
+      Bills before {r.dayLabel} use up what is in the account now, so the <M2 v={-r.amount} /> {r.label.toLowerCase()} on {r.dayLabel} relies on about <M2 v={w.total} /> expected {w.day}.
+    </p>
+  );
+}
+
 /** Hero body shared by every variant for the states that are not in question. */
 function plainHero(s: Scenario, d: Derived, badgeLabel?: string) {
   if (d.status === "short") {
@@ -198,6 +211,7 @@ function HeroA({ s, d }: { s: Scenario; d: Derived }) {
     <Hero badge={{ tone: "watch", label: "Waiting on money in" }}>
       <h3 className={`${FIGURE} mt-5`}>{fmt(0)}</h3>
       <p className={`${PROSE} mt-3`}>Nothing to spend until <M2 v={w.total} /> lands, expected {w.day}. {dueText(d)}.</p>
+      {relianceWhy(d)}
       <p className="mt-2 text-[12px] leading-[1.45] text-slate-600 dark:text-slate-300">Money in only counts once it is in your account.</p>
       <SpendFrom s={s} d={d} none="Nothing yet. This fills in when the money lands." />
     </Hero>
@@ -224,6 +238,7 @@ function HeroB({ s, d }: { s: Scenario; d: Derived }) {
       <p className={`${PROSE} mt-3`}>
         You are <M2 v={-d.raw} /> below zero until <M2 v={w.total} /> lands, expected {w.day}, {same ? <>the same day {d.reliesOn!.row.label} is due</> : <>before {d.reliesOn!.row.label} is due</>}. Do not spend from this until it does.
       </p>
+      {relianceWhy(d)}
       <SpendFrom s={s} d={d} none="Nothing until the money lands." />
     </Hero>
   );
@@ -400,7 +415,7 @@ function BreakdownC({ s, d }: { s: Scenario; d: Derived }) {
 
         {two && <>
           <span className="text-[13px] text-slate-600 dark:text-slate-300">Money in expected</span>
-          <span className="text-right text-[13px] text-slate-400 dark:text-slate-500" aria-label="Not counted now">not counted</span>
+          <span className="text-right text-[13px] text-slate-500 dark:text-slate-400">not counted</span>
           <span className={cell}><M2 v={d.moneyInTotal} plus /></span>
         </>}
 
@@ -482,21 +497,20 @@ function ByAccount({ v, s, d }: { v: Variant; s: Scenario; d: Derived }) {
           const r = accountReading(v, s, d, a);
           return (
             <li key={a.id} className="border-t border-slate-200 py-3 first:border-t-0 dark:border-slate-700">
-              <div className="grid min-h-11 grid-cols-[32px_minmax(64px,1fr)_minmax(0,auto)_14px] items-center gap-3">
+              <div className="grid min-h-11 grid-cols-[32px_minmax(64px,1fr)_minmax(0,auto)] items-center gap-3">
                 <BankMark a={a} />
                 <div className="min-w-0"><p className="break-words text-[14px] font-semibold text-slate-900 dark:text-slate-100">{a.bank}</p><p className="break-words text-[12px] text-slate-500 dark:text-slate-400">{a.name}</p></div>
                 <div className="text-right">
                   <p className="text-[15px] font-bold text-slate-900 dark:text-slate-100"><span className="money">{r.fig}</span></p>
                   <p className="flex items-start justify-end gap-1.5 text-[12px] leading-4 text-slate-600 dark:text-slate-300"><span className="mt-1"><Dot tone={r.tone} /></span><span>{r.cap}</span></p>
                 </div>
-                <ChevronRight size={14} className="text-slate-400" aria-hidden="true" />
               </div>
               {r.note && <p className="mt-2 pl-[44px] text-[12px] leading-[1.45] text-slate-600 dark:text-slate-300">{r.note}</p>}
             </li>
           );
         })}
       </ul>
-      <p className="mt-1 border-t border-slate-200 pt-3 text-[12px] text-slate-500 dark:border-slate-700 dark:text-slate-400">{d.move ? "Suggested moves are for you to make. Nothing has been moved." : "Tap an account for its working."}</p>
+      {d.move && <p className="mt-1 border-t border-slate-200 pt-3 text-[12px] text-slate-500 dark:border-slate-700 dark:text-slate-400">Suggested moves are for you to make. Nothing has been moved.</p>}
     </section>
   );
 }
