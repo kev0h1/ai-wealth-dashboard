@@ -17,7 +17,7 @@ from app.core.config import (
     APP_URL, PRIMARY_EMAIL, SESSION_MAX_AGE, serializer,
     mask_email,
 )
-from app.core.identity import resolve_signin_email
+from app.core.identity import capture_signin_name, resolve_signin_email, split_full_name
 from app.core.pending_login import (
     _store_pending,
     has_challenge,
@@ -213,6 +213,7 @@ async def google_native(body: dict):
         # of a bare 403, rather than a generic failure message.
         raise HTTPException(403, detail={"code": "INVITE_ONLY"})
 
+    await capture_signin_name(email, info.get("given_name"), info.get("family_name"))
     session_token = serializer.dumps({"email": email, "name": info.get("name", "")})
     return {"session_token": session_token, "ok": True}
 
@@ -318,7 +319,12 @@ async def apple_native(body: dict):
         # D5: see google_native()'s equivalent comment above.
         raise HTTPException(403, detail={"code": "INVITE_ONLY"})
 
-    name = body.get("fullName") or ""
+    raw_name = body.get("fullName")
+    name = raw_name.strip() if isinstance(raw_name, str) else ""
+    given, family = body.get("givenName"), body.get("familyName")
+    if not (isinstance(given, str) and given.strip()) and not (isinstance(family, str) and family.strip()):
+        given, family = split_full_name(name)
+    await capture_signin_name(email, given, family)
     session_token = serializer.dumps({"email": email, "name": name})
     return {"session_token": session_token, "ok": True}
 
@@ -606,6 +612,7 @@ async def google_mobile_callback(code: str = None, error: str = None, state: str
         # generic "sign-in failed" alert (see lib/nativeAuth.ts).
         return await finish("error:invite_only")
 
+    await capture_signin_name(email, userinfo.get("given_name"), userinfo.get("family_name"))
     session_token = serializer.dumps({"email": email, "name": userinfo.get("name", "")})
     return await finish(f"token:{session_token}")
 
@@ -650,5 +657,6 @@ async def google_callback(code: str = None, error: str = None):
         # a generic failure message (see components/LoginScreen.tsx).
         return RedirectResponse(f"{APP_URL}/?error=invite_only")
 
+    await capture_signin_name(email, userinfo.get("given_name"), userinfo.get("family_name"))
     session_token = serializer.dumps({"email": email, "name": userinfo.get("name", "")})
     return RedirectResponse(f"{APP_URL}/?token={urllib.parse.quote(session_token, safe='')}")

@@ -203,7 +203,7 @@ function reportAppleSignInDiagnostic(stage: string, detail: unknown): void {
 // sign-in flow (nativeAppleLogin) and the account-linking flow
 // (linkAppleIdentity) below, since both need the same plugin call and the
 // same failure reporting.
-export async function nativeAppleAuthorize(): Promise<{ identityToken: string; fullName?: string } | null> {
+export async function nativeAppleAuthorize(): Promise<{ identityToken: string; fullName?: string; givenName?: string; familyName?: string } | null> {
   try {
     // Dynamic import so a web build (which never calls this function,
     // gated by isIOSNative() at the call site) doesn't need the plugin's
@@ -222,7 +222,7 @@ export async function nativeAppleAuthorize(): Promise<{ identityToken: string; f
     // this app + Apple ID pair — pass along whatever we got so the backend
     // can use it, and it'll fall back to the email local-part after that.
     const fullName = [response.givenName, response.familyName].filter(Boolean).join(" ") || undefined;
-    return { identityToken, fullName };
+    return { identityToken, fullName, givenName: response.givenName || undefined, familyName: response.familyName || undefined };
   } catch (err) {
     reportAppleSignInDiagnostic("appleSignInAuthorize", err instanceof Error ? err.message : err);
     return null;
@@ -281,13 +281,13 @@ async function appleLoginInner(signal: AbortSignal): Promise<NativeLoginResult> 
   const authResult = await nativeAppleAuthorize();
   if (signal.aborted) return "cancelled";
   if (!authResult) return "failed";
-  const { identityToken, fullName } = authResult;
+  const { identityToken, fullName, givenName, familyName } = authResult;
 
   try {
     const res = await gatedFetch(`${API_BASE}/auth/apple/native`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ identityToken, fullName }),
+      body: JSON.stringify({ identityToken, fullName, givenName, familyName }),
       signal,
     });
     if (!res.ok) {

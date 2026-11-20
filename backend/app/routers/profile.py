@@ -34,8 +34,12 @@ def _onboarding_complete(doc: dict) -> bool:
 
 def _serialize(doc: dict | None) -> dict:
     if not doc:
-        return {"full_name": "", "name_tokens": [], "onboarding_complete": False}
+        return {"full_name": "", "name_tokens": [], "onboarding_complete": False,
+                "given_name": "", "family_name": ""}
+    hint = doc.get("signin_name") or {}
     return {
+        "given_name": hint.get("given", ""),
+        "family_name": hint.get("family", ""),
         "full_name": doc.get("full_name", ""),
         "name_tokens": doc.get("name_tokens", []),
         "onboarding_complete": _onboarding_complete(doc),

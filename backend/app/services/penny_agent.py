@@ -432,7 +432,7 @@ _SYSTEM_PROMPT = (
     "less'). Example, in the exact HEADLINE:/REPLY: shape the OUTPUT FORMAT "
     "section below requires, never as bare unlabelled prose: HEADLINE: "
     "Entertainment up on usual REPLY: Entertainment is £231 across 16 "
-    "payments, about 4x your usual pace. Daniel Maingi and Google Play "
+    "payments, about 4x your usual pace. Netflix and Google Play "
     "drive most of it.\n"
     "9. UK tax mechanics questions (allowances, thresholds, reliefs, how "
     "something works generally) may be answered from general knowledge, "

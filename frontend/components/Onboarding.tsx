@@ -20,7 +20,9 @@ import { getSubscriptionCached, useOpenBankingAccess } from "@/lib/openBankingAc
 import ActionLabel from "@/components/ActionLabel";
 
 interface OnboardingProps {
-  defaultName?: string;
+  /** Pre-fill from the sign-in identity (G482). Both stay editable. */
+  defaultFirstName?: string;
+  defaultLastName?: string;
   onComplete: () => void;
 }
 
@@ -32,7 +34,14 @@ const STEP_DOTS: Step[] = ["profile", "payday", "plan", "income", "bank", "secur
 // an inner component would remount on every state change and steal focus.
 function Shell({ dotIndex, dotCount = STEP_DOTS.length, children }: { dotIndex: number; dotCount?: number; children: React.ReactNode }) {
   return (
-    <div className="min-h-dvh flex flex-col items-center justify-center px-6 py-10">
+    // G482: steps with progress dots sit at the top (dots first, content right
+    // under them) instead of floating in the vertical centre, which left a
+    // large empty gap above the dots on tall phones. The welcome step has no
+    // dots and stays centred.
+    <div
+      className={`min-h-dvh flex flex-col items-center px-6 pb-10 ${dotIndex >= 0 ? "justify-start" : "justify-center py-10"}`}
+      style={dotIndex >= 0 ? { paddingTop: "calc(env(safe-area-inset-top, 0px) + 2.5rem)" } : undefined}
+    >
       {dotIndex >= 0 && (
         <div className="flex gap-2 mb-8">
           {Array.from({ length: dotCount }, (_, i) => (
@@ -54,10 +63,10 @@ function Shell({ dotIndex, dotCount = STEP_DOTS.length, children }: { dotIndex: 
   );
 }
 
-export default function Onboarding({ defaultName = "", onComplete }: OnboardingProps) {
+export default function Onboarding({ defaultFirstName = "", defaultLastName = "", onComplete }: OnboardingProps) {
   const [step, setStep]           = useState<Step>("welcome");
-  const [firstName, setFirstName] = useState(() => defaultName.split(" ")[0] ?? "");
-  const [lastName, setLastName]   = useState(() => defaultName.split(" ").slice(1).join(" ") ?? "");
+  const [firstName, setFirstName] = useState(defaultFirstName);
+  const [lastName, setLastName]   = useState(defaultLastName);
   // D8: onboarding defaults to monthly on a date the user picks.
   const [payDraft, setPayDraft]     = useState<PayPeriodDraft>(DEFAULT_DRAFT);
   const [paydaySaving, setPaydaySaving] = useState(false);
@@ -425,7 +434,7 @@ export default function Onboarding({ defaultName = "", onComplete }: OnboardingP
                 onChange={e => setFirstName(e.target.value)}
                 onKeyDown={e => { if (e.key === "Enter") saveProfile(); }}
                 maxLength={40}
-                placeholder="Kevin"
+                placeholder="First name"
                 className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
               />
             </div>
@@ -436,7 +445,7 @@ export default function Onboarding({ defaultName = "", onComplete }: OnboardingP
                 onChange={e => setLastName(e.target.value)}
                 onKeyDown={e => { if (e.key === "Enter") saveProfile(); }}
                 maxLength={40}
-                placeholder="Maingi"
+                placeholder="Last name"
                 className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
               />
             </div>

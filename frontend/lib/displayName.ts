@@ -115,3 +115,26 @@ export function initialsOf(name: string | null | undefined): string | undefined 
     .join("");
   return initials || undefined;
 }
+
+/**
+ * G482: the First and Last name onboarding opens with. The sign-in provider's
+ * given and family name (stored at sign-in, exposed on GET /profile) win; the
+ * session display name is only a fallback for sessions that pre-date them.
+ * Never derived from the email address, and both parts stay empty when
+ * nothing is known so the inputs show their neutral placeholders.
+ */
+export function onboardingPrefill(
+  { givenName, familyName, sessionName, email }: {
+    givenName?: string | null;
+    familyName?: string | null;
+    sessionName?: string | null;
+    email?: string | null;
+  },
+): { first: string; last: string } {
+  const given = (givenName ?? "").trim();
+  const family = (familyName ?? "").trim();
+  if (given || family) return { first: given, last: family };
+  const full = resolveFullName({ sessionName, email }) ?? "";
+  const parts = full.split(/\s+/).filter(Boolean);
+  return { first: parts[0] ?? "", last: parts.slice(1).join(" ") };
+}

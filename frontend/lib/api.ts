@@ -2893,6 +2893,9 @@ export type UserProfile = {
   full_name: string;
   name_tokens: string[];
   onboarding_complete: boolean;
+  /** G482: the name the sign-in provider shared, for pre-filling onboarding. */
+  given_name?: string;
+  family_name?: string;
 };
 
 export type FuelStation = {

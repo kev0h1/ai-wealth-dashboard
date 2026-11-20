@@ -44,7 +44,7 @@ from datetime import datetime, timezone
 
 from app.core.allowlist import resolve_allowed_signup
 from app.core.config import _gmail_key, is_signup_open, mask_email
-from app.db.collections import linked_identities_col
+from app.db.collections import linked_identities_col, user_profiles_col
 
 # Apple call sites pass distinct provider labels ("apple-native"); the link
 # lookup and the auto-link write both need to recognise "this is an Apple
@@ -149,3 +149,45 @@ async def resolve_signin_email(
         )
 
     return candidate
+
+
+NAME_MAX = 40  # matches the onboarding inputs' maxLength
+
+
+def _name_str(value: object) -> str:
+    """Provider claims are untrusted JSON: only a string is ever a name."""
+    return value.strip() if isinstance(value, str) else ""
+
+
+def split_full_name(full_name: object) -> tuple[str, str]:
+    """Split a single display name into (given, family): first word, then the rest."""
+    parts = _name_str(full_name).split()
+    if not parts:
+        return "", ""
+    return parts[0], " ".join(parts[1:])
+
+
+async def capture_signin_name(email: str, given_name: object, family_name: object) -> None:
+    """G482: remember the name the sign-in provider shared, so onboarding can
+    pre-fill it. Apple shares its name only on the very first authorisation,
+    so it has to be stored then. Stored once and never overwritten (one atomic
+    update filtered on the field not existing), and never touches
+    profile.full_name (the name the user typed themselves). Nothing is stored
+    when the provider shared no name, non-string values are ignored, and a
+    failure here must never block a sign-in."""
+    try:
+        given = _name_str(given_name)[:NAME_MAX]
+        family = _name_str(family_name)[:NAME_MAX]
+        if not isinstance(email, str) or not email or not (given or family):
+            return
+        await user_profiles_col.update_one(
+            {"_id": email, "signin_name": {"$exists": False}},
+            {
+                "$set": {"signin_name": {"given": given, "family": family}},
+                "$setOnInsert": {"onboarding_complete": False},
+            },
+            upsert=True,
+        )
+    except Exception as exc:
+        # A duplicate key here means the name was already stored: the intended no-op.
+        logging.info("Sign-in name not stored (%s)", type(exc).__name__)
