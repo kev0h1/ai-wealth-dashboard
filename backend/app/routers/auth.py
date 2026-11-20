@@ -319,9 +319,10 @@ async def apple_native(body: dict):
         # D5: see google_native()'s equivalent comment above.
         raise HTTPException(403, detail={"code": "INVITE_ONLY"})
 
-    name = body.get("fullName") or ""
+    raw_name = body.get("fullName")
+    name = raw_name.strip() if isinstance(raw_name, str) else ""
     given, family = body.get("givenName"), body.get("familyName")
-    if not (given or family):
+    if not (isinstance(given, str) and given.strip()) and not (isinstance(family, str) and family.strip()):
         given, family = split_full_name(name)
     await capture_signin_name(email, given, family)
     session_token = serializer.dumps({"email": email, "name": name})

@@ -151,32 +151,43 @@ async def resolve_signin_email(
     return candidate
 
 
-def split_full_name(full_name: str) -> tuple[str, str]:
+NAME_MAX = 40  # matches the onboarding inputs' maxLength
+
+
+def _name_str(value: object) -> str:
+    """Provider claims are untrusted JSON: only a string is ever a name."""
+    return value.strip() if isinstance(value, str) else ""
+
+
+def split_full_name(full_name: object) -> tuple[str, str]:
     """Split a single display name into (given, family): first word, then the rest."""
-    parts = (full_name or "").split()
+    parts = _name_str(full_name).split()
     if not parts:
         return "", ""
     return parts[0], " ".join(parts[1:])
 
 
-async def capture_signin_name(email: str, given_name: str | None, family_name: str | None) -> None:
+async def capture_signin_name(email: str, given_name: object, family_name: object) -> None:
     """G482: remember the name the sign-in provider shared, so onboarding can
     pre-fill it. Apple shares its name only on the very first authorisation,
-    so it has to be stored then. Stored once and never overwritten, and
-    never touches profile.full_name (the name the user typed themselves).
-    Nothing is stored when the provider shared no name, and a failure here
-    must never block a sign-in."""
-    given = (given_name or "").strip()[:100]
-    family = (family_name or "").strip()[:100]
-    if not email or not (given or family):
-        return
+    so it has to be stored then. Stored once and never overwritten (one atomic
+    update filtered on the field not existing), and never touches
+    profile.full_name (the name the user typed themselves). Nothing is stored
+    when the provider shared no name, non-string values are ignored, and a
+    failure here must never block a sign-in."""
     try:
-        existing = await user_profiles_col.find_one({"_id": email})
-        if existing and existing.get("signin_name"):
+        given = _name_str(given_name)[:NAME_MAX]
+        family = _name_str(family_name)[:NAME_MAX]
+        if not isinstance(email, str) or not email or not (given or family):
             return
-        update: dict = {"$set": {"signin_name": {"given": given, "family": family}}}
-        if not existing:
-            update["$setOnInsert"] = {"onboarding_complete": False}
-        await user_profiles_col.update_one({"_id": email}, update, upsert=True)
+        await user_profiles_col.update_one(
+            {"_id": email, "signin_name": {"$exists": False}},
+            {
+                "$set": {"signin_name": {"given": given, "family": family}},
+                "$setOnInsert": {"onboarding_complete": False},
+            },
+            upsert=True,
+        )
     except Exception as exc:
-        logging.warning("Could not store sign-in name (%s)", type(exc).__name__)
+        # A duplicate key here means the name was already stored: the intended no-op.
+        logging.info("Sign-in name not stored (%s)", type(exc).__name__)

@@ -19,6 +19,12 @@ class FakeProfilesCol:
         return dict(d) if d else None
 
     async def update_one(self, filt, update, upsert=False):
+        existing = self.docs.get(filt["_id"])
+        if existing is not None and any(
+            v == {"$exists": False} and k in existing for k, v in filt.items() if k != "_id"
+        ):
+            self.dup_attempts = getattr(self, "dup_attempts", 0) + 1
+            raise RuntimeError("E11000 duplicate key")
         created = filt["_id"] not in self.docs
         doc = self.docs.setdefault(filt["_id"], {"_id": filt["_id"]})
         if created:
@@ -69,3 +75,42 @@ def test_no_name_means_empty_fields_and_nothing_stored(monkeypatch):
 def test_split_full_name():
     assert split_full_name("") == ("", "")
     assert split_full_name("Cher") == ("Cher", "")
+
+
+def test_non_string_values_never_raise_or_store(monkeypatch):
+    col = _patch(monkeypatch)
+    for bad in (["Ada"], 7, {"a": "b"}):
+        _run(capture_signin_name("b@example.com", bad, bad))
+    assert "b@example.com" not in col.docs
+    assert split_full_name(["Ada", "L"]) == ("", "")
+    assert split_full_name({"a": 1}) == ("", "")
+    assert split_full_name(5) == ("", "")
+    # a good family name still stores when the given name is junk
+    _run(capture_signin_name("b@example.com", 7, "Lovelace"))
+    assert col.docs["b@example.com"]["signin_name"] == {"given": "", "family": "Lovelace"}
+
+
+def test_names_are_capped_at_40_characters(monkeypatch):
+    col = _patch(monkeypatch)
+    _run(capture_signin_name("c@example.com", "A" * 90, "B" * 41))
+    assert col.docs["c@example.com"]["signin_name"] == {"given": "A" * 40, "family": "B" * 40}
+
+
+def test_never_overwrite_is_a_single_atomic_update(monkeypatch):
+    calls = []
+
+    class Spy(FakeProfilesCol):
+        async def find_one(self, *a, **k):
+            raise AssertionError("no read-then-write")
+
+        async def update_one(self, filt, update, upsert=False):
+            calls.append(filt)
+            return await super().update_one(filt, update, upsert)
+
+    col = Spy()
+    monkeypatch.setattr(identity_module, "user_profiles_col", col)
+    _run(capture_signin_name("d@example.com", "First", "One"))
+    _run(capture_signin_name("d@example.com", "Second", "Two"))  # loses: filter misses, dup key swallowed
+    assert col.docs["d@example.com"]["signin_name"] == {"given": "First", "family": "One"}
+    assert all(f.get("signin_name") == {"$exists": False} for f in calls)
+    assert col.dup_attempts == 1
