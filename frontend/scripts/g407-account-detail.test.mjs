@@ -45,7 +45,7 @@ assert.doesNotMatch(normal, /After scheduled payments|Plans held back|Lowest aft
 assert.match(normal, /After payments and money in.*£310\.00/);
 assert.match(normal, /Goals and set-asides.*−£140\.00/);
 assert.doesNotMatch(normal, /allocation|shared Left to spend|Adding the account amounts/i);
-assert.match(normal, /Available is what this account can spend now without a payment failing: its lowest balance before payday, after predicted money in and out, goals and set-asides/);
+assert.match(normal, /Available is what is left in this account after its predicted money in and out, goals and set-asides this pay period/);
 const payments = availability({ kind: "ready", value: -289, warning: "payments", working: working(-289) }, { after_payments: -289, plans_reserved: 0, after_payments_and_plans: -289, low_point: -289 });
 assert.match(payments, /£289.*short for payments/);
 assert.match(payments, /text-rose-700/, "payment risk colours only its alert icon");

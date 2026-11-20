@@ -3,7 +3,7 @@
 import { useState, type ReactNode } from "react";
 import Link from "next/link";
 import type { SafeToSpend } from "@/lib/api";
-import { DIP_TONE_CLASS, dipReading, type LeftToSpendEvidence } from "@/lib/leftToSpendEvidence";
+import type { LeftToSpendEvidence } from "@/lib/leftToSpendEvidence";
 import { DisclosureSummary } from "@/components/Disclosure";
 import MoneyText from "@/components/MoneyText";
 import IncomeEvidenceSheet from "@/components/IncomeEvidenceSheet";
@@ -59,8 +59,6 @@ export default function SafeToSpendDisclosures({
   showCardsLink,
   reservationDetails,
   freshnessLabel,
-  shortState = false,
-  coveredDipAccountIds,
 }: {
   disclaimer: string;
   data: SafeToSpendOk;
@@ -73,8 +71,6 @@ export default function SafeToSpendDisclosures({
   showCardsLink: boolean;
   reservationDetails: ReactNode;
   freshnessLabel: string | null;
-  shortState?: boolean;
-  coveredDipAccountIds?: string[];
 }) {
   const [sheet, setSheet] = useState<"before_payday" | "expected_pay" | null>(null);
   const growth = data.card_growth_total ?? 0;
@@ -104,7 +100,6 @@ export default function SafeToSpendDisclosures({
           {evidence.rows.map((row) => <LedgerRow key={row.label} {...row} format={format} onIncomeEvidence={row.label === "Income before payday" ? () => setSheet("before_payday") : undefined} expanded={sheet === "before_payday"} />)}
         </dl>
         {evidence.ledgerNote && <p className={styles.note}><MoneyText text={evidence.ledgerNote} /></p>}
-        {(evidence.dips ?? []).map((dip) => { const r = dipReading(dip, { short: shortState, coveredIds: coveredDipAccountIds }, (v) => format(v)); return <p key={dip.account_id} data-g479-dip data-dip-tone={r.tone} className={`${styles.note} ${DIP_TONE_CLASS[r.tone]}`}><MoneyText text={r.text} /></p>; })}
         {reservationDetails}
         {(data.pooled_transfers_excluded ?? 0) > 0 && <p>Transfers between your own included accounts are counted on the day they move, each account on its own.</p>}
         <dl className={styles.facts}>
