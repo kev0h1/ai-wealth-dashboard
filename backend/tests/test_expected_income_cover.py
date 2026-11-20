@@ -46,12 +46,16 @@ def test_walk_sort_key_credits_before_debits_on_a_shared_day():
     assert sorted([credit, debit], key=walk_sort_key) == [credit, debit]
 
 
-def test_walk_sort_key_days_away_dominates_the_credit_debit_tie_break():
-    """An earlier debit (day 5) must still sort before a later credit (day
-    6) — the same-day tie-break only ever applies WITHIN a shared day."""
+def test_walk_sort_key_every_credit_sorts_before_every_debit_whatever_its_date():
+    """G481 (Kevin 2026-11-20): money in only offsets bills and no timing is involved, so a credit dated
+    LATER (day 6) is walked before an earlier debit (day 5); within a side, days order the rows."""
     earlier_debit = (5, "acc", 100.0, False, {"name": "Council Tax"})
     later_credit = (6, "acc", 200.0, True, {"name": "Salary"})
-    assert sorted([later_credit, earlier_debit], key=walk_sort_key) == [earlier_debit, later_credit]
+    assert sorted([earlier_debit, later_credit], key=walk_sort_key) == [later_credit, earlier_debit]
+    d1 = (2, "acc", 10.0, False, {"name": "D1"})
+    d2 = (4, "acc", 10.0, False, {"name": "D2"})
+    c1 = (3, "acc", 10.0, True, {"name": "C1"})
+    assert sorted([d2, c1, d1], key=walk_sort_key) == [c1, d1, d2]
 
 
 def test_walk_sort_key_multiple_same_day_debits_keep_stable_relative_order():

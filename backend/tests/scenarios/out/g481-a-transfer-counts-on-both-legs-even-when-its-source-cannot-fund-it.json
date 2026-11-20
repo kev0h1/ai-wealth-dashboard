@@ -4,39 +4,29 @@
       "after_payments": -200.0,
       "after_payments_and_money_in": -200.0,
       "after_payments_and_plans": -200.0,
-      "contribution": 0.0,
-      "dips_below_zero": {
-        "short_by": 200.0,
-        "short_on": "2026-11-23"
-      },
       "estimated": false,
       "headroom": -210.0,
       "is_current_account": true,
       "low_point": -200.0,
       "low_point_and_plans": -200.0,
-      "lowest_after_money_in": -200.0,
       "plans_reserved": 0.0,
       "short": true,
       "spend_from_headroom": -200.0,
-      "uncertain": false,
-      "uncovered_shortfall": 200.0
+      "uncertain": false
     },
     "acc-md": {
       "after_payments": 230.0,
-      "after_payments_and_money_in": 230.0,
+      "after_payments_and_money_in": 50.0,
       "after_payments_and_plans": 230.0,
-      "contribution": 230.0,
       "estimated": false,
       "headroom": -80.0,
       "is_current_account": true,
       "low_point": 50.0,
       "low_point_and_plans": 50.0,
-      "lowest_after_money_in": 230.0,
       "plans_reserved": 0.0,
       "short": true,
-      "spend_from_headroom": 230.0,
-      "uncertain": false,
-      "uncovered_shortfall": 0.0
+      "spend_from_headroom": 50.0,
+      "uncertain": false
     }
   },
   "account_plans": [],
@@ -248,7 +238,7 @@
       "type": "move"
     }
   ],
-  "name": "G479 option 1: a transfer counts on BOTH legs even when its source cannot fund it (Harbour has 100 and is due to send 300, Meadow has 50 and pays 120): Harbour is short 200, Meadow is fine, total 30",
+  "name": "G481 (option 1, both legs): a transfer is a bill on its sender and money in on its receiver even when the sender cannot fund it (Harbour has 100 and is due to send 300, Meadow has 50 and pays 120): Harbour is short 200, Meadow is 50, total -150",
   "period": {
     "end": "2026-11-26",
     "start": "2026-10-30"
@@ -258,23 +248,13 @@
     "calculation_status": "complete",
     "commitments_reserved": 0,
     "left_to_spend_lines": {
-      "accounts_total": 30.0,
-      "basis": "lowest_point",
+      "accounts_total": -150.0,
       "buffer": 0.0,
-      "dips": [
-        {
-          "account_id": "acc-hb",
-          "account_name": "Harbour Current",
-          "line": "Harbour Current: \u00a3200 short on 23 Nov",
-          "short_by": 200.0,
-          "short_on": "2026-11-23"
-        }
-      ],
       "plans_total": 0
     },
-    "lowest_projected_balance": 30.0,
-    "safe_to_spend": 30.0,
-    "safe_to_spend_cash": 30.0
+    "lowest_projected_balance": -150.0,
+    "safe_to_spend": -150.0,
+    "safe_to_spend_cash": -150.0
   },
   "today": "2026-11-19"
 }

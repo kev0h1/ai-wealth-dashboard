@@ -228,7 +228,7 @@
   "allocations": [],
   "card_terms": [],
   "expected": {
-    "left_to_spend": 1250.0,
+    "left_to_spend": 565.0,
     "spendable_balance": 2600.0,
     "accounts": {
       "acc-bc": {
@@ -238,7 +238,7 @@
         "verdict": "covered"
       },
       "acc-hsbc": {
-        "spend_from": 785.0,
+        "spend_from": 100.0,
         "after_payments": 785.0,
         "low_point": 100.0,
         "verdict": "covered"
@@ -250,6 +250,6 @@
     },
     "payday_plan": null,
     "at_risk_count": 0,
-    "notes": "G443 (Kevin 2026-11-09): the August Barclays to HSBC 1,885 standing order is the first occurrence at the start of history, so its HSBC credit falls before the import and the row is a SINGLE leg filed from the learned series (own_transfer_match.series_single, category Transfer, no counterpart row). September and October are ordinary AI-filed pairs. A single-leg stamp is not a predicted payment and moves no figure, so every number is the G442 hand computation unchanged. The September and October pairs carry the stamp, so the standing order is a predicted payment that is out on Barclays and in on HSBC. Today Wed 4 Nov 2026; the last Friday of October was 30 Oct, so the period runs 30 Oct to Thu 26 Nov and payday is Fri 27 Nov, outside the window, so the salary is not credited. Items inside the window: Barclays council tax 150 (Fri 6 Nov), the standing order Barclays to HSBC 1,885 (Thu 5 Nov), HSBC mortgage 1,200 (Mon 9 Nov). Each account on its own (G436). Barclays: 2,500 - 1,885 = 615 (5 Nov); 615 - 150 = 465 (6 Nov). After payments 465, the lowest running balance including the opening 2,500 is 465 (the opening balance is the first point of the walk), Spend from 465. The order leaves 615, at or above zero, so it is funded and lands on HSBC (G360). HSBC: 100 + 1,885 = 1,985 (5 Nov); 1,985 - 1,200 = 785 (9 Nov). After payments 785; the lowest running balance is the opening 100 (1,985 and 785 are both higher), so the low point is 100, only a warning, and Spend from is the closing 785. Left to spend: 465 + 785 = 1,250, equal to the pooled figure (2,500 + 100 - 150 - 1,200 = 1,250) because the order nets to zero inside the pool; no buffer and no plans. Both accounts are at or above zero on every measure, so both read covered, no cover move, at risk 0. The period began 30 Oct (day 5), payday is 23 days away, so there is no payday plan."
+    "notes": "G443 (Kevin 2026-11-09): the August Barclays to HSBC 1,885 standing order is the first occurrence at the start of history, so its HSBC credit falls before the import and the row is a SINGLE leg filed from the learned series (own_transfer_match.series_single, category Transfer, no counterpart row). September and October are ordinary AI-filed pairs. A single-leg stamp is not a predicted payment and moves no figure, so every number is the G442 hand computation unchanged. The September and October pairs carry the stamp, so the standing order is a predicted payment that is out on Barclays and in on HSBC. Today Wed 4 Nov 2026; the last Friday of October was 30 Oct, so the period runs 30 Oct to Thu 26 Nov and payday is Fri 27 Nov, outside the window, so the salary is not credited. Items inside the window: Barclays council tax 150 (Fri 6 Nov), the standing order Barclays to HSBC 1,885 (Thu 5 Nov), HSBC mortgage 1,200 (Mon 9 Nov). Each account on its own (G436). Barclays: 2,500 - 1,885 = 615 (5 Nov); 615 - 150 = 465 (6 Nov). After payments 465, the lowest running balance including the opening 2,500 is 465 (the opening balance is the first point of the walk), Spend from 465. The order leaves 615, at or above zero, so it is funded and lands on HSBC (G360). HSBC: 100 + 1,885 = 1,985 (5 Nov); 1,985 - 1,200 = 785 (9 Nov). After payments 785; the lowest running balance is the opening 100 (1,985 and 785 are both higher), so the low point is 100, only a warning, and Spend from is the closing 785. Left to spend: 465 + 785 = 1,250, equal to the pooled figure (2,500 + 100 - 150 - 1,200 = 1,250) because the order nets to zero inside the pool; no buffer and no plans. Both accounts are at or above zero on every measure, so both read covered, no cover move, at risk 0. The period began 30 Oct (day 5), payday is 23 days away, so there is no payday plan. G481 (Kevin 2026-11-20), which supersedes the Left to spend and Spend from figures worked above where they differ: each account's Available = cash now - max(0, bills before payday - money in before payday); money in only offsets bills and never adds, and no timing is involved. Left to spend is the sum of the accounts, less plans on no account and the buffer (none here). Barclays: cash 2,500; bills 1,885 + 150 = 2,035; money in 0 (the salary is dated payday): 2,500 - 2,035 = 465. HSBC: cash 100; bill 1,200; money in 1,885 (the order's other leg): 100 - max(0, 1,200 - 1,885) = 100, the 1,885 offsets the mortgage and adds nothing (it was 785). Left to spend 465 + 100 = 565 (it was 1,250: the order that leaves Barclays no longer comes back on HSBC). After payments stay 465 and 785, low points 465 and 100; covered, no move, at risk 0."
   }
 }

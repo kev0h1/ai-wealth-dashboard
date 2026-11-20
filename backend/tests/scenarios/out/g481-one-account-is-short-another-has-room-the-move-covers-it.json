@@ -4,11 +4,10 @@
       "after_payments": 1000.0,
       "after_payments_and_money_in": 1000.0,
       "after_payments_and_plans": 1000.0,
-      "contribution": 710.0,
-      "earmarked_total": 290.0,
+      "earmarked_total": 90.0,
       "earmarks_out": [
         {
-          "amount": 290.0,
+          "amount": 90.0,
           "to_account_id": "acc-md",
           "to_name": "Meadow Current"
         }
@@ -18,50 +17,39 @@
       "is_current_account": true,
       "low_point": 1000.0,
       "low_point_and_plans": 1000.0,
-      "lowest_after_money_in": 1000.0,
       "plans_reserved": 0.0,
       "short": false,
-      "spend_from_headroom": 710.0,
-      "uncertain": false,
-      "uncovered_shortfall": 0.0
+      "spend_from_headroom": 910.0,
+      "uncertain": false
     },
     "acc-md": {
-      "after_payments": 224.0,
-      "after_payments_and_money_in": 224.0,
-      "after_payments_and_plans": 224.0,
-      "contribution": 14.0,
+      "after_payments": -76.0,
+      "after_payments_and_money_in": -76.0,
+      "after_payments_and_plans": -76.0,
       "covered_by_move": {
-        "amount": 290.0,
+        "amount": 90.0,
         "from": [
           {
             "account_id": "acc-hb",
-            "amount": 290.0,
+            "amount": 90.0,
             "display_label": "Barclays Harbour Current",
             "name": "Harbour Current"
           }
         ],
-        "shortfall": 276.0
-      },
-      "dips_below_zero": {
-        "money_in_amount": 500.0,
-        "money_in_date": "2026-11-24",
-        "short_by": 276.0,
-        "short_on": "2026-11-23"
+        "shortfall": 76.0
       },
       "estimated": false,
-      "headroom": -286.0,
+      "headroom": -86.0,
       "is_current_account": true,
-      "low_point": -276.0,
-      "low_point_and_plans": -276.0,
-      "lowest_after_money_in": -276.0,
-      "moves_in_total": 290.0,
+      "low_point": -76.0,
+      "low_point_and_plans": -76.0,
+      "moves_in_total": 90.0,
       "plans_reserved": 0.0,
       "short": true,
       "short_after_cover": 0.0,
       "spend_from_headroom": 14.0,
       "spend_from_requires_move": true,
-      "uncertain": false,
-      "uncovered_shortfall": 0.0
+      "uncertain": false
     }
   },
   "account_plans": [],
@@ -111,7 +99,7 @@
         "account_bank": "NatWest",
         "account_id": "acc-md",
         "account_name": "Meadow Current",
-        "amount": 400.0,
+        "amount": 700.0,
         "amount_basis": null,
         "card_dest_account_bank": null,
         "card_dest_account_id": null,
@@ -139,7 +127,7 @@
         "account_bank": "NatWest",
         "account_id": "acc-md",
         "account_name": "Meadow Current",
-        "amount": 400.0,
+        "amount": 700.0,
         "amount_basis": null,
         "card_dest_account_bank": null,
         "card_dest_account_id": null,
@@ -222,13 +210,13 @@
   "days_to_payday": 8,
   "items": [
     {
-      "amount": 290,
+      "amount": 90,
       "covered": true,
-      "id": "plan:2026-11-27:af9b276a53",
+      "id": "plan:2026-11-27:c97ea0d70c",
       "moves": [
         {
-          "amount": 290,
-          "headline": "Move \u00a3290 from Harbour Current",
+          "amount": 90,
+          "headline": "Move \u00a390 from Harbour Current",
           "move_map": {
             "from": {
               "account_id": "acc-hb",
@@ -243,7 +231,7 @@
               "account_id": "acc-md",
               "balance": 124.0,
               "display_label": "NatWest Meadow Current",
-              "incoming": "\u00a3400 Rent Share expected Monday",
+              "incoming": "\u00a3700 Rent Share expected Monday",
               "name": "Meadow Current",
               "provider": "natwest"
             }
@@ -255,7 +243,7 @@
         "balance": 124.0,
         "bills": [
           {
-            "amount": 400,
+            "amount": 700,
             "expected_date": "2026-11-23",
             "label": "Rent Share"
           }
@@ -267,13 +255,13 @@
         "needs_by_date": "2026-11-23",
         "needs_by_last": "Monday",
         "needs_by_last_date": "2026-11-23",
-        "needs_total": 400,
+        "needs_total": 700,
         "provider": "natwest"
       },
       "type": "move"
     }
   ],
-  "name": "G479: Meadow goes short before its money lands and Harbour has room, so the suggested move covers the dip once (G410): the pair costs Left to spend the dip a single time",
+  "name": "G481: Meadow's bills are more than its money in and Harbour has room, so the suggested move covers the shortfall once (G410): the pair costs Left to spend the shortfall a single time",
   "period": {
     "end": "2026-11-26",
     "start": "2026-10-30"
@@ -283,25 +271,13 @@
     "calculation_status": "complete",
     "commitments_reserved": 0,
     "left_to_spend_lines": {
-      "accounts_total": 724.0,
-      "basis": "lowest_point",
+      "accounts_total": 924.0,
       "buffer": 0.0,
-      "dips": [
-        {
-          "account_id": "acc-md",
-          "account_name": "Meadow Current",
-          "line": "Meadow Current: \u00a3276 short on 23 Nov, before about \u00a3500 is expected on 24 Nov",
-          "money_in_amount": 500.0,
-          "money_in_date": "2026-11-24",
-          "short_by": 276.0,
-          "short_on": "2026-11-23"
-        }
-      ],
       "plans_total": 0
     },
-    "lowest_projected_balance": 724.0,
-    "safe_to_spend": 724.0,
-    "safe_to_spend_cash": 724.0
+    "lowest_projected_balance": 924.0,
+    "safe_to_spend": 924.0,
+    "safe_to_spend_cash": 924.0
   },
   "today": "2026-11-19"
 }

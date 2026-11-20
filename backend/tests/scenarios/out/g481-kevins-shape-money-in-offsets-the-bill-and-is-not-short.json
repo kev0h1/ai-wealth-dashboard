@@ -1,33 +1,24 @@
 {
   "account_eligibility": {
     "acc-hb": {
-      "after_payments": 606.57,
-      "after_payments_and_money_in": 606.57,
-      "after_payments_and_plans": 606.57,
-      "contribution": 0.0,
-      "dips_below_zero": {
-        "money_in_amount": 649.59,
-        "money_in_date": "2026-11-26",
-        "short_by": 43.02,
-        "short_on": "2026-11-23"
-      },
+      "after_payments": 576.73,
+      "after_payments_and_money_in": 5.05,
+      "after_payments_and_plans": 576.73,
       "estimated": false,
-      "headroom": -53.02,
+      "headroom": -4.95,
       "is_current_account": true,
-      "low_point": -43.02,
-      "low_point_and_plans": -43.02,
-      "lowest_after_money_in": -43.02,
+      "low_point": 5.05,
+      "low_point_and_plans": 5.05,
       "plans_reserved": 0.0,
       "short": true,
-      "spend_from_headroom": -43.02,
-      "uncertain": false,
-      "uncovered_shortfall": 43.02
+      "spend_from_headroom": 5.05,
+      "uncertain": false
     }
   },
   "account_plans": [],
   "accounts": [
     {
-      "balance": 34.89,
+      "balance": 5.05,
       "currency": "GBP",
       "id": "acc-hb",
       "include_in_safe_to_spend": true,
@@ -38,7 +29,7 @@
       "type": "BANK"
     }
   ],
-  "at_risk_count": 1,
+  "at_risk_count": 0,
   "cashflow": {
     "internal_inflows": [],
     "next_payday": "2026-11-27",
@@ -53,10 +44,10 @@
       "start": "2026-10-30",
       "type": "last_friday"
     },
-    "spendable_balance": 34.89,
+    "spendable_balance": 5.05,
     "upcoming_bills": [
       {
-        "account_balance": 34.89,
+        "account_balance": 5.05,
         "account_bank": "Barclays",
         "account_id": "acc-hb",
         "account_name": "Harbour Current",
@@ -84,7 +75,7 @@
         "rule_label": null
       },
       {
-        "account_balance": 34.89,
+        "account_balance": 5.05,
         "account_bank": "Barclays",
         "account_id": "acc-hb",
         "account_name": "Harbour Current",
@@ -114,7 +105,7 @@
     ],
     "upcoming_income": [
       {
-        "account_balance": 34.89,
+        "account_balance": 5.05,
         "account_bank": "Barclays",
         "account_id": "acc-hb",
         "account_name": "Harbour Current",
@@ -143,33 +134,8 @@
     ]
   },
   "days_to_payday": 8,
-  "items": [
-    {
-      "id": "move:acc-hb:2026-11-27:ca71e50a29",
-      "plan_dest": {
-        "account_id": "acc-hb",
-        "balance": 34.89,
-        "bills": [
-          {
-            "amount": 78,
-            "expected_date": "2026-11-23",
-            "label": "Homebridge Housing"
-          }
-        ],
-        "display_label": "Barclays Harbour Current",
-        "is_overdraft": false,
-        "name": "Harbour Current",
-        "needs_by": "Monday",
-        "needs_by_date": "2026-11-23",
-        "needs_by_last": "Monday",
-        "needs_by_last_date": "2026-11-23",
-        "needs_total": 78,
-        "provider": "barclays"
-      },
-      "type": "move"
-    }
-  ],
-  "name": "G479, Kevin's production shape (invented names): 34.89 now, 77.91 due 23 Nov, about 649.59 expected 26 Nov, payday 27 Nov: the account is short before the money lands, so it contributes nothing and Left to spend is short",
+  "items": [],
+  "name": "G481, Kevin's production shape (invented names): 5.05 now, 77.91 due 23 Nov, about 649.59 expected 26 Nov: the money in offsets the bill, so the account is 5.05 and not Short",
   "period": {
     "end": "2026-11-26",
     "start": "2026-10-30"
@@ -179,25 +145,13 @@
     "calculation_status": "complete",
     "commitments_reserved": 0,
     "left_to_spend_lines": {
-      "accounts_total": -43.02,
-      "basis": "lowest_point",
+      "accounts_total": 5.05,
       "buffer": 0.0,
-      "dips": [
-        {
-          "account_id": "acc-hb",
-          "account_name": "Harbour Current",
-          "line": "\u00a343 short on 23 Nov, before about \u00a3650 is expected on 26 Nov",
-          "money_in_amount": 649.59,
-          "money_in_date": "2026-11-26",
-          "short_by": 43.02,
-          "short_on": "2026-11-23"
-        }
-      ],
       "plans_total": 0
     },
-    "lowest_projected_balance": -43.02,
-    "safe_to_spend": -43.02,
-    "safe_to_spend_cash": -43.02
+    "lowest_projected_balance": 5.05,
+    "safe_to_spend": 5.05,
+    "safe_to_spend_cash": 5.05
   },
   "today": "2026-11-19"
 }

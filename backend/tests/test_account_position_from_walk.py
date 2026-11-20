@@ -153,40 +153,14 @@ def test_compute_today_items_equals_the_pre_change_golden(monkeypatch):
         for row in (entry.get("covered_by_move") or {}).get("from", []):
             row.pop("display_label", None)
     expected = json.loads(json.dumps(golden["account_eligibility_out"]))
-    # G436 deliberate behaviour changes (Kevin 2026-11-07, every account in isolation): the golden
-    # stays the old code's output except these keys, one reason each.
-    #   after_payments_and_money_in: new display-only key, the closing figure of the account's own walk.
-    #   spend_from_headroom: now the closing figure less plans (signed, no low-point clamp, no
-    #     preference allocation), so hsbc 1685.33 - 20, lowsrc -90, natwest 290, salary 2800.
-    #   dips_below_zero: new warning key, lowsrc goes below zero before money arrives on 2026-11-08.
-    #   account_headroom_raw: now kept for non-current accounts (consolidation capacity), 240 each.
-    #   non-current accounts (man1, pot) have no spending figure, so spend_from_headroom is 0.
-    # G479 (Kevin 2026-11-19, option A) replaces the closing figure with the account's lowest balance
-    # (lowest_after_money_in) less plans, and adds the display keys contribution (max(0, figure)) and
-    # uncovered_shortfall (max(0, -figure)); dips_below_zero also carries short_by, short_on and money_in_amount.
-    #   hsbc: lowest 1670.33, 20 plans: 1650.33 (closing 1685.33).
-    #   lowsrc: short 125 on 2026-11-04 before 60 is expected on 2026-11-08; no source covers it here: -125.
-    #   natwest: closing 330 (the 300 transfer from lowsrc is credited although lowsrc is short, G479 option 1), lowest 30, 40 of plans: -10, short 10 for plans (no source covers it in this fixture).
-    #   salary: 2800, nothing leaves it.
-    g436 = {
-        "hsbc": {"after_payments_and_money_in": 1685.33, "lowest_after_money_in": 1670.33, "spend_from_headroom": 1650.33,
-                 "contribution": 1650.33, "uncovered_shortfall": 0.0},
-        "lowsrc": {"after_payments_and_money_in": -90.0, "lowest_after_money_in": -125.0, "spend_from_headroom": -125.0,
-                   "contribution": 0.0, "uncovered_shortfall": 125.0,
-                   "dips_below_zero": {"money_in_date": "2026-11-08", "short_by": 125.0, "short_on": "2026-11-04", "money_in_amount": 60.0}},
-        "man1": {"account_headroom_raw": 240.0, "after_payments_and_money_in": 250.0, "lowest_after_money_in": 250.0, "spend_from_headroom": 0.0},
-        "natwest": {"after_payments_and_money_in": 330.0, "lowest_after_money_in": 30.0, "spend_from_headroom": -10.0,
-                    "contribution": 0.0, "uncovered_shortfall": 10.0},
-        "pot": {"account_headroom_raw": 240.0, "after_payments_and_money_in": 777.0, "lowest_after_money_in": 777.0, "spend_from_headroom": 0.0},
-        "salary": {"after_payments_and_money_in": 2800.0, "lowest_after_money_in": 2800.0, "spend_from_headroom": 2800.0,
-                   "contribution": 2800.0, "uncovered_shortfall": 0.0},
-    }
-    if isinstance(expected, dict):
-        for acct, keys in g436.items():
-            expected[acct].update(keys)
-    else:
-        for k, entry in expected:
-            entry.update(g436.get(k, {}))
+    # G481 (Kevin 2026-11-20): the golden was re-captured (POSITION_GOLDEN_DUMP=1) for the one rule
+    # Available = cash now - max(0, bills before payday - money in before payday), money in never adding, and
+    # every walk putting every credit before every debit. By hand, per account (before plans):
+    #   hsbc: 12 cash, 100 out, 1,758.33 + 15 in: 12; 20 of plans: -8.
+    #   lowsrc: 5 cash, 90 + 40 + 25 out, 60 in: 5 - 95 = -90.
+    #   natwest: 90 cash, 60 out, 300 in: 90; 40 of plans: 50.
+    #   salary: 300 cash, nothing leaves it, 2,500 expected in does not add: 300.
+    #   man1, pot: non-current, no spending figure (0).
     assert elig == expected
 
 

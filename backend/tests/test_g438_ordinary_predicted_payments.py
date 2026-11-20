@@ -87,7 +87,11 @@ def test_money_in_offsets_payments_on_the_same_day_or_after_it():
     earlier = [(2, "acc", 300.0, True, sh.income("Wages", 2, 300)), (5, "acc", 300.0, False, pay)]
     _, mins, short, bounced = sh.walk(earlier)
     assert mins["acc"] >= 0 and "acc" not in bounced
-    # money in AFTER the payment does not rescue it
+    # G481 (Kevin 2026-11-20): no timing, only totals. Money in AFTER the payment offsets it just the same
     later = [(5, "acc", 300.0, False, pay), (8, "acc", 300.0, True, sh.income("Wages", 8, 300))]
     _, mins, short, bounced = sh.walk(later)
-    assert mins["acc"] == -300.0 and "acc" in bounced
+    assert mins["acc"] >= 0 and "acc" not in bounced
+    # ...and only offsets: 300 of money in against 400 of payments leaves the account 100 short
+    bigger = [(5, "acc", 400.0, False, sh.bill("Rent", 5, 400, kind="commitment")), (8, "acc", 300.0, True, sh.income("Wages", 8, 300))]
+    _, mins, short, bounced = sh.walk(bigger)
+    assert mins["acc"] == -100.0 and "acc" in bounced

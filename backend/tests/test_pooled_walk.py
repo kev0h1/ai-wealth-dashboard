@@ -226,18 +226,17 @@ def test_dump_golden(monkeypatch):
 def test_pooled_walk_equals_the_pre_change_golden(monkeypatch):
     # G436: the pooled WALK itself (window lists, transfers excluded, min_running,
     # bills_total, income) is still the G367 golden byte for byte. Only the
-    # response's headline moved, by design: Left to spend is each counted
-    # current account's own figure added up. G479 (Kevin 2026-11-19, option A): that figure
-    # is the account's LOWEST balance before payday, money in counted only from its date.
+    # response's headline moved, by design: Left to spend is each counted current
+    # account's own figure added up. G481 (Kevin 2026-11-20): that figure is cash now less what
+    # its bills before payday exceed its money in before payday (money in never adds).
     # By hand: Main opens 1,000 and pays 400 (day 2), the 150 transfer out (day 3, the fake
-    # has no inflow leg), 30 and 60 (day 5): 360 after its last payment, then Side gig
-    # (two sightings, on Main, day 7) lands +140 = 500 at the close, so Main's lowest is 360.
-    # Joint 300 and Overdrawn -150 have no events, so each is its own opening (Overdrawn is short
-    # today, 150). 360 + 300 - 150 = 510 (G436 read the 500 closing, 650; the old pooled 810 dropped
-    # the transfer's debit and counted the overdraft as 0). Refund has no history, so it does not
-    # count; no buffer or plans. The golden's response keys that moved: safe_to_spend,
-    # safe_to_spend_cash and lowest_projected_balance 650 to 510, left_to_spend_lines (accounts_total
-    # 510, basis lowest_point, the Overdrawn dip), calculation_version 4 to 5.
+    # has no inflow leg), 30 and 60 (day 5): 640 out, and Side gig (two sightings, on Main, day 7)
+    # brings +140 in, so Main is 1,000 - (640 - 140) = 500. Joint 300 and Overdrawn -150 have no
+    # events, so each is its own opening. 500 + 300 - 150 = 650 (G479 read Main's lowest point, 360,
+    # for 510; the old pooled 810 dropped the transfer's debit and counted the overdraft as 0).
+    # Refund has no history, so it does not count; no buffer or plans. The golden's response keys
+    # that moved against G479: safe_to_spend, safe_to_spend_cash and lowest_projected_balance 510 to 650,
+    # left_to_spend_lines (accounts_total 650, no basis or dips), calculation_version 5 to 6.
     golden = json.loads(GOLDEN.read_text())
     got = _capture(monkeypatch)
     for key in golden:

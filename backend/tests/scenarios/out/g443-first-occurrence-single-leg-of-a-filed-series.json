@@ -4,35 +4,29 @@
       "after_payments": 465.0,
       "after_payments_and_money_in": 465.0,
       "after_payments_and_plans": 465.0,
-      "contribution": 465.0,
       "estimated": false,
       "headroom": 455.0,
       "is_current_account": true,
       "low_point": 465.0,
       "low_point_and_plans": 465.0,
-      "lowest_after_money_in": 465.0,
       "plans_reserved": 0.0,
       "short": false,
       "spend_from_headroom": 465.0,
-      "uncertain": false,
-      "uncovered_shortfall": 0.0
+      "uncertain": false
     },
     "acc-hsbc": {
       "after_payments": 785.0,
-      "after_payments_and_money_in": 785.0,
+      "after_payments_and_money_in": 100.0,
       "after_payments_and_plans": 785.0,
-      "contribution": 785.0,
       "estimated": false,
       "headroom": 90.0,
       "is_current_account": true,
       "low_point": 100.0,
       "low_point_and_plans": 100.0,
-      "lowest_after_money_in": 785.0,
       "plans_reserved": 0.0,
       "short": false,
-      "spend_from_headroom": 785.0,
-      "uncertain": false,
-      "uncovered_shortfall": 0.0
+      "spend_from_headroom": 100.0,
+      "uncertain": false
     }
   },
   "account_plans": [],
@@ -314,15 +308,13 @@
     "calculation_status": "complete",
     "commitments_reserved": 0,
     "left_to_spend_lines": {
-      "accounts_total": 1250.0,
-      "basis": "lowest_point",
+      "accounts_total": 565.0,
       "buffer": 0.0,
-      "dips": [],
       "plans_total": 0
     },
-    "lowest_projected_balance": 1250.0,
-    "safe_to_spend": 1250.0,
-    "safe_to_spend_cash": 1250.0
+    "lowest_projected_balance": 565.0,
+    "safe_to_spend": 565.0,
+    "safe_to_spend_cash": 565.0
   },
   "today": "2026-11-04"
 }

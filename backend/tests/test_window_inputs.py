@@ -262,9 +262,9 @@ def test_caller_output_equals_pre_extraction_golden(monkeypatch, name):
     if name == "at_risk":
         # G365: compared in walk order (the golden holds insertion order).
         golden["events_unsorted"] = sorted(
-            golden["events_unsorted"], key=lambda e: (e[0], 0 if e[3] else 1)
+            golden["events_unsorted"], key=lambda e: (0 if e[3] else 1, e[0])
         )
-        got["events_unsorted"] = sorted(got["events_unsorted"], key=lambda e: (e[0], 0 if e[3] else 1))
+        got["events_unsorted"] = sorted(got["events_unsorted"], key=lambda e: (0 if e[3] else 1, e[0]))
     if name == "companion":
         golden["income_credit_asked"] = _attributed(golden["income_credit_asked"])
         got["income_credit_asked"] = _attributed(got["income_credit_asked"])

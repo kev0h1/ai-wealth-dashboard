@@ -20,40 +20,34 @@
    "hsbc",
    {
     "after_payments": 1685.33,
-    "after_payments_and_money_in": 1685.33,
+    "after_payments_and_money_in": 12.0,
     "after_payments_and_plans": 1665.33,
-    "contribution": 1650.33,
     "estimated": false,
     "headroom": 2.0,
     "is_current_account": true,
     "low_point": 12.0,
     "low_point_and_plans": -8.0,
-    "lowest_after_money_in": 1670.33,
     "plans_reserved": 20.0,
     "short": true,
-    "spend_from_headroom": 1650.33,
-    "uncertain": false,
-    "uncovered_shortfall": 0.0
+    "spend_from_headroom": -8.0,
+    "uncertain": false
    }
   ],
   [
    "natwest",
    {
     "after_payments": 330.0,
-    "after_payments_and_money_in": 330.0,
+    "after_payments_and_money_in": 90.0,
     "after_payments_and_plans": 290.0,
-    "contribution": 0.0,
     "estimated": true,
     "headroom": 20.0,
     "is_current_account": true,
-    "low_point": 30.0,
-    "low_point_and_plans": -10.0,
-    "lowest_after_money_in": 30.0,
+    "low_point": 90.0,
+    "low_point_and_plans": 50.0,
     "plans_reserved": 40.0,
     "short": false,
-    "spend_from_headroom": -10.0,
-    "uncertain": false,
-    "uncovered_shortfall": 10.0
+    "spend_from_headroom": 50.0,
+    "uncertain": false
    }
   ],
   [
@@ -62,36 +56,27 @@
     "after_payments": -90.0,
     "after_payments_and_money_in": -90.0,
     "after_payments_and_plans": -90.0,
-    "contribution": 0.0,
     "covered_by_move": {
-     "amount": 135.0,
+     "amount": 100.0,
      "from": [
       {
        "account_id": "barclays",
-       "amount": 135.0,
+       "amount": 100.0,
        "name": "barclays"
       }
      ],
-     "shortfall": 125.0
-    },
-    "dips_below_zero": {
-     "money_in_amount": 60.0,
-     "money_in_date": "2026-11-08",
-     "short_by": 125.0,
-     "short_on": "2026-11-04"
+     "shortfall": 90.0
     },
     "estimated": false,
-    "headroom": -135.0,
+    "headroom": -100.0,
     "is_current_account": true,
-    "low_point": -125.0,
-    "low_point_and_plans": -125.0,
-    "lowest_after_money_in": -125.0,
+    "low_point": -90.0,
+    "low_point_and_plans": -90.0,
     "plans_reserved": 0.0,
     "short": true,
     "short_after_cover": 0.0,
-    "spend_from_headroom": -125.0,
-    "uncertain": false,
-    "uncovered_shortfall": 125.0
+    "spend_from_headroom": -90.0,
+    "uncertain": false
    }
   ],
   [
@@ -99,14 +84,13 @@
    {
     "account_headroom_raw": 240.0,
     "after_payments": 700.0,
-    "after_payments_and_money_in": 777.0,
+    "after_payments_and_money_in": 250.0,
     "after_payments_and_plans": 700.0,
     "estimated": false,
     "headroom": 240.0,
     "is_current_account": false,
     "low_point": 250.0,
     "low_point_and_plans": 250.0,
-    "lowest_after_money_in": 777.0,
     "plans_reserved": 0.0,
     "short": false,
     "spend_from_headroom": 0.0,
@@ -133,20 +117,17 @@
    "salary",
    {
     "after_payments": 2800.0,
-    "after_payments_and_money_in": 2800.0,
+    "after_payments_and_money_in": 300.0,
     "after_payments_and_plans": 2800.0,
-    "contribution": 2800.0,
     "estimated": false,
     "headroom": 290.0,
     "is_current_account": true,
     "low_point": 300.0,
     "low_point_and_plans": 300.0,
-    "lowest_after_money_in": 2800.0,
     "plans_reserved": 0.0,
     "short": false,
-    "spend_from_headroom": 2800.0,
-    "uncertain": false,
-    "uncovered_shortfall": 0.0
+    "spend_from_headroom": 300.0,
+    "uncertain": false
    }
   ],
   [
@@ -161,7 +142,6 @@
     "is_current_account": false,
     "low_point": 250.0,
     "low_point_and_plans": 250.0,
-    "lowest_after_money_in": 250.0,
     "plans_reserved": 0.0,
     "short": false,
     "spend_from_headroom": 0.0,
@@ -214,11 +194,11 @@
   ],
   [
    "natwest",
-   30.0
+   90.0
   ],
   [
    "lowsrc",
-   -125.0
+   -90.0
   ],
   [
    "pot",

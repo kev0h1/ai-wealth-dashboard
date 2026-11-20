@@ -1,6 +1,7 @@
-"""G436 (Kevin 2026-11-07): Left to spend and each account's Available are what is
-left after payments, goals and set-asides, account by account. Nothing is shared
-out across preferred accounts (G414's `cap_spend_from_to_pool` is gone).
+"""G436 (Kevin 2026-11-07) with G481 (Kevin 2026-11-20): Left to spend and each account's Available are what
+is left after payments, goals and set-asides, account by account: cash now - max(0, bills before payday -
+money in before payday), money in only offsetting. Nothing is shared out across preferred accounts (G414's
+`cap_spend_from_to_pool` is gone).
 
 Real engine where it matters (`compute_today_items` over fake Mongo, the pooled
 `compute_safe_to_spend` over its usual fakes); pure unit tests for the small
@@ -123,17 +124,15 @@ def _headline(monkeypatch, **kw):
     return asyncio.run(analytics.compute_safe_to_spend(UID))
 
 
-def test_headline_is_each_counted_accounts_lowest_balance_added_up(monkeypatch):
+def test_headline_is_each_counted_accounts_available_added_up(monkeypatch):
     out = _headline(monkeypatch)
-    # G479, hand-derived. Main 1,000 - 400 (day 2) - 150 (transfer out, day 3, no inflow leg in this fake)
-    # - 30 - 60 (day 5) = 360 after its last payment, then + 140 (Side gig: two sightings, attributed to
-    # Main, day 7) lands, closing 500. The lowest point is 360 (the side gig is later, so it cannot lift
-    # it; Refund has one sighting and does not count). Joint 300 (nothing moves). Overdrawn is already -150
-    # today (a dip, shown short today). Total 360 + 300 - 150 = 510.
+    # G481, hand-derived. Main: 1,000 cash; bills 400 (day 2) + 150 (transfer out, day 3, no inflow leg in this
+    # fake) + 30 + 60 (day 5) = 640; money in 140 (Side gig: two sightings, attributed to Main, day 7;
+    # Refund has one sighting and does not count): 1,000 - (640 - 140) = 500. Joint 300 (nothing moves).
+    # Overdrawn is already -150 today. Total 500 + 300 - 150 = 650.
     lines = out["left_to_spend_lines"]
-    assert (lines["accounts_total"], lines["plans_total"], lines["buffer"], lines["basis"]) == (510.0, 0, 0.0, "lowest_point")
-    assert [(d["account_id"], d["short_by"], d["line"]) for d in lines["dips"]] == [("over", 150.0, "Overdrawn: £150 short today")]
-    assert out["safe_to_spend"] == 510.0 == out["lowest_projected_balance"]
+    assert lines == {"accounts_total": 650.0, "plans_total": 0, "buffer": 0.0}
+    assert out["safe_to_spend"] == 650.0 == out["lowest_projected_balance"]
     assert out["calculation_status"] == "complete"
 
 
@@ -150,25 +149,35 @@ def _with_inflow(monkeypatch):
     monkeypatch.setattr(analytics, "_build_cashflow_response", with_inflow)
 
 
-def test_a_standing_order_between_two_counted_accounts_leaves_the_total_unchanged(monkeypatch):
-    # No transfer at all: Main 1,000 - 400 - 30 - 60 = 510 at its lowest (+ 140 lands later, closing 650),
-    # Joint 300, Overdrawn -150: 510 + 300 - 150 = 660.
+def test_a_standing_order_between_two_counted_accounts_is_a_bill_on_the_source_and_money_in_on_the_receiver(monkeypatch):
+    # No transfer at all: Main 1,000 - (490 - 140) = 650, Joint 300, Overdrawn -150: 800.
     no_transfer = [b for b in _bills() if b["name"] != "Move to Joint"]
     plain = _headline(monkeypatch, bills=no_transfer)["safe_to_spend"]
-    assert plain == 660.0
-    # The same standing order: out of Main (-150, so its lowest is 360) and in on Joint (+150 on day 3, no
-    # payment of Joint's before it, so Joint's lowest is its 450 closing): 360 + 450 - 150 = 660. It nets
-    # to zero because the destination has no earlier payment (see account_available's own-transfer note).
+    assert plain == 800.0
+    # The same 150 standing order: a bill on Main (1,000 - (640 - 140) = 500) and money in on Joint (Kevin's
+    # option 1, both legs). Joint has no bill of its own for the 150 to offset, and money in only offsets, so
+    # it adds nothing: 500 + 300 - 150 = 650. The 150 that leaves Main is not made back on Joint.
     _wire(monkeypatch)
     _with_inflow(monkeypatch)
     out = asyncio.run(analytics.compute_safe_to_spend(UID))
-    assert out["safe_to_spend"] == plain and out["left_to_spend_lines"]["accounts_total"] == plain
+    assert out["safe_to_spend"] == 650.0 and out["left_to_spend_lines"]["accounts_total"] == 650.0
+
+
+def test_money_in_from_an_own_transfer_offsets_the_receivers_own_bill(monkeypatch):
+    # Joint also pays a 200 bill on day 4: the 150 from Main offsets it, so Joint is 300 - (200 - 150) = 250
+    # (without the transfer it would be 100). Main 500, Overdrawn -150: 600.
+    bills = _bills() + [_pool_bill("Joint bill", 200.0, 4, acct="joint")]
+    _wire(monkeypatch, bills=bills)
+    _with_inflow(monkeypatch)
+    out = asyncio.run(analytics.compute_safe_to_spend(UID))
+    assert out["safe_to_spend"] == 600.0
 
 
 def test_an_unfunded_standing_order_counts_on_both_legs_the_source_is_short_and_the_total_is_unchanged(monkeypatch):
     # G479 option 1 (Kevin 2026-11-19): a transfer counts on BOTH legs whether or not its source can fund it.
-    # Source cannot afford it (100 against a 300 order): the destination is still credited on its date, and the
-    # source is the one shown short and given the cover engine's move. Sum 100 - 300 + 50 + 300 = 150.
+    # Source cannot afford it (100 against a 300 order): the destination still counts the 300 as money in, and the
+    # source is the one shown short and given the cover engine's move. G481: the receiver has no bill for the
+    # money in to offset, so it adds nothing: BC 100 - 300 = -200, HS 50, sum -150.
     from datetime import date
 
     import tests.test_g360_one_account_walk as g
@@ -177,10 +186,9 @@ def test_an_unfunded_standing_order_counts_on_both_legs_the_source_is_short_and_
     inflows = [g._inflow(300.0, 2, today)]
     _items, elig = g._run(monkeypatch, today, bills, [], inflows, {g.HS: (50.0, "hsbc"), g.BC: (100.0, "barclays")})
     assert elig[g.BC]["after_payments"] == -200.0 and elig[g.BC]["low_point"] == -200.0  # flagged short
-    assert elig[g.HS]["after_payments_and_money_in"] == 350.0  # credited on its date although BC cannot fund it
+    assert elig[g.HS]["after_payments_and_money_in"] == 50.0  # the 300 in offsets nothing (HS has no bill) although BC cannot fund it
     assert elig[g.BC]["after_payments_and_money_in"] == -200.0
-    # Moves between the two net to zero: the sum is what the two hold (100 + 50) before any plan.
-    assert round(elig[g.BC]["spend_from_headroom"] + elig[g.HS]["spend_from_headroom"], 2) == 150.0
+    assert round(elig[g.BC]["spend_from_headroom"] + elig[g.HS]["spend_from_headroom"], 2) == -150.0
 
 
 def test_a_one_sighting_income_does_not_count(monkeypatch):
@@ -231,7 +239,7 @@ def test_unreadable_account_figures_fail_closed_to_degraded_and_never_positive(m
     def boom(*_a, **_k):
         raise RuntimeError("walk unavailable")
 
-    monkeypatch.setattr(account_available, "account_ledger", boom)
+    monkeypatch.setattr(account_available, "account_bases", boom)
     out = asyncio.run(analytics.compute_safe_to_spend(UID))
     assert out["calculation_status"] == "degraded"
     assert "account_positions" in out["unavailable_components"]
@@ -403,69 +411,76 @@ def test_a_plan_sourced_from_savings_is_deducted_from_no_current_account(monkeyp
     assert elig["sav"]["plans_reserved"] == 80.0 and elig["sav"]["spend_from_headroom"] == 0.0
 
 
-def test_a_dip_below_zero_before_money_arrives_is_a_shortfall_with_its_date_and_the_money_that_follows(monkeypatch):
-    from datetime import timedelta
-
-    from test_cover_plan_account_eligibility import TODAY, _salary
+def test_money_in_that_lands_after_the_payment_still_offsets_it_so_there_is_no_dip(monkeypatch):
+    from test_cover_plan_account_eligibility import _salary
 
     elig = {}
     _run(monkeypatch, [_bill("Rent", 2, 300.0, "A", 100.0)], accounts=[_account("A", 100.0)], account_eligibility_out=elig,
          income_streams=[{"key": "Salary", "status": "confirmed"}], window_income=[_salary("A")])
     a = elig["A"]
-    # G479, hand-derived: 100 - 300 (day 2) = -200, then + 1,000 (day 8) = 800. The lowest point is -200, so the
-    # account is short 200 on day 2 before 1,000 is expected on day 8; its figure is -200 (contribution 0).
-    assert a["dips_below_zero"] == {
-        "money_in_date": (TODAY + timedelta(days=8)).isoformat(), "short_by": 200.0,
-        "short_on": (TODAY + timedelta(days=2)).isoformat(), "money_in_amount": 1000.0,
-    }
-    assert a["spend_from_headroom"] == -200.0 and a["lowest_after_money_in"] == -200.0
-    assert a["after_payments_and_money_in"] == 800.0  # closing, information only
-    assert a["contribution"] == 0.0 and a["uncovered_shortfall"] == 200.0
-    assert a["low_point"] == -200.0  # the cover engine sees the same dip
+    # G481, hand-derived: 100 - max(0, 300 - 1,000) = 100. No timing is involved, so the 1,000 on day 8
+    # offsets the 300 on day 2; it adds nothing, and the cover engine sees the same figure.
+    assert a["spend_from_headroom"] == 100.0 and a["after_payments_and_money_in"] == 100.0
+    assert a["low_point"] == 100.0 and a["after_payments"] == 800.0
+    assert "dips_below_zero" not in a
+
+
+def test_money_in_that_does_not_cover_the_payment_leaves_the_account_short_by_the_rest(monkeypatch):
+    from test_cover_plan_account_eligibility import _salary
+
+    elig = {}
+    sal = {**_salary("A"), "amount": 100.0}
+    _run(monkeypatch, [_bill("Rent", 2, 300.0, "A", 100.0)], accounts=[_account("A", 100.0)], account_eligibility_out=elig,
+         income_streams=[{"key": "Salary", "status": "confirmed"}], window_income=[sal])
+    a = elig["A"]
+    # 100 - max(0, 300 - 100) = -100: Short, on the account, and the cover engine's low point agrees.
+    assert a["spend_from_headroom"] == -100.0 and a["low_point"] == -100.0
 
 
 # ── Money in counts only after today, and only when predicted ────────────────
 
 def _salary_world(monkeypatch, days_away, *, occurrences=3):
-    """One counted account holding 1,000 with a 3,000 salary due `days_away` days from today."""
+    """One counted account holding 1,000 with a 1,500 bill on day 2 and a 3,000 salary due `days_away` days from today."""
     inc = {**_incomes()[0], "name": "Salary", "amount": 3000.0, "days_away": days_away, "account_id": "cur",
            "occurrences": occurrences, "amounts_recent": [3000.0] * max(occurrences, 1)}
     accounts = [a for a in _accounts() if a["_id"] == "cur"]
-    return _headline(monkeypatch, accounts=accounts, bills=[], incomes=[inc])
+    return _headline(monkeypatch, accounts=accounts, bills=[_pool_bill("Big bill", 1500.0, 2, acct="cur")], incomes=[inc])
 
 
 def test_a_salary_due_today_and_already_in_the_balance_counts_once(monkeypatch):
     out = _salary_world(monkeypatch, 0)
-    # The 1,000 balance already holds it (landed, no posted credit yet): the occurrence dated today is not money in.
-    assert out["left_to_spend_lines"]["accounts_total"] == 1000.0 and out["safe_to_spend"] == 1000.0
+    # The 1,000 balance already holds it (landed, no posted credit yet): the occurrence dated today is not money
+    # in, so the 1,500 bill is not offset: 1,000 - 1,500 = -500.
+    assert out["left_to_spend_lines"]["accounts_total"] == -500.0 and out["safe_to_spend"] == -500.0
 
 
 def test_a_salary_due_tomorrow_counts(monkeypatch):
-    assert _salary_world(monkeypatch, 1)["safe_to_spend"] == 4000.0
+    # 1,000 - max(0, 1,500 - 3,000) = 1,000: the salary offsets the bill (and adds nothing).
+    assert _salary_world(monkeypatch, 1)["safe_to_spend"] == 1000.0
 
 
 def test_an_overdue_unobserved_salary_does_not_count(monkeypatch):
     # An occurrence dated before today is not in the window at all (a lapsed expectation drops out).
-    assert _salary_world(monkeypatch, -1)["safe_to_spend"] == 1000.0
+    assert _salary_world(monkeypatch, -1)["safe_to_spend"] == -500.0
 
 
 def test_two_sightings_count_but_one_does_not(monkeypatch):
-    assert _salary_world(monkeypatch, 3, occurrences=2)["safe_to_spend"] == 4000.0
-    assert _salary_world(monkeypatch, 3, occurrences=1)["safe_to_spend"] == 1000.0
+    assert _salary_world(monkeypatch, 3, occurrences=2)["safe_to_spend"] == 1000.0
+    assert _salary_world(monkeypatch, 3, occurrences=1)["safe_to_spend"] == -500.0
 
 
 def test_the_same_rule_holds_for_the_account_page_figure_through_the_engine(monkeypatch):
-    from datetime import timedelta
     from test_cover_plan_account_eligibility import _salary
 
     def run(days):
         elig = {}
         sal = {**_salary("A"), "days_away": days, "expected_date": "2030-01-01", "occurrences": 3, "amounts_recent": [1000.0] * 3}
-        _run(monkeypatch, [], accounts=[_account("A", 150.0)], account_eligibility_out=elig,
+        _run(monkeypatch, [_bill("Rent", 1, 500.0, "A", 150.0)], accounts=[_account("A", 150.0)], account_eligibility_out=elig,
              income_streams=[{"key": "Salary", "status": "confirmed"}], window_income=[sal])
         return elig["A"]["spend_from_headroom"]
 
-    assert run(0) == 150.0 and run(2) == 1150.0
+    # 150 cash, a 500 bill: income dated today does not count (-350); income due later offsets it (150).
+    assert run(0) == -350.0 and run(2) == 150.0
 
 
 # ── An own transfer that already posted is counted once on each side ─────────

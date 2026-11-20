@@ -4,23 +4,15 @@
       "after_payments": -43.02,
       "after_payments_and_money_in": -43.02,
       "after_payments_and_plans": -43.02,
-      "contribution": 0.0,
-      "dips_below_zero": {
-        "short_by": 43.02,
-        "short_on": "2026-11-19",
-        "short_today": true
-      },
       "estimated": false,
       "headroom": -53.02,
       "is_current_account": true,
       "low_point": -43.02,
       "low_point_and_plans": -43.02,
-      "lowest_after_money_in": -43.02,
       "plans_reserved": 0.0,
       "short": true,
       "spend_from_headroom": -43.02,
-      "uncertain": false,
-      "uncovered_shortfall": 43.02
+      "uncertain": false
     }
   },
   "account_plans": [],
@@ -140,7 +132,7 @@
       "type": "move"
     }
   ],
-  "name": "G479, today edge: the payment is due today and the account holds less than it, so it is short today",
+  "name": "G481, today edge: the payment is due today and the account holds less than it, so it is short today",
   "period": {
     "end": "2026-11-26",
     "start": "2026-10-30"
@@ -151,18 +143,7 @@
     "commitments_reserved": 0,
     "left_to_spend_lines": {
       "accounts_total": -43.02,
-      "basis": "lowest_point",
       "buffer": 0.0,
-      "dips": [
-        {
-          "account_id": "acc-hb",
-          "account_name": "Harbour Current",
-          "line": "\u00a343 short today",
-          "short_by": 43.02,
-          "short_on": "2026-11-19",
-          "short_today": true
-        }
-      ],
       "plans_total": 0
     },
     "lowest_projected_balance": -43.02,

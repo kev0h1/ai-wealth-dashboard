@@ -1,0 +1,70 @@
+{
+  "name": "G481, Kevin's production shape without the income (invented names): 5.05 now and 77.91 due 23 Nov, nothing expected in: the account is 72.86 short",
+  "today": "2026-11-19",
+  "pay_period_config": {
+    "type": "last_friday"
+  },
+  "confirmed_income_streams": [],
+  "accounts": [
+    {
+      "_id": "acc-hb",
+      "name": "Harbour Current",
+      "provider": "barclays",
+      "type": "BANK",
+      "subtype": "TRANSACTION",
+      "balance": 5.05,
+      "currency": "GBP",
+      "status": "connected",
+      "include_in_safe_to_spend": true
+    }
+  ],
+  "manual_accounts": [],
+  "cashflow_cache": {
+    "recurring_spend": [
+      {
+        "key": "HOMEBRIDGE HOUSING",
+        "avg_amount": 77.91,
+        "avg_interval": 30,
+        "next_date": "2026-11-23",
+        "account_id": "acc-hb",
+        "account_name": "Harbour Current",
+        "account_bank": "barclays",
+        "account_balance": 5.05,
+        "is_credit_card": false,
+        "category": "Bills"
+      }
+    ],
+    "recurring_income": [],
+    "bnpl_commitments": [],
+    "avg_daily_spend": 0
+  },
+  "transactions": [],
+  "commitments": [],
+  "allocations": [],
+  "card_terms": [],
+  "expected": {
+    "left_to_spend": -72.86,
+    "spendable_balance": 5.05,
+    "lines": {
+      "accounts_total": -72.86,
+      "plans_total": 0.0,
+      "buffer": 0.0
+    },
+    "spend_from_total": -72.86,
+    "accounts": {
+      "acc-hb": {
+        "spend_from": -72.86,
+        "after_payments": -72.86,
+        "low_point": -72.86,
+        "verdict": "short"
+      }
+    },
+    "cover_plan": {
+      "moves_total": 0,
+      "moves": []
+    },
+    "payday_plan": null,
+    "at_risk_count": 1,
+    "notes": "Today is Thu 19 Nov 2026, payday Fri 27 Nov. Harbour Current (the only account) holds 5.05 and HOMEBRIDGE HOUSING 77.91 is due Mon 23 Nov; there is no money in. G481 (Kevin 2026-11-20): Available = cash now - max(0, bills before payday - money in before payday); money in only offsets bills and never adds, and no timing or day-by-day order is involved. Bills before payday 77.91, money in 0: 5.05 - max(0, 77.91 - 0) = 5.05 - 77.91 = -72.86. Left to spend -72.86 (Short). The cover engine's walk agrees (after payments and low point -72.86); no other account can cover it, so no move; at risk 1 (the 23 Nov payment)."
+  }
+}

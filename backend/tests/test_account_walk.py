@@ -343,7 +343,7 @@ def _legacy_source_min_running(wi, sid, start_balance):
         for n in wi.window_inflows
         if str(n.get("account_id") or "") == sid
     ]
-    ev.sort(key=lambda e: (e[0], 0 if e[1] > 0 else 1))
+    ev.sort(key=lambda e: (0 if e[1] > 0 else 1, e[0]))  # G481: every credit before every debit
     run = start_balance
     mn = run
     for _d, delta in ev:
@@ -366,7 +366,7 @@ def _legacy_walk_min(wi, credited_incomes, dest, extra_income=None):
     ]
     if extra_income is not None:
         ev.append((extra_income["days_away"], float(extra_income["amount"])))
-    ev.sort(key=lambda e: (e[0], 0 if e[1] > 0 else 1))
+    ev.sort(key=lambda e: (0 if e[1] > 0 else 1, e[0]))  # G481: every credit before every debit
     run = wi.live_balances.get(dest, 0.0)
     mn = run
     for _d, _delta in ev:
@@ -454,9 +454,9 @@ def test_caller_output_equals_pre_extraction_golden(monkeypatch, name):
     got = CAPTURES[name](monkeypatch)
     if name == "at_risk":
         golden["events_unsorted"] = sorted(
-            golden["events_unsorted"], key=lambda e: (e[0], 0 if e[3] else 1)
+            golden["events_unsorted"], key=lambda e: (0 if e[3] else 1, e[0])
         )
-        got["events_unsorted"] = sorted(got["events_unsorted"], key=lambda e: (e[0], 0 if e[3] else 1))
+        got["events_unsorted"] = sorted(got["events_unsorted"], key=lambda e: (0 if e[3] else 1, e[0]))
     if name == "companion":
         # G421 added one display-only field to each covered_by_move source row
         # (the G337 label); strip only it, everything else is the old output.
@@ -464,50 +464,8 @@ def test_caller_output_equals_pre_extraction_golden(monkeypatch, name):
         for entry in (got.get("eligibility") or {}).values():
             for row in (entry.get("covered_by_move") or {}).get("from", []):
                 row.pop("display_label", None)
-        # G438 (Kevin 2026-11-07): no own-account exemption, so the card's representative bill is the
-        # FIRST bounced item. On lowsrc that is the 90 standing order out tomorrow (it used to name the
-        # later 40 card repayment because own-account orders were skipped); the golden text was updated.
-        # G436 (Kevin 2026-11-07, every account in isolation, money in vs money out): the golden stays
-        # the old output except these keys, one reason each.
-        #   after_payments_and_money_in: new display-only key, the closing figure of the account's own walk.
-        #   spend_from_headroom: now the signed closing figure less plans, no low-point clamp, no
-        #     preference allocation (barclays 5021.67 - 175, hsbc 1685.33 - 20, natwest 330); lowsrc is
-        #     -90 plus the 135 move in = 45; man1 and pot are non-current, so no spending figure (0).
-        #   moves_in_total, spend_from_requires_move: lowsrc is credited the suggested 135 move in from
-        #     another current account (the source is earmarked, so the two net to zero).
-        #   dips_below_zero: new warning key, lowsrc goes below zero before money arrives (never in the figure).
-        #   account_headroom_raw: now kept for non-current accounts (man1, pot) as consolidation capacity.
-        # G479 (Kevin 2026-11-19, option A): spend_from_headroom is now the account's LOWEST balance
-        # (lowest_after_money_in, the lowest running balance after any payment, or its closing figure
-        # if lower, or its overdraft) less plans, then earmarks out and moves in. New display keys:
-        # lowest_after_money_in, contribution (max(0, figure)) and uncovered_shortfall (max(0, -figure)),
-        # and dips_below_zero now also carries short_by, short_on and money_in_amount. Per account:
-        #   barclays: lowest 2521.67 (the same figure the gated walk reports as low_point; closing 5021.67 is
-        #     later), no plans, 175 earmarked out for the suggested move, so 2521.67 - 175 = 2346.67.
-        #   hsbc: 12 + 1758.33 (funded inflow, day 2) - 100 (Council Tax, day 4) = 1670.33, then + 15 (Refund,
-        #     day 7) closes at 1685.33; the lowest after a payment is 1670.33. No plans or moves.
-        #   idle: no events, so its balance 15.
-        #   lowsrc: short 125 on 2026-11-04 (the 90 standing order and the 40 card repayment before 60 is
-        #     expected on 2026-11-08); the suggested 135 move in covers it: -125 + 135 = 10.
-        #   natwest: 90 - 60 (Gym) + 300 (the transfer from lowsrc, credited although lowsrc is short, G479 option 1) = 330, lowest 30.
-        #   pot: 250 + 77 (Bonus) + 400 + 50 (the transfer from an untracked source, credited) = 777.
-        #   man1, pot: non-current, no spending figure (0); their lowest is information only.
-        g436 = {
-            "barclays": {"after_payments_and_money_in": 5021.67, "lowest_after_money_in": 2521.67, "spend_from_headroom": 2346.67,
-                         "contribution": 2346.67, "uncovered_shortfall": 0.0},
-            "hsbc": {"after_payments_and_money_in": 1685.33, "lowest_after_money_in": 1670.33, "spend_from_headroom": 1670.33,
-                     "contribution": 1670.33, "uncovered_shortfall": 0.0},
-            "idle": {"after_payments_and_money_in": 15.0, "lowest_after_money_in": 15.0, "contribution": 15.0, "uncovered_shortfall": 0.0},
-            "lowsrc": {"after_payments_and_money_in": -90.0, "lowest_after_money_in": -125.0, "spend_from_headroom": 10.0,
-                       "moves_in_total": 135.0, "spend_from_requires_move": True, "contribution": 10.0, "uncovered_shortfall": 0.0,
-                       "dips_below_zero": {"money_in_date": "2026-11-08", "short_by": 125.0, "short_on": "2026-11-04", "money_in_amount": 60.0}},
-            "man1": {"account_headroom_raw": 240.0, "after_payments_and_money_in": 250.0, "lowest_after_money_in": 250.0, "spend_from_headroom": 0.0},
-            "natwest": {"after_payments_and_money_in": 330.0, "lowest_after_money_in": 30.0, "spend_from_headroom": 30.0,
-                        "contribution": 30.0, "uncovered_shortfall": 0.0},
-            "pot": {"account_headroom_raw": 240.0, "after_payments_and_money_in": 777.0, "lowest_after_money_in": 777.0, "spend_from_headroom": 0.0},
-        }
-        for acct, keys in g436.items():
-            golden["eligibility"][acct].update(keys)
+        # G481 (Kevin 2026-11-20): the golden was re-captured (WALK_GOLDEN_DUMP=1) when every walk began to
+        # put every credit before every debit; the figures that moved are listed in the G481 commit.
     assert got == golden
 
 
@@ -593,27 +551,31 @@ def _at_risk_wi(monkeypatch):
 
 
 def test_at_risk_count_equals_the_golden_count(monkeypatch):
+    # G481: 4, not 5. `excl` holds 50, pays 300 on day 4 and is due 900 on day 5: money in only offsets bills,
+    # so 50 + 900 - 300 = 650 and nothing bounces. lowsrc (3) and orphan (1) still do.
     wi_ar = _at_risk_wi(monkeypatch)
     events, seed, _ = aw.window_events(wi_ar)
     _r, _m, _s, bounced = aw.walk_events(events, seed)
-    assert aw.count_at_risk(bounced) == json.loads(GOLDEN.read_text())["at_risk"]["result"]["count"] == 5
+    assert aw.count_at_risk(bounced) == json.loads(GOLDEN.read_text())["at_risk"]["result"]["count"] == 4
 
 
 # ── AccountWalk carries closing, low point, first short and dated rows ───────
 
 def test_account_walk_result_fields(wi):
     w = aw.walk_account("lowsrc", wi, opening=5.0)
-    # the day-6 Rebate credit sorts before the day-6 Phone debit (same account, same day)
-    assert [r.item["name"] for r in w.rows] == ["Standing order out", "Card repayment", "Rebate", "Phone"]
-    assert [round(r.running, 2) for r in w.rows] == [-85.0, -125.0, -65.0, -90.0]
-    assert w.closing == -90.0 and w.low_point == -125.0 and w.opening == 5.0
+    # G481: every credit is walked before every debit, whatever its date, so the day-6 Rebate leads.
+    assert [r.item["name"] for r in w.rows] == ["Rebate", "Standing order out", "Card repayment", "Phone"]
+    # 5 + 60 = 65, - 90 = -25, - 40 = -65, - 25 = -90
+    assert [round(r.running, 2) for r in w.rows] == [65.0, -25.0, -65.0, -90.0]
+    assert w.closing == -90.0 and w.low_point == -90.0 and w.opening == 5.0
     assert w.first_short.bill["name"] == "Standing order out"
-    assert (w.first_short.day, round(w.first_short.shortfall, 2)) == (1, 85.0)
+    assert (w.first_short.day, round(w.first_short.shortfall, 2)) == (1, 25.0)
     assert [b["name"] for b in w.bounced] == ["Standing order out", "Card repayment", "Phone"]
     assert all(r.short and r.delta < 0 for r in w.rows if not r.is_income)
     covered = aw.walk_account("barclays", wi, opening=4800.0)
     assert covered.first_short is None and covered.bounced == []
-    assert covered.low_point == round(4800.0 - 1758.33 - 400.0 - 120.0, 2)
+    # G481: 4,800 + 2,500 - 2,278.33 = 5,021.67, so the opening 4,800 is the lowest point
+    assert covered.closing == 5021.67 and covered.low_point == 4800.0
 
 
 def test_an_account_with_no_events_keeps_its_opening(wi):
@@ -627,7 +589,8 @@ def test_an_account_with_no_events_keeps_its_opening(wi):
 def test_low_point_is_a_running_minimum_from_the_opening_balance(wi):
     # hsbc opens at 12, pays 100 on day 4 after a 1758.33 funded inflow on day 2
     w = aw.walk_account("hsbc", wi, opening=12.0, inflow_admit="any")
-    assert [round(r.running, 2) for r in w.rows] == [1770.33, 1670.33, 1685.33]
+    # G481: both credits first (12 + 1758.33 + 15 = 1785.33), then the 100 payment: 1685.33
+    assert [round(r.running, 2) for r in w.rows] == [1770.33, 1785.33, 1685.33]
     assert w.low_point == 12.0  # the opening is the lowest point, no debit went below it
 
 
@@ -659,8 +622,9 @@ def test_wd1_wd4_inflow_admit_flips_only_which_accounts_an_inflow_reaches(wi):
 
 def test_wd2_the_opening_balance_is_the_callers(wi):
     a = aw.walk_account("barclays", wi, opening=4800.0)
-    b = aw.walk_account("barclays", wi, opening=100.0)
-    assert a.events == b.events and b.closing == a.closing - 4700.0
+    # G481: 2,500 comes in before the 2,278.33 of payments go out, so it takes an overdraft to be short
+    b = aw.walk_account("barclays", wi, opening=-300.0)
+    assert a.events == b.events and b.closing == a.closing - 5100.0
     assert b.first_short is not None and a.first_short is None
 
 
