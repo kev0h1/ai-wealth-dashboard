@@ -108,11 +108,13 @@ def pki():
 
 @pytest.fixture
 def env(monkeypatch, tmp_path, pki):
-    """IAP enabled, the test root pinned, Sandbox accepted, fake collections."""
+    """IAP enabled, the test root pinned, Sandbox and Production accepted (C46: the
+    production default), fake collections. The payload builders default to
+    Production, the real-money baseline; Sandbox is passed explicitly."""
     (tmp_path / "root.pem").write_bytes(pki.root_pem())
     monkeypatch.setattr(config, "APPLE_IAP_ENABLED", True)
     monkeypatch.setattr(config, "APPLE_ROOT_CERTS_DIR", tmp_path)
-    monkeypatch.setattr(config, "APPLE_ALLOWED_ENVIRONMENTS", frozenset({"Sandbox"}))
+    monkeypatch.setattr(config, "APPLE_ALLOWED_ENVIRONMENTS", frozenset({"Sandbox", "Production"}))
     monkeypatch.setattr(config, "APPLE_BUNDLE_ID", BUNDLE)
     monkeypatch.setattr(config, "APPLE_PRODUCT_IDS", {})
     monkeypatch.setattr(config, "IAP_REFUND_CLAWBACK", False)
@@ -149,7 +151,7 @@ def _token(env_, uid=UID):
 
 
 def _tx(env_, *, product="sorted.lite.monthly", uid=UID, original="orig-1", txid=None, expires=None,
-        purchase=None, offer=None, discount=None, price=None, revocation=None, environment="Sandbox",
+        purchase=None, offer=None, discount=None, price=None, revocation=None, environment="Production",
         bundle=BUNDLE, token="auto", signed=None):
     body = {
         "transactionId": txid or f"tx-{uuid.uuid4().hex[:8]}",
@@ -181,7 +183,7 @@ def _signed_tx(env_, **kw):
     return env_["pki"].sign(_tx(env_, **kw))
 
 
-def _notification(env_, ntype, *, subtype=None, tx=None, renewal=None, nuuid=None, environment="Sandbox",
+def _notification(env_, ntype, *, subtype=None, tx=None, renewal=None, nuuid=None, environment="Production",
                   bundle=BUNDLE, signed=None, pki=None):
     pki = pki or env_["pki"]
     data = {"environment": environment, "bundleId": bundle, "appAppleId": 123}
@@ -416,7 +418,7 @@ def test_did_fail_to_renew_with_grace_keeps_access_until_grace_ends(env):
     t = NOW + timedelta(seconds=5)
     grace = NOW + timedelta(days=6)
     res = _send(env, "DID_FAIL_TO_RENEW", subtype="GRACE_PERIOD", tx=_tx(env, signed=t), signed=t,
-                renewal={"gracePeriodExpiresDate": _ms(grace), "environment": "Sandbox"})
+                renewal={"gracePeriodExpiresDate": _ms(grace), "environment": "Production"})
     assert res["result"]["status"] == "past_due"
     assert _doc(env)["status"] == "past_due"
     assert _run(get_subscription(UID)).tier == Tier.PLUS
@@ -586,11 +588,12 @@ def test_wrong_bundle_id_is_rejected_and_grants_nothing(env):
     assert env["subscriptions_col"].docs == [] and env["billing_events_col"].docs == []
 
 
-def test_wrong_environment_is_rejected(env):
+def test_wrong_environment_is_rejected(env, monkeypatch):
+    monkeypatch.setattr(config, "APPLE_ALLOWED_ENVIRONMENTS", frozenset({"Sandbox"}))  # a UAT-style deployment
     with pytest.raises(apple_jws.AppleVerificationError, match="environment"):
         _send(env, "SUBSCRIBED", tx=_tx(env, environment="Production"), environment="Production")
     with pytest.raises(apple_jws.AppleVerificationError, match="environment"):
-        _send(env, "SUBSCRIBED", tx=_tx(env, environment="Production"))  # transaction disagrees with the envelope
+        _send(env, "SUBSCRIBED", tx=_tx(env, environment="Production"), environment="Sandbox")  # transaction disagrees with the envelope
     with pytest.raises(apple_jws.AppleVerificationError):
         _send(env, "SUBSCRIBED", tx=_tx(env, environment="Xcode"), environment="Xcode")
     assert env["subscriptions_col"].docs == []
@@ -599,7 +602,7 @@ def test_wrong_environment_is_rejected(env):
 def test_a_production_deployment_accepts_production_only(env, monkeypatch):
     monkeypatch.setattr(config, "APPLE_ALLOWED_ENVIRONMENTS", frozenset({"Production"}))
     with pytest.raises(apple_jws.AppleVerificationError):
-        _send(env, "SUBSCRIBED", tx=_tx(env))  # Sandbox
+        _send(env, "SUBSCRIBED", tx=_tx(env, environment="Sandbox"), environment="Sandbox")
     ok = _send(env, "SUBSCRIBED", tx=_tx(env, environment="Production"), environment="Production")
     assert ok["result"]["handled"]
 
@@ -795,7 +798,7 @@ def test_tokenless_transaction_is_accepted_only_for_a_subscription_the_user_alre
 
 
 def test_verification_rejects_wrong_bundle_environment_and_forgery(env):
-    for kw in ({"bundle": "com.x.y"}, {"environment": "Production"}):
+    for kw in ({"bundle": "com.x.y"}, {"environment": "Xcode"}):
         with pytest.raises(apple_jws.AppleVerificationError):
             _verify(env, _signed_tx(env, **kw))
     attacker = Pki("Attacker")

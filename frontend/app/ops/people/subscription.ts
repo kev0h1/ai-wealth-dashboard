@@ -62,7 +62,8 @@ export function statusLabel(status: string): string {
   }
 }
 
-export function sourceLabel(source: string | null): string {
+export function sourceLabel(source: string | null, isTest = false): string {
+  if (isTest) return "Test purchase (Sandbox)";
   switch (source) {
     case "default":
       return "Default, not subscribed";
@@ -133,7 +134,7 @@ export function pennyLabel(s: OpsSubscription): string {
 }
 
 export function packLabel(p: OpsSubscription["penny"]["packs"][number]): string {
-  const from = p.source === "admin" ? "Granted" : "Bought";
+  const from = p.source === "admin" ? "Granted" : p.is_test ? "Test purchase (Sandbox)" : "Bought";
   return `${from}, ${p.remaining} of ${p.messages} left${p.expires_at ? `, expires ${date(p.expires_at)}` : ""}`;
 }
 

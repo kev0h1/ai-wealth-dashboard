@@ -148,7 +148,8 @@ async def _detail(uid: str) -> dict:
         exp = as_utc(p.get("expires_at")) if p.get("expires_at") else None
         if int(p.get("remaining") or 0) > 0 and (exp is None or exp > now):
             packs.append({"messages": int(p.get("messages") or 0), "remaining": int(p.get("remaining") or 0),
-                          "source": p.get("source") or "purchase", "expires_at": _iso(exp)})
+                          "source": p.get("source") or "purchase", "expires_at": _iso(exp),
+                          "is_test": bool(p.get("is_test"))})  # C46: a Sandbox pack
     tier_limit = None if penny["limit"] is None else penny["limit"] - int(penny["topup_messages"])
     return {
         "tier": sub.tier_name,
@@ -161,7 +162,9 @@ async def _detail(uid: str) -> dict:
         "trial_ends_at": _iso(trial_ends),
         "renews_at": None if cancels else renews,
         "cancels_at": renews if cancels else None,
-        "has_paid_subscription": bool(sub.has_paid_subscription),
+        # C46: an Apple Sandbox test purchase is never a paying customer.
+        "has_paid_subscription": bool(sub.has_paid_subscription and not sub.is_test_purchase),
+        "is_test_purchase": bool(sub.is_test_purchase),
         "tier_source": source,
         "manual_grant": ({
             "tier": canonical_tier_name(manual.get("tier")),

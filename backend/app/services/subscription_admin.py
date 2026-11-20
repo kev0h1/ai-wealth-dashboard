@@ -60,6 +60,10 @@ def doc_live_provider(doc: dict) -> str | None:
     _subscription_from_doc uses for a paid-backed document."""
     if doc.get("source") == "manual":
         return None
+    if doc.get("is_test"):
+        # C46: an Apple Sandbox test purchase is not a live paid subscription,
+        # so it never blocks a manual grant or a trial reset.
+        return None
     if doc.get("status") not in LIVE_STATUSES:
         return None
     provider = doc_provider(doc)

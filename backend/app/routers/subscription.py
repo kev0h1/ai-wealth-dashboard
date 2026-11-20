@@ -171,6 +171,7 @@ async def get_subscription_info(user: dict = Depends(current_user)):
         "renews_at": sub.renews_at.isoformat() if getattr(sub, "renews_at", None) else None,
         "cancel_at_period_end": bool(getattr(sub, "cancel_at_period_end", False)),
         "has_paid_subscription": bool(getattr(sub, "has_paid_subscription", False)),
+        "is_test_purchase": bool(getattr(sub, "is_test_purchase", False)),  # C46: an Apple Sandbox test purchase
         # C21: which provider's document is in force ("stripe" | "apple" |
         # None when the user has no document at all), so the client can say
         # where to manage it: the Stripe portal, or iOS Settings.
@@ -227,7 +228,12 @@ async def select_free_tier(user: dict = Depends(current_user)):
     }:
         raise HTTPException(409, "Cancel your paid subscription in billing first")
     apple = await subscriptions_col.find_one({"user_id": email, "provider": "apple"})
-    if apple and apple.get("status") in {"active", "trialing", "past_due"}:
+    # C46: a Sandbox test purchase cannot be cancelled in iOS Settings, and a
+    # document whose period has passed is no longer a live subscription, so
+    # neither blocks choosing the free plan.
+    apple_expires = timeutil.as_utc(apple.get("expires_at")) if apple and apple.get("expires_at") else None
+    apple_lapsed = bool(apple_expires and apple_expires < datetime.now(timezone.utc))  # naive-ok: aware instant compared with as_utc stamps
+    if apple and not apple.get("is_test") and not apple_lapsed and apple.get("status") in {"active", "trialing", "past_due"}:
         raise HTTPException(409, "Cancel your paid subscription in iOS Settings first")
     google = await subscriptions_col.find_one({"user_id": email, "provider": "google"})
     if google and google.get("status") in {"active", "trialing", "past_due"}:

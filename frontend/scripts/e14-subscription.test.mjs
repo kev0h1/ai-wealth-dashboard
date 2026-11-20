@@ -14,7 +14,7 @@ import {
   SUB_WORDING, TIERS, PACKS, providerGuard, providerLabel, statusLabel, sourceLabel, periodLabel, grantLabel,
   pennyLabel, packLabel, mcpLabel, trialLabel, renewalLabel, expectedConfirm, confirmOk, canSubmit,
 } from "../app/ops/people/subscription.ts";
-import { ACTION_LABELS } from "../app/ops/people/people.ts";
+import { ACTION_LABELS, planLabel, TEST_PURCHASE_LABEL } from "../app/ops/people/people.ts";
 
 const read = (p) => readFileSync(new URL(p, import.meta.url), "utf8");
 const section = read("../app/ops/people/SubscriptionSection.tsx");
@@ -83,6 +83,12 @@ assert.equal(providerLabel({ ...sub, provider: "stripe", provider_live: true }),
 assert.equal(statusLabel("default"), "Default plan");
 assert.equal(statusLabel("past_due"), "Payment overdue");
 assert.equal(sourceLabel("manual"), "Set by Sorted");
+// C46: an Apple Sandbox purchase is named as a test, never as a paying App Store customer.
+assert.equal(sourceLabel("apple", true), "Test purchase (Sandbox)");
+assert.equal(sourceLabel("apple"), "App Store");
+assert.equal(TEST_PURCHASE_LABEL, "Test purchase (Sandbox)");
+assert.equal(planLabel({ signed_up: true, plan: "Lite", on_trial: false, plan_is_test: true }), "Lite, Test purchase (Sandbox)");
+assert.equal(planLabel({ signed_up: true, plan: "Lite", on_trial: false, plan_is_test: false }), "Lite");
 assert.equal(periodLabel(null), "None");
 assert.equal(grantLabel(sub), "Lite, until 1 Dec 2026");
 assert.equal(grantLabel({ ...sub, manual_grant: { tier: "lite", expires_at: null, lapsed: false } }), "Lite, no end date");
