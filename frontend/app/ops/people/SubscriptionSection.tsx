@@ -256,10 +256,10 @@ export default function SubscriptionSection({ personId }: { personId: string }) 
               <div className="grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-3">
                 <Fact label="Plan" value={capitalise(sub.tier)} />
                 <Fact label="Status" value={statusLabel(sub.status)} />
-                <Fact label="Source" value={sourceLabel(sub.tier_source)} />
+                <Fact label="Source" value={sourceLabel(sub.tier_source, sub.is_test_purchase === true)} />
                 <Fact label="Billing period" value={periodLabel(sub.billing_period)} />
                 <Fact label="Provider" value={providerLabel(sub)} />
-                <Fact label="Paid subscription" value={sub.has_paid_subscription ? "Yes" : "No"} />
+                <Fact label="Paid subscription" value={sub.is_test_purchase ? "No, test purchase" : sub.has_paid_subscription ? "Yes" : "No"} />
                 <Fact label="Trial" value={trialLabel(sub)} />
                 <Fact label="Renewal" value={renewalLabel(sub)} />
                 <Fact label="Manual grant" value={grantLabel(sub)} />

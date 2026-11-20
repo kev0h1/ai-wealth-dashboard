@@ -815,16 +815,20 @@ def _parse_apple_environments(raw: str | None) -> frozenset[str]:
 
 
 # Which App Store Server Notification environments this deployment accepts.
-# Default is derived from APP_URL exactly like TRUELAYER_ENABLED: UAT and
-# local take Sandbox only (TestFlight and sandbox testers), the production
-# host takes Production only, so a sandbox purchase can never grant a paid
-# tier in production and a production notice can never reach UAT. An
-# unrecognised APP_URL is treated as production (fails closed). Override with
-# APPLE_ALLOWED_ENVIRONMENTS="Sandbox,Production" only deliberately, for
-# example to let App Review's sandbox purchases through in production.
+# Default is derived from APP_URL like TRUELAYER_ENABLED: UAT and local take
+# Sandbox only (TestFlight and sandbox testers) so a production notice can
+# never reach UAT. The production host takes BOTH (C46, Kevin 2026-11-20):
+# TestFlight and App Review purchases are Sandbox transactions, and a
+# Sandbox one is recorded as a marked test purchase (`is_test` on the
+# subscription document) that follows Apple's short sandbox expiry, is never
+# counted as paid, and can never override a real entitlement (see
+# app.core.subscription.pick_subscription_doc and
+# app.services.store_subscriptions.upsert_store_subscription). An
+# unrecognised APP_URL is treated as production. Override with
+# APPLE_ALLOWED_ENVIRONMENTS to narrow or widen it.
 APPLE_ALLOWED_ENVIRONMENTS: frozenset[str] = (
     _parse_apple_environments(os.getenv("APPLE_ALLOWED_ENVIRONMENTS"))
-    or (frozenset({"Sandbox"}) if _is_non_production(APP_URL) else frozenset({"Production"}))
+    or (frozenset({"Sandbox"}) if _is_non_production(APP_URL) else frozenset({"Sandbox", "Production"}))
 )
 
 # C13 section 8, the ONE decision still open with Kevin (proposal: no clawback). When false, a

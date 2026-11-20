@@ -244,7 +244,12 @@ class Subscription:
         has_paid_subscription: bool = False,
         grace_until: datetime | None = None,
         provider: str | None = None,
+        is_test_purchase: bool = False,
     ):
+        # C46: the document is an Apple Sandbox (TestFlight / App Review)
+        # purchase. It grants access like any other but is never a paying
+        # customer: ops views and every paying-user figure read this.
+        self.is_test_purchase = is_test_purchase
         self.grace_until = grace_until
         self.provider = provider
         self.tier = tier
@@ -302,6 +307,7 @@ def _subscription_from_doc(doc: dict, default_tier: Tier) -> Subscription:
     stripe_backed = bool(doc.get("source") == "stripe" and doc.get("stripe_subscription_id"))
     store_backed = bool(provider in STORE_SUBSCRIPTION_PROVIDERS and doc.get("source") == provider)
     paid_backed = stripe_backed or store_backed
+    is_test = bool(store_backed and doc.get("is_test"))  # C46: an Apple Sandbox purchase
     # B45: a user whose real (store-backed) subscription has ended lands on
     # the free Statements plan whatever DEFAULT_TIER is. DEFAULT_TIER only
     # covers people who never had a paid subscription (the pre-launch "nobody
@@ -309,7 +315,8 @@ def _subscription_from_doc(doc: dict, default_tier: Tier) -> Subscription:
     # or let a trial end has no claim on it.
     landing_tier = Tier.STATEMENTS if paid_backed else default_tier
     if doc.get("status") == "expired":
-        return Subscription(landing_tier, "expired", has_paid_subscription=paid_backed, provider=provider)
+        return Subscription(landing_tier, "expired", has_paid_subscription=paid_backed, provider=provider,
+                            is_test_purchase=is_test)
 
     now = datetime.now(timezone.utc)  # naive-ok: aware instant compared with as_utc stamps
     expires_at = as_utc(doc.get("expires_at"))
@@ -319,9 +326,11 @@ def _subscription_from_doc(doc: dict, default_tier: Tier) -> Subscription:
         # that just ended, so the usual expires_at check would cut access the
         # moment a renewal fails. Access runs to the grace deadline instead.
         if grace_until <= now:
-            return Subscription(landing_tier, "expired", has_paid_subscription=paid_backed, provider=provider)
+            return Subscription(landing_tier, "expired", has_paid_subscription=paid_backed, provider=provider,
+                                is_test_purchase=is_test)
     elif expires_at and expires_at < now:
-        return Subscription(landing_tier, "expired", has_paid_subscription=paid_backed, provider=provider)
+        return Subscription(landing_tier, "expired", has_paid_subscription=paid_backed, provider=provider,
+                            is_test_purchase=is_test)
 
     stored_name = (doc.get("tier") or "").strip().lower()
     if stored_name in TIER_BY_NAME:
@@ -345,13 +354,29 @@ def _subscription_from_doc(doc: dict, default_tier: Tier) -> Subscription:
         has_paid_subscription=paid_backed,
         grace_until=grace_until,
         provider=provider,
+        is_test_purchase=is_test,
     )
+
+
+def _outranks_test(doc: dict) -> bool:
+    """C46: a live REAL entitlement, which always beats a live test purchase
+    whatever the tiers: a real store or Stripe subscription, or a manual
+    grant. A free self-selected plan or seeded default is not one, so a test
+    purchase still lifts such a user."""
+    if doc.get("is_test"):
+        return False
+    if doc.get("managed_by") == "manual" or doc.get("source") == "manual":
+        return True
+    provider = _doc_provider(doc)
+    return bool(doc.get("source") == provider and (provider != "stripe" or doc.get("stripe_subscription_id")))
 
 
 def pick_subscription_doc(docs: list[dict], default_tier: Tier | None = None) -> tuple[dict | None, Subscription]:
     """C21 precedence rule (docs/pricing/store-billing-c13.md section 2.3):
     across a user's per-provider documents (at most one each for "stripe",
-    "apple" and "google") the highest live tier wins. A tie breaks toward the later
+    "apple" and "google") the highest live tier wins, except that a live test
+    purchase (C46, an Apple Sandbox transaction) always loses to a live real
+    paid subscription or manual grant, whatever the tiers. A tie breaks toward the later
     expires_at, then toward Stripe over Apple. When no document is live the
     user is on whatever the best-ranked ended document lands them on (the
     free Statements plan for a store-backed one), which is the document
@@ -366,7 +391,7 @@ def pick_subscription_doc(docs: list[dict], default_tier: Tier | None = None) ->
 
     def live_rank(pair):
         doc, sub = pair
-        return (int(sub.tier), as_utc(doc.get("expires_at")) or epoch, _provider_preference(doc))
+        return (1 if _outranks_test(doc) else 0, int(sub.tier), as_utc(doc.get("expires_at")) or epoch, _provider_preference(doc))
 
     if live:
         return max(live, key=live_rank)
