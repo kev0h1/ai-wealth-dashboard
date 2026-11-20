@@ -327,7 +327,7 @@ def _subscription_from_doc(doc: dict, default_tier: Tier) -> Subscription:
         # moment a renewal fails. Access runs to the grace deadline instead.
         if grace_until <= now:
             return Subscription(landing_tier, "expired", has_paid_subscription=paid_backed, provider=provider,
-                            is_test_purchase=is_test)
+                                is_test_purchase=is_test)
     elif expires_at and expires_at < now:
         return Subscription(landing_tier, "expired", has_paid_subscription=paid_backed, provider=provider,
                             is_test_purchase=is_test)

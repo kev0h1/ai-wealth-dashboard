@@ -94,7 +94,8 @@ def test_sandbox_never_replaces_a_live_real_apple_subscription(env):
     before = dict(_doc(env))
     # Ends later than the real one: only the seam's own guard can refuse it.
     res = _sandbox_verify(env, product="sorted.plus.monthly", original="sbx-1", expires=NOW + timedelta(days=60))
-    assert res["handled"] is False and "real purchase" in res["reason"]
+    # Handled and unchanged (not a refusal), so the client finishes it and shows no error.
+    assert res["handled"] is True and res["unchanged"] is True and "real purchase" in res["reason"]
     # Ends sooner: the restore guard answers "not newer" (applied, so the client finishes it).
     res = _sandbox_verify(env, product="sorted.plus.monthly", original="sbx-2", expires=SANDBOX_EXPIRY)
     assert res["handled"] is True and res.get("unchanged") is True
@@ -107,7 +108,7 @@ def test_sandbox_notification_never_replaces_a_live_real_apple_subscription(env)
     _verify(env, _signed_tx(env, original="real-1", expires=NOW + timedelta(days=30)))
     res = _send(env, "SUBSCRIBED", tx=_tx(env, product="sorted.plus.monthly", original="sbx-1", environment="Sandbox",
                                             expires=SANDBOX_EXPIRY), environment="Sandbox")
-    assert res["result"]["handled"] is False
+    assert res["result"]["handled"] is True and res["result"]["unchanged"] is True
     assert _doc(env)["provider_subscription_id"] == "real-1"
 
 
@@ -321,3 +322,77 @@ def test_sandbox_revocation_and_lapse_are_still_honoured(env):
     env["subscriptions_col"].docs.clear()
     _verify(env, _signed_tx(env, environment="Sandbox", expires=NOW - timedelta(minutes=1)))
     assert _doc(env)["status"] == "expired"
+
+
+# ── Select free plan, sandbox packs, declined-sandbox finish ─────────────────
+
+def _select_free(env_, monkeypatch):
+    import app.routers.subscription as router
+    import app.services.billing_channels as channels
+
+    async def live(_enabled):
+        return {"any_live": True}
+
+    monkeypatch.setattr(channels, "billing_channels", live)
+    monkeypatch.setattr(router, "subscriptions_col", env_["subscriptions_col"])
+    return _run(router.select_free_tier(user={"email": UID}))
+
+
+def test_select_free_plan_is_not_blocked_by_a_test_purchase(env, monkeypatch):
+    _sandbox_verify(env, expires=NOW + timedelta(minutes=5))
+    assert _select_free(env, monkeypatch) == {"ok": True, "tier": "statements"}
+
+
+def test_select_free_plan_is_not_blocked_by_a_lapsed_apple_document(env, monkeypatch):
+    _verify(env, _signed_tx(env, expires=NOW + timedelta(days=1)))
+    _doc(env)["expires_at"] = NOW - timedelta(minutes=1)  # still marked active, period passed
+    assert _select_free(env, monkeypatch)["ok"] is True
+
+
+def test_select_free_plan_is_still_blocked_by_a_live_real_apple_subscription(env, monkeypatch):
+    from fastapi import HTTPException
+
+    _verify(env, _signed_tx(env, expires=NOW + timedelta(days=30)))
+    with pytest.raises(HTTPException) as exc:
+        _select_free(env, monkeypatch)
+    assert exc.value.status_code == 409
+
+
+def test_a_sandbox_pack_credits_messages_tagged_as_a_test(env):
+    res = _verify(env, _signed_tx(env, environment="Sandbox", product="sorted.penny.100", original="sp-1", txid="sp-1"))
+    assert res["handled"] is True
+    packs = env["penny_topups_col"].docs
+    assert len(packs) == 1 and packs[0]["messages"] == 100 and packs[0]["remaining"] == 100
+    assert packs[0]["is_test"] is True and packs[0]["apple_environment"] == "Sandbox"
+
+
+def test_a_production_pack_is_not_tagged_as_a_test(env):
+    _verify(env, _signed_tx(env, product="sorted.penny.100", original="pp-1", txid="pp-1"))
+    pack = env["penny_topups_col"].docs[0]
+    assert pack["is_test"] is False and pack["apple_environment"] == "Production"
+
+
+def test_a_sandbox_pack_notification_is_tagged_and_granted_once(env):
+    tx = _tx(env, environment="Sandbox", product="sorted.penny.100", original="sp-2", txid="sp-2")
+    _send(env, "ONE_TIME_CHARGE", tx=tx, environment="Sandbox")
+    _verify(env, env["pki"].sign(tx))  # the client posting the same transaction grants nothing more
+    packs = env["penny_topups_col"].docs
+    assert len(packs) == 1 and packs[0]["is_test"] is True
+
+
+def test_ops_detail_shows_a_sandbox_pack_as_a_test(env, monkeypatch):
+    import app.routers.ops_people_subscription as ops_sub
+
+    async def allowance(*a, **k):
+        return {"limit": 10, "used": 0, "remaining": 10, "topup_messages": 100}
+
+    async def topups(*a, **k):
+        return list(env["penny_topups_col"].docs)
+
+    monkeypatch.setattr(ops_sub, "penny_allowance", allowance)
+    monkeypatch.setattr(ops_sub, "mcp_allowance", allowance)
+    monkeypatch.setattr(ops_sub, "settle_topups", topups)
+    _verify(env, _signed_tx(env, environment="Sandbox", product="sorted.penny.100", original="sp-3", txid="sp-3"))
+    env["penny_topups_col"].docs[0]["expires_at"] = None
+    packs = _run(ops_sub._detail(UID))["penny"]["packs"]
+    assert packs and packs[0]["is_test"] is True

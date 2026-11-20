@@ -194,7 +194,10 @@ async def upsert_store_subscription(
     if stale:
         return {"handled": False, "reason": stale}
     if is_test and _is_live_real_doc(existing):
-        return {"handled": False, "reason": "a real purchase is live, a test purchase cannot replace it"}
+        # Handled and unchanged (not a refusal): the client then finishes the
+        # transaction instead of re-posting it on every sync, and shows no error.
+        return {"handled": True, "action": "subscription_upsert", "uid": uid, "provider": provider,
+                "unchanged": True, "reason": "a real purchase is live, a test purchase cannot replace it"}
     if is_test:
         trial_started_at = None
 
@@ -331,7 +334,10 @@ def _pack_collection(pack_kind: str):
     return mcp_call_packs_col if pack_kind == "mcp" else penny_topups_col
 
 
-async def grant_store_pack(uid: str, provider: str, pack_kind: str, pack_id: str, transaction_id: str) -> dict:
+async def grant_store_pack(
+    uid: str, provider: str, pack_kind: str, pack_id: str, transaction_id: str, *,
+    is_test: bool = False, environment: str | None = None,
+) -> dict:
     """Grant a consumable pack once per store transaction id (a replayed
     notification or a restore re-submitting the same transaction grants
     nothing the second time). Atomic: relies on the unique partial index on
@@ -341,7 +347,8 @@ async def grant_store_pack(uid: str, provider: str, pack_kind: str, pack_id: str
     try:
         await grant_pack(
             uid, pack_kind, pack_id, source="purchase",
-            extra={"provider": provider, "store_transaction_id": transaction_id},
+            extra={"provider": provider, "store_transaction_id": transaction_id,
+                   "is_test": bool(is_test), "apple_environment": environment},
         )
     except DuplicateKeyError:
         # Insert-first: the unique partial index on (provider,

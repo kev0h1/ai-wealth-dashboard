@@ -148,7 +148,8 @@ async def _detail(uid: str) -> dict:
         exp = as_utc(p.get("expires_at")) if p.get("expires_at") else None
         if int(p.get("remaining") or 0) > 0 and (exp is None or exp > now):
             packs.append({"messages": int(p.get("messages") or 0), "remaining": int(p.get("remaining") or 0),
-                          "source": p.get("source") or "purchase", "expires_at": _iso(exp)})
+                          "source": p.get("source") or "purchase", "expires_at": _iso(exp),
+                          "is_test": bool(p.get("is_test"))})  # C46: a Sandbox pack
     tier_limit = None if penny["limit"] is None else penny["limit"] - int(penny["topup_messages"])
     return {
         "tier": sub.tier_name,

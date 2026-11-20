@@ -328,7 +328,9 @@ async def _dispatch(payload: dict, tx: dict | None, renewal: dict | None) -> dic
     if ntype == "ONE_TIME_CHARGE":
         if product.kind != "pack":
             return {"handled": False, "reason": "one-time charge for a subscription product"}
-        return await seam.grant_store_pack(uid, PROVIDER, product.pack_kind, product.pack_id, str(tx.get("transactionId") or ""))
+        return await seam.grant_store_pack(
+            uid, PROVIDER, product.pack_kind, product.pack_id, str(tx.get("transactionId") or ""),
+            is_test=_is_test(tx), environment=tx.get("environment"))
     if product.kind != "subscription":
         return {"handled": False, "reason": f"{ntype} for a consumable product"}
 
@@ -445,5 +447,9 @@ async def verify_signed_transaction(uid: str, signed_transaction: str, *, now: d
     if product.kind == "pack":
         if _ms(tx.get("revocationDate")) is not None:
             return {"handled": False, "reason": "transaction was refunded"}
-        return await seam.grant_store_pack(uid, PROVIDER, product.pack_kind, product.pack_id, str(tx.get("transactionId") or ""))
+        # C46: a Sandbox pack still credits its messages (so App Review can
+        # test one) but the pack record is tagged as a test purchase.
+        return await seam.grant_store_pack(
+            uid, PROVIDER, product.pack_kind, product.pack_id, str(tx.get("transactionId") or ""),
+            is_test=_is_test(tx), environment=tx.get("environment"))
     return await _apply_subscription_transaction(uid, product, tx, None, signed_at, client_submitted=True, now=now)

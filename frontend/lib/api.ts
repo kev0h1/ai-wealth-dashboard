@@ -2572,7 +2572,7 @@ export type OpsSubscription = {
     used: number;
     remaining: number | null;
     topup_messages: number;
-    packs: { messages: number; remaining: number; source: string; expires_at: string | null }[];
+    packs: { messages: number; remaining: number; source: string; expires_at: string | null; is_test?: boolean }[];
   };
   mcp: { allowance: number | null; used: number; remaining: number | null };
   pack_ids: string[];

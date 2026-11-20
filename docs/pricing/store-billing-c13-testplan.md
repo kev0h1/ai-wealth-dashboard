@@ -89,7 +89,8 @@ fingerprint of the committed file too.
 
 In UAT's `backend/.env` set `APPLE_IAP_ENABLED=true`. Do not set
 `APPLE_ALLOWED_ENVIRONMENTS` on UAT: its default there is Sandbox only, which
-is what you want. Restart the API after the integrate pass (never from a
+is what you want. Production now also accepts Sandbox (TestFlight and App
+Review) and records those purchases as test purchases (Kevin, 2026-11-20, C46). Restart the API after the integrate pass (never from a
 worktree).
 
 Optional, once: normalise old subscription documents. Dry run first, then apply

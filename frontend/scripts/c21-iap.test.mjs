@@ -222,6 +222,17 @@ const goodTx = async () => ({ jwsRepresentation: "jws-1", transactionId: "t-1" }
   const r3 = await runPack({ purchase: goodTx, verify: async () => { throw fault; } });
   check("C46: a 503 (retried later) keeps the 'will show shortly' copy", r3.out.message === PURCHASE_RECORDED_MESSAGE);
 }
+{
+  const { out, calls } = await runPack({ purchase: goodTx, verify: async () => ({ ok: true, handled: true, reason: "a real purchase is live, a test purchase cannot replace it", unchanged: true }) });
+  check("C46: a declined sandbox purchase beside a live real subscription (handled, unchanged) is finished and shows no error",
+    out.ok === true && calls.finished.length === 1 && calls.order.join(",") === "verify,finish");
+  const rec = (() => { const finished = []; return { finished, sk: { subs: "subs", inapp: "inapp", plugin: {
+    getUnfinishedTransactions: async () => ({ transactions: [{ jwsRepresentation: "j", transactionId: "t-u" }] }),
+    finishTransaction: async (a) => { finished.push(a.transactionId); } } } }; })();
+  apiClient.verifyAppleTransaction = async () => ({ ok: true, handled: true, unchanged: true });
+  check("C46: sync finishes that transaction so it is not re-posted on every sync", (await executeSync(rec.sk, cfg())) === 1 && rec.finished.join(",") === "t-u");
+  apiClient.verifyAppleTransaction = realVerify;
+}
 check("C46: the not-recorded copy is plain: British, no em dash, no exclamation mark, no money promise, names Restore purchases",
   !/[—!]/.test(PURCHASE_NOT_RECORDED_MESSAGE) && /Restore purchases/.test(PURCHASE_NOT_RECORDED_MESSAGE)
   && !/(refund|charged|money|pay back|credit)/i.test(PURCHASE_NOT_RECORDED_MESSAGE) && !/shortly/.test(PURCHASE_NOT_RECORDED_MESSAGE)

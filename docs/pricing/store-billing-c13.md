@@ -486,7 +486,8 @@ the payload read. The two nested JWS (`signedTransactionInfo`,
 `signedRenewalInfo`) are verified the same way. Then `data.bundleId` must equal
 `APPLE_BUNDLE_ID`, `data.environment` must be in
 `APPLE_ALLOWED_ENVIRONMENTS` (default derived from `APP_URL`: UAT and local
-accept Sandbox only, production accepts Production only; `Xcode` is never
+accept Sandbox only, production accepts Sandbox and Production, Sandbox ones
+recorded as test purchases (Kevin, 2026-11-20, C46); `Xcode` is never
 accepted), and the transaction's own bundle id and environment must agree.
 Only after all of that is the `notificationUUID` claimed in
 `billing_events_col` (`apple:<uuid>`), so a forged payload cannot burn a
