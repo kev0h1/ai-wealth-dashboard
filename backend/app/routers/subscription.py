@@ -232,7 +232,7 @@ async def select_free_tier(user: dict = Depends(current_user)):
     # document whose period has passed is no longer a live subscription, so
     # neither blocks choosing the free plan.
     apple_expires = timeutil.as_utc(apple.get("expires_at")) if apple and apple.get("expires_at") else None
-    apple_lapsed = bool(apple_expires and apple_expires < datetime.now(timezone.utc))
+    apple_lapsed = bool(apple_expires and apple_expires < datetime.now(timezone.utc))  # naive-ok: aware instant compared with as_utc stamps
     if apple and not apple.get("is_test") and not apple_lapsed and apple.get("status") in {"active", "trialing", "past_due"}:
         raise HTTPException(409, "Cancel your paid subscription in iOS Settings first")
     google = await subscriptions_col.find_one({"user_id": email, "provider": "google"})
