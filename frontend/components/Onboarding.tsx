@@ -400,7 +400,7 @@ export default function Onboarding({ defaultFirstName = "", defaultLastName = ""
               ? { glyph: "bank", color: "bg-blue-50 dark:bg-blue-900/30", iconColor: "text-blue-600 dark:text-blue-400", text: WELCOME_BANK_ROW_OPEN_BANKING }
               : { glyph: "upload", color: "bg-blue-50 dark:bg-blue-900/30", iconColor: "text-blue-600 dark:text-blue-400", text: WELCOME_BANK_ROW_STATEMENTS },
             { glyph: "wallet", color: "bg-emerald-50 dark:bg-emerald-900/30", iconColor: "text-emerald-600 dark:text-emerald-400", text: "See what's left to spend before payday" },
-            { glyph: "calendar", color: "bg-amber-50 dark:bg-amber-900/30", iconColor: "text-amber-600 dark:text-amber-400", text: "See which payments are coming and whether each account covers them" },
+            { glyph: "calendar", color: "bg-amber-50 dark:bg-amber-900/30", iconColor: "text-amber-600 dark:text-amber-400", text: "See which payments are expected and whether each account looks covered" },
             { glyph: "flag", color: "bg-slate-100 dark:bg-slate-700/40", iconColor: "text-slate-600 dark:text-slate-300", text: "Set plans for goals and card balances" },
           ] as { glyph: PhosphorGlyphName; color: string; iconColor: string; text: string }[]).map(({ glyph, color, iconColor, text }) => (
             <div key={text} className="flex items-center gap-4 bg-white dark:bg-slate-800 rounded-2xl px-4 py-3.5 shadow-sm">

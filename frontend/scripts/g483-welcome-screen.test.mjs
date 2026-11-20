@@ -27,7 +27,7 @@ assert.doesNotMatch(welcome, /takes 2 minutes/, "no unjustified time promise");
 assert.match(welcome, /Set up only takes a few minutes\./);
 
 // Real-product rows.
-for (const t of ["See what's left to spend before payday", "See which payments are coming and whether each account covers them", "Set plans for goals and card balances"]) {
+for (const t of ["See what's left to spend before payday", "See which payments are expected and whether each account looks covered", "Set plans for goals and card balances"]) {
   assert.ok(welcome.includes(t), `row copy: ${t}`);
 }
 
