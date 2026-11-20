@@ -34,7 +34,14 @@ assert.equal(summary([bill(), sourceMove({ account_balance: 0 })], [credit({ acc
 assert.equal(summary([bill({ account_balance: 20 })], [credit({ account_id: "b" })])[0].shortfall, 60, "Other-account income never funds this payment");
 const lateIncome = credit({ expected_date: "2026-10-04", amount: 200 });
 accounts = summary([bill({ amount: 130 }), bill({ amount: 50, expected_date: "2026-10-03" })], [lateIncome]);
-assert.deepEqual([accounts[0].closing, accounts[0].shortfall, accounts[0].firstShortDate], [120, 80, "2026-10-02"], "Peak funding need and first gap are distinct evidence");
+// G481 (Kevin 2026-11-20): money in only offsets payments and no timing is involved, so the later 200 covers both
+// payments (100 + 200 - 130 - 50 = 120): the account is covered, not short on 2 Oct.
+assert.deepEqual([accounts[0].status, accounts[0].closing, accounts[0].shortfall, accounts[0].firstShortDate], ["covered", 120, 0, null]);
+// The shortfall is judged on the totals: 100 + 60 - 130 - 50 = -20, first reached at the 3 Oct payment.
+const totals = summary([bill({ amount: 130 }), bill({ amount: 50, expected_date: "2026-10-03" })], [credit({ expected_date: "2026-10-04", amount: 60 })]);
+assert.deepEqual([totals[0].status, totals[0].closing, totals[0].shortfall, totals[0].firstShortDate], ["short", -20, 20, "2026-10-03"]);
+// An account the server reconciles to short while its dated walk closes positive still renders the earlier-gap copy.
+accounts = [{ ...accounts[0], status: "short", shortfall: 80, firstShortDate: "2026-10-02" }];
 const detail = renderToStaticMarkup(React.createElement(UpcomingAccountDetails, { account: accounts[0], periodLabel: "Payments through Thu 29 Oct" }));
 assert.match(detail, /−£80/, "the earlier payment gap remains a signed headline");
 assert.match(detail, /later balance does not remove this earlier gap/i);
@@ -144,7 +151,7 @@ paired = assertAgreement([bill({ amount: 180 })], [credit()]);
 assert.equal(paired.statuses[0].kind, "covered", "Same-day income arrives before cash debits in both views");
 paired = assertAgreement([bill({ amount: 180 })], [credit({ expected_date: "2026-10-03" })]);
 assert.equal(paired.walk.accounts[0].closing, 20);
-assert.equal(paired.statuses[0].shortfall, 80, "A later credit cannot erase an earlier shortfall");
+assert.equal(paired.statuses[0].kind, "covered", "G481: a later credit offsets an earlier payment, no timing is involved");
 assertAgreement([bill({ account_balance: 20 })], [credit({ account_id: "b" })]);
 assertAgreement([bill({ amount: 180 }), sourceMove()], [], [credit({ source_account_name: "Savings", source_account_id: "s" })]);
 assertAgreement([bill({ amount: 0.31, account_balance: 0.3 })]);
