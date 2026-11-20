@@ -2551,11 +2551,6 @@ def finalise_account_available(account_eligibility: dict) -> dict:
             entry["spend_from_requires_move"] = True
         else:
             entry.pop("spend_from_requires_move", None)
-        # G479: what the account contributes to Left to spend and what it is still short by once
-        # its covering move (if any) is counted. The signed figure above is the contribution minus
-        # the shortfall, so the total of the signed figures is unchanged by this split.
-        entry["contribution"] = round(max(0.0, value), 2)
-        entry["uncovered_shortfall"] = round(max(0.0, -value), 2)
     return account_eligibility
 
 
@@ -3225,25 +3220,17 @@ async def compute_today_items(
             if not _pos.get("uncertain") and _acc_doc is not None:
                 try:
                     from app.services.account_available import (
-                        available_walk, dip_before_money_in, dip_detail, lowest_point, money_in_out_window,
+                        available_base, available_walk, money_in_out_window,
                     )
                     if _avail_wi is None:
                         _avail_wi = money_in_out_window(wi)
                     _w = available_walk(_avail_wi, _sid, float(live_balances.get(_sid, float(_acc_doc.get("balance") or 0))))
-                    # G479 (Kevin 2026-11-19, option A): the account's figure is its LOWEST running
-                    # balance before payday (the same `account_available.account_ledger` reading the
-                    # headline sums), less its goals and set-asides. The closing figure stays as
-                    # information (`after_payments_and_money_in`).
-                    _low = lowest_point(_w)
-                    _entry["after_payments_and_money_in"] = round(float(_w.closing), 2)
-                    _entry["lowest_after_money_in"] = _low
-                    _entry["spend_from_headroom"] = round(_low - float(_pos.get("plans_reserved") or 0.0), 2)
-                    _dip = dip_before_money_in(_w, today_d)
-                    _detail = dip_detail(_w, today_d)
-                    if _detail:
-                        _dip = {**(_dip or {}), **_detail}
-                    if _dip:
-                        _entry["dips_below_zero"] = _dip
+                    # G481 (Kevin 2026-11-20): the account's base is cash now less whatever its bills before
+                    # payday exceed its money in (money in only offsets, never adds), the same
+                    # `account_available` reading the headline sums; goals and set-asides come off it here.
+                    _base = available_base(_w)
+                    _entry["after_payments_and_money_in"] = _base
+                    _entry["spend_from_headroom"] = round(_base - float(_pos.get("plans_reserved") or 0.0), 2)
                 except Exception:
                     log.warning("available walk failed for %s/%s", uid, _sid, exc_info=True)
                     _entry["uncertain"] = True
