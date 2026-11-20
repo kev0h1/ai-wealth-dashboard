@@ -1,9 +1,9 @@
 "use client";
 
 import { useRef, useState, useEffect } from "react";
-import { Wallet, ChevronRight, Check, Building2, ShieldCheck, Upload, Lock, XCircle } from "lucide-react";
+import { ChevronRight, Check, Building2, ShieldCheck, Upload, Lock, XCircle } from "lucide-react";
 import { api, type SubscriptionInfo } from "@/lib/api";
-import PennyMark from "@/components/PennyMark";
+import PhosphorGlyph, { type PhosphorGlyphName } from "@/components/navigation/PhosphorGlyph";
 import PlanPicker from "@/components/PlanPicker";
 import { isNativePlatform, usePurchaseChannel } from "@/lib/nativeAuth";
 import { createPreferenceSaver } from "@/lib/preferenceSave";
@@ -25,6 +25,9 @@ interface OnboardingProps {
   defaultLastName?: string;
   onComplete: () => void;
 }
+
+export const WELCOME_BANK_ROW_STATEMENTS = "Upload a statement to get started";
+export const WELCOME_BANK_ROW_OPEN_BANKING = "Connect your banks securely through open banking";
 
 type Step = "welcome" | "profile" | "payday" | "plan" | "income" | "bank" | "secure";
 
@@ -385,19 +388,24 @@ export default function Onboarding({ defaultFirstName = "", defaultLastName = ""
             Welcome to Sorted
           </h1>
           <p className="text-slate-500 dark:text-slate-400 mt-2 text-sm leading-relaxed">
-            Your money, all in one place. Set up takes 2 minutes.
+            Your money, all in one place. Set up only takes a few minutes.
           </p>
         </div>
 
         <div className="space-y-3 mb-10">
-          {[
-            { icon: Building2, color: "bg-blue-50 dark:bg-blue-900/30",    iconColor: "text-blue-600 dark:text-blue-400",    text: "Connect all your banks automatically via open banking" },
-            { icon: Wallet,    color: "bg-emerald-50 dark:bg-emerald-900/30", iconColor: "text-emerald-600 dark:text-emerald-400", text: "Track spending and set budgets that actually stick" },
-            { icon: PennyMark, color: "bg-violet-50 dark:bg-violet-900/30", iconColor: "text-violet-600 dark:text-violet-400", text: "Get AI-powered insights to save more money" },
-          ].map(({ icon: Icon, color, iconColor, text }) => (
+          {([
+            // G483: the bank row follows the plan. Statements (and the pending read) offers
+            // a statement upload; a plan with open banking offers the connection.
+            canConnectBank
+              ? { glyph: "bank", color: "bg-blue-50 dark:bg-blue-900/30", iconColor: "text-blue-600 dark:text-blue-400", text: WELCOME_BANK_ROW_OPEN_BANKING }
+              : { glyph: "upload", color: "bg-blue-50 dark:bg-blue-900/30", iconColor: "text-blue-600 dark:text-blue-400", text: WELCOME_BANK_ROW_STATEMENTS },
+            { glyph: "wallet", color: "bg-emerald-50 dark:bg-emerald-900/30", iconColor: "text-emerald-600 dark:text-emerald-400", text: "See what's left to spend before payday" },
+            { glyph: "calendar", color: "bg-amber-50 dark:bg-amber-900/30", iconColor: "text-amber-600 dark:text-amber-400", text: "See which payments are coming and whether each account covers them" },
+            { glyph: "flag", color: "bg-slate-100 dark:bg-slate-700/40", iconColor: "text-slate-600 dark:text-slate-300", text: "Set plans for goals and card balances" },
+          ] as { glyph: PhosphorGlyphName; color: string; iconColor: string; text: string }[]).map(({ glyph, color, iconColor, text }) => (
             <div key={text} className="flex items-center gap-4 bg-white dark:bg-slate-800 rounded-2xl px-4 py-3.5 shadow-sm">
               <div className={`w-9 h-9 rounded-xl ${color} flex items-center justify-center flex-shrink-0`}>
-                <Icon size={18} className={iconColor} />
+                <PhosphorGlyph glyph={glyph} size={20} className={iconColor} />
               </div>
               <p className="text-sm text-slate-700 dark:text-slate-300 leading-snug">{text}</p>
             </div>
