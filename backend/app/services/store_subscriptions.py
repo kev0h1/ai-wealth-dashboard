@@ -116,6 +116,19 @@ async def validate_store_purchase(uid: str) -> None:
 
 # ── Subscription documents ───────────────────────────────────────────────────
 
+def _is_live_real_doc(doc: dict) -> bool:
+    """C46: a non-test store document still in force (a document written
+    before is_test existed counts as real)."""
+    if not doc or doc.get("is_test") or doc.get("status") not in LIVE_STATUSES:
+        return False
+    from app.core.timeutil import as_utc
+
+    expires = as_utc(doc.get("expires_at")) if doc.get("expires_at") else None
+    grace = as_utc(doc.get("grace_until")) if doc.get("grace_until") else None
+    horizon = grace if doc.get("status") == "past_due" and grace else expires
+    return horizon is None or horizon > _now()
+
+
 def _stale(existing: dict, signed_at: datetime | None) -> str | None:
     last = existing.get("last_signed_at")
     if last is None or signed_at is None:
@@ -156,12 +169,19 @@ async def upsert_store_subscription(
     provider_subscription_id: str,
     trial_ends_at: datetime | None = None, trial_started_at: datetime | None = None,
     cancel_at_period_end: bool | None = None, signed_at: datetime | None = None,
-    extra: dict | None = None,
+    extra: dict | None = None, is_test: bool = False,
 ) -> dict:
     """Write the user's `provider` subscription document from a verified
     store event (SUBSCRIBED, DID_RENEW, a verified signed transaction, ...).
     `status` is "active", "trialing" or "expired" (a store event for a
-    subscription that has already lapsed or been revoked)."""
+    subscription that has already lapsed or been revoked).
+
+    `is_test` (C46) marks an Apple Sandbox purchase (TestFlight, App Review).
+    It is stored on the document, never flagged as a double subscription and
+    never burns the user's trial history. A test purchase NEVER overwrites a
+    real (non-test) document of this provider that is still live: the call
+    changes nothing and says why. The reverse is allowed, so a real purchase
+    replaces a test document and clears the mark."""
     from app.db.collections import subscriptions_col
 
     _check_provider(provider)
@@ -173,9 +193,13 @@ async def upsert_store_subscription(
     stale = _stale(existing, signed_at)
     if stale:
         return {"handled": False, "reason": stale}
+    if is_test and _is_live_real_doc(existing):
+        return {"handled": False, "reason": "a real purchase is live, a test purchase cannot replace it"}
+    if is_test:
+        trial_started_at = None
 
     fields = {
-        "user_id": uid, "provider": provider, "source": provider,
+        "user_id": uid, "provider": provider, "source": provider, "is_test": bool(is_test),
         "tier": tier, "status": status, "billing_period": billing_period,
         "expires_at": expires_at, "trial_ends_at": trial_ends_at,
         "provider_subscription_id": provider_subscription_id,
@@ -199,6 +223,8 @@ async def upsert_store_subscription(
         stripe_doc = await subscriptions_col.find_one({"user_id": uid, "provider": {"$in": ["stripe", None]}})
         double = bool(stripe_doc and stripe_doc.get("status") in LIVE_STATUSES
                       and (stripe_doc.get("source") == "stripe" or stripe_doc.get("stripe_subscription_id")))
+        if is_test:
+            double = False  # no money was taken, nothing for a human to refund
         fields["double_subscription"] = double
         if double and not existing.get("double_subscription"):
             logger.warning("store billing: %s subscription granted while a Stripe subscription is live (flagged)", provider)
@@ -216,9 +242,14 @@ async def upsert_store_subscription(
     }
 
 
-async def _current_doc(uid: str, provider: str, provider_subscription_id: str, signed_at: datetime | None):
+async def _current_doc(
+    uid: str, provider: str, provider_subscription_id: str, signed_at: datetime | None,
+    is_test: bool | None = None,
+):
     """(existing, None) when the document exists, belongs to this store
-    subscription and the event is not stale, else (None, reason)."""
+    subscription and the event is not stale, else (None, reason). When
+    `is_test` is given (C46) a Sandbox event never touches a real document
+    and a Production event never touches a test one."""
     from app.db.collections import subscriptions_col
 
     existing = await subscriptions_col.find_one(store_doc_filter(uid, provider))
@@ -228,6 +259,8 @@ async def _current_doc(uid: str, provider: str, provider_subscription_id: str, s
         # A superseded subscription ending (the user resubscribed under a new
         # original transaction) must not touch the live one.
         return None, "event is not for the current subscription"
+    if is_test is not None and bool(existing.get("is_test")) != bool(is_test):
+        return None, "event environment does not match the subscription"
     stale = _stale(existing, signed_at)
     if stale:
         return None, stale
@@ -237,7 +270,7 @@ async def _current_doc(uid: str, provider: str, provider_subscription_id: str, s
 async def set_store_subscription_status(
     uid: str, provider: str, provider_subscription_id: str, status: str, *,
     signed_at: datetime | None = None, grace_until: datetime | None = None,
-    extra: dict | None = None,
+    extra: dict | None = None, is_test: bool | None = None,
 ) -> dict:
     """Move an existing store subscription to "expired" (EXPIRED,
     GRACE_PERIOD_EXPIRED, REFUND, REVOKE) or "past_due" (DID_FAIL_TO_RENEW).
@@ -249,7 +282,7 @@ async def set_store_subscription_status(
     _check_provider(provider)
     if status not in ("expired", "past_due"):
         raise ValueError(f"unsupported status {status!r}")
-    existing, reason = await _current_doc(uid, provider, provider_subscription_id, signed_at)
+    existing, reason = await _current_doc(uid, provider, provider_subscription_id, signed_at, is_test)
     if existing is None:
         return {"handled": False, "reason": reason}
     now = _now()
@@ -273,13 +306,14 @@ async def set_store_subscription_status(
 
 async def set_store_cancel_at_period_end(
     uid: str, provider: str, provider_subscription_id: str, cancel: bool, *, signed_at: datetime | None = None,
+    is_test: bool | None = None,
 ) -> dict:
     """Auto-renew switched off or on (DID_CHANGE_RENEWAL_STATUS). Entitlement
     is unchanged either way: it runs to expires_at."""
     from app.db.collections import subscriptions_col
 
     _check_provider(provider)
-    existing, reason = await _current_doc(uid, provider, provider_subscription_id, signed_at)
+    existing, reason = await _current_doc(uid, provider, provider_subscription_id, signed_at, is_test)
     if existing is None:
         return {"handled": False, "reason": reason}
     fields = {"cancel_at_period_end": bool(cancel), "updated_at": _now()}

@@ -196,8 +196,12 @@ export function formatDateTime(iso: string | null): string {
   }
 }
 
+/** C46: how /ops/people names an Apple Sandbox purchase. */
+export const TEST_PURCHASE_LABEL = "Test purchase (Sandbox)";
+
 export function planLabel(p: OpsPerson): string {
   if (!p.signed_up || !p.plan) return "None";
+  if (p.plan_is_test) return `${p.plan}, ${TEST_PURCHASE_LABEL}`;
   return p.on_trial ? `${p.plan}, on trial` : p.plan;
 }
 

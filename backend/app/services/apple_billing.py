@@ -38,6 +38,16 @@ Notification-to-effect table (see `_dispatch`):
   TEST                                     acknowledged, nothing changes
   anything else                            acknowledged, nothing changes
 
+Sandbox (C46): TestFlight and App Review purchases are Apple Sandbox
+transactions. Where config.APPLE_ALLOWED_ENVIRONMENTS includes "Sandbox" (UAT,
+and production by default) they pass the SAME checks as Production (JWS chain,
+bundle id, product catalogue, appAccountToken) and are recorded with
+`is_test: true`: access follows Apple's short sandbox expiry, they are never
+counted as a paying customer, and a test purchase can never replace or
+outrank a live real subscription or manual grant (see
+store_subscriptions.upsert_store_subscription and
+app.core.subscription.pick_subscription_doc).
+
 Every notification is claimed in billing_events_col under
 "apple:<notificationUUID>" (replay protection) before it is applied, and every
 effect is idempotent, so Apple's retries are harmless. A notification that
@@ -150,6 +160,13 @@ def _check_transaction(tx: dict, expected_env: str | None) -> None:
         raise AppleVerificationError("transaction environment not accepted")
 
 
+def _is_test(tx: dict) -> bool:
+    """C46: an Apple Sandbox transaction (TestFlight, App Review, sandbox
+    testers) is a test purchase. _check_transaction has already refused any
+    environment this deployment does not accept."""
+    return tx.get("environment") == "Sandbox"
+
+
 def _decode_nested(token, roots, now) -> dict | None:
     if token is None:
         return None
@@ -217,7 +234,10 @@ async def _apply_subscription_transaction(
         # it is itself live AND ends later.
         existing = await subscriptions_col.find_one(seam.store_doc_filter(uid, PROVIDER))
         stored_expiry = existing.get("expires_at") if existing else None
-        if existing and stored_expiry is not None:
+        # C46: a real transaction always replaces a test document, whatever
+        # either expiry says (a test purchase is never what the user holds).
+        replaces_test = bool(existing and existing.get("is_test") and not _is_test(tx))
+        if existing and stored_expiry is not None and not replaces_test:
             from app.core.timeutil import as_utc
 
             stored = as_utc(stored_expiry)
@@ -239,7 +259,7 @@ async def _apply_subscription_transaction(
         provider_subscription_id=original,
         trial_ends_at=expires_at if trialing else None,
         trial_started_at=(_ms(tx.get("purchaseDate")) or now) if _is_free_trial(tx) else None,
-        cancel_at_period_end=cancel, signed_at=signed_at,
+        cancel_at_period_end=cancel, signed_at=signed_at, is_test=_is_test(tx),
         extra={
             "apple_product_id": tx.get("productId"),
             "apple_environment": tx.get("environment"),
@@ -258,7 +278,7 @@ async def _handle_refund_or_revoke(ntype: str, uid: str, product: StoreProduct, 
     transaction_id = str(tx.get("transactionId") or "")
     if product.kind == "subscription":
         result = await seam.set_store_subscription_status(
-            uid, PROVIDER, original, "expired", signed_at=signed_at,
+            uid, PROVIDER, original, "expired", signed_at=signed_at, is_test=_is_test(tx),
             extra={"revoked_at" if ntype == "REVOKE" else "refunded_at": datetime.now(timezone.utc)},  # naive-ok: aware instant, persisted audit or compared with as_utc stamps
         )
         result.update({"notification": ntype, "kind": "subscription", "tier": product.tier,
@@ -322,14 +342,16 @@ async def _dispatch(payload: dict, tx: dict | None, renewal: dict | None) -> dic
             cancel = renewal["autoRenewStatus"] == 0
         else:
             return {"handled": False, "reason": "no renewal status in the notification"}
-        return await seam.set_store_cancel_at_period_end(uid, PROVIDER, original, cancel, signed_at=signed_at)
+        return await seam.set_store_cancel_at_period_end(
+            uid, PROVIDER, original, cancel, signed_at=signed_at, is_test=_is_test(tx))
     if ntype == "DID_FAIL_TO_RENEW":
         grace = _ms((renewal or {}).get("gracePeriodExpiresDate")) if subtype == "GRACE_PERIOD" else None
         return await seam.set_store_subscription_status(
-            uid, PROVIDER, original, "past_due", signed_at=signed_at, grace_until=grace,
+            uid, PROVIDER, original, "past_due", signed_at=signed_at, grace_until=grace, is_test=_is_test(tx),
         )
     # EXPIRED, GRACE_PERIOD_EXPIRED
-    return await seam.set_store_subscription_status(uid, PROVIDER, original, "expired", signed_at=signed_at)
+    return await seam.set_store_subscription_status(
+        uid, PROVIDER, original, "expired", signed_at=signed_at, is_test=_is_test(tx))
 
 
 async def handle_notification(signed_payload: str, *, now: datetime | None = None) -> dict:

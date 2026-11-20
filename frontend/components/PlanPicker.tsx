@@ -14,7 +14,7 @@ import {
 } from "@/lib/playBilling";
 import {
   loadIapConfig, loadStoreProducts, openManageSubscriptions, purchaseSubscription, restorePurchases,
-  syncUnfinishedTransactions, type AppleIapConfig, type StoreProductView,
+  syncUnfinishedTransactions, PURCHASE_NOT_RECORDED_MESSAGE, type AppleIapConfig, type StoreProductView,
 } from "@/lib/storekit";
 import type {
   SubscriptionBillingPeriod,
@@ -762,7 +762,7 @@ export default function PlanPicker({
               setError(null);
               setNotice(null);
               try {
-                const { restored } = await restorePurchases(iap);
+                const { restored, failed } = await restorePurchases(iap);
                 if (restored > 0) {
                   await invalidateOpenBankingAccess();
                   setBusy(false);
@@ -770,7 +770,9 @@ export default function PlanPicker({
                   onContinue?.();
                   return;
                 }
-                setNotice("There were no purchases to restore.");
+                // C46: purchases found but the server declined them is not "none to restore".
+                if (failed > 0) setError(PURCHASE_NOT_RECORDED_MESSAGE);
+                else setNotice("There were no purchases to restore.");
               } catch {
                 setError("Could not restore purchases. Try again in a moment.");
               }

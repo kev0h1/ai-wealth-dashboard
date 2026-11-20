@@ -30,7 +30,8 @@ import { resolvePurchaseChannel } from "../lib/purchaseChannel.ts";
 import { purchaseChannel, usePurchaseChannel, canPurchaseInApp } from "../lib/nativeAuth.ts";
 import {
   describeFreeTrial, periodText, hasStoreKitPlugin, toProductView, purchasePack, executePackPurchase,
-  PURCHASE_FAILED_MESSAGE, PURCHASE_RECORDED_MESSAGE, PACK_REFUNDED_REASON,
+  executeSync, executeRestore,
+  PURCHASE_FAILED_MESSAGE, PURCHASE_RECORDED_MESSAGE, PURCHASE_NOT_RECORDED_MESSAGE, PURCHASE_REFUNDED_MESSAGE, PACK_REFUNDED_REASON,
 } from "../lib/storekit.ts";
 import { api as apiClient } from "../lib/api.ts";
 
@@ -180,8 +181,8 @@ const goodTx = async () => ({ jwsRepresentation: "jws-1", transactionId: "t-1" }
 }
 {
   const { out, calls } = await runPack({ purchase: goodTx, verify: async () => ({ ok: true, handled: false }) });
-  check("a not-handled pack verify leaves the transaction unfinished and returns the recorded message",
-    out.ok === false && out.cancelled === false && out.message === PURCHASE_RECORDED_MESSAGE && calls.finished.length === 0);
+  check("a not-handled pack verify leaves the transaction unfinished and returns the not-recorded copy, not 'will show shortly'",
+    out.ok === false && out.cancelled === false && out.message === PURCHASE_NOT_RECORDED_MESSAGE && out.message !== PURCHASE_RECORDED_MESSAGE && calls.finished.length === 0);
 }
 {
   const { out, calls } = await runPack({ purchase: goodTx, verify: async () => { throw new Error("network down"); } });
@@ -202,13 +203,74 @@ const goodTx = async () => ({ jwsRepresentation: "jws-1", transactionId: "t-1" }
 }
 {
   const { out, calls } = await runPack({ purchase: goodTx, verify: async () => ({ ok: true, handled: false, reason: "transaction was refunded" }) });
-  check("a refunded pack (terminal) is finished and returns the recorded message",
-    PACK_REFUNDED_REASON === "transaction was refunded" && out.ok === false && out.message === PURCHASE_RECORDED_MESSAGE && calls.finished.length === 1);
+  check("a refunded pack (terminal) is finished and returns the refunded copy",
+    PACK_REFUNDED_REASON === "transaction was refunded" && out.ok === false && out.message === PURCHASE_REFUNDED_MESSAGE && calls.finished.length === 1);
 }
 {
   const { out, calls } = await runPack({ purchase: goodTx, verify: async () => ({ ok: true, handled: false, reason: "unknown product" }) });
   check("a not-handled pack verify with any other reason stays unfinished", out.ok === false && calls.finished.length === 0);
 }
+{
+  const declined = Object.assign(new Error("400 Bad Request"), { status: 400 });
+  const { out, calls } = await runPack({ purchase: goodTx, verify: async () => { throw declined; } });
+  check("C46: a server 400 after the charge shows the not-recorded copy and finishes nothing",
+    out.ok === false && out.message === PURCHASE_NOT_RECORDED_MESSAGE && calls.finished.length === 0);
+  const mismatch = Object.assign(new Error("403"), { status: 403 });
+  const r2 = await runPack({ purchase: goodTx, verify: async () => { throw mismatch; } });
+  check("C46: a server 403 shows the not-recorded copy", r2.out.message === PURCHASE_NOT_RECORDED_MESSAGE);
+  const fault = Object.assign(new Error("503"), { status: 503 });
+  const r3 = await runPack({ purchase: goodTx, verify: async () => { throw fault; } });
+  check("C46: a 503 (retried later) keeps the 'will show shortly' copy", r3.out.message === PURCHASE_RECORDED_MESSAGE);
+}
+check("C46: the not-recorded copy is plain: British, no em dash, no exclamation mark, no money promise, names Restore purchases",
+  !/[—!]/.test(PURCHASE_NOT_RECORDED_MESSAGE) && /Restore purchases/.test(PURCHASE_NOT_RECORDED_MESSAGE)
+  && !/(refund|charged|money|pay back|credit)/i.test(PURCHASE_NOT_RECORDED_MESSAGE) && !/shortly/.test(PURCHASE_NOT_RECORDED_MESSAGE)
+  && !/[—!]/.test(PURCHASE_REFUNDED_MESSAGE));
+check("C46: storekit.ts no longer uses 'will show here shortly' for a server decline",
+  /notAppliedOutcome[\s\S]{0,300}PURCHASE_NOT_RECORDED_MESSAGE/.test(storekit) && !/message: PURCHASE_RECORDED_MESSAGE \} as const\)\s*;/.test(storekit));
+
+// C46: recovery paths post to the server and finish only what the server accepted.
+function recoverySk({ unfinished = [], purchases = [] }) {
+  const finished = [];
+  return {
+    finished,
+    sk: { subs: "subs", inapp: "inapp", plugin: {
+      getUnfinishedTransactions: async () => ({ transactions: unfinished }),
+      restorePurchases: async () => {},
+      getPurchases: async () => ({ purchases }),
+      finishTransaction: async (a) => { finished.push(a.transactionId); },
+    } },
+  };
+}
+{
+  const posted = [];
+  apiClient.verifyAppleTransaction = async (jws) => { posted.push(jws); return { ok: true, handled: jws !== "jws-bad" }; };
+  const rec = recoverySk({ unfinished: [
+    { jwsRepresentation: "jws-good", transactionId: "t-good", appAccountToken: "TOK-1" },
+    { jwsRepresentation: "jws-bad", transactionId: "t-bad", appAccountToken: "tok-1" },
+    { jwsRepresentation: "jws-other", transactionId: "t-other", appAccountToken: "someone-else" },
+  ] });
+  const synced = await executeSync(rec.sk, cfg());
+  check("C46: sync posts each of this user's queued transactions to the server and finishes only the accepted one",
+    synced === 1 && posted.join(",") === "jws-good,jws-bad" && rec.finished.join(",") === "t-good");
+  const rec2 = recoverySk({ purchases: [
+    { jwsRepresentation: "jws-good", transactionId: "t-1" }, { jwsRepresentation: "jws-bad", transactionId: "t-2" },
+  ] });
+  const out = await executeRestore(rec2.sk, cfg());
+  check("C46: Restore purchases posts to the server, finishes the accepted transaction and counts the declined one as failed",
+    out.restored === 1 && out.failed === 1 && rec2.finished.join(",") === "t-1");
+  apiClient.verifyAppleTransaction = async () => { throw new Error("network down"); };
+  const rec3 = recoverySk({ unfinished: [{ jwsRepresentation: "jws-good", transactionId: "t-9" }] });
+  check("C46: sync leaves a transaction queued when the server cannot be reached", (await executeSync(rec3.sk, cfg())) === 0 && rec3.finished.length === 0);
+  apiClient.verifyAppleTransaction = realVerify;
+}
+check("C46: no registerPlugin proxy is returned (A133): the new exports take the handle and return plain data",
+  /export async function executeSync\(sk: StoreKitHandle, config: AppleIapConfig\): Promise<number>/.test(storekit)
+  && /export async function executeRestore\(sk: StoreKitHandle, config: AppleIapConfig\): Promise<\{ restored: number; failed: number \}>/.test(storekit)
+  && /return withStoreKit\(\(sk\) => executeSync\(sk, config\)\)/.test(storekit));
+check("C46: the plan picker shows the not-recorded copy when a restore finds purchases the server declined",
+  /failed > 0\) setError\(PURCHASE_NOT_RECORDED_MESSAGE\)/.test(read("components/PlanPicker.tsx")));
+
 check("purchasePack without the plugin (plain Node) fails before charge, not as a crash", (await purchasePack("penny_small", cfg())).message === PURCHASE_FAILED_MESSAGE);
 
 const sheetSrc = stripComments(read("components/MoreMessagesSheet.tsx"));

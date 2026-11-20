@@ -159,7 +159,7 @@ async def _enrich(uid: str, now: datetime) -> dict:
     """Plan, trial, banks, accounts, last sync and Penny usage for one person.
     Each piece fails on its own to null so one bad lookup never blanks the page."""
     out: dict = {
-        "plan": None, "plan_status": None, "trial_ends_at": None, "on_trial": False,
+        "plan": None, "plan_status": None, "plan_is_test": False, "trial_ends_at": None, "on_trial": False,
         "banks_connected": None, "accounts": None, "last_sync": None,
         "penny_messages_this_month": None, "transfer_matcher": None,
     }
@@ -169,6 +169,7 @@ async def _enrich(uid: str, now: datetime) -> dict:
         trial_end = as_utc(sub.trial_ends_at) if sub.trial_ends_at else None
         out["plan"] = sub.tier_name
         out["plan_status"] = sub.status
+        out["plan_is_test"] = bool(sub.is_test_purchase and sub.status != "expired")  # C46
         out["trial_ends_at"] = _iso(trial_end)
         out["on_trial"] = bool(trial_end and trial_end > now)
     except Exception:

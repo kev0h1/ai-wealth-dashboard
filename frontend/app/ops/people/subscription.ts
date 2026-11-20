@@ -62,7 +62,8 @@ export function statusLabel(status: string): string {
   }
 }
 
-export function sourceLabel(source: string | null): string {
+export function sourceLabel(source: string | null, isTest = false): string {
+  if (isTest) return "Test purchase (Sandbox)";
   switch (source) {
     case "default":
       return "Default, not subscribed";

@@ -2521,6 +2521,8 @@ export type OpsPerson = {
   plan_status: string | null;
   trial_ends_at: string | null;
   on_trial: boolean;
+  /** C46: the plan is an Apple Sandbox test purchase, not a paying customer. */
+  plan_is_test?: boolean;
   banks_connected: number | null;
   accounts: number | null;
   last_sync: string | null;
@@ -2560,6 +2562,8 @@ export type OpsSubscription = {
   renews_at: string | null;
   cancels_at: string | null;
   has_paid_subscription: boolean;
+  /** C46: the plan in force is an Apple Sandbox (TestFlight or App Review) test purchase. */
+  is_test_purchase?: boolean;
   tier_source: string | null;
   manual_grant: { tier: string | null; expires_at: string | null; lapsed: boolean } | null;
   can_reset_trial: boolean;

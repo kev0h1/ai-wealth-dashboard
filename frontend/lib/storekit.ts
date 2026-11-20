@@ -149,8 +149,27 @@ export async function loadStorePackProducts(productIds: string[]): Promise<Recor
 // ── Purchase, restore, manage ────────────────────────────────────────────────
 
 export const PURCHASE_FAILED_MESSAGE = "The purchase did not go through. You have not been charged.";
+/** The connection dropped (or our server faulted) after Apple took the
+ *  purchase: the transaction stays queued and syncUnfinishedTransactions
+ *  sends it again, so "shortly" is true here and only here. */
 export const PURCHASE_RECORDED_MESSAGE = "Your purchase is recorded with Apple and will show here shortly.";
+/** C46: our server ANSWERED and declined to record the purchase (it replaced
+ *  "will show here shortly", which was untrue for a decline: nothing was
+ *  going to appear). Apple holds the purchase, and an active subscription is
+ *  never charged for twice, so buying again is not needed; Restore purchases
+ *  asks the server again. No promise about money. */
+export const PURCHASE_NOT_RECORDED_MESSAGE =
+  "We couldn't record this purchase on your account. Apple has it, so you do not need to buy it again. Try Restore purchases in a moment.";
+/** A refunded consumable pack: terminal, nothing to restore. */
+export const PURCHASE_REFUNDED_MESSAGE = "Apple has refunded this purchase, so there is nothing to record.";
 
+/** An HTTP answer from our server that says no (400 failed verification, 403
+ *  another account's purchase). A thrown error without such a status is a
+ *  dropped connection or a server fault, which is retried and so is "shortly". */
+function isServerDecline(err: unknown): boolean {
+  const status = (err as { status?: unknown } | null)?.status;
+  return status === 400 || status === 403;
+}
 export type PurchaseOutcome =
   | { ok: true }
   | { ok: false; cancelled: boolean; message: string };
@@ -166,8 +185,15 @@ function isCancellation(err: unknown): boolean {
  *  changes, change this too, or refunded packs stay queued. */
 export const PACK_REFUNDED_REASON = "transaction was refunded";
 
-async function verifyAndFinish(sk: StoreKitHandle, tx: Pick<Transaction, "jwsRepresentation" | "transactionId">): Promise<boolean> {
-  if (!tx.jwsRepresentation) return false;
+type VerifyOutcome = "applied" | "refunded" | "declined";
+
+/** Posts the signed transaction to the server and finishes it ONLY when the
+ *  server accepted it (C46). Used by the purchase, Restore purchases and
+ *  syncUnfinishedTransactions, so a stuck transaction recovers through the
+ *  same server call and finish on every path. Throws when the server cannot
+ *  be reached. */
+async function verifyOutcome(sk: StoreKitHandle, tx: Pick<Transaction, "jwsRepresentation" | "transactionId">): Promise<VerifyOutcome> {
+  if (!tx.jwsRepresentation) return "declined";
   const res = await api.verifyAppleTransaction(tx.jwsRepresentation);
   // Finish only once the server has actually applied it; an unhandled answer
   // leaves the transaction queued for syncUnfinishedTransactions. The one
@@ -179,15 +205,29 @@ async function verifyAndFinish(sk: StoreKitHandle, tx: Pick<Transaction, "jwsRep
     } catch {
       /* already finished */
     }
-    return false;
+    return "refunded";
   }
-  if (!res.ok || !res.handled) return false;
+  if (!res.ok || !res.handled) return "declined";
   try {
     await sk.plugin.finishTransaction({ transactionId: tx.transactionId });
   } catch {
     /* already finished: the server has the entitlement either way */
   }
-  return true;
+  return "applied";
+}
+
+async function verifyAndFinish(sk: StoreKitHandle, tx: Pick<Transaction, "jwsRepresentation" | "transactionId">): Promise<boolean> {
+  return (await verifyOutcome(sk, tx)) === "applied";
+}
+
+/** The copy for a purchase whose verification did not apply. */
+function notAppliedOutcome(outcome: VerifyOutcome): PurchaseOutcome {
+  return { ok: false, cancelled: false, message: outcome === "refunded" ? PURCHASE_REFUNDED_MESSAGE : PURCHASE_NOT_RECORDED_MESSAGE };
+}
+
+/** The copy for a failure AFTER Apple took the purchase. */
+function chargedFailureMessage(err: unknown): string {
+  return isServerDecline(err) ? PURCHASE_NOT_RECORDED_MESSAGE : PURCHASE_RECORDED_MESSAGE;
 }
 
 /** Buys one subscription product, carrying the user's appAccountToken, then
@@ -215,14 +255,12 @@ export async function purchaseSubscription(productKey: string, config: AppleIapC
         autoAcknowledgePurchases: false,
       });
       charged = true;
-      const verified = await verifyAndFinish(sk, tx);
-      return verified
-        ? ({ ok: true } as const)
-        : ({ ok: false, cancelled: false, message: PURCHASE_RECORDED_MESSAGE } as const);
+      const outcome = await verifyOutcome(sk, tx);
+      return outcome === "applied" ? ({ ok: true } as const) : notAppliedOutcome(outcome);
     });
   } catch (err) {
     if (isCancellation(err)) return { ok: false, cancelled: true, message: "" };
-    if (charged) return { ok: false, cancelled: false, message: PURCHASE_RECORDED_MESSAGE };
+    if (charged) return { ok: false, cancelled: false, message: chargedFailureMessage(err) };
     return { ok: false, cancelled: false, message: PURCHASE_FAILED_MESSAGE };
   }
 }
@@ -241,13 +279,11 @@ export async function executePackPurchase(sk: StoreKitHandle, productIdentifier:
       autoAcknowledgePurchases: false,
     });
     charged = true;
-    const verified = await verifyAndFinish(sk, tx);
-    return verified
-      ? { ok: true }
-      : { ok: false, cancelled: false, message: PURCHASE_RECORDED_MESSAGE };
+    const outcome = await verifyOutcome(sk, tx);
+    return outcome === "applied" ? { ok: true } : notAppliedOutcome(outcome);
   } catch (err) {
     if (!charged && isCancellation(err)) return { ok: false, cancelled: true, message: "" };
-    if (charged) return { ok: false, cancelled: false, message: PURCHASE_RECORDED_MESSAGE };
+    if (charged) return { ok: false, cancelled: false, message: chargedFailureMessage(err) };
     return { ok: false, cancelled: false, message: PURCHASE_FAILED_MESSAGE };
   }
 }
@@ -281,44 +317,56 @@ export async function purchasePack(productKey: string, config: AppleIapConfig): 
  *  Idempotent. */
 export async function restorePurchases(config: AppleIapConfig): Promise<{ restored: number; failed: number }> {
   if (!config.enabled || !config.app_account_token) return { restored: 0, failed: 0 };
-  return withStoreKit(async (sk) => {
-    await sk.plugin.restorePurchases();
-    const { purchases } = await sk.plugin.getPurchases({
-      productType: sk.subs,
-      appAccountToken: config.app_account_token as string,
-      onlyCurrentEntitlements: true,
-    });
-    let restored = 0;
-    let failed = 0;
-    for (const tx of purchases) {
-      try {
-        if (await verifyAndFinish(sk, tx)) restored += 1;
-        else failed += 1;
-      } catch {
-        failed += 1;
-      }
-    }
-    return { restored, failed };
+  return withStoreKit((sk) => executeRestore(sk, config));
+}
+
+/** The restore step once the plugin is in hand (exported for the guard-rail
+ *  test): every purchase goes to the server, and only the ones it accepts are
+ *  finished and counted. */
+export async function executeRestore(sk: StoreKitHandle, config: AppleIapConfig): Promise<{ restored: number; failed: number }> {
+  await sk.plugin.restorePurchases();
+  const { purchases } = await sk.plugin.getPurchases({
+    productType: sk.subs,
+    appAccountToken: config.app_account_token as string,
+    onlyCurrentEntitlements: true,
   });
+  let restored = 0;
+  let failed = 0;
+  for (const tx of purchases) {
+    try {
+      if (await verifyAndFinish(sk, tx)) restored += 1;
+      else failed += 1;
+    } catch {
+      failed += 1;
+    }
+  }
+  return { restored, failed };
 }
 
 /** Transactions StoreKit still has queued because an earlier verification
  *  never completed (dropped connection, app closed mid-purchase). */
 export async function syncUnfinishedTransactions(config: AppleIapConfig): Promise<number> {
   if (!config.enabled || !config.app_account_token) return 0;
-  return withStoreKit(async (sk) => {
-    const { transactions } = await sk.plugin.getUnfinishedTransactions();
-    let synced = 0;
-    for (const tx of transactions) {
-      if (tx.appAccountToken && tx.appAccountToken.toLowerCase() !== config.app_account_token!.toLowerCase()) continue;
-      try {
-        if (await verifyAndFinish(sk, tx)) synced += 1;
-      } catch {
-        /* left queued: tried again next time */
-      }
+  return withStoreKit((sk) => executeSync(sk, config));
+}
+
+/** The sync step once the plugin is in hand (exported for the guard-rail
+ *  test). A queued transaction is posted to the server and finished only if
+ *  the server accepts it, so one the server declines stays queued and one it
+ *  accepts leaves the queue (C46: an unfinished active subscription makes
+ *  StoreKit skip the purchase sheet on the next attempt). */
+export async function executeSync(sk: StoreKitHandle, config: AppleIapConfig): Promise<number> {
+  const { transactions } = await sk.plugin.getUnfinishedTransactions();
+  let synced = 0;
+  for (const tx of transactions) {
+    if (tx.appAccountToken && tx.appAccountToken.toLowerCase() !== config.app_account_token!.toLowerCase()) continue;
+    try {
+      if (await verifyAndFinish(sk, tx)) synced += 1;
+    } catch {
+      /* left queued: tried again next time */
     }
-    return synced;
-  });
+  }
+  return synced;
 }
 
 /** Opens iOS's own subscription management sheet (change plan, cancel). */

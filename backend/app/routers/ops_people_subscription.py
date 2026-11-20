@@ -161,7 +161,9 @@ async def _detail(uid: str) -> dict:
         "trial_ends_at": _iso(trial_ends),
         "renews_at": None if cancels else renews,
         "cancels_at": renews if cancels else None,
-        "has_paid_subscription": bool(sub.has_paid_subscription),
+        # C46: an Apple Sandbox test purchase is never a paying customer.
+        "has_paid_subscription": bool(sub.has_paid_subscription and not sub.is_test_purchase),
+        "is_test_purchase": bool(sub.is_test_purchase),
         "tier_source": source,
         "manual_grant": ({
             "tier": canonical_tier_name(manual.get("tier")),

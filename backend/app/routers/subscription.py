@@ -171,6 +171,8 @@ async def get_subscription_info(user: dict = Depends(current_user)):
         "renews_at": sub.renews_at.isoformat() if getattr(sub, "renews_at", None) else None,
         "cancel_at_period_end": bool(getattr(sub, "cancel_at_period_end", False)),
         "has_paid_subscription": bool(getattr(sub, "has_paid_subscription", False)),
+        # C46: the plan in force is an Apple Sandbox test purchase.
+        "is_test_purchase": bool(getattr(sub, "is_test_purchase", False)),
         # C21: which provider's document is in force ("stripe" | "apple" |
         # None when the user has no document at all), so the client can say
         # where to manage it: the Stripe portal, or iOS Settings.
