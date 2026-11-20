@@ -21,7 +21,7 @@ import { postSignInDestination } from "@/lib/postSignInRoute";
 import { invalidateAllAccountData } from "@/lib/accountMutations";
 import { clearPendingConsent } from "@/lib/pendingConsent";
 import { clearHomeDismissedAdvice } from "@/lib/homeDismissedAdvice";
-import { resolveFullName } from "@/lib/displayName";
+import { onboardingPrefill } from "@/lib/displayName";
 import { FINE_FOLD_KEY } from "@/lib/upcomingAccountStatus";
 import { identifyForErrorReporting } from "@/lib/errorReporting";
 import "@/lib/endpointCacheBindings"; // G425: registers the client endpoint-cache invalidation listeners
@@ -88,6 +88,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // Aborts the late-success session check (resume) when Cancel is pressed.
   const lateAbortRef = useRef<AbortController | null>(null);
   const [needsOnboarding, setNeedsOnboarding] = useState(false);
+  // G482: the name the sign-in provider shared, from GET /profile.
+  const [signinName, setSigninName] = useState<{ given: string; family: string }>({ given: "", family: "" });
   const sessionEmailRef = useRef<string | null>(null); // D12: keys the per-user onboarded flag
   // Stamped by both the mount-time validate below and the periodic
   // revalidate effect, so the two share one rate-limit clock rather than
@@ -142,6 +144,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const profile = await profileP;
     // D12: only an explicit `false` from a loaded profile, and never for a user
     // already marked onboarded on this device (lib/onboardingGate.ts).
+    setSigninName({ given: profile?.given_name ?? "", family: profile?.family_name ?? "" });
     if (shouldShowOnboarding(profile, localStorage, sessionEmailRef.current)) setNeedsOnboarding(true);
     return "ok";
   }
@@ -580,8 +583,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // the same never-email-derived resolution as the rest of the app
     // rather than pre-filling Onboarding's name field with it — see
     // lib/displayName.ts.
-    const prefillName = resolveFullName({ sessionName: user.name, email: user.email }) ?? "";
-    content = <Onboarding defaultName={prefillName} onComplete={() => { markOnboarded(localStorage, user.email); setNeedsOnboarding(false); }} />;
+    const prefill = onboardingPrefill({ givenName: signinName.given, familyName: signinName.family, sessionName: user.name, email: user.email });
+    content = <Onboarding defaultFirstName={prefill.first} defaultLastName={prefill.last} onComplete={() => { markOnboarded(localStorage, user.email); setNeedsOnboarding(false); }} />;
   }
 
   return (

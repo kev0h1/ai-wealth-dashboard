@@ -44,7 +44,7 @@ from datetime import datetime, timezone
 
 from app.core.allowlist import resolve_allowed_signup
 from app.core.config import _gmail_key, is_signup_open, mask_email
-from app.db.collections import linked_identities_col
+from app.db.collections import linked_identities_col, user_profiles_col
 
 # Apple call sites pass distinct provider labels ("apple-native"); the link
 # lookup and the auto-link write both need to recognise "this is an Apple
@@ -149,3 +149,34 @@ async def resolve_signin_email(
         )
 
     return candidate
+
+
+def split_full_name(full_name: str) -> tuple[str, str]:
+    """Split a single display name into (given, family): first word, then the rest."""
+    parts = (full_name or "").split()
+    if not parts:
+        return "", ""
+    return parts[0], " ".join(parts[1:])
+
+
+async def capture_signin_name(email: str, given_name: str | None, family_name: str | None) -> None:
+    """G482: remember the name the sign-in provider shared, so onboarding can
+    pre-fill it. Apple shares its name only on the very first authorisation,
+    so it has to be stored then. Stored once and never overwritten, and
+    never touches profile.full_name (the name the user typed themselves).
+    Nothing is stored when the provider shared no name, and a failure here
+    must never block a sign-in."""
+    given = (given_name or "").strip()[:100]
+    family = (family_name or "").strip()[:100]
+    if not email or not (given or family):
+        return
+    try:
+        existing = await user_profiles_col.find_one({"_id": email})
+        if existing and existing.get("signin_name"):
+            return
+        update: dict = {"$set": {"signin_name": {"given": given, "family": family}}}
+        if not existing:
+            update["$setOnInsert"] = {"onboarding_complete": False}
+        await user_profiles_col.update_one({"_id": email}, update, upsert=True)
+    except Exception as exc:
+        logging.warning("Could not store sign-in name (%s)", type(exc).__name__)

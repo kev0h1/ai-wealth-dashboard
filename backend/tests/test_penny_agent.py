@@ -907,7 +907,7 @@ def test_can_i_entertainment_advice_question_reaches_the_loop_not_a_deterministi
         _final_payload(
             "HEADLINE: Entertainment is running hot\n"
             "REPLY: Entertainment is £231 across 16 payments this period, about 4x your "
-            "usual pace. Daniel Maingi and Google Play drive most of it."
+            "usual pace. Netflix and Google Play drive most of it."
         ),
     ])
     monkeypatch.setattr(penny_agent_module.httpx, "AsyncClient", client)
