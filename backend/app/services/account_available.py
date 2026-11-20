@@ -1,57 +1,34 @@
-"""G479: Left to spend follows each account's day-by-day timing (supersedes the closing-figure rule below).
-
-Kevin 2026-11-19 (option A): Left to spend is what can be spent without any payment failing. Each
-counted current account contributes the LOWEST balance of its own walk between now and payday
-(`lowest_point`: its running balance after any payment, or at the end, or the overdraft if it is
-overdrawn today), then its goals and set-asides come off. Predicted money in counts only from its
-expected date: money that lands before a payment leaves no dip (Kevin's case with the income first reads
-about 606.57), money that lands after one cannot rescue it (the same account with the bill first is
-34.89 - 77.91 = -43.02, short, then back to about 606.57 once the money has landed). A dip below zero is
-a shortfall and is never floored away: the contribution shown is `max(0, figure)` and the shortfall
-`max(0, -figure)`, and the total is the signed sum, so an account that dips with nothing to cover it
-reduces the total by exactly its shortfall (G436, G446).
-
-Covered dips (G410). A suggested move from another current account covers a dip: the source keeps the
-earmark (its figure falls by the move) and the destination's dip is covered by the move (its figure rises
-by it). The pair costs the total the dip exactly once, the same as if the dip were uncovered, so a dip is
-never penalised twice (once as the destination's shortfall and again as the source's earmark) and the
-cover plan never changes the headline (G410: "pool never changes", G436: moves net to zero).
-
-Own-account transfers. A transfer is money out of its source and money in on its destination on its
-date, on every surface, whether or not its source can fund it (Kevin 2026-11-19, option 1; the G360 inbound gate is gone). When the source cannot fund it the SOURCE shows the shortfall and gets the cover move, and the destination is never flagged short for money that is due to arrive. Between accounts that have no earlier payment it nets to zero (the destination's
-closing balance carries the credit). It stops netting only when the destination has a payment BEFORE the
-credit lands, because that payment sets the destination's low point and the later credit cannot lift
-it. That is a doctrine question for Kevin (reported on G479), not something this rule papers over.
-
-`account_ledger` is the ONE per-account computation: the headline (`analytics.compute_safe_to_spend`) and
-every per-account figure (`companion.compute_today_items`) read it, so they cannot drift.
-
-G436 (kept for context, the closing-figure wording below is replaced by the low point):
-
-G436: Left to spend and each account's Available, every account in isolation.
-
-Kevin 2026-11-07: "it should be every account in isolation, money in vs money out; the calculation
-shouldn't really care that money is moving from one account to another; the categories are just
-intention."
+"""G481: Left to spend, one simple rule per account (Kevin 2026-11-20; replaces G479's low point and
+G436's closing figure).
 
   Available (one counted current account)
-      = its balance + predicted money in - predicted money out over the pay period, the closing
-        figure of its own walk (`available_walk`; predicted means on Upcoming: reliable or
-        confirmed income and expected transfers in, every predicted payment out, credits before
-        debits on a day, G163)
-      - the goals and set-asides paid from it (plans_reserved)
-      - any earmarked move out of it (G410)
-      + any suggested move into it from another CURRENT account (savings moves are shown, never counted).
-  An own-account transfer is money out on its source and money in on its destination on its date,
-  with no special handling and no gate (`money_in_out_window`), so a transfer
-  between counted accounts nets to zero. A dip below zero before money arrives is a warning on the
-  account (`dip_before_money_in`, plus the cover engine's move) and never changes the figure.
+      = cash now - max(0, bills before payday - money in before payday)
 
-  Left to spend = the sum of those figures over the counted current accounts (negatives included),
-  less goals and set-asides paid from no counted current account (`plans_total` less what accounts
-  carry), less the user's buffer. Income no counted account is credited with, and payments from a
-  savings, manual or revoked account, are not in it. The shown per-account Available
-  (`companion.finalise_account_available`) therefore adds up to it by construction.
+Money in only OFFSETS bills and never adds to the figure. No timing and no day-by-day order is involved,
+only the two totals before payday:
+
+  cash 5,   bills 200, money in 300  ->   5
+  cash 5,   bills 400, money in 300  -> -95   (Short)
+  cash 500, bills 200, money in 0    -> 300
+  cash 5.05, bills 77.91, money in 649.59 -> 5.05   (Kevin's real shape, not Short)
+  cash 5.05, bills 77.91, no money in     -> -72.86 (Short)
+
+"Bills" are the account's predicted payments before payday, including an own transfer out of it; "money in"
+is its predicted money in before payday: income seen twice or more or confirmed (`predicted_money_in`,
+income dated today only once it has posted, `money_in_out_window`) and an own transfer into it. A transfer
+therefore counts as a bill on its sending account and as money in on its receiving account, both legs, whether
+or not its source can fund it. The figure is signed: a shortfall is never floored away, so an account that
+cannot cover its bills reduces the total by exactly its shortfall.
+
+Goals and set-asides come off the account they are sourced from AFTER this figure
+(`spend_from_headroom` = base - plans_reserved - earmarked moves out + suggested moves in, in
+`companion.compute_today_items` and `finalise_account_available`); the headline sums the bases and takes the
+plans off once (`analytics.compute_safe_to_spend`: bases - plans_total - buffer). Covered dips (G410): a
+suggested move from another current account is earmarked at its source and counted in at its destination, so
+the pair nets to zero in the total.
+
+`account_bases` is the ONE per-account computation: the headline and every per-account figure read it, so
+they cannot drift. `after_payments_and_money_in` on an account's position is this base.
 
 Pure helpers over the same window inputs `compute_today_items` reads (G364 to G366). Nothing here
 queries the database.
@@ -101,12 +78,15 @@ def money_in_out_window(window: Any) -> Any:
          yet the figure is briefly lower until it posts. (Occurrences before today are never in the
          window: a lapsed expectation drops out.)
 
-    Only what feeds Available and the headline uses this; every other walk keeps the unfiltered income."""
+    Every per-account walk now applies the same `account_walk.income_counts_in_walk` filter itself, so this is
+    kept for the headline's own window; it changes nothing the walks would not do."""
     import dataclasses
+
+    from app.services.account_walk import income_counts_in_walk
 
     return dataclasses.replace(
         window,
-        window_income=[i for i in window.window_income if int(i.get("days_away", 0)) > 0],
+        window_income=[i for i in window.window_income if income_counts_in_walk(i)],
     )
 
 
@@ -121,117 +101,22 @@ def available_walk(window: Any, sid: str, opening: float):
                         same_day_key="is_income", income_credit=predicted_money_in)
 
 
-def lowest_point(walk: Any) -> float:
-    """G479: the lowest balance one account's walk leaves it with, which is the figure it contributes.
-
-    That is the lowest running balance after any of its dated PAYMENTS, or its closing balance if that is
-    lower (so money in that lands after the last payment still counts, from its date), or, when the
-    account is already overdrawn today, the overdraft itself. The starting balance is not a low point
-    unless it is below zero: money that lands before a payment covers it (no dip), and an account that
-    only receives money is worth its closing balance. A payment that comes BEFORE the money that would
-    cover it sets the low point, so that money cannot rescue it."""
-    pts = [float(walk.closing)] + [float(r.running) for r in walk.rows if not r.is_income]
-    if walk.opening is not None and float(walk.opening) < 0:
-        pts.append(float(walk.opening))
-    return round(min(pts), 2)
+def available_base(walk: Any) -> float:
+    """G481: cash now less whatever the bills before payday exceed the money in before payday by. Totals
+    only; the order of the dated rows is irrelevant. An unseeded walk has no cash now, so 0."""
+    opening = 0.0 if walk.opening is None else float(walk.opening)
+    bills = sum(-float(r.delta) for r in walk.rows if not r.is_income)
+    money_in = sum(float(r.delta) for r in walk.rows if r.is_income)
+    return round(opening - max(0.0, bills - money_in), 2)
 
 
-def dip_before_money_in(walk: Any, today: Any) -> dict | None:
-    """When the running balance goes below zero before a later credit arrives: {"money_in_date": iso}
-    (the first credit after the first dip). Kept for the older field; `dip_detail` is the full reading."""
-    from datetime import timedelta
-
-    rows = walk.rows
-    for k, row in enumerate(rows):
-        if row.running < 0 and not row.is_income:
-            for later in rows[k + 1:]:
-                if later.is_income:
-                    return {"money_in_date": (today + timedelta(days=later.day)).isoformat()}
-            return None
-    return None
-
-
-def dip_detail(walk: Any, today: Any) -> dict | None:
-    """G479: the dip an account's walk makes, or None when its lowest point is not below zero.
-
-    {"short_by": pounds at the lowest point, "short_on": iso date of that point ("short_today": true when it is
-    today), and, when a credit follows
-    it, "money_in_date" / "money_in_amount" (the first dated credit after the low point, every credit on
-    that day added up)}. `short_by` is the deepest the balance goes, so it is what a move must cover."""
-    from datetime import timedelta
-
-    low = lowest_point(walk)
-    if low >= 0:
-        return None
-    low_day = 0
-    low_idx = -1
-    for k, row in enumerate(walk.rows):
-        if not row.is_income and round(row.running, 2) == low:
-            low_day, low_idx = int(row.day), k
-            break
-    out: dict = {"short_by": round(-low, 2), "short_on": (today + timedelta(days=low_day)).isoformat()}
-    if low_day == 0:
-        out["short_today"] = True  # so a client can say "today" without knowing the date
-    later_day = None
-    amount = 0.0
-    for row in walk.rows[low_idx + 1:]:
-        if not row.is_income:
-            continue
-        if later_day is None:
-            later_day = int(row.day)
-        if int(row.day) == later_day:
-            amount += float(row.delta)
-    if later_day is not None:
-        out["money_in_date"] = (today + timedelta(days=later_day)).isoformat()
-        out["money_in_amount"] = round(amount, 2)
-    return out
-
-
-def _pounds(x: float) -> str:
-    return f"£{int(round(abs(float(x)))):,}"
-
-
-def _day_label(iso: str) -> str:
-    from datetime import date
-
-    d = date.fromisoformat(iso)
-    return f"{d.day} {d.strftime('%b')}"
-
-
-def dip_line(dip: dict, today: Any, *, account_name: str | None = None) -> str:
-    """The one sentence for a dip, shared by Penny and the API (the web app builds the same words from
-    the same fields so a hidden-balances view can mask the amounts): "£43 short on 23 Nov, before
-    about £650 is expected on 26 Nov". Predictions are hedged, no em dashes."""
-    on = "today" if dip.get("short_today") or dip.get("short_on") == today.isoformat() else f"on {_day_label(dip['short_on'])}"
-    line = f"{_pounds(dip['short_by'])} short {on}"
-    if dip.get("money_in_date"):
-        line += f", before about {_pounds(dip['money_in_amount'])} is expected on {_day_label(dip['money_in_date'])}"
-    return f"{account_name}: {line}" if account_name else line
-
-
-def account_ledger(window: Any, counted_ids: set[str], today: Any) -> dict[str, dict]:
-    """G479: the ONE per-account computation behind Left to spend. For each counted current account with
-    a balance row: {"low_point": its lowest running balance (the figure it contributes, before goals and
-    set-asides), "closing": the end-of-period balance (information only), "dip": `dip_detail` or None}.
-    `window` is a `WindowInputs` whose `live_balances` hold every counted account's balance. Both the
-    headline and the per-account Available are read from here."""
+def account_bases(window: Any, counted_ids: set[str]) -> dict[str, float]:
+    """Per counted current account: its Available base (`available_base`), before its goals and
+    set-asides. `window` is a `WindowInputs` whose `live_balances` hold every counted account's balance."""
     wi = money_in_out_window(window)
-    out: dict[str, dict] = {}
+    bases: dict[str, float] = {}
     for sid in sorted(counted_ids):
         if sid not in wi.live_balances:
             continue  # no balance row to open a walk from: contributes nothing, never a guess
-        walk = available_walk(wi, sid, float(wi.live_balances[sid]))
-        out[sid] = {
-            "low_point": lowest_point(walk),
-            "closing": round(float(walk.closing), 2),
-            "dip": dip_detail(walk, today),
-        }
-    return out
-
-
-def account_bases(window: Any, counted_ids: set[str], today: Any = None) -> dict[str, float]:
-    """Per counted current account: its lowest running balance (G479), before its goals and set-asides."""
-    from app.core import timeutil
-
-    ledger = account_ledger(window, counted_ids, today or timeutil.user_today())
-    return {sid: row["low_point"] for sid, row in ledger.items()}
+        bases[sid] = available_base(available_walk(wi, sid, float(wi.live_balances[sid])))
+    return bases

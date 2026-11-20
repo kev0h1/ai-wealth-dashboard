@@ -2,20 +2,17 @@
   "account_eligibility": {
     "acc-hb": {
       "after_payments": 606.57,
-      "after_payments_and_money_in": 606.57,
+      "after_payments_and_money_in": 34.89,
       "after_payments_and_plans": 606.57,
-      "contribution": 606.57,
       "estimated": false,
       "headroom": 24.89,
       "is_current_account": true,
       "low_point": 34.89,
       "low_point_and_plans": 34.89,
-      "lowest_after_money_in": 606.57,
       "plans_reserved": 0.0,
       "short": false,
-      "spend_from_headroom": 606.57,
-      "uncertain": false,
-      "uncovered_shortfall": 0.0
+      "spend_from_headroom": 34.89,
+      "uncertain": false
     }
   },
   "account_plans": [],
@@ -164,7 +161,7 @@
   },
   "days_to_payday": 8,
   "items": [],
-  "name": "G479, the same figures with the money landing first (invented names): about 649.59 expected 22 Nov before the 77.91 bill on 23 Nov, so there is no dip and Left to spend is 606.57",
+  "name": "G481, the same figures with the money landing first (invented names): about 649.59 expected 22 Nov before the 77.91 bill on 23 Nov. No timing is involved, so Left to spend is the same 34.89 as with the bill first",
   "period": {
     "end": "2026-11-26",
     "start": "2026-10-30"
@@ -174,15 +171,13 @@
     "calculation_status": "complete",
     "commitments_reserved": 0,
     "left_to_spend_lines": {
-      "accounts_total": 606.57,
-      "basis": "lowest_point",
+      "accounts_total": 34.89,
       "buffer": 0.0,
-      "dips": [],
       "plans_total": 0
     },
-    "lowest_projected_balance": 606.57,
-    "safe_to_spend": 606.57,
-    "safe_to_spend_cash": 606.57
+    "lowest_projected_balance": 34.89,
+    "safe_to_spend": 34.89,
+    "safe_to_spend_cash": 34.89
   },
   "today": "2026-11-19"
 }

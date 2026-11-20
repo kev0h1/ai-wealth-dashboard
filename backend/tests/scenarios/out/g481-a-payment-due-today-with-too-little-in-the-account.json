@@ -1,27 +1,18 @@
 {
   "account_eligibility": {
     "acc-hb": {
-      "after_payments": 606.57,
-      "after_payments_and_money_in": 606.57,
-      "after_payments_and_plans": 606.57,
-      "contribution": 0.0,
-      "dips_below_zero": {
-        "money_in_amount": 649.59,
-        "money_in_date": "2026-11-26",
-        "short_by": 43.02,
-        "short_on": "2026-11-23"
-      },
+      "after_payments": -43.02,
+      "after_payments_and_money_in": -43.02,
+      "after_payments_and_plans": -43.02,
       "estimated": false,
       "headroom": -53.02,
       "is_current_account": true,
       "low_point": -43.02,
       "low_point_and_plans": -43.02,
-      "lowest_after_money_in": -43.02,
       "plans_reserved": 0.0,
       "short": true,
       "spend_from_headroom": -43.02,
-      "uncertain": false,
-      "uncovered_shortfall": 43.02
+      "uncertain": false
     }
   },
   "account_plans": [],
@@ -66,21 +57,21 @@
         "card_dest_account_id": null,
         "card_dest_account_name": null,
         "category": "Bills",
-        "days_away": 4,
+        "days_away": 0,
         "days_past_due": 0,
         "dest_account_bank": null,
         "dest_account_id": null,
         "dest_account_name": null,
         "dest_account_spendable": null,
         "edited": false,
-        "expected_date": "2026-11-23",
+        "expected_date": "2026-11-19",
         "is_card_repayment": false,
         "is_credit_card": false,
         "kind": "commitment",
         "name": "HOMEBRIDGE HOUSING",
         "observed_pending": false,
         "original_date": null,
-        "pending": false,
+        "pending": true,
         "rule_label": null
       },
       {
@@ -94,53 +85,25 @@
         "card_dest_account_id": null,
         "card_dest_account_name": null,
         "category": "Bills",
-        "days_away": 34,
+        "days_away": 32,
         "days_past_due": 0,
         "dest_account_bank": null,
         "dest_account_id": null,
         "dest_account_name": null,
         "dest_account_spendable": null,
         "edited": false,
-        "expected_date": "2026-12-23",
+        "expected_date": "2026-12-21",
         "is_card_repayment": false,
         "is_credit_card": false,
         "kind": "commitment",
         "name": "HOMEBRIDGE HOUSING",
         "observed_pending": false,
-        "original_date": null,
+        "original_date": "2026-12-19",
         "pending": false,
         "rule_label": null
       }
     ],
-    "upcoming_income": [
-      {
-        "account_balance": 34.89,
-        "account_bank": "Barclays",
-        "account_id": "acc-hb",
-        "account_name": "Harbour Current",
-        "amount": 649.59,
-        "amounts_recent": [
-          649.59,
-          649.59
-        ],
-        "avg_interval": 30,
-        "category": "Income",
-        "confirmed_alias": null,
-        "credit_basis": "steady",
-        "days_away": 7,
-        "display_name": "Transfer from another bank",
-        "edited": false,
-        "estimated": true,
-        "expected_date": "2026-11-26",
-        "income_history": null,
-        "monthly_anchor": null,
-        "name": "transfer|other-bank::acc-hb",
-        "occurrences": 2,
-        "rule_label": null,
-        "source": null,
-        "steady_salary": true
-      }
-    ]
+    "upcoming_income": []
   },
   "days_to_payday": 8,
   "items": [
@@ -152,24 +115,24 @@
         "bills": [
           {
             "amount": 78,
-            "expected_date": "2026-11-23",
+            "expected_date": "2026-11-19",
             "label": "Homebridge Housing"
           }
         ],
         "display_label": "Barclays Harbour Current",
         "is_overdraft": false,
         "name": "Harbour Current",
-        "needs_by": "Monday",
-        "needs_by_date": "2026-11-23",
-        "needs_by_last": "Monday",
-        "needs_by_last_date": "2026-11-23",
+        "needs_by": "today",
+        "needs_by_date": "2026-11-19",
+        "needs_by_last": "today",
+        "needs_by_last_date": "2026-11-19",
         "needs_total": 78,
         "provider": "barclays"
       },
       "type": "move"
     }
   ],
-  "name": "G479, Kevin's production shape (invented names): 34.89 now, 77.91 due 23 Nov, about 649.59 expected 26 Nov, payday 27 Nov: the account is short before the money lands, so it contributes nothing and Left to spend is short",
+  "name": "G481, today edge: the payment is due today and the account holds less than it, so it is short today",
   "period": {
     "end": "2026-11-26",
     "start": "2026-10-30"
@@ -180,19 +143,7 @@
     "commitments_reserved": 0,
     "left_to_spend_lines": {
       "accounts_total": -43.02,
-      "basis": "lowest_point",
       "buffer": 0.0,
-      "dips": [
-        {
-          "account_id": "acc-hb",
-          "account_name": "Harbour Current",
-          "line": "\u00a343 short on 23 Nov, before about \u00a3650 is expected on 26 Nov",
-          "money_in_amount": 649.59,
-          "money_in_date": "2026-11-26",
-          "short_by": 43.02,
-          "short_on": "2026-11-23"
-        }
-      ],
       "plans_total": 0
     },
     "lowest_projected_balance": -43.02,

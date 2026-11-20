@@ -2,14 +2,25 @@
  "at_risk": {
   "events_unsorted": [
    [
-    4,
+    2,
     "hsbc",
-    100.0,
-    false,
-    [
-     "commitment",
-     false
-    ]
+    1758.33,
+    true,
+    null
+   ],
+   [
+    5,
+    "natwest",
+    900.0,
+    true,
+    null
+   ],
+   [
+    6,
+    "barclays",
+    2500.0,
+    true,
+    null
    ],
    [
     2,
@@ -32,6 +43,16 @@
     ]
    ],
    [
+    4,
+    "hsbc",
+    100.0,
+    false,
+    [
+     "commitment",
+     false
+    ]
+   ],
+   [
     7,
     "yap1",
     30.0,
@@ -40,27 +61,6 @@
      "commitment",
      false
     ]
-   ],
-   [
-    6,
-    "barclays",
-    2500.0,
-    true,
-    null
-   ],
-   [
-    5,
-    "natwest",
-    900.0,
-    true,
-    null
-   ],
-   [
-    2,
-    "hsbc",
-    1758.33,
-    true,
-    null
    ]
   ],
   "funded_args": {
@@ -179,6 +179,48 @@
     }
    ],
    [
+    6,
+    "barclays",
+    2500.0,
+    true,
+    {
+     "account_id": "barclays",
+     "amount": 2500.0,
+     "amounts_recent": [
+      2500.0,
+      2500.0,
+      2500.0
+     ],
+     "confirmed_alias": null,
+     "credit_basis": "confirmed",
+     "days_away": 6,
+     "name": "ACME",
+     "occurrences": 3,
+     "steady_salary": false
+    }
+   ],
+   [
+    10,
+    "barclays",
+    2500.0,
+    true,
+    {
+     "account_id": "barclays",
+     "amount": 2500.0,
+     "amounts_recent": [
+      2500.0,
+      2500.0,
+      2500.0
+     ],
+     "confirmed_alias": null,
+     "credit_basis": "confirmed",
+     "days_away": 6,
+     "name": "ACME",
+     "occurrences": 3,
+     "steady_salary": false
+    }
+   ],
+   [
     2,
     "barclays",
     1758.33,
@@ -211,27 +253,6 @@
     }
    ],
    [
-    6,
-    "barclays",
-    2500.0,
-    true,
-    {
-     "account_id": "barclays",
-     "amount": 2500.0,
-     "amounts_recent": [
-      2500.0,
-      2500.0,
-      2500.0
-     ],
-     "confirmed_alias": null,
-     "credit_basis": "confirmed",
-     "days_away": 6,
-     "name": "ACME",
-     "occurrences": 3,
-     "steady_salary": false
-    }
-   ],
-   [
     7,
     "yap1",
     30.0,
@@ -245,27 +266,6 @@
      "is_credit_card": false,
      "kind": "commitment",
      "name": "Yapily bill"
-    }
-   ],
-   [
-    10,
-    "barclays",
-    2500.0,
-    true,
-    {
-     "account_id": "barclays",
-     "amount": 2500.0,
-     "amounts_recent": [
-      2500.0,
-      2500.0,
-      2500.0
-     ],
-     "confirmed_alias": null,
-     "credit_basis": "confirmed",
-     "days_away": 6,
-     "name": "ACME",
-     "occurrences": 3,
-     "steady_salary": false
     }
    ]
   ],
@@ -349,10 +349,6 @@
    [
     "ACME",
     "barclays"
-   ],
-   [
-    "ACME",
-    "man1"
    ],
    [
     "Side",
@@ -498,6 +494,44 @@
      }
     ],
     [
+     5,
+     "natwest",
+     900.0,
+     true,
+     {
+      "account_id": "natwest",
+      "amount": 900.0,
+      "amounts_recent": [
+       900.0,
+       900.0,
+       900.0
+      ],
+      "confirmed_alias": null,
+      "days_away": 5,
+      "name": "Side",
+      "occurrences": 3
+     }
+    ],
+    [
+     6,
+     "barclays",
+     2500.0,
+     true,
+     {
+      "account_id": "barclays",
+      "amount": 2500.0,
+      "amounts_recent": [
+       2500.0,
+       2500.0,
+       2500.0
+      ],
+      "confirmed_alias": null,
+      "days_away": 6,
+      "name": "ACME",
+      "occurrences": 3
+     }
+    ],
+    [
      2,
      "barclays",
      1758.33,
@@ -543,44 +577,6 @@
       "is_credit_card": false,
       "kind": "commitment",
       "name": "Council Tax"
-     }
-    ],
-    [
-     5,
-     "natwest",
-     900.0,
-     true,
-     {
-      "account_id": "natwest",
-      "amount": 900.0,
-      "amounts_recent": [
-       900.0,
-       900.0,
-       900.0
-      ],
-      "confirmed_alias": null,
-      "days_away": 5,
-      "name": "Side",
-      "occurrences": 3
-     }
-    ],
-    [
-     6,
-     "barclays",
-     2500.0,
-     true,
-     {
-      "account_id": "barclays",
-      "amount": 2500.0,
-      "amounts_recent": [
-       2500.0,
-       2500.0,
-       2500.0
-      ],
-      "confirmed_alias": null,
-      "days_away": 6,
-      "name": "ACME",
-      "occurrences": 3
      }
     ],
     [

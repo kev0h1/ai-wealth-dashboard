@@ -414,9 +414,6 @@ def _check_expected(snap: dict, spec: dict) -> None:
         got_lines = snap["safe_to_spend"].get("left_to_spend_lines") or {}
         for key, want in exp["lines"].items():
             chk.check(f"lines {key}", _r2(got_lines.get(key)), _r2(want))
-    if "dip_lines" in exp:
-        # G479: the headline's own sentence for each account that goes short, hand-written in the fixture.
-        chk.check("dip lines", [d["line"] for d in (snap["safe_to_spend"].get("left_to_spend_lines") or {}).get("dips", [])], exp["dip_lines"])
     if "spend_from_total" in exp:
         # G436: this fixture names every eligible current account. Each figure is
         # that account's own, and they add up to the named total (with Left to
@@ -433,12 +430,6 @@ def _check_expected(snap: dict, spec: dict) -> None:
         for key in ("after_payments", "low_point", "plans_reserved", "after_payments_and_plans", "headroom"):
             if key in want:
                 chk.check(f"{acct_id} {key}", _r2(got[key]), _r2(want[key]))
-        # G479: the account's lowest balance, what it contributes and what it is still short by.
-        for key in ("lowest_after_money_in", "contribution", "uncovered_shortfall"):
-            if key in want:
-                chk.check(f"{acct_id} {key}", _r2(got[key]), _r2(want[key]))
-        if "dip" in want:
-            chk.check(f"{acct_id} dip", got.get("dips_below_zero"), want["dip"])
         if "verdict" in want:
             chk.check(f"{acct_id} verdict", _verdict(got), want["verdict"])
         # G410: the earmark fields (absent from the payload when there is no earmark).
@@ -613,26 +604,7 @@ def _check_headline_is_the_sum(snap: dict, where: str) -> None:
         f"{where} Left to spend {sts['safe_to_spend']} is not the account figures added up ({round(total, 2)}) "
         f"less plans not on an account ({round(plans_off, 2)}) and the buffer: {expected}"
     )
-    assert set(lines) == {"accounts_total", "plans_total", "buffer", "basis", "dips"}, f"{where} unexpected Left to spend lines {sorted(lines)}"
-    # G479: the headline's dips are exactly the per-account dips (one stored reading, read twice), each
-    # naming the same shortfall, date and money in.
-    assert lines["basis"] == "lowest_point"
-    per_account = {
-        aid: snap["account_eligibility"][aid]["dips_below_zero"] for aid in counted
-        if snap["account_eligibility"][aid].get("dips_below_zero", {}).get("short_by")
-    }
-    assert {d["account_id"] for d in lines["dips"]} == set(per_account), f"{where} headline dips differ from the account dips"
-    for d in lines["dips"]:
-        mine = per_account[d["account_id"]]
-        assert (d["short_by"], d["short_on"], d.get("money_in_date"), d.get("money_in_amount")) == (
-            mine["short_by"], mine["short_on"], mine.get("money_in_date"), mine.get("money_in_amount")), f"{where} dip differs on {d['account_id']}"
-    # G479: contribution and uncovered shortfall split the signed figure, so the headline is contributions minus shortfalls.
-    for aid in counted:
-        pos = snap["account_eligibility"][aid]
-        if pos.get("uncertain"):
-            continue
-        assert round(pos["contribution"] - pos["uncovered_shortfall"], 2) == round(pos["spend_from_headroom"], 2), f"{where} {aid} contribution and shortfall do not make its figure"
-        assert pos["contribution"] >= 0 and pos["uncovered_shortfall"] >= 0
+    assert set(lines) == {"accounts_total", "plans_total", "buffer"}, f"{where} unexpected Left to spend lines {sorted(lines)}"
     assert abs(float(lines["accounts_total"]) - float(sts["lowest_projected_balance"])) < 0.015, f"{where} lowest_projected_balance is not the accounts line"
 
 

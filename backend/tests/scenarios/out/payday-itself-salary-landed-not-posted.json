@@ -1,38 +1,32 @@
 {
   "account_eligibility": {
     "acc-bc": {
-      "after_payments": 5005.0,
+      "after_payments": 2005.0,
       "after_payments_and_money_in": 2005.0,
-      "after_payments_and_plans": 5005.0,
-      "contribution": 2005.0,
+      "after_payments_and_plans": 2005.0,
       "estimated": false,
-      "headroom": 4190.0,
+      "headroom": 1995.0,
       "is_current_account": true,
-      "low_point": 4200.0,
-      "low_point_and_plans": 4200.0,
-      "lowest_after_money_in": 2005.0,
+      "low_point": 2005.0,
+      "low_point_and_plans": 2005.0,
       "plans_reserved": 0.0,
       "short": false,
       "spend_from_headroom": 2005.0,
-      "uncertain": false,
-      "uncovered_shortfall": 0.0
+      "uncertain": false
     },
     "acc-hsbc": {
       "after_payments": 860.0,
-      "after_payments_and_money_in": 860.0,
+      "after_payments_and_money_in": 80.0,
       "after_payments_and_plans": 860.0,
-      "contribution": 860.0,
       "estimated": false,
       "headroom": 70.0,
       "is_current_account": true,
       "low_point": 80.0,
       "low_point_and_plans": 80.0,
-      "lowest_after_money_in": 860.0,
       "plans_reserved": 0.0,
       "short": false,
-      "spend_from_headroom": 860.0,
-      "uncertain": false,
-      "uncovered_shortfall": 0.0
+      "spend_from_headroom": 80.0,
+      "uncertain": false
     }
   },
   "account_plans": [],
@@ -398,7 +392,7 @@
       "type": "needle"
     }
   ],
-  "name": "Payday itself, salary landed in the balance but not yet posted: the figures still overstate (known gap, G362, money engine map D7)",
+  "name": "Payday itself, salary landed in the balance but not yet posted: the figures are correct (the G362 gap is closed)",
   "period": {
     "end": "2026-11-26",
     "start": "2026-10-30"
@@ -408,15 +402,13 @@
     "calculation_status": "complete",
     "commitments_reserved": 0,
     "left_to_spend_lines": {
-      "accounts_total": 2865.0,
-      "basis": "lowest_point",
+      "accounts_total": 2085.0,
       "buffer": 0.0,
-      "dips": [],
       "plans_total": 0
     },
-    "lowest_projected_balance": 2865.0,
-    "safe_to_spend": 2865.0,
-    "safe_to_spend_cash": 2865.0
+    "lowest_projected_balance": 2085.0,
+    "safe_to_spend": 2085.0,
+    "safe_to_spend_cash": 2085.0
   },
   "today": "2026-10-30"
 }

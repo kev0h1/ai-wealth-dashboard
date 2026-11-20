@@ -352,19 +352,14 @@ def test_steady_rule_edges():
 # ── Step 2 ──────────────────────────────────────────────────────────────────
 
 def test_payday_standing_orders_never_drive_a_cover_move_when_pay_is_expected(monkeypatch):
-    # Two sightings 20% apart: not steady (10%), but a credible pay for the guard (25%).
+    # Two sightings 20% apart: not steady (10%), but seen twice, so predicted money in (G481, Kevin 2026-11-20:
+    # the one rule every walk credits with). It offsets the standing orders, so nothing is short and no move
+    # is suggested; with nothing to explain there is no "these moves usually come out of your pay" note either.
     sal = _salary(amounts=[4797.88, 4000.0])
     items = _run(monkeypatch, _bills(), [sal])
     assert sal["credit_basis"] is None
     assert _moves(items) == []
-    note = _ask(items, "ask:payday_funds_moves")
-    assert note is not None
-    assert note["income_note_kind"] == "payday_funds_moves"
-    assert note["action"] is None
-    assert note["income_note"] == (
-        "These moves usually come out of your pay, expected around 28 Oct, so no move "
-        "is suggested."
-    )
+    assert _ask(items, "ask:payday_funds_moves") is None
 
 
 def test_single_sighting_no_longer_suppresses_the_move(monkeypatch):
@@ -374,10 +369,12 @@ def test_single_sighting_no_longer_suppresses_the_move(monkeypatch):
     assert _ask(items, "ask:payday_funds_moves") is None
 
 
-def test_two_sightings_forty_percent_apart_still_get_a_move(monkeypatch):
+def test_two_sightings_forty_percent_apart_count_as_money_in_so_no_move(monkeypatch):
+    # G481 (supersedes G372's "two sightings 40 percent apart never credited"): income seen twice is predicted
+    # money in, so it offsets the account's payments and no cover move is needed.
     sal = _salary(amounts=[4797.88, 2900.0])
     items = _run(monkeypatch, _bills(), [sal], accounts=_accounts(starling=9000.0))
-    assert _moves(items)
+    assert _moves(items) == []
     assert _ask(items, "ask:payday_funds_moves") is None
 
 
@@ -435,8 +432,9 @@ def test_steady_candidate_on_the_other_account_is_not_credited_to_the_current_ac
 
 
 def test_footnote_never_says_landed_in_a_not_a_for_the_same_account(monkeypatch):
-    # Unsteady salary on the shortfall account itself (40% apart) plus a real
-    # commitment so a move is still recommended.
+    # Salary seen twice 40% apart on the shortfall account itself plus a real commitment so a move is still
+    # recommended. G481: the salary is predicted money in (offsetting, never adding), so the card no longer
+    # carries the "hasn't been steady enough" footnote, and never says the pay "landed in" the same account.
     sal = _salary(amounts=[4797.88, 2900.0])
     big = _bill("Rent", 6000.0, 1)
     items = _run(monkeypatch, _bills(extra=[big]), [sal], accounts=_accounts(starling=9000.0))
@@ -444,7 +442,7 @@ def test_footnote_never_says_landed_in_a_not_a_for_the_same_account(monkeypatch)
     assert cards
     note = cards[0].get("income_note") or ""
     assert "landed in" not in note
-    assert "hasn't been steady enough" in note
+    assert "hasn't been steady enough" not in note
 
 
 def _acct(acct_id, name, provider, subtype):

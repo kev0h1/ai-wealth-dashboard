@@ -1,5 +1,5 @@
 {
-  "name": "G479 option 1: a transfer counts on BOTH legs even when its source cannot fund it (Harbour has 100 and is due to send 300, Meadow has 50 and pays 120): Harbour is short 200, Meadow is fine, total 30",
+  "name": "G481 (option 1, both legs): a transfer is a bill on its sender and money in on its receiver even when the sender cannot fund it (Harbour has 100 and is due to send 300, Meadow has 50 and pays 120): Harbour is short 200, Meadow is 50, total -150",
   "today": "2026-11-19",
   "pay_period_config": {
     "type": "last_friday"
@@ -70,37 +70,26 @@
   "allocations": [],
   "card_terms": [],
   "expected": {
-    "left_to_spend": 30.0,
+    "left_to_spend": -150.0,
     "spendable_balance": 150.0,
     "lines": {
-      "accounts_total": 30.0,
+      "accounts_total": -150.0,
       "plans_total": 0.0,
       "buffer": 0.0
     },
-    "spend_from_total": 30.0,
-    "dip_lines": [
-      "Harbour Current: £200 short on 23 Nov"
-    ],
+    "spend_from_total": -150.0,
     "accounts": {
       "acc-hb": {
         "spend_from": -200.0,
         "after_payments": -200.0,
         "low_point": -200.0,
-        "lowest_after_money_in": -200.0,
         "verdict": "short",
-        "dip": {
-          "short_by": 200.0,
-          "short_on": "2026-11-23"
-        },
-        "contribution": 0.0,
-        "uncovered_shortfall": 200.0,
         "no_earmark": true
       },
       "acc-md": {
-        "spend_from": 230.0,
+        "spend_from": 50.0,
         "after_payments": 230.0,
         "low_point": 50.0,
-        "lowest_after_money_in": 230.0,
         "verdict": "covered",
         "no_earmark": true
       }
@@ -111,6 +100,6 @@
     },
     "payday_plan": null,
     "at_risk_count": 1,
-    "notes": "Today is Thu 19 Nov 2026, pay is the last Friday, so payday is Fri 27 Nov: the window is 19 to 26 Nov. Harbour Current holds 100 and has a standing order of 300 to Meadow Current on Mon 23 Nov (day 4). Meadow Current holds 50 and pays home insurance 120 on Tue 24 Nov (day 5). No income is expected. G479 (Kevin 2026-11-19, option 1): a predicted own transfer counts on BOTH legs on every surface (ledger, Upcoming, cover plan, at-risk badge, client walk, payday plan, spend impact), whether or not the source can fund it; the G360 inbound gate is gone. Harbour: 100 - 300 = -200 on 23 Nov: it is short 200 (after payments -200, low point -200, verdict short), the dip line reads 'Harbour Current: £200 short on 23 Nov' (no money follows it). Meadow: 50 + 300 (credited on 23 Nov) = 350, - 120 = 230 on 24 Nov: after payments 230, lowest 230 (nothing lower after a payment), never flagged short for a transfer due to arrive; the cover engine's low point is its opening 50 (credits cannot lower it), covered. Left to spend: -200 + 230 = 30, the pooled 100 + 50 - 120. Cover plan: Harbour's 200 shortfall is the only one, and the only other current account, Meadow, is the DESTINATION of the order that will bounce, so it is never offered as a source (the money would go round in a circle, and its headroom exists only because of that transfer: without Harbour's 300 its own 50 cannot cover its 120 bill). No account can lend, so there is no move and no earmark: Harbour stays short 200, Meadow stays 230, and the total shows it: -200 + 230 = 30. At risk count 1: the bounced 300 standing order (G438: an own-account move counts like any payment); the insurance is covered."
+    "notes": "Today is Thu 19 Nov 2026, payday Fri 27 Nov. Harbour Current holds 100 and a standing order sends 300 to Meadow Current on Mon 23 Nov; Meadow holds 50 and pays HOME INSURANCE 120 on Tue 24 Nov. The order is a bill on Harbour and money in on Meadow (both legs, whether or not Harbour can fund it). G481 (Kevin 2026-11-20): Available = cash now - max(0, bills before payday - money in before payday); money in only offsets bills and never adds, and no timing or day-by-day order is involved. Harbour: bills 300, money in 0: 100 - 300 = -200 (short). Meadow: bills 120, money in 300 (the transfer): 50 - max(0, 120 - 300) = 50; the 300 offsets the insurance and adds nothing. Left to spend -200 + 50 = -150. The cover engine agrees: Harbour after payments and low point -200 (short), Meadow low point 50 and, with the transfer, closes at 50 + 300 - 120 = 230 (covered, never flagged short for money due to arrive). Meadow cannot lend its own 50 (its own walk without Harbour's 300 is 50 - 120 = -70), and a cover move never goes back to the destination of the transfer that bounces, so no move; at risk 1 (the standing order)."
   }
 }

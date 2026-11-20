@@ -198,7 +198,8 @@ def test_kevin_hsbc_case_mid_window_funded_rule(monkeypatch):
     h = elig[HS]
     # 150.76 - 139.37 + 1886 - 1553.30: the 1,886 is in BOTH walks.
     assert h["after_payments"] == pytest.approx(344.09)
-    assert h["low_point"] == pytest.approx(11.39), "low point is the day-0 dip; the inflow lands after it"
+    # G481: money in only offsets bills, so 150.76 - max(0, 1,692.67 - 1,886) = 150.76 is the lowest point
+    assert h["low_point"] == pytest.approx(150.76), "the 1,886 offsets the three payments and adds nothing"
     assert not _short(h)
     # Barclays: same-day pay lands before the standing order leaves.
     assert elig[BC]["after_payments"] == pytest.approx(500.0 - 1886.0 + 4800.0)
@@ -251,7 +252,8 @@ def test_payday_eve_tomorrow_lands_in_payday_slice_not_window(monkeypatch):
     items, _ = _run(monkeypatch, today, bills, income, inflows,
                     {HS: (150.76, "hsbc"), BC: (500.0, "barclays")}, preview=True)
     # Only today's bill is in the window; "Pay" is the preview's own payday event.
-    assert [e[4]["name"] for e in seen["events"]] == ["Novuna", "Pay"]
+    # G481: every credit is walked before every debit, so the preview's payday event leads.
+    assert [e[4]["name"] for e in seen["events"]] == ["Pay", "Novuna"]
     plan = next((i for i in items if i.get("type") == "payday_plan"), None)
     assert plan is not None, "payday plan shown on payday eve"
     split = plan["payday_split"]

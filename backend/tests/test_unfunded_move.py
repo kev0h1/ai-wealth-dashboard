@@ -332,7 +332,10 @@ def test_neither_pending_nor_bounced_does_not_fire(monkeypatch):
 # names itself on the card ───────────────────────────────────────────────
 
 def test_pending_move_covered_by_same_day_confirmed_income_does_not_fire():
-    """Kevin, 2026-09-24: "the AI should know money is coming in so perhaps
+    """G481 (Kevin 2026-11-20): money in only offsets payments and no timing is involved, so a confirmed
+    income expected TOMORROW covers a movement due today and nothing fires; income dated TODAY counts on no
+    walk until it has posted (it may already be in the balance), so it no longer covers one (see the sibling
+    test below). Original G163 note, Kevin, 2026-09-24: "the AI should know money is coming in so perhaps
     I shouldn't flag this, it only becomes a problem the day after." A
     movement due TODAY on a source account that's short on its own, but a
     confirmed income stream is ALSO expected into that exact account today
@@ -347,8 +350,8 @@ def test_pending_move_covered_by_same_day_confirmed_income_does_not_fire():
         bills = [_mv_bill("KEVIN MAINGI HSBC FT", 81.67, "barclays",
                            pending=True, days_away=0)]
         window_income = [{
-            "name": "Salary", "amount": 200.0, "days_away": 0, "account_id": "barclays",
-            "account_name": "Barclays Current",
+            "name": "Salary", "amount": 200.0, "days_away": 1, "account_id": "barclays",
+            "account_name": "Barclays Current", "expected_date": "2030-01-01",
         }]
         items, _ = _run(
             mp, bills, accounts=accounts,
@@ -356,6 +359,28 @@ def test_pending_move_covered_by_same_day_confirmed_income_does_not_fire():
             window_income=window_income,
         )
         assert _find(items, "unfunded_move") is None
+    finally:
+        mp.undo()
+
+
+def test_income_dated_today_no_longer_covers_a_pending_move_due_today():
+    import pytest
+    mp = pytest.MonkeyPatch()
+    try:
+        accounts = [_account("barclays", 20.0)]
+        bills = [_mv_bill("KEVIN MAINGI HSBC FT", 81.67, "barclays", pending=True, days_away=0)]
+        window_income = [{
+            "name": "Salary", "amount": 200.0, "days_away": 0, "account_id": "barclays",
+            "account_name": "Barclays Current", "expected_date": "2030-01-01",
+        }]
+        items, _ = _run(
+            mp, bills, accounts=accounts,
+            income_streams=[{"key": "Salary", "status": "confirmed"}],
+            window_income=window_income,
+        )
+        # 20 cash, 81.67 due today, the 200 dated today is not money in until it has posted: the account is
+        # short (62 after rounding), so the cover plan speaks for it with a move card.
+        assert _find(items, "move") is not None and "short" in _find(items, "move")["headline"]
     finally:
         mp.undo()
 

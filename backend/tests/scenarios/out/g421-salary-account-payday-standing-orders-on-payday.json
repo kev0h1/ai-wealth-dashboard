@@ -4,69 +4,57 @@
       "after_payments": 450.0,
       "after_payments_and_money_in": 450.0,
       "after_payments_and_plans": 450.0,
-      "contribution": 450.0,
       "estimated": false,
       "headroom": 440.0,
       "is_current_account": true,
       "low_point": 450.0,
       "low_point_and_plans": 450.0,
-      "lowest_after_money_in": 450.0,
       "plans_reserved": 0.0,
       "short": false,
       "spend_from_headroom": 450.0,
-      "uncertain": false,
-      "uncovered_shortfall": 0.0
+      "uncertain": false
     },
     "acc-hsbc": {
       "after_payments": 150.0,
       "after_payments_and_money_in": 150.0,
       "after_payments_and_plans": 150.0,
-      "contribution": 150.0,
       "estimated": false,
       "headroom": 140.0,
       "is_current_account": true,
       "low_point": 150.0,
       "low_point_and_plans": 150.0,
-      "lowest_after_money_in": 150.0,
       "plans_reserved": 0.0,
       "short": false,
       "spend_from_headroom": 150.0,
-      "uncertain": false,
-      "uncovered_shortfall": 0.0
+      "uncertain": false
     },
     "acc-mz": {
       "after_payments": 80.0,
       "after_payments_and_money_in": 80.0,
       "after_payments_and_plans": 80.0,
-      "contribution": 80.0,
       "estimated": false,
       "headroom": 70.0,
       "is_current_account": true,
       "low_point": 80.0,
       "low_point_and_plans": 80.0,
-      "lowest_after_money_in": 80.0,
       "plans_reserved": 0.0,
       "short": false,
       "spend_from_headroom": 80.0,
-      "uncertain": false,
-      "uncovered_shortfall": 0.0
+      "uncertain": false
     },
     "acc-nw": {
       "after_payments": 120.0,
       "after_payments_and_money_in": 120.0,
       "after_payments_and_plans": 120.0,
-      "contribution": 120.0,
       "estimated": false,
       "headroom": 110.0,
       "is_current_account": true,
       "low_point": 120.0,
       "low_point_and_plans": 120.0,
-      "lowest_after_money_in": 120.0,
       "plans_reserved": 0.0,
       "short": false,
       "spend_from_headroom": 120.0,
-      "uncertain": false,
-      "uncovered_shortfall": 0.0
+      "uncertain": false
     }
   },
   "account_plans": [],
@@ -500,9 +488,7 @@
     "commitments_reserved": 0,
     "left_to_spend_lines": {
       "accounts_total": 800.0,
-      "basis": "lowest_point",
       "buffer": 0.0,
-      "dips": [],
       "plans_total": 0
     },
     "lowest_projected_balance": 800.0,

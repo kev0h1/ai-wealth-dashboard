@@ -243,7 +243,9 @@ def test_companion_walk_does_not_credit_the_landed_salary(monkeypatch):
     sal = g359._salary()
     sal.update(days_away=0, expected_date=g359.TODAY.isoformat(), amount=SALARY)
     g359._run(monkeypatch, bills, [sal], accounts=accounts, eligibility=elig_open)
-    assert elig_open[g359.BC]["after_payments"] > expected + 1000
+    # G481 (Kevin 2026-11-20): income dated today counts on NO walk until it has posted (one shared filter,
+    # `account_walk.income_counts_in_walk`), so even the pre-fix input no longer overstates the figure.
+    assert round(elig_open[g359.BC]["after_payments"], 2) == expected
 
 
 # ── review fixes ────────────────────────────────────────────────────────────

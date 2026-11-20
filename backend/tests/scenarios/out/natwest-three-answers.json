@@ -4,57 +4,29 @@
       "after_payments": 2000.0,
       "after_payments_and_money_in": 2000.0,
       "after_payments_and_plans": 2000.0,
-      "contribution": 1700.0,
-      "earmarked_total": 300.0,
-      "earmarks_out": [
-        {
-          "amount": 300.0,
-          "to_account_id": "acc-nw",
-          "to_name": "NatWest The Number One"
-        }
-      ],
       "estimated": false,
       "headroom": 1990.0,
       "is_current_account": true,
       "low_point": 2000.0,
       "low_point_and_plans": 2000.0,
-      "lowest_after_money_in": 2000.0,
       "plans_reserved": 0.0,
       "short": false,
-      "spend_from_headroom": 1700.0,
-      "uncertain": false,
-      "uncovered_shortfall": 0.0
+      "spend_from_headroom": 2000.0,
+      "uncertain": false
     },
     "acc-nw": {
-      "after_payments": -288.65,
+      "after_payments": 315.27,
       "after_payments_and_money_in": 315.27,
-      "after_payments_and_plans": -288.65,
-      "contribution": 557.96,
-      "covered_by_move": {
-        "amount": 300.0,
-        "from": [
-          {
-            "account_id": "acc-bc",
-            "amount": 300.0,
-            "display_label": "Barclays Current",
-            "name": "Barclays Current"
-          }
-        ],
-        "shortfall": 288.65
-      },
+      "after_payments_and_plans": 315.27,
       "estimated": false,
-      "headroom": -298.65,
+      "headroom": 305.27,
       "is_current_account": true,
-      "low_point": -288.65,
-      "low_point_and_plans": -288.65,
-      "lowest_after_money_in": 257.96,
-      "moves_in_total": 300.0,
+      "low_point": 315.27,
+      "low_point_and_plans": 315.27,
       "plans_reserved": 0.0,
-      "short": true,
-      "short_after_cover": 0.0,
-      "spend_from_headroom": 557.96,
-      "uncertain": false,
-      "uncovered_shortfall": 0.0
+      "short": false,
+      "spend_from_headroom": 315.27,
+      "uncertain": false
     }
   },
   "account_plans": [],
@@ -82,7 +54,7 @@
       "type": "BANK"
     }
   ],
-  "at_risk_count": 1,
+  "at_risk_count": 0,
   "cashflow": {
     "internal_inflows": [],
     "next_payday": "2026-11-27",
@@ -492,96 +464,8 @@
     ]
   },
   "days_to_payday": 25,
-  "items": [
-    {
-      "amount": 300,
-      "covered": true,
-      "id": "plan:2026-11-27:4d240cd95c",
-      "income_note": "This plan doesn't count the \u00a3604 that sometimes arrives around 6 Nov. It hasn't been steady enough to plan around. If it lands, you'll simply need less.",
-      "moves": [
-        {
-          "amount": 300,
-          "headline": "Move \u00a3300 from Barclays Current",
-          "move_map": {
-            "from": {
-              "account_id": "acc-bc",
-              "balance": 2000.0,
-              "display_label": "Barclays Current",
-              "name": "Barclays Current",
-              "provider": "barclays",
-              "reserved_for_allocations": 0.0,
-              "safe_note": "Nothing due from this account before Wed 18 Nov"
-            },
-            "to": {
-              "account_id": "acc-nw",
-              "balance": 667.66,
-              "display_label": "NatWest The Number One",
-              "incoming": "\u00a3362 Car Finance expected Wed 18 Nov",
-              "name": "NatWest The Number One",
-              "provider": "natwest"
-            }
-          }
-        }
-      ],
-      "plan_dest": {
-        "account_id": "acc-nw",
-        "balance": 667.66,
-        "bills": [
-          {
-            "amount": 160,
-            "expected_date": "2026-11-02",
-            "label": "British Gas"
-          },
-          {
-            "amount": 133,
-            "expected_date": "2026-11-03",
-            "label": "Solihull Council"
-          },
-          {
-            "amount": 117,
-            "expected_date": "2026-11-05",
-            "label": "David Lloyd"
-          },
-          {
-            "amount": 62,
-            "expected_date": "2026-11-06",
-            "label": "Severn Trent"
-          },
-          {
-            "amount": 48,
-            "expected_date": "2026-11-09",
-            "label": "EE"
-          },
-          {
-            "amount": 60,
-            "expected_date": "2026-11-11",
-            "label": "Sky"
-          },
-          {
-            "amount": 14,
-            "expected_date": "2026-11-16",
-            "label": "TV Licence"
-          },
-          {
-            "amount": 362,
-            "expected_date": "2026-11-18",
-            "label": "Car Finance"
-          }
-        ],
-        "display_label": "NatWest The Number One",
-        "is_overdraft": false,
-        "name": "NatWest The Number One",
-        "needs_by": "today",
-        "needs_by_date": "2026-11-02",
-        "needs_by_last": "Wed 18 Nov",
-        "needs_by_last_date": "2026-11-18",
-        "needs_total": 956,
-        "provider": "natwest"
-      },
-      "type": "move"
-    }
-  ],
-  "name": "NatWest The Number One: one predicted income, two sightings 40 percent apart, never credited (G372)",
+  "items": [],
+  "name": "NatWest The Number One: one predicted income, two sightings 40 percent apart, counted as money in (G481)",
   "period": {
     "end": "2026-11-26",
     "start": "2026-10-30"
@@ -591,15 +475,13 @@
     "calculation_status": "complete",
     "commitments_reserved": 0,
     "left_to_spend_lines": {
-      "accounts_total": 2257.96,
-      "basis": "lowest_point",
+      "accounts_total": 2315.27,
       "buffer": 0.0,
-      "dips": [],
       "plans_total": 0
     },
-    "lowest_projected_balance": 2257.96,
-    "safe_to_spend": 2257.96,
-    "safe_to_spend_cash": 2257.96
+    "lowest_projected_balance": 2315.27,
+    "safe_to_spend": 2315.27,
+    "safe_to_spend_cash": 2315.27
   },
   "today": "2026-11-02"
 }

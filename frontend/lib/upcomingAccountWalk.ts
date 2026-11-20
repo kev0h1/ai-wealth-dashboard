@@ -45,11 +45,14 @@ export function walkUpcomingAccounts(
   const counted = (accountId: string | null | undefined) => !accountId || !excludedAccountIds.has(accountId);
   const bills = cashflow.upcoming_bills.filter((bill) => inWindow(bill.expected_date) && !bill.is_credit_card && !bill.observed_pending && counted(bill.account_id));
   const income = cashflow.upcoming_income.filter((item) => inWindow(item.expected_date) && counted(item.account_id));
-  // G372: the ONE income-credit rule, mirroring backend income_credit_ok. A
-  // predicted income funds its account's walk only when the server stamped a
-  // credit_basis (confirmed, reliable or steady); anything else is shown by the
+  // G372 / G481: the ONE money-in rule, mirroring backend `predicted_money_in` (Kevin 2026-11-20). A predicted
+  // income offsets its account's payments when the server stamped a credit_basis (confirmed, reliable or
+  // steady) or it has been seen two or more times, attributed to the account; a single sighting is shown by the
   // pooled forecast but never underwrites a per-account verdict.
-  const credited = income.filter((item) => Boolean(item.credit_basis));
+  // Income dated today counts on no walk until it has posted (backend `income_counts_in_walk`): it may already be in
+  // the balance. It still lists on the sheet, as an uncredited event that moves no balance.
+  const isMoneyIn = (item: (typeof income)[number]) => item.days_away > 0 && (Boolean(item.credit_basis) || (item.occurrences ?? 0) >= 2);
+  const credited = income.filter(isMoneyIn);
   const pennies = (amount: number) => Math.round(amount * 100);
   const allInflows = (cashflow.internal_inflows ?? []).filter((item) => inWindow(item.expected_date) && counted(item.account_id));
   // G479 (Kevin 2026-11-19, option 1): a predicted own transfer counts on BOTH legs, whether or not its source can
@@ -74,7 +77,7 @@ export function walkUpcomingAccounts(
       && payments.every((bill) => typeof bill.account_balance === "number" && Number.isFinite(bill.account_balance) && pennies(bill.account_balance) === pennies(opening));
     const credits = credited.filter((item) => item.account_id === id);
     // G372: an uncredited prediction stays visible as a zero-delta event (credited: false).
-    const uncredited = income.filter((item) => item.account_id === id && !item.credit_basis);
+    const uncredited = income.filter((item) => item.account_id === id && !isMoneyIn(item));
     const transfers = inflows.filter((item) => item.account_id === id);
     const rawEvents = [
       ...credits.map((item, index) => ({ id: `income-${index}`, name: upcomingDisplayName(item), category: item.category, expected_date: item.expected_date, type: "income" as const, kind: "income" as const, amount: pennies(item.amount), credited: true as boolean, bill: undefined, ref: item as object })),
@@ -84,6 +87,12 @@ export function walkUpcomingAccounts(
     ].sort(compareUpcomingEvents);
     const knownWorking = balanceKnown && rawEvents.every((item) => Number.isFinite(item.amount));
     let running = knownWorking ? pennies(opening!) : null;
+    // G481 (Kevin 2026-11-20): money in only offsets payments and no timing is involved, so whether a payment
+    // is short is judged on the two totals: the opening balance plus EVERY credit, less the payments so far.
+    // `running` stays the dated balance the rows display; only the verdict (shortfall) reads the totals,
+    // exactly as the server's walks do (credits before debits whatever the date).
+    const creditTotal = rawEvents.reduce((total, item) => (item.credited !== false && item.amount > 0 ? total + item.amount : total), 0);
+    let verdictRunning = knownWorking ? pennies(opening!) + creditTotal : null;
     let gap = 0;
     let billGap = 0;
     let firstShortDate: string | null = null;
@@ -93,8 +102,9 @@ export function walkUpcomingAccounts(
     const events = rawEvents.map((event): UpcomingAccountEvent => {
       const before = running;
       if (running !== null && event.credited !== false) running += event.amount;
-      if (running !== null && event.bill) {
-        const shortfall = Math.max(0, -running);
+      if (verdictRunning !== null && event.bill && event.credited !== false) verdictRunning += event.amount;
+      if (running !== null && verdictRunning !== null && event.bill) {
+        const shortfall = Math.max(0, -verdictRunning);
         gap = Math.max(gap, shortfall);
         if (shortfall > 0) firstShortDate ??= event.expected_date;
         if (shortfall > 0) {

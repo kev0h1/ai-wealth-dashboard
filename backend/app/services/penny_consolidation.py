@@ -551,29 +551,6 @@ async def spend_from_extras(uid: str) -> dict:
         {"name": k["name"], "reason": k["reason"]}
         for k in skipped if k["reason"] in ("set_aside_pot", "savings", "credit_card")
     ]
-    # G479: an account that goes short before its predicted money arrives is short, never spendable.
-    # The sentence is the engine's own (`account_available.dip_line`), from the same per-account
-    # figures Home and Upcoming read, never recomputed here.
-    try:
-        from app.core import timeutil
-        from app.services.account_available import dip_line
-
-        _labels = {str(a.get("id")): _label(a, tokens)[0] for a in accounts}
-        _dips = []
-        for _aid, _entry in eligibility.items():
-            _dip = (_entry or {}).get("dips_below_zero") if isinstance(_entry, dict) else None
-            if isinstance(_dip, dict) and _dip.get("short_by") and _dip.get("short_on"):
-                _name = _labels.get(str(_aid), "this account")
-                _dips.append({"name": _name, "short_by": _money(_dip["short_by"]),
-                              "sentence": dip_line(_dip, timeutil.user_today(), account_name=_name) + "."})
-        if _dips:
-            out["short_before_money_arrives"] = sorted(_dips, key=lambda d: d["sentence"])
-            out["left_to_spend_basis"] = (
-                "Each account counts at its lowest balance before payday, with money expected in counted "
-                "only from the day it is due, so a payment that comes first is not covered by money that comes later."
-            )
-    except Exception:
-        logger.warning("get_safe_to_spend: dip facts failed for %s", uid, exc_info=True)
     facts = earmark_facts(eligibility=eligibility, accounts=accounts, name_tokens=tokens)
     if facts["earmarked"] or facts["covered_by_move"]:
         # G410: the same fields the cards read; Left to spend is unchanged by them.

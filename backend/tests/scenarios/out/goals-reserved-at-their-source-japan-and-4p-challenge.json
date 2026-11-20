@@ -10,7 +10,6 @@
       "is_current_account": false,
       "low_point": 500.0,
       "low_point_and_plans": 500.0,
-      "lowest_after_money_in": 500.0,
       "plans_reserved": 0.0,
       "short": false,
       "spend_from_headroom": 0.0,
@@ -26,7 +25,6 @@
       "is_current_account": false,
       "low_point": 300.0,
       "low_point_and_plans": 300.0,
-      "lowest_after_money_in": 300.0,
       "plans_reserved": 0.0,
       "short": false,
       "spend_from_headroom": 0.0,
@@ -36,35 +34,29 @@
       "after_payments": 370.0,
       "after_payments_and_money_in": 370.0,
       "after_payments_and_plans": 15.52,
-      "contribution": 15.52,
       "estimated": false,
       "headroom": 5.52,
       "is_current_account": true,
       "low_point": 370.0,
       "low_point_and_plans": 15.52,
-      "lowest_after_money_in": 370.0,
       "plans_reserved": 354.48,
       "short": false,
       "spend_from_headroom": 15.52,
-      "uncertain": false,
-      "uncovered_shortfall": 0.0
+      "uncertain": false
     },
     "acc-prem": {
-      "after_payments": 5100.0,
+      "after_payments": 2100.0,
       "after_payments_and_money_in": 2100.0,
-      "after_payments_and_plans": 4900.0,
-      "contribution": 1900.0,
+      "after_payments_and_plans": 1900.0,
       "estimated": false,
-      "headroom": 2790.0,
+      "headroom": 1890.0,
       "is_current_account": true,
-      "low_point": 3000.0,
-      "low_point_and_plans": 2800.0,
-      "lowest_after_money_in": 2100.0,
+      "low_point": 2100.0,
+      "low_point_and_plans": 1900.0,
       "plans_reserved": 200.0,
       "short": false,
       "spend_from_headroom": 1900.0,
-      "uncertain": false,
-      "uncovered_shortfall": 0.0
+      "uncertain": false
     }
   },
   "account_plans": [
@@ -385,9 +377,7 @@
     "commitments_reserved": 554.48,
     "left_to_spend_lines": {
       "accounts_total": 2470.0,
-      "basis": "lowest_point",
       "buffer": 0.0,
-      "dips": [],
       "plans_total": 554.48
     },
     "lowest_projected_balance": 2470.0,

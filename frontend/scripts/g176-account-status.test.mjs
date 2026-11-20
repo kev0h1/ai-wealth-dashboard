@@ -11,8 +11,8 @@ const renderCard = (state) => renderToStaticMarkup(React.createElement(UpcomingA
 const fixture = fixtureFor("mixed");
 const results = fixture.accounts.map((account) => statusFor(account, fixture.plans));
 assert.deepEqual(results, [
-  { amount: 42, label: "Left at close of period", signal: null, estimated: false },
-  { amount: 86.35, label: "Left at close of period", signal: null, estimated: false },
+  { amount: 42, label: "Left after payments", signal: null, estimated: false },
+  { amount: 86.35, label: "Left after payments", signal: null, estimated: false },
   { amount: 124.2, label: "Short for payments", signal: "risk", estimated: false },
   { amount: 18.4, label: "Short for plans", signal: "plan", estimated: true },
 ]);
@@ -24,7 +24,7 @@ const paymentGap = fixture.accounts[2];
 assert.equal(statusFor({ ...paymentGap, closing: 500 }, fixture.plans).amount, 124.2, "A later credit must not conceal an earlier shortfall");
 const zero = statusFor({ ...fixture.accounts[0], closing: 0 }, []);
 assert.equal(zero.amount, 0);
-assert.equal(zero.label, "Left at close of period");
+assert.equal(zero.label, "Left after payments");
 
 for (const scenario of SCENARIOS) {
   const state = fixtureFor(scenario.id);
@@ -70,7 +70,7 @@ assert.match(mixed, /data-status-amount="true"[^>]*><span[^>]*>£42</);
 const natwestStart = mixed.indexOf('data-account-row="natwest"');
 const natwestEnd = mixed.indexOf('data-account-row="', natwestStart + 1);
 const natwestRow = mixed.slice(natwestStart, natwestEnd < 0 ? undefined : natwestEnd).replace(/<[^>]+>/g, "");
-assert.match(natwestRow, /Left at close of period/);
+assert.match(natwestRow, /Left after payments/);
 assert.match(mixed, /data-g417-variant="a"/);
 assert.doesNotMatch(mixed, /Available|Spend from/);
 assert.match(renderCard(fixtureFor("unknown")), /Not yet known/);

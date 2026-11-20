@@ -81,6 +81,15 @@ from typing import Any, Callable, Literal
 
 from app.routers.analytics import income_credit_ok
 
+
+def _predicted_money_in(item, account_id, confirmed_keys=frozenset()):
+    """G481: the ONE money-in rule every per-account walk credits with (Kevin 2026-11-20: same figure everywhere):
+    `account_available.predicted_money_in`, income attributed to the account that is confirmed, trusted or seen two
+    or more times. Imported lazily because account_available imports this module's walks."""
+    from app.services.account_available import predicted_money_in
+
+    return predicted_money_in(item, account_id, confirmed_keys)
+
 Event = tuple  # (days_away, account_id, amount, is_income, item)
 
 INCOME_ADMIT = ("seeded", "any")
@@ -93,24 +102,34 @@ SAME_DAY_KEY = ("is_income", "positive_delta")
 _P_BILL, _P_INCOME, _P_INFLOW, _P_PREVIEW, _P_EXTRA = range(5)
 
 
+def income_counts_in_walk(item: dict) -> bool:
+    """G481 (Kevin 2026-11-20): predicted income dated today counts on NO surface until it has posted. An
+    occurrence dated today that has not been observed (G362 closes one only once its credit has posted) may
+    already be in the balance, so crediting it would count it twice. The ONE filter every per-account walk
+    (Available, closing, low point, at-risk, spend impact, cover plan, positions) applies to `window_income`."""
+    return int(item.get("days_away", 0)) > 0
+
+
 def walk_sort_key(event):
-    """(days_away, credits before debits on a shared day). G163: money a
-    confirmed stream is expected to land in this account on day D covers
-    what leaves it on day D; the day after, if it has not landed, the
-    stream is lapsed and drops out of the window on its own."""
-    return (event[0], 0 if event[3] else 1)
+    """(credits before debits, days_away). G481 (Kevin 2026-11-20): money in only OFFSETS what leaves
+    an account before payday, and no timing is involved, only the two totals. Every credit is therefore
+    walked before every debit, whatever its date, so an account's lowest balance is
+    `opening - max(0, bills - money in)` (its Available base, `account_available.available_base`) and an
+    account is short exactly when that is below zero. Within a side, days order the dated rows. (G163's
+    same-day rule is the special case of this.)"""
+    return (0 if event[3] else 1, event[0])
 
 
 def _same_day_sort(key: str) -> Callable[[tuple], tuple]:
     if key == "is_income":
-        return lambda entry: (entry[0][0], 0 if entry[0][3] else 1, entry[1])
+        return lambda entry: (0 if entry[0][3] else 1, entry[0][0], entry[1])
     if key == "positive_delta":
         # the old inline `(days_away, delta)` shape of `_source_min_running`
-        # and `_walk_min`: delta > 0 (income) sorts first on a tie.
+        # and `_walk_min`: delta > 0 (income) sorts first (G481: whatever the day).
         def _k(entry):
             ev = entry[0]
             delta = ev[2] if ev[3] else -ev[2]
-            return (ev[0], 0 if delta > 0 else 1, entry[1])
+            return (0 if delta > 0 else 1, ev[0], entry[1])
         return _k
     raise ValueError(f"same_day_key must be one of {SAME_DAY_KEY}, got {key!r}")
 
@@ -203,7 +222,7 @@ def account_events(
         for pos, i in enumerate(inputs.window_income):
             # `income_credit_ok` requires the income to be attributed to `sid`,
             # so only those are asked.
-            if str(i.get("account_id") or "") == sid and (income_credit or income_credit_ok)(i, sid, inputs.confirmed_income_keys):
+            if income_counts_in_walk(i) and str(i.get("account_id") or "") == sid and (income_credit or _predicted_money_in)(i, sid, inputs.confirmed_income_keys):
                 entries.append(((i["days_away"], sid, float(i["amount"]), True, i), (_P_INCOME, pos)))
                 credited.append(i)
     if inflow_admit == "any":

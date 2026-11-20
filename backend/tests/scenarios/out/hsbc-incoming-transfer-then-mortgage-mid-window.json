@@ -4,35 +4,29 @@
       "after_payments": 250.0,
       "after_payments_and_money_in": 250.0,
       "after_payments_and_plans": 250.0,
-      "contribution": 250.0,
       "estimated": false,
       "headroom": 240.0,
       "is_current_account": true,
       "low_point": 250.0,
       "low_point_and_plans": 250.0,
-      "lowest_after_money_in": 250.0,
       "plans_reserved": 0.0,
       "short": false,
       "spend_from_headroom": 250.0,
-      "uncertain": false,
-      "uncovered_shortfall": 0.0
+      "uncertain": false
     },
     "acc-hsbc": {
       "after_payments": 360.0,
-      "after_payments_and_money_in": 360.0,
+      "after_payments_and_money_in": 150.0,
       "after_payments_and_plans": 360.0,
-      "contribution": 10.0,
       "estimated": false,
-      "headroom": 0.0,
+      "headroom": 140.0,
       "is_current_account": true,
-      "low_point": 10.0,
-      "low_point_and_plans": 10.0,
-      "lowest_after_money_in": 10.0,
+      "low_point": 150.0,
+      "low_point_and_plans": 150.0,
       "plans_reserved": 0.0,
-      "short": true,
-      "spend_from_headroom": 10.0,
-      "uncertain": false,
-      "uncovered_shortfall": 0.0
+      "short": false,
+      "spend_from_headroom": 150.0,
+      "uncertain": false
     }
   },
   "account_plans": [],
@@ -360,7 +354,7 @@
   },
   "days_to_payday": 9,
   "items": [],
-  "name": "HSBC case mid-window: the incoming transfer is credited before the mortgage because its source is funded (G360)",
+  "name": "HSBC case mid-window: the incoming transfer offsets the loan, the mortgage and the store loans (G481)",
   "period": {
     "end": "2026-10-29",
     "start": "2026-09-25"
@@ -370,15 +364,13 @@
     "calculation_status": "complete",
     "commitments_reserved": 0,
     "left_to_spend_lines": {
-      "accounts_total": 260.0,
-      "basis": "lowest_point",
+      "accounts_total": 400.0,
       "buffer": 0.0,
-      "dips": [],
       "plans_total": 0
     },
-    "lowest_projected_balance": 260.0,
-    "safe_to_spend": 260.0,
-    "safe_to_spend_cash": 260.0
+    "lowest_projected_balance": 400.0,
+    "safe_to_spend": 400.0,
+    "safe_to_spend_cash": 400.0
   },
   "today": "2026-10-21"
 }

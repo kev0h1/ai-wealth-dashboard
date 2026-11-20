@@ -116,11 +116,11 @@ _MAX_TIME_MS = 500
 # 12: G438 removed the savings at risk state (account_eligibility no longer carries
 # savings_at_risk, bills no longer carry savings or own_savings_elsewhere); an own-account
 # transfer that bounces is an ordinary shortfall with a normal cover move.
-# 13: G479 Left to spend follows each account's day-by-day timing: spend_from_headroom is the
-# account's lowest running balance less its plans (plus moves), account_eligibility entries gained
-# lowest_after_money_in, contribution and uncovered_shortfall, dips_below_zero is the full dip
-# reading, and left_to_spend_lines gained basis and dips.
-SHAPE_VERSION = 13
+# 13: G479 (superseded by 14) Left to spend followed each account's day-by-day timing.
+# 14: G481 (Kevin 2026-11-20) each account's Available is cash now less max(0, bills before payday -
+# money in before payday); the G479 fields (lowest_after_money_in, contribution, uncovered_shortfall,
+# the full dips_below_zero reading, left_to_spend_lines basis and dips) are gone.
+SHAPE_VERSION = 14
 
 # UK users; this cache pins its day boundary to Europe/London (DST-aware,
 # via app.core.timeutil) so the API and worker processes, even if their
