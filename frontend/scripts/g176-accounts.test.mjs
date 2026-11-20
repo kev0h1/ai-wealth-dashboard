@@ -23,6 +23,10 @@ accounts = summary([bill({ amount: 200 })], [credit()]);
 assert.equal(accounts[0].closing, 0, "Same-day named income funds the payment first");
 assert.equal(accounts[0].status, "covered");
 assert.equal(accounts[0].events[0].name, "Example employer");
+// Income dated today counts on no walk until it has posted (Kevin 2026-11-20): it lists, but moves no balance.
+accounts = summary([bill({ amount: 200 })], [credit({ days_away: 0, expected_date: "2026-10-01" })]);
+assert.equal(accounts[0].status, "short", "income dated today is not money in");
+assert.equal(accounts[0].events.find((event) => event.kind === "income")?.credited, false);
 // G479 (Kevin 2026-11-19, option 1): an inflow always counts, whether or not its source can fund it (the G360 gate is gone).
 const sourceMove = (overrides = {}) => bill({ name: "Move out", account_id: "s", account_balance: 1000, amount: 100, kind: "movement", ...overrides });
 assert.equal(summary([bill(), sourceMove()], [], [credit({ source_account_name: "Everyday account", source_account_id: "s" })])[0].closing, 120);

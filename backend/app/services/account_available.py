@@ -78,12 +78,15 @@ def money_in_out_window(window: Any) -> Any:
          yet the figure is briefly lower until it posts. (Occurrences before today are never in the
          window: a lapsed expectation drops out.)
 
-    Only what feeds Available and the headline uses this; every other walk keeps the unfiltered income."""
+    Every per-account walk now applies the same `account_walk.income_counts_in_walk` filter itself, so this is
+    kept for the headline's own window; it changes nothing the walks would not do."""
     import dataclasses
+
+    from app.services.account_walk import income_counts_in_walk
 
     return dataclasses.replace(
         window,
-        window_income=[i for i in window.window_income if int(i.get("days_away", 0)) > 0],
+        window_income=[i for i in window.window_income if income_counts_in_walk(i)],
     )
 
 

@@ -123,9 +123,9 @@ export function homeForecastPresentation(data: SafeToSpendOk, headline: SafeToSp
   if (data.calculation_status === "syncing" || data.calculation_status === "degraded" || !finite(low) || !finite(cash)
     || ![data.buffer, data.allocations_reserved ?? 0, data.commitments_reserved ?? 0].every(finite)) return neutral;
   if (low < 0) return { status: { tone: "risk", label: "Short" }, eyebrow: "Shortfall before payday", signed };
-  const end = finite(data.spendable_now) && finite(data.income_before_payday) && finite(data.bills_total)
-    ? data.spendable_now + data.income_before_payday - data.bills_total - (data.allocations_reserved ?? 0) - (data.commitments_reserved ?? 0)
-    : null;
+  // G481: the chip reads the same stored sum of each account's Available (the accounts line), less plans and
+  // set-asides, never a period total rebuilt from cash, bills and income, so the label cannot disagree with the hero.
+  const end = low - (data.allocations_reserved ?? 0) - (data.commitments_reserved ?? 0);
   if (headline.plansOnly || (finite(end) && end < 0)) return { status: { tone: "watch", label: "Plans gap" }, eyebrow: "Short after plans", signed };
   if (cash < 0) return { status: { tone: "watch", label: "Below buffer" }, eyebrow: "Below your buffer", caption: "below your safety buffer", signed };
   const noHeadroom = (finite(end) && isNoHeadroom(end)) || (headline.state !== "short" && isNoHeadroom(headline.heroAmount));

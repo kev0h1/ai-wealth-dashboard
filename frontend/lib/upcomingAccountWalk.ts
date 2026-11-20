@@ -49,7 +49,9 @@ export function walkUpcomingAccounts(
   // income offsets its account's payments when the server stamped a credit_basis (confirmed, reliable or
   // steady) or it has been seen two or more times, attributed to the account; a single sighting is shown by the
   // pooled forecast but never underwrites a per-account verdict.
-  const isMoneyIn = (item: (typeof income)[number]) => Boolean(item.credit_basis) || (item.occurrences ?? 0) >= 2;
+  // Income dated today counts on no walk until it has posted (backend `income_counts_in_walk`): it may already be in
+  // the balance. It still lists on the sheet, as an uncredited event that moves no balance.
+  const isMoneyIn = (item: (typeof income)[number]) => item.days_away > 0 && (Boolean(item.credit_basis) || (item.occurrences ?? 0) >= 2);
   const credited = income.filter(isMoneyIn);
   const pennies = (amount: number) => Math.round(amount * 100);
   const allInflows = (cashflow.internal_inflows ?? []).filter((item) => inWindow(item.expected_date) && counted(item.account_id));

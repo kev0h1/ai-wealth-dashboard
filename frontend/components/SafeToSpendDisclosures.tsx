@@ -101,7 +101,7 @@ export default function SafeToSpendDisclosures({
         </dl>
         {evidence.ledgerNote && <p className={styles.note}><MoneyText text={evidence.ledgerNote} /></p>}
         {reservationDetails}
-        {(data.pooled_transfers_excluded ?? 0) > 0 && <p>Transfers between your own included accounts are counted on the day they move, each account on its own.</p>}
+        {(data.pooled_transfers_excluded ?? 0) > 0 && <p>Transfers between your own included accounts are counted as a payment on one account and money in on the other.</p>}
         <dl className={styles.facts}>
           <Fact label="Daily amount">{evidence.dailyAmount === null ? "Not available" : <MoneyText text={`${format(evidence.dailyAmount, true)} a day`} />}</Fact>
           <IncomeFact label="Expected pay" amount={expectedPay} caption={expectedPay > 0 ? `Expected on ${paydayLabel}` : `Pay period ends ${paydayLabel}`} emptyLabel="Not known yet" formatIncome={formatIncome} about expanded={sheet === "expected_pay"} onOpen={() => setSheet("expected_pay")} />

@@ -102,6 +102,14 @@ SAME_DAY_KEY = ("is_income", "positive_delta")
 _P_BILL, _P_INCOME, _P_INFLOW, _P_PREVIEW, _P_EXTRA = range(5)
 
 
+def income_counts_in_walk(item: dict) -> bool:
+    """G481 (Kevin 2026-11-20): predicted income dated today counts on NO surface until it has posted. An
+    occurrence dated today that has not been observed (G362 closes one only once its credit has posted) may
+    already be in the balance, so crediting it would count it twice. The ONE filter every per-account walk
+    (Available, closing, low point, at-risk, spend impact, cover plan, positions) applies to `window_income`."""
+    return int(item.get("days_away", 0)) > 0
+
+
 def walk_sort_key(event):
     """(credits before debits, days_away). G481 (Kevin 2026-11-20): money in only OFFSETS what leaves
     an account before payday, and no timing is involved, only the two totals. Every credit is therefore
@@ -214,7 +222,7 @@ def account_events(
         for pos, i in enumerate(inputs.window_income):
             # `income_credit_ok` requires the income to be attributed to `sid`,
             # so only those are asked.
-            if str(i.get("account_id") or "") == sid and (income_credit or _predicted_money_in)(i, sid, inputs.confirmed_income_keys):
+            if income_counts_in_walk(i) and str(i.get("account_id") or "") == sid and (income_credit or _predicted_money_in)(i, sid, inputs.confirmed_income_keys):
                 entries.append(((i["days_away"], sid, float(i["amount"]), True, i), (_P_INCOME, pos)))
                 credited.append(i)
     if inflow_admit == "any":
