@@ -47,14 +47,14 @@ assert.equal(upcomingMoney(-1.25), "−£1.25");
 
 // Explicit account-walk cases pin the existing ordering and risk semantics,
 // rather than deriving expected results through a second copy of the walk.
-const bill = (changes = {}) => ({ name: "Bill", amount: 80, account_id: "a", account_balance: 100, expected_date: "2026-09-30", days_away: 0, kind: "commitment", ...changes });
+const bill = (changes = {}) => ({ name: "Bill", amount: 80, account_id: "a", account_balance: 100, expected_date: "2026-10-01", days_away: 1, kind: "commitment", ...changes });
 const cutoff = Date.parse("2026-10-02");
 const walk = (bills, income = [], inflows = []) => walkUpcomingAccounts({ upcoming_bills: bills, upcoming_income: income, internal_inflows: inflows }, cutoff);
-const credit = (changes = {}) => ({ name: "Income", amount: 100, account_id: "a", expected_date: "2026-09-30", days_away: 0, credit_basis: "confirmed", ...changes });
+const credit = (changes = {}) => ({ name: "Income", amount: 100, account_id: "a", expected_date: "2026-10-01", days_away: 1, credit_basis: "confirmed", ...changes });
 const first = bill({ name: "First", amount: 180 });
 const second = bill({ name: "Second", amount: 30 });
 let result = walk([first, second], [credit()]);
-assert.deepEqual(result.coverage.get(first), { before: 200, after: 20, shortfall: 0 }, "Same-day income is credited first");
+assert.deepEqual(result.coverage.get(first), { before: 200, after: 20, shortfall: 0 }, "Same-day income is credited first (dated after today: income dated today counts on no walk until it has posted)");
 assert.deepEqual(result.coverage.get(second), { before: 20, after: -10, shortfall: 10 });
 assert.deepEqual(result.atRisk.map((item) => item.name), ["Second"]);
 assert.equal(walk([first, bill({ name: "Move out", amount: 100, account_id: "s", account_balance: 1000, kind: "movement" })], [], [credit({ destination_spendable: false, source_account_id: "s" })]).atRisk.length, 0, "Source-account coverage includes internal inflow even into savings");
@@ -83,8 +83,8 @@ result = walk([largeMove, smallMove, second]);
 assert.equal(result.atRisk.length, 2, "G438: a short own-account move is at risk like any payment");
 assert.equal(result.atRisk.at(-1).movementCulprit.name, "Savings", "Largest move since last credit explains the risk");
 assert.equal(result.coverage.get(smallMove).shortfall, 10);
-const later = bill({ name: "Later", amount: 200, expected_date: "2026-10-01", days_away: 1 });
-result = walk([largeMove, later], [credit({ expected_date: "2026-10-01", days_away: 1 })]);
+const later = bill({ name: "Later", amount: 200, expected_date: "2026-10-02", days_away: 2 });
+result = walk([largeMove, later], [credit({ expected_date: "2026-10-02", days_away: 2 })]);
 assert.equal(result.atRisk[0].movementCulprit, undefined, "A later credit resets movement attribution");
 assert.deepEqual(result.coverage.get(later), { before: 110, after: -90, shortfall: 90 });
 const pennies = bill({ amount: 0.2, account_balance: 0.3 });
