@@ -13,6 +13,13 @@ Retrieved on 5 November 2026 through the [Better Icons skill and CLI](https://gi
 | Upcoming | Calendar Dots | `ph:calendar-dots` |
 | Planning | Flag Pennant | `ph:flag-pennant` |
 
+G483 adds two regular-weight glyphs for the onboarding welcome rows in [phosphorWelcomeIcons.ts](../../frontend/lib/navigation/phosphorWelcomeIcons.ts), retrieved on 20 November 2026 from the Iconify `ph` set with the `d` attributes unedited. The wallet, calendar and flag rows reuse the nav geometry above.
+
+| Welcome row | Phosphor icon | Iconify ID |
+| --- | --- | --- |
+| Bank (plans with open banking) | Bank | `ph:bank` |
+| Statement upload (Statements plan) | Upload Simple | `ph:upload-simple` |
+
 Idle icons are regular. The current tab uses fill for Ink, regular for Outline and duotone for Original. Unknown appearance keeps every tab regular and Penny markless. The door retains its accessible name, pressed/current states and independent payday indicator. Only the Upcoming destination receives the payment-attention dot.
 
 The assets retain their [MIT licence](../../frontend/components/navigation/PHOSPHOR-LICENSE.txt), copied from [Phosphor's source repository](https://github.com/phosphor-icons/core/blob/2b75f3ad12b420c9504ef05df8d2564a28f8500e/LICENSE). That revision identifies the licence source; it does not assert that Iconify's payloads match the repository revision byte for byte. Bundled vectors require no runtime catalogue request or new application dependency.
