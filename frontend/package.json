@@ -18,6 +18,7 @@
     "check:g478-accounts-add-layer": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g478-accounts-add-layer.test.mjs",
     "check:g466-ios-notifications-plugin": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g466-ios-notifications-plugin.test.mjs",
     "check:g409-notifications": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g409-notifications.test.mjs",
+    "check:h158-category-icons": "node scripts/h158-category-icons.test.mjs",
     "check:g450-category-icons": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g450-category-icons.test.mjs",
     "check:g381-card-payment-option": "node scripts/g381-card-payment-option.test.mjs",
     "check:g432-nav-and-income-scroll": "node scripts/g432-nav-and-income-scroll.test.mjs",

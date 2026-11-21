@@ -2,6 +2,12 @@
 
 The JSON manifest is shared with the frontend so stored keys always name
 bundled Phosphor regular artwork.  This module never fetches icon geometry.
+
+H158: the source of truth stays ``shared/category-icons.json`` (the frontend
+imports it). The backend image is built from ``backend/`` only, so the
+backend reads its own committed copy at ``app/data/category-icons.json``,
+resolved relative to this file. Tests and ``npm run check:h158-category-icons``
+fail if the two copies differ; update both together.
 """
 from __future__ import annotations
 
@@ -18,7 +24,7 @@ from app.core.config import OPENROUTER_API_KEY
 from app.core.llm import openrouter_chat
 
 
-_MANIFEST_PATH = Path(__file__).resolve().parents[3] / "shared" / "category-icons.json"
+_MANIFEST_PATH = Path(__file__).resolve().parent.parent / "data" / "category-icons.json"
 _MODEL_TIMEOUT_SECONDS = 4.0
 
 
@@ -34,6 +40,15 @@ def _manifest() -> dict:
     if not isinstance(fallback, str) or fallback not in keys:
         raise RuntimeError("Category icon manifest has no valid fallback")
     return manifest
+
+
+def check_manifest() -> None:
+    """Startup check (H158): raise at boot, never 500 on every request."""
+    _manifest.cache_clear()
+    try:
+        _manifest()
+    except Exception as exc:
+        raise RuntimeError(f"Category icon manifest unusable at {_MANIFEST_PATH}: {exc!r}") from exc
 
 
 def fallback_icon_key() -> str:
