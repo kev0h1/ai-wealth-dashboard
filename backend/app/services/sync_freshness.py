@@ -295,7 +295,7 @@ async def begin_first_sync(col, doc_id, uid: str) -> str | None:
         {"_id": doc_id},
         {"$set": {
             "first_sync_pending_run": run,
-            "first_sync_pending_since": datetime.utcnow(),
+            "first_sync_pending_since": datetime.utcnow(),  # naive-ok: persisted UTC sync timestamp, matching last_synced
             "first_sync_phase": "fetching",
         }, "$unset": {
             "first_sync_error": "", "first_sync_error_at": "",
@@ -322,7 +322,7 @@ async def fail_first_sync(col, doc_id, run: str | None, error: str = "sync_faile
         {"_id": doc_id, "first_sync_pending_run": run},
         {"$set": {
             "first_sync_error": error if error in SYNC_ERROR_CODES else "sync_failed",
-            "first_sync_error_at": datetime.utcnow(),
+            "first_sync_error_at": datetime.utcnow(),  # naive-ok: persisted UTC sync timestamp, matching last_synced
         }},
     )
 
@@ -345,7 +345,7 @@ async def complete_first_sync(col, doc_id, run: str | None) -> bool:
         return False
     result = await col.update_one(
         {"_id": doc_id, "first_sync_pending_run": run},
-        {"$set": {"first_sync_completed_at": datetime.utcnow()}, "$unset": {
+        {"$set": {"first_sync_completed_at": datetime.utcnow()}, "$unset": {  # naive-ok: persisted UTC sync timestamp, matching last_synced
             "first_sync_pending_run": "", "first_sync_pending_since": "",
             "first_sync_phase": "", "first_sync_error": "", "first_sync_error_at": "",
         }},
