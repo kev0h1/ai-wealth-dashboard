@@ -1,0 +1,652 @@
+{
+  "version": 1,
+  "weight": "regular",
+  "fallback": "tag",
+  "icons": [
+    {
+      "key": "tag",
+      "label": "Tag",
+      "terms": "other general neutral fallback",
+      "group": "Everyday"
+    },
+    {
+      "key": "shopping-cart",
+      "label": "Shopping trolley",
+      "terms": "groceries supermarket food shop",
+      "group": "Everyday"
+    },
+    {
+      "key": "fork-knife",
+      "label": "Cutlery",
+      "terms": "eating out restaurant takeaway meals dinner lunch food",
+      "group": "Everyday"
+    },
+    {
+      "key": "coffee",
+      "label": "Coffee",
+      "terms": "cafe café drinks",
+      "group": "Everyday"
+    },
+    {
+      "key": "wine",
+      "label": "Wine",
+      "terms": "pub beer alcohol bar drinks",
+      "group": "Everyday"
+    },
+    {
+      "key": "shopping-bag",
+      "label": "Shopping bag",
+      "terms": "shopping retail",
+      "group": "Everyday"
+    },
+    {
+      "key": "gift",
+      "label": "Gift",
+      "terms": "presents birthdays christmas",
+      "group": "Everyday"
+    },
+    {
+      "key": "t-shirt",
+      "label": "Clothes",
+      "terms": "clothing fashion shoes wardrobe",
+      "group": "Everyday"
+    },
+    {
+      "key": "house-line",
+      "label": "House",
+      "terms": "home mortgage garden diy",
+      "group": "Home and bills"
+    },
+    {
+      "key": "key",
+      "label": "Key",
+      "terms": "rent rented property",
+      "group": "Home and bills"
+    },
+    {
+      "key": "receipt",
+      "label": "Receipt",
+      "terms": "bills invoice utilities",
+      "group": "Home and bills"
+    },
+    {
+      "key": "lightning",
+      "label": "Energy",
+      "terms": "electricity gas power heating utilities",
+      "group": "Home and bills"
+    },
+    {
+      "key": "drop",
+      "label": "Water",
+      "terms": "water utility",
+      "group": "Home and bills"
+    },
+    {
+      "key": "device-mobile",
+      "label": "Mobile phone",
+      "terms": "phone mobile sim",
+      "group": "Home and bills"
+    },
+    {
+      "key": "wifi-high",
+      "label": "Wi-Fi",
+      "terms": "internet broadband wifi",
+      "group": "Home and bills"
+    },
+    {
+      "key": "shield-check",
+      "label": "Insurance",
+      "terms": "protect insurance",
+      "group": "Home and bills"
+    },
+    {
+      "key": "wrench",
+      "label": "Repairs",
+      "terms": "repair tools maintenance",
+      "group": "Home and bills"
+    },
+    {
+      "key": "bus",
+      "label": "Bus",
+      "terms": "transport bus commute",
+      "group": "Travel"
+    },
+    {
+      "key": "train",
+      "label": "Train",
+      "terms": "rail railway train commute",
+      "group": "Travel"
+    },
+    {
+      "key": "car",
+      "label": "Car",
+      "terms": "car finance vehicle motor garage",
+      "group": "Travel"
+    },
+    {
+      "key": "gas-pump",
+      "label": "Fuel",
+      "terms": "petrol diesel fuel",
+      "group": "Travel"
+    },
+    {
+      "key": "bicycle",
+      "label": "Bicycle",
+      "terms": "cycling bike cycle",
+      "group": "Travel"
+    },
+    {
+      "key": "airplane-tilt",
+      "label": "Aeroplane",
+      "terms": "travel holiday flight trip vacation",
+      "group": "Travel"
+    },
+    {
+      "key": "umbrella",
+      "label": "Umbrella",
+      "terms": "rain weather",
+      "group": "Travel"
+    },
+    {
+      "key": "film-slate",
+      "label": "Film",
+      "terms": "entertainment cinema movie tv streaming",
+      "group": "Leisure"
+    },
+    {
+      "key": "music-notes",
+      "label": "Music",
+      "terms": "music concert gig festival",
+      "group": "Leisure"
+    },
+    {
+      "key": "game-controller",
+      "label": "Games",
+      "terms": "gaming xbox playstation steam",
+      "group": "Leisure"
+    },
+    {
+      "key": "camera",
+      "label": "Camera",
+      "terms": "photography photo",
+      "group": "Leisure"
+    },
+    {
+      "key": "palette",
+      "label": "Art",
+      "terms": "art crafts hobby hobbies",
+      "group": "Leisure"
+    },
+    {
+      "key": "book-open",
+      "label": "Book",
+      "terms": "books reading library",
+      "group": "Leisure"
+    },
+    {
+      "key": "graduation-cap",
+      "label": "Education",
+      "terms": "school tuition learning courses university",
+      "group": "Leisure"
+    },
+    {
+      "key": "golf",
+      "label": "Golf",
+      "terms": "golf course clubs sport",
+      "group": "Leisure"
+    },
+    {
+      "key": "racquet",
+      "label": "Racquet",
+      "terms": "padel tennis badminton squash racket sport",
+      "group": "Leisure"
+    },
+    {
+      "key": "soccer-ball",
+      "label": "Football",
+      "terms": "football five a side sport soccer",
+      "group": "Leisure"
+    },
+    {
+      "key": "barbell",
+      "label": "Fitness",
+      "terms": "gym yoga fitness exercise running sport",
+      "group": "Leisure"
+    },
+    {
+      "key": "heartbeat",
+      "label": "Health",
+      "terms": "medical dental doctor pharmacy therapy",
+      "group": "Everyday"
+    },
+    {
+      "key": "flower",
+      "label": "Beauty",
+      "terms": "beauty cosmetics wellness",
+      "group": "Everyday"
+    },
+    {
+      "key": "flower-lotus",
+      "label": "Wellbeing",
+      "terms": "spa wellness self care wellbeing",
+      "group": "Everyday"
+    },
+    {
+      "key": "scissors",
+      "label": "Haircut",
+      "terms": "hair salon barber nails",
+      "group": "Everyday"
+    },
+    {
+      "key": "paw-print",
+      "label": "Pets",
+      "terms": "pet dog cat veterinary vet",
+      "group": "Everyday"
+    },
+    {
+      "key": "baby",
+      "label": "Childcare",
+      "terms": "baby kids children nursery childcare",
+      "group": "Home and bills"
+    },
+    {
+      "key": "briefcase",
+      "label": "Business",
+      "terms": "work office business professional",
+      "group": "Money and work"
+    },
+    {
+      "key": "laptop",
+      "label": "Laptop",
+      "terms": "software technology computer apps",
+      "group": "Money and work"
+    },
+    {
+      "key": "repeat",
+      "label": "Subscriptions",
+      "terms": "subscriptions membership recurring",
+      "group": "Everyday"
+    },
+    {
+      "key": "piggy-bank",
+      "label": "Savings",
+      "terms": "saving emergency fund pot",
+      "group": "Money and work"
+    },
+    {
+      "key": "trend-up",
+      "label": "Investment",
+      "terms": "investments stocks shares pension isa",
+      "group": "Money and work"
+    },
+    {
+      "key": "credit-card",
+      "label": "Card",
+      "terms": "debt loan credit repayment",
+      "group": "Money and work"
+    },
+    {
+      "key": "arrows-left-right",
+      "label": "Transfer",
+      "terms": "transfers moved money own accounts",
+      "group": "Money and work"
+    },
+    {
+      "key": "money",
+      "label": "Income",
+      "terms": "salary wages pay earnings banknote",
+      "group": "Money and work"
+    },
+    {
+      "key": "coins",
+      "label": "Cash",
+      "terms": "cash atm coins",
+      "group": "Money and work"
+    },
+    {
+      "key": "wallet",
+      "label": "Wallet",
+      "terms": "allowance spending pocket money",
+      "group": "Money and work"
+    },
+    {
+      "key": "bank",
+      "label": "Bank",
+      "terms": "bank tax hmrc government",
+      "group": "Money and work"
+    },
+    {
+      "key": "hand-heart",
+      "label": "Charity",
+      "terms": "charity donations giving",
+      "group": "Money and work"
+    }
+  ],
+  "categories": {
+    "Groceries": "shopping-cart",
+    "Eating Out": "fork-knife",
+    "Transport": "bus",
+    "Entertainment": "film-slate",
+    "Shopping": "shopping-bag",
+    "Bills": "receipt",
+    "Mortgage": "house-line",
+    "Rent": "key",
+    "Car finance": "car",
+    "Subscriptions": "repeat",
+    "Health": "heartbeat",
+    "Beauty": "flower",
+    "Travel": "airplane-tilt",
+    "Software": "laptop",
+    "Savings": "piggy-bank",
+    "Investment": "trend-up",
+    "Debt": "credit-card",
+    "Transfer": "arrows-left-right",
+    "Transfer (in)": "arrows-left-right",
+    "Transfer (out)": "arrows-left-right",
+    "Income": "money",
+    "Cash": "coins",
+    "Charity": "hand-heart",
+    "Other": "tag",
+    "Energy": "lightning",
+    "Mobile": "device-mobile",
+    "Business": "briefcase"
+  },
+  "keywords": [
+    {
+      "pattern": "\\b(savings?|fund|pot|pots|jar|buffer)\\b",
+      "key": "piggy-bank",
+      "kind": "movement"
+    },
+    {
+      "pattern": "\\b(golf)\\b",
+      "key": "golf"
+    },
+    {
+      "pattern": "\\b(padel|tennis|badminton|squash|racquet|racket)\\b",
+      "key": "racquet"
+    },
+    {
+      "pattern": "\\b(football|soccer)\\b|five[- ]a[- ]side",
+      "key": "soccer-ball"
+    },
+    {
+      "pattern": "\\b(pet|pets|dog|dogs|cat|cats|vet|veterinary)\\b",
+      "key": "paw-print"
+    },
+    {
+      "pattern": "\\b(childcare|nursery|baby|babies|children|kids)\\b",
+      "key": "baby"
+    },
+    {
+      "pattern": "\\b(coffee|cafe|café|caffe)\\b",
+      "key": "coffee"
+    },
+    {
+      "pattern": "\\b(pub|beer|wine|alcohol|bar|drinks)\\b",
+      "key": "wine"
+    },
+    {
+      "pattern": "\\bgrocer\\w*\\b|food shop|supermarket",
+      "key": "shopping-cart"
+    },
+    {
+      "pattern": "\\b(restaurant|takeaway|take-away|lunch|dinner|food|meals)\\b",
+      "key": "fork-knife"
+    },
+    {
+      "pattern": "\\b(gift|gifts|present|presents|birthday|christmas)\\b",
+      "key": "gift"
+    },
+    {
+      "pattern": "\\b(clothes|clothing|fashion|shoes|wardrobe)\\b",
+      "key": "t-shirt"
+    },
+    {
+      "pattern": "\\b(rent|rental)\\b",
+      "key": "key"
+    },
+    {
+      "pattern": "\\b(mortgage|home|house|garden|diy)\\b",
+      "key": "house-line"
+    },
+    {
+      "pattern": "\\b(phone|mobile|sim)\\b",
+      "key": "device-mobile"
+    },
+    {
+      "pattern": "\\b(internet|wifi|wi-fi|broadband)\\b",
+      "key": "wifi-high"
+    },
+    {
+      "pattern": "\\b(energy|electricity|gas|heating|power)\\b",
+      "key": "lightning"
+    },
+    {
+      "pattern": "\\bwater\\b",
+      "key": "drop"
+    },
+    {
+      "pattern": "\\binsuran\\w*\\b|\\bprotect\\w*\\b",
+      "key": "shield-check"
+    },
+    {
+      "pattern": "\\b(repair|repairs|maintenance|tools)\\b",
+      "key": "wrench"
+    },
+    {
+      "pattern": "\\b(fuel|petrol|diesel)\\b",
+      "key": "gas-pump"
+    },
+    {
+      "pattern": "\\b(car|motor|garage|vehicle)\\b",
+      "key": "car"
+    },
+    {
+      "pattern": "\\b(train|rail|railway|commute)\\b",
+      "key": "train"
+    },
+    {
+      "pattern": "\\b(bike|bicycle|cycle|cycling)\\b",
+      "key": "bicycle"
+    },
+    {
+      "pattern": "\\b(bus|transport)\\b",
+      "key": "bus"
+    },
+    {
+      "pattern": "\\b(holiday|vacation|flight|trip|travel)\\b",
+      "key": "airplane-tilt"
+    },
+    {
+      "pattern": "\\b(film|films|movie|cinema|tv|streaming|entertainment)\\b",
+      "key": "film-slate"
+    },
+    {
+      "pattern": "\\b(music|concert|spotify|gig|festival)\\b",
+      "key": "music-notes"
+    },
+    {
+      "pattern": "\\b(game|games|gaming|xbox|playstation|steam)\\b",
+      "key": "game-controller"
+    },
+    {
+      "pattern": "\\b(photo|photos|photography|camera)\\b",
+      "key": "camera"
+    },
+    {
+      "pattern": "\\b(art|craft|crafts|hobby|hobbies)\\b",
+      "key": "palette"
+    },
+    {
+      "pattern": "\\b(book|books|reading|library)\\b",
+      "key": "book-open"
+    },
+    {
+      "pattern": "\\b(school|education|course|tuition|university)\\b",
+      "key": "graduation-cap"
+    },
+    {
+      "pattern": "\\b(gym|fitness|sport|sports|running|yoga|exercise)\\b",
+      "key": "barbell"
+    },
+    {
+      "pattern": "\\b(doctor|dental|pharmacy|medical|medicine|health|therapy)\\b",
+      "key": "heartbeat"
+    },
+    {
+      "pattern": "\\b(hair|salon|barber|nails|haircut)\\b",
+      "key": "scissors"
+    },
+    {
+      "pattern": "\\b(spa|wellness|wellbeing)\\b|self[- ]care",
+      "key": "flower-lotus"
+    },
+    {
+      "pattern": "\\b(beauty|cosmetics)\\b",
+      "key": "flower"
+    },
+    {
+      "pattern": "\\b(work|business|office)\\b",
+      "key": "briefcase"
+    },
+    {
+      "pattern": "\\b(tech|technology|software|computer|app|apps)\\b",
+      "key": "laptop"
+    },
+    {
+      "pattern": "\\b(subscription|subscriptions|membership)\\b",
+      "key": "repeat"
+    },
+    {
+      "pattern": "\\b(saving|savings|save)\\b|emergency fund",
+      "key": "piggy-bank"
+    },
+    {
+      "pattern": "\\b(investment|investments|stocks|shares|pension|isa)\\b",
+      "key": "trend-up"
+    },
+    {
+      "pattern": "\\b(debt|loan|credit|repayment)\\b",
+      "key": "credit-card"
+    },
+    {
+      "pattern": "\\b(transfer|transfers)\\b",
+      "key": "arrows-left-right"
+    },
+    {
+      "pattern": "\\b(salary|wage|wages|income|payslip)\\b",
+      "key": "money"
+    },
+    {
+      "pattern": "\\b(cash|atm)\\b",
+      "key": "coins"
+    },
+    {
+      "pattern": "\\b(tax|hmrc|government|bank)\\b",
+      "key": "bank"
+    },
+    {
+      "pattern": "\\b(charity|donation|donations|donate)\\b",
+      "key": "hand-heart"
+    },
+    {
+      "pattern": "\\b(bill|bills|invoice|invoices)\\b",
+      "key": "receipt"
+    },
+    {
+      "pattern": "\\b(shopping|retail)\\b",
+      "key": "shopping-bag"
+    },
+    {
+      "pattern": "\\b(weather|rainy)\\b",
+      "key": "umbrella"
+    }
+  ],
+  "related": {
+    "golf": [
+      "racquet",
+      "soccer-ball",
+      "barbell"
+    ],
+    "racquet": [
+      "golf",
+      "soccer-ball",
+      "barbell"
+    ],
+    "lightning": [
+      "drop",
+      "receipt",
+      "house-line"
+    ],
+    "device-mobile": [
+      "wifi-high",
+      "laptop",
+      "repeat"
+    ],
+    "briefcase": [
+      "laptop",
+      "wallet",
+      "bank"
+    ],
+    "piggy-bank": [
+      "trend-up",
+      "bank",
+      "arrows-left-right"
+    ],
+    "coffee": [
+      "fork-knife",
+      "wine",
+      "shopping-cart"
+    ]
+  },
+  "legacyKeys": {
+    "Tag": "tag",
+    "ShoppingCart": "shopping-cart",
+    "Utensils": "fork-knife",
+    "Coffee": "coffee",
+    "Wine": "wine",
+    "ShoppingBag": "shopping-bag",
+    "Gift": "gift",
+    "Shirt": "t-shirt",
+    "Home": "house-line",
+    "Receipt": "receipt",
+    "Wifi": "wifi-high",
+    "Smartphone": "device-mobile",
+    "Shield": "shield-check",
+    "Wrench": "wrench",
+    "Bus": "bus",
+    "TrainFront": "train",
+    "Car": "car",
+    "Fuel": "gas-pump",
+    "Bike": "bicycle",
+    "Plane": "airplane-tilt",
+    "Umbrella": "umbrella",
+    "Film": "film-slate",
+    "Music": "music-notes",
+    "Gamepad2": "game-controller",
+    "Camera": "camera",
+    "Palette": "palette",
+    "Sparkles": "flower-lotus",
+    "BookOpen": "book-open",
+    "GraduationCap": "graduation-cap",
+    "HeartPulse": "heartbeat",
+    "Dumbbell": "barbell",
+    "Flower2": "flower",
+    "Scissors": "scissors",
+    "PawPrint": "paw-print",
+    "Baby": "baby",
+    "Briefcase": "briefcase",
+    "Laptop": "laptop",
+    "Repeat": "repeat",
+    "PiggyBank": "piggy-bank",
+    "CreditCard": "credit-card",
+    "Banknote": "money",
+    "Coins": "coins",
+    "Wallet": "wallet",
+    "Landmark": "bank",
+    "TrendingUp": "trend-up",
+    "ArrowLeftRight": "arrows-left-right",
+    "HandHeart": "hand-heart",
+    "KeyRound": "key"
+  }
+}

@@ -97,6 +97,7 @@ Redis unavailability as a page, not a shrug. With this in place, E2
 - **New service** → deploy from this GitHub repo.
 - **Root directory:** `backend`  · **Builder:** Dockerfile (auto-detected).
 - Railway sets `$PORT`; the Dockerfile already binds it. Health check path: `/health`.
+- **The image contains `backend/` only** (Dockerfile `COPY app ./app`), so the backend must never read files outside it (H158: `shared/category-icons.json` was absent in production and `GET /categories` returned 500). The backend reads its own copy at `backend/app/data/category-icons.json`; `shared/category-icons.json` stays the source the frontend imports. `backend/tests/test_h158_category_icon_manifest.py` and `npm run check:h158-category-icons` fail if the copies differ, and a missing or invalid manifest aborts start-up of the web (API) service only; the arq worker does not run the check.
 - Set the env vars from the **Backend env vars** table below.
 
 ## Step 5: Railway: worker service

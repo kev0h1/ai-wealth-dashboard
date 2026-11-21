@@ -402,6 +402,14 @@ async def _ensure_index(col, keys, **kwargs) -> None:
 
 
 @app.on_event("startup")
+async def _check_category_icon_manifest():
+    """H158: a missing or invalid category icon manifest aborts start-up
+    loudly instead of failing GET /categories with a 500 on every request."""
+    from app.services.category_icons import check_manifest
+    check_manifest()
+
+
+@app.on_event("startup")
 async def _forbid_model_passes_in_api():
     """E18: the cashflow compute's model passes (recurring judge, AI
     recurring predictor, income payer judge) run only in the arq worker. In
