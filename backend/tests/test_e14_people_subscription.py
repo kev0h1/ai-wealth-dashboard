@@ -54,6 +54,8 @@ def env(world, monkeypatch):  # noqa: F811
     monkeypatch.setattr(db_collections, "subscriptions_col", world.subs)
     monkeypatch.setattr(sub_router, "subscriptions_col", world.subs)
     monkeypatch.setattr(db_collections, "penny_topups_col", world.packs)
+    world.tokens = SubCol()  # C48: the Apple mismatch log lives on the appAccountToken document
+    monkeypatch.setattr(db_collections, "apple_account_tokens_col", world.tokens)
 
     async def wipe(uid):
         world.wiped.append(uid)
@@ -118,6 +120,15 @@ def test_get_shows_default_tier_and_allowance(env):
     assert d["penny"]["monthly_allowance"] == 300 and d["penny"]["used"] == 7
     assert d["mcp"] == {"allowance": 5000, "used": 3, "remaining": 4997}
     assert "@" not in r.text
+
+
+def test_get_shows_the_apple_mismatch_log_masked_only(env):
+    env.tokens.docs.append({"_id": 9, "user_id": ALICE, "app_account_token": "t", "mismatch_count": 2, "mismatches": [
+        {"at": datetime(2026, 11, 21, 12, 12, tzinfo=timezone.utc), "owner_hint": "k•••@g•••.com"}]})
+    d = env.client.get(BASE, headers=env.owner).json()
+    assert d["apple_mismatch"]["count"] == 2 and d["apple_mismatch"]["recent"][0]["owner_hint"] == "k•••@g•••.com"
+    assert d["apple_mismatch"]["recent"][0]["at"].startswith("2026-11-21")
+    assert "example" not in str(d) and "app_account_token" not in str(d)
 
 
 @pytest.mark.parametrize("doc,provider", [(LIVE_STRIPE, "stripe"), (LIVE_APPLE, "apple"), (LIVE_GOOGLE, "google")])

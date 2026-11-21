@@ -24,6 +24,7 @@ import {
   periodLabel,
   providerGuard,
   providerLabel,
+  appleMismatchLabel,
   renewalLabel,
   sourceLabel,
   statusLabel,
@@ -263,6 +264,7 @@ export default function SubscriptionSection({ personId }: { personId: string }) 
                 <Fact label="Trial" value={trialLabel(sub)} />
                 <Fact label="Renewal" value={renewalLabel(sub)} />
                 <Fact label="Manual grant" value={grantLabel(sub)} />
+                <Fact label="Apple ID owned by another account" value={appleMismatchLabel(sub)} />
                 <Fact label="Penny this month" value={pennyLabel(sub)} />
                 <Fact label="MCP calls this month" value={mcpLabel(sub)} />
               </div>

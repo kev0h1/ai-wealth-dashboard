@@ -85,6 +85,17 @@ class FakeCol:
                 d.update(update.get("$set") or {})
                 for k in (update.get("$unset") or {}):
                     d.pop(k, None)
+                for k, n in (update.get("$inc") or {}).items():
+                    d[k] = (d.get(k) or 0) + n
+                for k, v in (update.get("$push") or {}).items():
+                    arr = list(d.get(k) or [])
+                    if isinstance(v, dict) and "$each" in v:
+                        arr.extend(v["$each"])
+                        if "$slice" in v and v["$slice"] < 0:
+                            arr = arr[v["$slice"]:]
+                    else:
+                        arr.append(v)
+                    d[k] = arr
 
                 class _R:
                     matched_count = 1
