@@ -128,7 +128,7 @@ def test_get_shows_the_apple_mismatch_log_masked_only(env):
     d = env.client.get(BASE, headers=env.owner).json()
     assert d["apple_mismatch"]["count"] == 2 and d["apple_mismatch"]["recent"][0]["owner_hint"] == "k•••@g•••.com"
     assert d["apple_mismatch"]["recent"][0]["at"].startswith("2026-11-21")
-    assert "gmail" not in str(d) and "app_account_token" not in str(d)
+    assert "example" not in str(d) and "app_account_token" not in str(d)
 
 
 @pytest.mark.parametrize("doc,provider", [(LIVE_STRIPE, "stripe"), (LIVE_APPLE, "apple"), (LIVE_GOOGLE, "google")])

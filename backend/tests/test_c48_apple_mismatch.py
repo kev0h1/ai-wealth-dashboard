@@ -15,7 +15,7 @@ from tests.test_apple_billing import (  # noqa: F401  (fixtures are used by name
     OTHER, UID, _doc, _run, _signed_tx, _token, env, pki,
 )
 
-OWNER = "kevin.maingi12@gmail.com"
+OWNER = "jane.doe@example.com"
 
 
 def _mismatch(env_, **kw):
@@ -28,21 +28,21 @@ def _mismatch(env_, **kw):
 
 
 def test_mask_email_hint_shows_one_letter_each_and_the_suffix_only():
-    assert config.mask_email_hint(OWNER) == "k•••@g•••.com"
+    assert config.mask_email_hint(OWNER) == "j•••@e•••.com"
     assert config.mask_email_hint("a.b@mail.example.co.uk") == "a•••@m•••.uk"
     for bad in (None, "", "no-at-sign", "@x.com", "a@"):
         assert config.mask_email_hint(bad) is None
     masked = config.mask_email_hint(OWNER)
-    assert "maingi" not in masked and "gmail" not in masked
+    assert "doe" not in masked and "example" not in masked
 
 
 def test_mismatch_is_a_403_with_only_a_masked_hint(env):
     err = _mismatch(env)
     assert err.status_code == 403
     assert err.detail["code"] == "APPLE_ACCOUNT_MISMATCH"
-    assert err.detail["owner_hint"] == "k•••@g•••.com"
+    assert err.detail["owner_hint"] == "j•••@e•••.com"
     blob = repr(err.detail)
-    assert OWNER not in blob and "maingi" not in blob and "gmail" not in blob
+    assert OWNER not in blob and "doe" not in blob and "example" not in blob
     assert set(err.detail) == {"code", "message", "owner_hint"}
 
 
@@ -67,7 +67,7 @@ def test_mismatch_is_logged_for_ops_with_count_and_masked_owner(env):
     _mismatch(env, original="orig-2")
     doc = next(d for d in env["apple_account_tokens_col"].docs if d["user_id"] == UID)
     assert doc["mismatch_count"] == 2
-    assert [m["owner_hint"] for m in doc["mismatches"]] == ["k•••@g•••.com"] * 2
+    assert [m["owner_hint"] for m in doc["mismatches"]] == ["j•••@e•••.com"] * 2
     assert all(m["at"] is not None for m in doc["mismatches"])
     assert OWNER not in repr(doc["mismatches"])
     owner_doc = next(d for d in env["apple_account_tokens_col"].docs if d["user_id"] == OWNER)
@@ -77,7 +77,7 @@ def test_mismatch_is_logged_for_ops_with_count_and_masked_owner(env):
 def test_mismatch_log_is_capped(env):
     _mismatch(env)
     for _ in range(apple_billing.MISMATCH_LOG_LIMIT + 5):
-        _run(apple_billing.record_account_mismatch(UID, "k•••@g•••.com"))
+        _run(apple_billing.record_account_mismatch(UID, "j•••@e•••.com"))
     doc = next(d for d in env["apple_account_tokens_col"].docs if d["user_id"] == UID)
     assert len(doc["mismatches"]) == apple_billing.MISMATCH_LOG_LIMIT
     assert doc["mismatch_count"] == apple_billing.MISMATCH_LOG_LIMIT + 6
@@ -95,7 +95,7 @@ def test_ops_person_detail_shows_mismatches(env):
     _mismatch(env)
     summary = _run(ops.apple_mismatch_summary(UID))
     assert summary["count"] == 1
-    assert summary["recent"][0]["owner_hint"] == "k•••@g•••.com"
+    assert summary["recent"][0]["owner_hint"] == "j•••@e•••.com"
     assert OWNER not in repr(summary)
     assert _run(ops.apple_mismatch_summary(OTHER)) == {"count": 0, "recent": []}
     src = open(ops.__file__).read()

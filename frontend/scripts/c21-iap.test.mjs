@@ -333,7 +333,7 @@ check("the sheet never reaches Stripe from the StoreKit branch", /storekit \? bu
       restorePurchases: async () => {},
     } } };
   };
-  // Post-purchase mismatch (what Kevin hit on prod): the new copy, not "Try Restore purchases".
+  // Post-purchase mismatch (the production case): the new copy, not "Try Restore purchases".
   apiClient.verifyAppleTransaction = async () => { throw mismatchErr(); };
   const a = mk({});
   const out = await executeSubscriptionPurchase(a.sk, "store.lite", cfg());
