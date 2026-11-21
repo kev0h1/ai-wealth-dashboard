@@ -45,10 +45,12 @@ def _manifest() -> dict:
 def check_manifest() -> None:
     """Startup check (H158): raise at boot, never 500 on every request."""
     _manifest.cache_clear()
+    if not _MANIFEST_PATH.is_file():
+        raise RuntimeError(f"Category icon manifest unusable: missing {_MANIFEST_PATH}")
     try:
         _manifest()
-    except Exception as exc:
-        raise RuntimeError(f"Category icon manifest unusable at {_MANIFEST_PATH}: {exc!r}") from exc
+    except (OSError, ValueError, RuntimeError, AttributeError, TypeError):
+        raise RuntimeError(f"Category icon manifest unusable: invalid {_MANIFEST_PATH}") from None
 
 
 def fallback_icon_key() -> str:
