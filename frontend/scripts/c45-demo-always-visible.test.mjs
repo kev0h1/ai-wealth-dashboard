@@ -1,7 +1,7 @@
 // C45: native production builds always show the Demo sign-in link whatever
 // /auth/demo/enabled does; web and UAT keep the runtime check; a 404 from
 // /auth/demo/login says so calmly; a 401 keeps the generic message; and the
-// production Play workflow saves uploads without auto-sending them for review.
+// Play publishing is covered by c49-play-publish.test.mjs.
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
@@ -48,18 +48,6 @@ assert.doesNotMatch(DEMO_UNAVAILABLE_MESSAGE, /[—–!]/, "copy rules");
 const comp = readFileSync(new URL("../components/DemoSignIn.tsx", import.meta.url), "utf8");
 assert.match(comp, /result === "unavailable"\) return setMessage\(DEMO_UNAVAILABLE_MESSAGE\)/);
 
-// codemagic.yaml: the production Play workflow (and the internal one) carry the flag.
-const yaml = readFileSync(new URL("../../codemagic.yaml", import.meta.url), "utf8");
-const block = (name) => {
-  const start = yaml.indexOf(`\n  ${name}:\n`);
-  assert.ok(start >= 0, `${name} workflow exists`);
-  const rest = yaml.slice(start + 1);
-  const next = rest.slice(1).search(/\n  [a-z][a-z0-9-]*:\n/);
-  return next < 0 ? rest : rest.slice(0, next + 1);
-};
-for (const wf of ["android-capacitor-prod", "android-capacitor"]) {
-  const play = block(wf).split("google_play:\n        credentials")[1] ?? "";
-  assert.match(play, /^\s+track: \w+$/m, `${wf} publishes to a track`);
-  assert.match(play, /^ {8}changes_not_sent_for_review: true$/m, `${wf} sets changes_not_sent_for_review`);
-}
+// C49: the Play publish wiring (formerly a static changes_not_sent_for_review flag)
+// is asserted in c49-play-publish.test.mjs.
 console.log("c45-demo-always-visible: ok");

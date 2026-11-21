@@ -627,13 +627,20 @@ workflows:
   #                             unreleased main code against production data.
   #   - android-capacitor-prod: production API, MOBILE_TARGET=prod. Uploads to
   #                             the Play PRODUCTION track as a DRAFT release
-  #                             (submit_as_draft: true), so nothing reaches
-  #                             users until Kevin reviews and rolls it out in
-  #                             Play Console. scripts/release.py deploy starts
-  #                             this workflow after the iOS one. Uploads are
-  #                             saved with changes_not_sent_for_review (C45),
-  #                             so Kevin sends the release for review in Play
-  #                             Console after each upload.
+  #                             (--draft), so nothing reaches users until
+  #                             Kevin reviews and rolls it out in Play Console.
+  #                             scripts/release.py deploy starts this workflow
+  #                             after the iOS one.
+  #
+  # Publishing (C49, replaces the C45 static flag): both workflows publish
+  # through scripts/codemagic-play-publish.sh, a script step using the same
+  # `google-play bundles publish` CLI as the old built-in google_play block and
+  # the same GCLOUD_SERVICE_ACCOUNT_CREDENTIALS. It publishes WITHOUT
+  # --changes-not-sent-for-review first and retries WITH it only when Google
+  # answers "Changes cannot be sent for review automatically" (the app has a
+  # rejected or pending update). The retry saves the upload without sending it,
+  # and the log then says Kevin must press Send for review in Play Console.
+  # Any other failure fails the build with the CLI output and no retry.
   #
   # Triggers (C30, 2026-10-20): android-capacitor fires on pushes to main
   # (it reuses the *uat_triggering anchor from ios-capacitor), because the
@@ -836,18 +843,16 @@ workflows:
           JARSIGNER=jarsigner
           if [ -n "${JAVA_HOME:-}" ] && [ -x "$JAVA_HOME/bin/jarsigner" ]; then JARSIGNER="$JAVA_HOME/bin/jarsigner"; fi
           "$JARSIGNER" -verify "$AAB" | grep -q "jar verified" || { echo "ERROR: $AAB is not signed"; exit 1; }
+      - name: Publish to Google Play internal track (C49)
+        script: bash "$CM_BUILD_DIR/scripts/codemagic-play-publish.sh" --track internal
     artifacts: &android_artifacts
       - capacitor-spike/android/app/build/outputs/bundle/release/*.aab
       - capacitor-spike/android/app/build/outputs/**/native-debug-symbols.zip
-    publishing:
-      google_play:
-        credentials: $GCLOUD_SERVICE_ACCOUNT_CREDENTIALS
-        track: internal
-        # C45: Play rejects an edit commit with "Changes cannot be sent for
-        # review automatically" while the app has a rejected or pending
-        # update, whichever track the upload targets. Saving without
-        # auto-sending lets the upload land either way.
-        changes_not_sent_for_review: true
+    # C49: no built-in `publishing.google_play` block. It could only carry a
+    # static changes_not_sent_for_review, which Google forbids while the app
+    # has no unsendable changes (version 31 lost) and requires while it does
+    # (version 29 lost). The publish step below tries without the flag and
+    # retries with it only when Google asks for it.
 
   android-capacitor-prod:
     name: Android Capacitor (Play production draft, production API)
@@ -884,17 +889,6 @@ workflows:
       - *step_android_sync
       - *step_android_version
       - *step_android_bundle
+      - name: Publish to Google Play production track as a draft (C49)
+        script: bash "$CM_BUILD_DIR/scripts/codemagic-play-publish.sh" --track production --draft
     artifacts: *android_artifacts
-    publishing:
-      google_play:
-        credentials: $GCLOUD_SERVICE_ACCOUNT_CREDENTIALS
-        track: production
-        # A draft release: nothing reaches users until Kevin reviews and
-        # rolls it out in Play Console.
-        submit_as_draft: true
-        # C45: while the app has a rejected or pending update, Play refuses
-        # to send changes for review automatically and the whole edit is
-        # discarded (version 29 was lost that way). Save the upload without
-        # sending it; after the upload Kevin sends the release for review in
-        # Play Console.
-        changes_not_sent_for_review: true
