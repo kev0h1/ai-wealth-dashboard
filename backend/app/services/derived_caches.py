@@ -354,18 +354,29 @@ async def cache_needs_recompute(uid: str, *, new_count: int, trigger: SyncTrigge
     return False, "unchanged"
 
 
-async def recompute_derived_caches(uid: str, *, new_count: int, trigger: SyncTrigger) -> dict:
+async def recompute_derived_caches(
+    uid: str, *, new_count: int, trigger: SyncTrigger, force: bool = False,
+) -> dict:
     """Recompute cashflow + money shape if `cache_needs_recompute` says so.
 
     Returns `{"recomputed": bool, "reason": str}`. The money-shape failure
     path is isolated the same way every existing caller isolated it: a
     broken shape compute must never lose the forecast recompute that just
     succeeded, nor fail the sync that called this."""
-    should, reason = await cache_needs_recompute(uid, new_count=new_count, trigger=trigger)
+    should, reason = (True, "first_sync") if force else await cache_needs_recompute(
+        uid, new_count=new_count, trigger=trigger,
+    )
     if not should:
         return {"recomputed": False, "reason": reason}
     from app.routers.analytics import compute_and_cache_cashflow
-    await compute_and_cache_cashflow(uid)
+    # `compute_and_cache_cashflow` catches its own operational failures and
+    # returns False.  Do not report a completed derived refresh in that case:
+    # first-sync readiness relies on this result to avoid exposing figures
+    # assembled before the first calculation ever landed.
+    completed = await compute_and_cache_cashflow(uid)
+    if completed is not True:
+        logger.error("derived cache compute did not complete for %s", uid)
+        return {"recomputed": False, "reason": "compute_failed", "failed": True}
     try:
         from app.services.money_shape import compute_and_cache_money_shape
         await compute_and_cache_money_shape(uid, background=True)
@@ -399,6 +410,13 @@ async def refresh_stale_cashflow_caches(*, reason: str) -> dict:
     for uid in user_ids:
         try:
             result = await recompute_derived_caches(uid, new_count=0, trigger="auto")
+            if result.get("failed"):
+                failed += 1
+                logger.error(
+                    "engine refresh (%s): recompute for %s did not write a fresh cache",
+                    reason, uid,
+                )
+                continue
             if result["recomputed"]:
                 doc = await cashflow_cache_col.find_one({"_id": uid}, {"engine_build": 1})
                 if doc and doc.get("engine_build") == engine_build():

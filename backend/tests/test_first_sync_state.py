@@ -13,6 +13,11 @@ import app.routers.allocations as allocations_router
 import app.routers.commitments as commitments_router
 import app.services.cashflow as cashflow_service
 import app.services.finexer_sync as finexer_sync
+import app.services.categorisation as categorisation
+import app.services.manual_account_rules as manual_account_rules
+import app.services.own_transfer_judge as own_transfer_judge
+import app.services.transfer_review_store as transfer_review_store
+import app.services.derived_caches as derived_caches
 import app.services.net_position as net_position
 import app.services.sync_freshness as sf
 
@@ -34,7 +39,7 @@ class _Col:
 
     async def find_one(self, query, projection=None):
         for d in self.docs:
-            if d.get("_id") == query.get("_id"):
+            if all(d.get(k) == v for k, v in query.items()):
                 return d
         return None
 
@@ -62,7 +67,7 @@ def _state(**kw):
 
 def test_no_connections_is_idle(monkeypatch):
     _patch(monkeypatch)
-    assert _state() == {"state": "idle", "first_sync": True, "connections": []}
+    assert _state() == {"state": "idle", "first_sync": True, "has_connections": False, "connections": []}
 
 
 def test_recent_unsynced_finexer_is_syncing(monkeypatch):
@@ -138,6 +143,208 @@ def test_no_synced_bank_is_first_sync(monkeypatch):
     assert _state()["first_sync"] is True
 
 
+def test_raw_synced_connection_stays_first_sync_while_figures_compute(monkeypatch):
+    _patch(monkeypatch, fin=[{
+        "_id": "c1", "user_id": UID, "provider": "barclays",
+        "last_synced": _naive_ago(minutes=1),
+        "first_sync_pending_run": "run-1",
+        "first_sync_pending_since": _naive_ago(seconds=30),
+        "first_sync_phase": "computing",
+    }])
+    out = _state()
+    assert out["first_sync"] is True and out["has_connections"] is True
+    assert out["state"] == "syncing"
+    assert out["connections"] == [{
+        "provider": "finexer", "connection_id": "c1", "bank": "barclays",
+        "started_at": out["connections"][0]["started_at"], "error": None,
+        "kind": "new-bank", "phase": "computing", "state": "syncing",
+    }]
+
+
+def test_confirmed_first_figures_release_the_marker(monkeypatch):
+    col = _Col([{
+        "_id": "c1", "user_id": UID, "provider": "barclays",
+        "last_synced": _naive_ago(minutes=1), "first_sync_pending_run": "run-1",
+        "first_sync_pending_since": _naive_ago(seconds=30), "first_sync_phase": "computing",
+    }])
+    monkeypatch.setattr(sf, "finexer_consents_col", col)
+    monkeypatch.setattr(sf, "connections_col", _Col())
+    monkeypatch.setattr(sf.response_cache, "ainvalidate", lambda _uid: asyncio.sleep(0))
+    asyncio.run(sf.complete_first_sync(col, "c1", "run-1"))
+    out = _state()
+    assert out["state"] == "idle" and out["first_sync"] is False
+    assert out["has_connections"] is True and out["connections"] == []
+
+
+def test_completion_invalidates_after_token_fenced_marker_clear(monkeypatch):
+    events = []
+
+    class _Cache:
+        async def ainvalidate(self, uid):
+            events.append(("invalidate", uid))
+
+    class _OrderedCol(_Col):
+        async def update_one(self, query, update, upsert=False):
+            await super().update_one(query, update, upsert)
+            if "first_sync_pending_run" in (update.get("$unset") or {}):
+                events.append(("complete", query["first_sync_pending_run"]))
+
+    col = _OrderedCol([{
+        "_id": "c1", "user_id": UID, "last_synced": _naive_ago(minutes=1),
+        "first_sync_pending_run": "run-1",
+    }])
+    monkeypatch.setattr(sf, "response_cache", _Cache())
+
+    assert asyncio.run(sf.complete_first_sync(col, "c1", "run-1")) is True
+    assert events == [("complete", "run-1"), ("invalidate", UID)]
+
+
+def test_stale_completion_does_not_invalidate_response_cache(monkeypatch):
+    invalidated = []
+
+    class _Cache:
+        async def ainvalidate(self, uid):
+            invalidated.append(uid)
+
+    col = _Col([{
+        "_id": "c1", "user_id": UID, "last_synced": _naive_ago(minutes=1),
+        "first_sync_pending_run": "new-run",
+    }])
+    monkeypatch.setattr(sf, "response_cache", _Cache())
+
+    assert asyncio.run(sf.complete_first_sync(col, "c1", "old-run")) is False
+    assert col.docs[0]["first_sync_pending_run"] == "new-run"
+    assert invalidated == []
+
+
+def test_completion_without_raw_bank_timestamp_stays_failed(monkeypatch):
+    col = _Col([{
+        "_id": "c1", "user_id": UID, "provider": "barclays",
+        "first_sync_pending_run": "run-1", "first_sync_pending_since": _naive_ago(minutes=1),
+    }])
+    monkeypatch.setattr(sf, "finexer_consents_col", col)
+    monkeypatch.setattr(sf, "connections_col", _Col())
+
+    assert asyncio.run(sf.complete_first_sync(col, "c1", "run-1")) is False
+    out = _state()
+    assert out["first_sync"] is True and out["state"] == "failed"
+
+
+def test_failed_compute_marker_never_ages_into_idle(monkeypatch):
+    _patch(monkeypatch, fin=[{
+        "_id": "c1", "user_id": UID, "provider": "barclays",
+        "status": "revoked",
+        "last_synced": _naive_ago(days=3), "first_sync_pending_run": "run-1",
+        "first_sync_pending_since": _naive_ago(days=3), "first_sync_phase": "computing",
+        "first_sync_error": "sync_failed", "first_sync_error_at": _naive_ago(days=3),
+    }])
+    out = _state()
+    assert out["first_sync"] is True and out["state"] == "failed"
+    assert out["connections"][0]["phase"] == "computing"
+
+
+def test_stale_run_cannot_complete_a_retry(monkeypatch):
+    col = _Col([{"_id": "c1", "first_sync_pending_run": "new-run"}])
+    asyncio.run(sf.complete_first_sync(col, "c1", "old-run"))
+    assert col.docs[0]["first_sync_pending_run"] == "new-run"
+
+
+def test_pending_retry_ignores_an_old_unfenced_raw_error(monkeypatch):
+    _patch(monkeypatch, fin=[{
+        "_id": "c1", "user_id": UID, "status": "authorized",
+        "first_sync_pending_run": "token-b",
+        "first_sync_pending_since": _naive_ago(seconds=30),
+        # This was token A's raw failure.  Token B owns the current lifecycle.
+        "last_sync_error": "sync_failed",
+    }])
+    out = _state()
+    assert out["state"] == "syncing"
+    assert out["connections"][0]["error"] is None
+
+
+def test_retry_replaces_pending_token_and_clears_its_error(monkeypatch):
+    col = _Col([{
+        "_id": "c1", "user_id": UID, "last_synced": _naive_ago(minutes=1),
+        "first_sync_pending_run": "old-run", "first_sync_error": "sync_failed",
+    }])
+    monkeypatch.setattr(sf, "finexer_consents_col", col)
+    monkeypatch.setattr(sf, "connections_col", _Col())
+    run = asyncio.run(sf.begin_first_sync(col, "c1", UID))
+    assert run and run != "old-run"
+    assert col.docs[0]["first_sync_pending_run"] == run
+    assert "first_sync_error" not in col.docs[0]
+
+
+def _patch_first_finexer_pipeline(monkeypatch):
+    col = _Col([{"_id": "c1", "user_id": UID, "status": "authorized", "provider": "barclays"}])
+    monkeypatch.setattr(finexer_sync, "finexer_consents_col", col)
+    monkeypatch.setattr(sf, "finexer_consents_col", col)
+    monkeypatch.setattr(sf, "connections_col", _Col())
+
+    async def raw_pull(consent_id, user_id, **_kw):
+        await col.update_one({"_id": consent_id}, {"$set": {"last_synced": datetime.utcnow()}})
+        return ["acc-1"], 0
+
+    async def noop(*_a, **_k):
+        return None
+
+    monkeypatch.setattr(sf.response_cache, "ainvalidate", noop)
+    monkeypatch.setattr(finexer_sync, "sync_finexer_consent", raw_pull)
+    monkeypatch.setattr(categorisation, "apply_rules_bulk", noop)
+    monkeypatch.setattr(categorisation, "categorise_others_bg", noop)
+    monkeypatch.setattr(manual_account_rules, "apply_rules", noop)
+    monkeypatch.setattr(own_transfer_judge, "after_sync", noop)
+    monkeypatch.setattr(transfer_review_store, "refresh", noop)
+    return col
+
+
+def test_deferred_finexer_first_sync_stays_computing_after_raw_last_synced(monkeypatch):
+    _patch_first_finexer_pipeline(monkeypatch)
+    out = asyncio.run(finexer_sync.finexer_sync_pipeline("c1", UID, recompute=False))
+    state = _state()
+    assert out["ok"] is True and isinstance(out["first_sync_run"], str)
+    assert state["first_sync"] is True and state["state"] == "syncing"
+    assert state["connections"][0]["phase"] == "computing"
+
+
+def test_finexer_first_sync_releases_only_after_confirmed_compute(monkeypatch):
+    _patch_first_finexer_pipeline(monkeypatch)
+
+    async def computed(*_a, **_k):
+        return {"recomputed": True, "reason": "first_sync"}
+
+    monkeypatch.setattr(derived_caches, "recompute_derived_caches", computed)
+    out = asyncio.run(finexer_sync.finexer_sync_pipeline("c1", UID))
+    state = _state()
+    assert out["ok"] is True
+    assert state["first_sync"] is False and state["state"] == "idle"
+
+
+def test_partial_finexer_refresh_never_claims_first_sync_marker(monkeypatch):
+    col = _patch_first_finexer_pipeline(monkeypatch)
+    out = asyncio.run(finexer_sync.finexer_sync_pipeline(
+        "c1", UID, only_account_id="acc-1", recompute=False,
+    ))
+    assert out["ok"] is True and out["first_sync_run"] is None
+    assert "first_sync_pending_run" not in col.docs[0]
+
+
+@pytest.mark.parametrize("computed_result", [
+    {"recomputed": False, "reason": "compute_failed", "failed": True}, None,
+])
+def test_finexer_first_sync_compute_failure_stays_failed(monkeypatch, computed_result):
+    _patch_first_finexer_pipeline(monkeypatch)
+
+    async def failed(*_a, **_k):
+        return computed_result
+
+    monkeypatch.setattr(derived_caches, "recompute_derived_caches", failed)
+    out = asyncio.run(finexer_sync.finexer_sync_pipeline("c1", UID))
+    state = _state()
+    assert out["ok"] is False and out["error"] == "sync_failed"
+    assert state["first_sync"] is True and state["state"] == "failed"
+
+
 def test_abandoned_consent_on_established_user_is_idle_and_not_first(monkeypatch):
     _patch(monkeypatch, fin=[
         {"_id": "old", "user_id": UID, "authed_at": _naive_ago(days=30), "last_synced": _naive_ago(minutes=5)},
@@ -150,6 +357,8 @@ def test_abandoned_consent_on_established_user_is_idle_and_not_first(monkeypatch
 def test_pipeline_stamps_and_success_clears_error(monkeypatch):
     col = _Col([{"_id": "c1", "status": "authorized"}])
     monkeypatch.setattr(finexer_sync, "finexer_consents_col", col)
+    monkeypatch.setattr(sf, "finexer_consents_col", col)
+    monkeypatch.setattr(sf, "connections_col", _Col())
 
     async def boom(cid, uid):
         raise RuntimeError("x" * 500)
@@ -384,6 +593,8 @@ def test_stamp_cleared_on_failure_and_error_propagates():
 def test_pipeline_stamps_and_clears_around_the_pull(monkeypatch):
     col = _Col([{"_id": "c1", "status": "authorized", "last_synced": _naive_ago(hours=5)}])
     monkeypatch.setattr(finexer_sync, "finexer_consents_col", col)
+    monkeypatch.setattr(sf, "finexer_consents_col", col)
+    monkeypatch.setattr(sf, "connections_col", _Col())
     during = {}
 
     async def pull(cid, uid, **_kw):

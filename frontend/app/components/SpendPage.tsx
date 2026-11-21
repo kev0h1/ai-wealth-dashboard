@@ -46,6 +46,9 @@ import { consumeSpendUiState, writeSpendUiState, SpendUiState } from "@/lib/spen
 import { useTutorialReady } from "@/components/TutorialContext";
 import { setPennyScreenView } from "@/components/PennySheetProvider";
 import { buildSpendPeriodView } from "@/lib/pennyScreenViews";
+import { useFirstSync } from "@/lib/useFirstSync";
+import FirstSyncCard from "@/components/FirstSyncCard";
+import FirstSyncStatus from "@/components/FirstSyncStatus";
 
 // These surfaces are absent from the initial This period view. Keeping them
 // outside its client graph avoids paying for charts, portals, and form logic
@@ -258,6 +261,7 @@ export default function SpendPage() {
   const { colours } = useColours();
   const searchParams = useSearchParams();
   const router = useRouter();
+  const firstSync = useFirstSync(reloadAfterFirstSync);
   // BACK-navigation restore (lib/spendUiState.ts) — read once at mount,
   // before any of the state below that seeds from it. Empty on a fresh
   // tab/session or a hard reload of /spend; otherwise whatever this page's
@@ -296,7 +300,7 @@ export default function SpendPage() {
     return () => { active = false; window.clearTimeout(timer); };
   }, [showTips]);
   const [transactionsRequested, setTransactionsRequested] = useState(false);
-  const transactionsEnabled = chartsRequested || transactionsRequested;
+  const transactionsEnabled = (chartsRequested || transactionsRequested) && !firstSync.pending && !firstSync.active;
   const { transactions: allTransactions, loading: txLoading, setTransactions: setAllTransactions, refresh: refreshAllTransactions } = useAllTransactions(transactionsEnabled);
 
   useEffect(() => {
@@ -453,12 +457,12 @@ export default function SpendPage() {
   // reading line, both sourced from this same `verdict` object. Cleared
   // (not stale) while a period is loading or errored.
   useEffect(() => {
-    if (verdictLoading || !verdict) {
+    if (firstSync.pending || firstSync.active || verdictLoading || !verdict) {
       setPennyScreenView("spend", null);
       return;
     }
     setPennyScreenView("spend", buildSpendPeriodView(verdict));
-  }, [verdict, verdictLoading]);
+  }, [verdict, verdictLoading, firstSync.pending, firstSync.active]);
   // `silent` = we already have something on screen for this offset (cache
   // or a previous fetch) — never flip the spinner back on, and never blank
   // a good verdict on a transient error. G83 (2026-09-18): calling this
@@ -471,7 +475,7 @@ export default function SpendPage() {
   const fetchVerdict = useCallback((offset: number, silent = false) => {
     verdictOffsetRef.current = offset;
     if (!silent) setVerdictLoading(true);
-    fetchVerdictData(offset)
+    return fetchVerdictData(offset)
       .then(v => { if (verdictOffsetRef.current === offset) setVerdict(v); })
       .catch(() => { if (verdictOffsetRef.current === offset && !silent) setVerdict(null); })
       .finally(() => { if (verdictOffsetRef.current === offset) setVerdictLoading(false); });
@@ -502,6 +506,7 @@ export default function SpendPage() {
   // invalidates the verdict cache itself once the save actually lands, so
   // a hit here is only ever this SAME (still-current) config's data.
   useEffect(() => {
+    if (firstSync.pending || firstSync.active) return;
     verdictOffsetRef.current = periodOffset;
     const hit = cachedVerdict(periodOffset);
     if (hit) {
@@ -512,7 +517,7 @@ export default function SpendPage() {
       setVerdict(null);
       fetchVerdict(periodOffset);
     }
-  }, [periodOffset, fetchVerdict, payPeriodConfig]);
+  }, [periodOffset, fetchVerdict, payPeriodConfig, firstSync.pending, firstSync.active]);
 
   // The closing SpendShapeCard's own GET /money-shape — independent of the
   // period fetch above (the shape is the user's own recent-period pattern,
@@ -523,6 +528,7 @@ export default function SpendPage() {
   // verdict plus a 300ms idle-callback defer, not the request. Fires once
   // per mount (moneyShapeRequestedRef), not once per verdict/period change.
   useEffect(() => {
+    if (firstSync.pending || firstSync.active) return;
     if (moneyShapeRequestedRef.current) return;
     moneyShapeRequestedRef.current = true;
     let cancelled = false;
@@ -536,7 +542,7 @@ export default function SpendPage() {
         if (!cancelled) setMoneyShape((current) => current ?? null);
       });
     return () => { cancelled = true; };
-  }, []);
+  }, [firstSync.pending, firstSync.active]);
 
   // "Out" tap's Show Your Working destination — force the majority list
   // open and scroll to it, the exact reconciled transactions behind the
@@ -719,8 +725,26 @@ export default function SpendPage() {
   }, []);
 
   useEffect(() => {
+    if (firstSync.pending || firstSync.active) return;
     loadData();
-  }, [loadData]);
+  }, [loadData, firstSync.pending, firstSync.active]);
+
+  async function reloadAfterFirstSync() {
+    // The hook has invalidated every account-derived cache. Replace partial
+    // first-run responses before it releases the loading ledger.
+    setVerdict(null);
+    setVerdictLoading(true);
+    cachedCategoryInsights = null;
+    await Promise.all([
+      fetchVerdictData(periodOffset).then(setVerdict).finally(() => setVerdictLoading(false)),
+      getAccountsCached(true).then(setAccounts).catch(() => {}),
+      loadMoneyShape().then(setMoneyShape).catch(() => setMoneyShape(null)),
+      api.oldestTransaction().then((r) => setOldestTxDate(r.date ? new Date(r.date) : null)).catch(() => {}),
+    ]);
+    refetchSignals(true);
+    fetchMiscategorisedCount(periodOffset, true);
+    if (showTips) void loadCategoryInsights().then(setCategoryInsights).catch(() => {});
+  }
 
   useEffect(() => {
     fetchMiscategorisedCount(periodOffset);
@@ -875,7 +899,7 @@ export default function SpendPage() {
   // Gating on `showFullSkeleton` (rather than the raw loading flags it's
   // built from) guarantees this can never fire while the skeleton is still
   // the thing actually painted.
-  useTutorialReady("spend", !showFullSkeleton && !!verdict);
+  useTutorialReady("spend", !firstSync.pending && !firstSync.active && !showFullSkeleton && !!verdict);
 
   // Re-initialise period when config loads/changes. usePreferences always
   // starts at DEFAULT_PAY_PERIOD_CONFIG synchronously and resolves the
@@ -1176,6 +1200,22 @@ export default function SpendPage() {
   // same regardless of which tree actually renders; a pending redirect
   // still fires router.replace("/transactions?…") while the skeleton (or
   // the real page) is on screen, unaffected by this branch.
+  if (firstSync.pending || firstSync.active) {
+    return (
+      <div className="mx-auto min-h-dvh max-w-xl px-4 pb-[calc(9rem+env(safe-area-inset-bottom,0px))] pt-5 lg:pb-8" style={{ paddingTop: "max(1.25rem, env(safe-area-inset-top, 0px))" }}>
+        <h1 className="mb-5 text-xl font-bold text-slate-900 dark:text-slate-100">Spend</h1>
+        {firstSync.pending ? <FirstSyncStatus error={firstSync.error} figuresError={firstSync.figuresError} onRetry={() => { void firstSync.refresh(); }} /> : (
+          <FirstSyncCard
+            surface="spend"
+            state={firstSync.status!.state as "syncing" | "stalled" | "failed"}
+            connections={firstSync.status!.connections}
+            retrying={firstSync.retrying}
+            onRetry={() => { void firstSync.retry(); }}
+          />
+        )}
+      </div>
+    );
+  }
   if (showFullSkeleton) {
     return <SpendSkeleton />;
   }

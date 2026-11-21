@@ -39,6 +39,7 @@ from app.services.account_cascade import cascade_account_deletion, purge_user_ex
 from app.services.retention import disconnect_connection as _disconnect_connection
 from app.services.finexer_webhooks import bump_daily_counters
 from app.services import sync_throttle
+from app.services.sync_freshness import complete_first_sync, fail_first_sync
 
 router = APIRouter(tags=["accounts"])
 logger = logging.getLogger(__name__)
@@ -263,8 +264,9 @@ async def sync_all(user: dict = Depends(current_user)):
     conns = await connections_col.find({"user_id": uid}).to_list(None)
     total = 0
     total_new_txns = 0
+    first_sync_runs: list[tuple[str, str]] = []
     for conn in conns:
-        ids, new_count = await sync_connection(conn["_id"], uid)
+        ids, new_count = await sync_connection(conn["_id"], uid, first_sync_runs=first_sync_runs)
         total += len(ids)
         total_new_txns += new_count
 
@@ -280,29 +282,50 @@ async def sync_all(user: dict = Depends(current_user)):
     ]
 
     async def _post_sync(u, new_count: int):
-        for res in await asyncio.gather(*finexer_syncs, return_exceptions=True):
+        finexer_first_runs: list[tuple[str, str]] = []
+        for consent, res in zip(finexer_conns, await asyncio.gather(*finexer_syncs, return_exceptions=True)):
             if isinstance(res, dict):
                 new_count += int(res.get("new_transactions") or 0)
+                run = res.get("first_sync_run")
+                if res.get("ok") is True and isinstance(run, str):
+                    finexer_first_runs.append((consent["_id"], run))
             elif isinstance(res, BaseException):
                 logger.error("finexer sync during refresh failed for %s: %s", u, type(res).__name__)
                 logger.debug("finexer sync during refresh failure detail: %r", res)
-        await apply_rules_bulk(u, structural=True)
-        await categorise_others_bg(u)
-        await apply_mirror_rules(u)
-        from app.services import own_transfer_judge, transfer_review_store
-        await own_transfer_judge.after_sync(u)  # G442: the API only enqueues the worker
-        await transfer_review_store.refresh(u)
-        # Always stamp sync time so the staleness clock resets even with no new data
-        await cashflow_cache_col.update_one(
-            {"_id": u}, {"$set": {"synced_at": datetime.now()}}, upsert=True,
-        )
-        # trigger="user": an explicit refresh always recomputes the derived
-        # caches, new transactions or not (G159). The `if has_new:` guard
-        # that used to sit here kept a pre-deploy forecast doc alive and
-        # then rebuilt every screen from it, so the tap looked like it had
-        # worked. The gate survives only on the worker's automatic syncs.
-        await recompute_derived_caches(u, new_count=new_count, trigger="user")
-        await settle_planned_expenses(u)
+        try:
+            await apply_rules_bulk(u, structural=True)
+            await categorise_others_bg(u)
+            await apply_mirror_rules(u)
+            from app.services import own_transfer_judge, transfer_review_store
+            await own_transfer_judge.after_sync(u)  # G442: the API only enqueues the worker
+            await transfer_review_store.refresh(u)
+            # Always stamp sync time so the staleness clock resets even with no new data
+            await cashflow_cache_col.update_one(
+                {"_id": u}, {"$set": {"synced_at": datetime.now()}}, upsert=True,
+            )
+            # trigger="user": an explicit refresh always recomputes the derived
+            # caches, new transactions or not (G159). The `if has_new:` guard
+            # that used to sit here kept a pre-deploy forecast doc alive and
+            # then rebuilt every screen from it, so the tap looked like it had
+            # worked. The gate survives only on the worker's automatic syncs.
+            computed = await recompute_derived_caches(
+                u, new_count=new_count, trigger="user",
+                force=bool(first_sync_runs or finexer_first_runs),
+            )
+            if (first_sync_runs or finexer_first_runs) and computed.get("recomputed") is not True:
+                raise RuntimeError("derived cache compute did not complete")
+            await settle_planned_expenses(u)
+        except Exception:
+            logger.exception("post-sync first figures failed for %s", u)
+            for cid, run in first_sync_runs:
+                await fail_first_sync(connections_col, cid, run)
+            for cid, run in finexer_first_runs:
+                await fail_first_sync(_finexer_consents_col, cid, run)
+            return
+        for cid, run in first_sync_runs:
+            await complete_first_sync(connections_col, cid, run)
+        for cid, run in finexer_first_runs:
+            await complete_first_sync(_finexer_consents_col, cid, run)
         # Categorisation/rules may have shifted things even without new txns.
         # Awaited (not the sync invalidate()'s fire-and-forget bump) so the
         # warm-up below computes against the version this sync just bumped
@@ -340,24 +363,39 @@ async def sync_history(user: dict = Depends(current_user)):
     from_dt = (datetime.now() - timedelta(days=90)).strftime("%Y-%m-%d")
     total   = 0
     total_new_txns = 0
+    first_sync_runs: list[tuple[str, str]] = []
     for conn in conns:
-        ids, new_count = await sync_connection(conn["_id"], uid, from_date=from_dt)
+        ids, new_count = await sync_connection(
+            conn["_id"], uid, from_date=from_dt, first_sync_runs=first_sync_runs,
+        )
         total += len(ids)
         total_new_txns += new_count
 
     async def _post_sync(u, new_count: int):
-        await apply_rules_bulk(u, structural=True)
-        await categorise_others_bg(u)
-        await apply_mirror_rules(u)
-        from app.services import own_transfer_judge, transfer_review_store
-        await own_transfer_judge.after_sync(u)  # G442: the API only enqueues the worker
-        await transfer_review_store.refresh(u)
-        await cashflow_cache_col.update_one(
-            {"_id": u}, {"$set": {"synced_at": datetime.now()}}, upsert=True,
-        )
-        # Explicit Settings action, same rule as sync_all: always recompute.
-        await recompute_derived_caches(u, new_count=new_count, trigger="user")
-        await settle_planned_expenses(u)
+        try:
+            await apply_rules_bulk(u, structural=True)
+            await categorise_others_bg(u)
+            await apply_mirror_rules(u)
+            from app.services import own_transfer_judge, transfer_review_store
+            await own_transfer_judge.after_sync(u)  # G442: the API only enqueues the worker
+            await transfer_review_store.refresh(u)
+            await cashflow_cache_col.update_one(
+                {"_id": u}, {"$set": {"synced_at": datetime.now()}}, upsert=True,
+            )
+            # Explicit Settings action, same rule as sync_all: always recompute.
+            computed = await recompute_derived_caches(
+                u, new_count=new_count, trigger="user", force=bool(first_sync_runs),
+            )
+            if first_sync_runs and computed.get("recomputed") is not True:
+                raise RuntimeError("derived cache compute did not complete")
+            await settle_planned_expenses(u)
+        except Exception:
+            logger.exception("post-history-sync first figures failed for %s", u)
+            for cid, run in first_sync_runs:
+                await fail_first_sync(connections_col, cid, run)
+            return
+        for cid, run in first_sync_runs:
+            await complete_first_sync(connections_col, cid, run)
         # Same pattern as sync_all's own _post_sync: awaited (not the sync
         # invalidate()'s fire-and-forget bump) so the warm-up below computes
         # against the version this sync just bumped to.

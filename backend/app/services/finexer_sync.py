@@ -13,7 +13,10 @@ import httpx
 
 from app.services.account_kinds import finexer_account_kind
 from app.services.finexer_coverage import is_balance_only, is_pot_account
-from app.services.sync_freshness import sync_error_code, sync_in_progress
+from app.services.sync_freshness import (
+    begin_first_sync, complete_first_sync, fail_first_sync,
+    mark_first_sync_computing, sync_error_code, sync_in_progress,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -2365,6 +2368,11 @@ async def finexer_sync_pipeline(
     if is_demo_user(user_id):
         return {"ok": False, "skipped": "demo"}
 
+    # A one-account refresh is deliberately not a consent-level first sync:
+    # it may only fetch a subset and must never release the first figures.
+    first_sync_run = None if only_account_id is not None else await begin_first_sync(
+        finexer_consents_col, consent_id, user_id,
+    )
     try:
         async with sync_in_progress(finexer_consents_col, consent_id):
             # only_account_id is passed only when set, so the consent path's
@@ -2386,22 +2394,47 @@ async def finexer_sync_pipeline(
             )
         except Exception:
             logger.exception("could not stamp last_sync_error for consent %s", consent_id)
+        await fail_first_sync(finexer_consents_col, consent_id, first_sync_run, sync_error_code(exc))
         return {"ok": False, "error": "sync_failed"}
 
-    await apply_rules_bulk(user_id, structural=True)
-    await categorise_others_bg(user_id)
-    await apply_mirror_rules(user_id)
-    # G442: judge the pairs no rule settles (the worker inline; the API enqueues it).
-    from app.services import own_transfer_judge
-    await own_transfer_judge.after_sync(user_id)
-    # G390: decide at sync, serve from storage.
-    from app.services import transfer_review_store
-    await transfer_review_store.refresh(user_id)
+    await mark_first_sync_computing(finexer_consents_col, consent_id, first_sync_run)
 
-    if recompute:
-        from app.services.derived_caches import recompute_derived_caches
-        await recompute_derived_caches(user_id, new_count=new_count, trigger=trigger)
+    try:
+        await apply_rules_bulk(user_id, structural=True)
+        await categorise_others_bg(user_id)
+        await apply_mirror_rules(user_id)
+        # G442: judge the pairs no rule settles (the worker inline; the API enqueues it).
+        from app.services import own_transfer_judge
+        await own_transfer_judge.after_sync(user_id)
+        # G390: decide at sync, serve from storage.
+        from app.services import transfer_review_store
+        await transfer_review_store.refresh(user_id)
+
+        if recompute:
+            from app.services.derived_caches import recompute_derived_caches
+            # The first figures are a readiness boundary, not an ordinary
+            # background refresh.  Force its forecast even when a stale
+            # pre-bank cache happens to exist and this provider returns zero
+            # booked rows on the first pull.
+            result = await recompute_derived_caches(
+                user_id, new_count=new_count,
+                trigger="user" if first_sync_run else trigger,
+                force=bool(first_sync_run),
+            )
+            if first_sync_run and result.get("recomputed") is not True:
+                await fail_first_sync(finexer_consents_col, consent_id, first_sync_run)
+                return {"ok": False, "error": "sync_failed", "first_sync_run": first_sync_run}
+            await complete_first_sync(finexer_consents_col, consent_id, first_sync_run)
+    except Exception:
+        logger.exception("finexer post-sync calculation failed for consent %s user %s", consent_id, user_id)
+        await fail_first_sync(finexer_consents_col, consent_id, first_sync_run)
+        return {"ok": False, "error": "sync_failed", "first_sync_run": first_sync_run}
     if new_count > 0:
         asyncio.create_task(notify_after_sync(user_id, []))
 
-    return {"ok": True, "accounts": len(fetched_ids), "new_transactions": new_count}
+    return {
+        "ok": True, "accounts": len(fetched_ids), "new_transactions": new_count,
+        # The manual all-connections route owns its one shared recompute and
+        # finalises this exact token only after that work has succeeded.
+        "first_sync_run": first_sync_run,
+    }

@@ -141,13 +141,27 @@ class _Spy:
 
     async def __call__(self, *args, **kwargs):
         self.calls.append((args, kwargs))
-        return {}
+        return True
+
+
+def test_recompute_reports_a_swallowed_cashflow_failure(monkeypatch):
+    """A False from the cache writer must remain visible to first-sync finalisers."""
+    async def needs(*_a, **_k):
+        return True, "first_sync"
+
+    async def failed(*_a, **_k):
+        return False
+
+    monkeypatch.setattr(derived_caches, "cache_needs_recompute", needs)
+    monkeypatch.setattr(analytics, "compute_and_cache_cashflow", failed)
+    result = asyncio.run(derived_caches.recompute_derived_caches(UID, new_count=0, trigger="auto"))
+    assert result == {"recomputed": False, "reason": "compute_failed", "failed": True}
 
 
 # ── shared patching for the API's sync_all ───────────────────────────────────
 
 def _patch_sync_all(monkeypatch, cashflow_col: FakeCol, *, truelayer_new: int):
-    async def fake_sync_connection(connection_id, user_id=None, from_date=None):
+    async def fake_sync_connection(connection_id, user_id=None, from_date=None, **_kw):
         return ["acc-1"], truelayer_new
 
     monkeypatch.setattr(accounts_router, "connections_col", FakeCol([{"_id": "conn-1", "user_id": UID}]))
@@ -253,6 +267,68 @@ def test_user_refresh_recomputes_once_after_finexer_pull(monkeypatch):
     assert [o[0] for o in order] == ["pipeline", "pipeline_done", "recompute"]
     assert order[0][1] == {"trigger": "user", "recompute": False, "request_bank_sync": True}
     assert len(shape_spy.calls) == 1
+
+
+def test_manual_sync_defers_first_token_until_shared_compute_and_settlement(monkeypatch):
+    """`recompute=False` pipelines cannot release first figures on raw success."""
+    from app.core.build import engine_build
+
+    col = FakeCol([_fresh_cashflow_doc(UID, engine_build=engine_build())])
+    _patch_sync_all(monkeypatch, col, truelayer_new=0)
+    consents = FakeCol([
+        {"_id": "good", "user_id": UID, "status": "authorized", "last_synced": datetime.now(), "first_sync_pending_run": "good-run"},
+        {"_id": "failed", "user_id": UID, "status": "authorized", "first_sync_pending_run": "failed-run"},
+    ])
+    monkeypatch.setattr(accounts_router, "_finexer_consents_col", consents)
+    order: list[str] = []
+
+    async def pipeline(consent_id, _uid, **_kw):
+        return (
+            {"ok": True, "new_transactions": 0, "first_sync_run": "good-run"}
+            if consent_id == "good"
+            else {"ok": False, "error": "sync_failed", "first_sync_run": "failed-run"}
+        )
+
+    async def computed(*_a, **kw):
+        assert kw["force"] is True
+        order.append("compute")
+        return {"recomputed": True, "reason": "first_sync"}
+
+    async def settled(_uid):
+        # Completion is deliberately after settlement, and only the successful
+        # pipeline token may be released.
+        assert consents.docs["good"]["first_sync_pending_run"] == "good-run"
+        assert consents.docs["failed"]["first_sync_pending_run"] == "failed-run"
+        order.append("settle")
+
+    monkeypatch.setattr(accounts_router, "_finexer_sync_pipeline", pipeline)
+    monkeypatch.setattr(accounts_router, "recompute_derived_caches", computed)
+    monkeypatch.setattr(accounts_router, "settle_planned_expenses", settled)
+
+    asyncio.run(_run_sync_all_and_settle())
+
+    assert order == ["compute", "settle"]
+    assert "first_sync_pending_run" not in consents.docs["good"]
+    assert consents.docs["failed"]["first_sync_pending_run"] == "failed-run"
+
+
+def test_forced_first_sync_compute_bypasses_user_debounce(monkeypatch):
+    from app.core.build import engine_build
+
+    spy = _Spy()
+    monkeypatch.setattr(derived_caches, "cashflow_cache_col", FakeCol([
+        _fresh_cashflow_doc(UID, engine_build=engine_build()),
+    ]))
+    monkeypatch.setattr(analytics, "compute_and_cache_cashflow", spy)
+    monkeypatch.setattr(money_shape, "compute_and_cache_money_shape", _noop)
+
+    asyncio.run(derived_caches.recompute_derived_caches(UID, new_count=0, trigger="user"))
+    forced = asyncio.run(derived_caches.recompute_derived_caches(
+        UID, new_count=0, trigger="user", force=True,
+    ))
+
+    assert forced == {"recomputed": True, "reason": "first_sync"}
+    assert len(spy.calls) == 2
 
 
 # ── 1b. debounce: a rapid second explicit refresh must not recompute twice ──
@@ -373,7 +449,7 @@ def test_sync_all_second_tap_inside_debounce_window_skips_the_recompute(monkeypa
 # ── 2. automatic reconcile, zero new transactions: gate stays ────────────────
 
 def _patch_worker_task(monkeypatch, cashflow_col: FakeCol, *, new_count: int) -> _Spy:
-    async def fake_sync_connection(connection_id, user_id=None, from_date=None):
+    async def fake_sync_connection(connection_id, user_id=None, from_date=None, **_kw):
         return ["acc-1"], new_count
 
     monkeypatch.setattr(sync_worker, "sync_connection", fake_sync_connection)
@@ -447,6 +523,9 @@ def _patch_finexer_pipeline(monkeypatch, cashflow_col: FakeCol, *, new_count: in
         return ["acc-1"], new_count
 
     monkeypatch.setattr(finexer_sync, "sync_finexer_consent", fake_sync_consent)
+    # These legacy pipeline tests exercise recompute policy, not consent
+    # readiness.  Keep their fake raw pull isolated from lifecycle storage.
+    monkeypatch.setattr(finexer_sync, "begin_first_sync", _noop)
     monkeypatch.setattr(categorisation, "apply_rules_bulk", _noop)
     monkeypatch.setattr(categorisation, "categorise_others_bg", _noop)
     monkeypatch.setattr(manual_account_rules, "apply_rules", _noop)
@@ -516,6 +595,7 @@ def test_startup_pass_recomputes_only_docs_from_older_builds(monkeypatch):
         await spy(uid_, *a_, **k_)
         col.docs.setdefault(uid_, {"_id": uid_})
         col.docs[uid_]["engine_build"] = engine_build()
+        return True
 
     monkeypatch.setattr(derived_caches, "cashflow_cache_col", col)
     monkeypatch.setattr(derived_caches, "transactions_col", txns)
@@ -547,6 +627,7 @@ def test_startup_pass_survives_one_user_failing(monkeypatch):
             raise RuntimeError("boom")
         col.docs.setdefault(uid, {"_id": uid})
         col.docs[uid]["engine_build"] = engine_build()
+        return True
 
     monkeypatch.setattr(derived_caches, "cashflow_cache_col", col)
     monkeypatch.setattr(derived_caches, "transactions_col", txns)

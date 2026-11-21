@@ -18,7 +18,7 @@ from app.core.config import (
 from app.core.signin_handoff import bank_error_response, bank_handoff_html, signin_handoff_csp
 from app.core.subscription import check_connection_limit, check_open_banking_allowed
 from app.db.collections import connections_col
-from app.services.truelayer_sync import save_connection, sync_connection
+from app.services.truelayer_sync import save_connection, sync_connection_with_derived
 
 router = APIRouter(tags=["truelayer"])
 
@@ -100,7 +100,7 @@ async def truelayer_callback(code: str = "", state: Optional[str] = None, error:
 
     conn_doc = await connections_col.find_one({"_id": connection_id}, {"user_id": 1})
     user_id  = (conn_doc or {}).get("user_id", "unknown")
-    asyncio.create_task(sync_connection(connection_id, user_id))
+    asyncio.create_task(sync_connection_with_derived(connection_id, user_id))
 
     if native:
         return _bank_page(True, "truelayer", connection_id, auto_return=True)
