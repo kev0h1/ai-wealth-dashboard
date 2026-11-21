@@ -349,7 +349,7 @@ Do not run railway up, vercel deploy, git push to release, or set variables by a
 
 Apple warned on build 58 (ITMS-90725) that from April 2027 uploads must be built with the iOS 27 SDK (Xcode 27 or later). Delivery works today.
 
-**Decision (2026-11-21).** Do not rely on `xcode: latest`. Codemagic keeps `latest` on Xcode 26.6 and announces a major move on its GitHub Discussions page, so it would change under us at a time we do not choose. Instead:
+**Decision (2026-11-21).** Do not rely on `xcode: latest`. Codemagic's [Xcode update policy](https://docs.codemagic.io/specs/xcode-update-policy/) says it does not point `latest` at a new major version immediately and announces the date on its GitHub Discussions page, so `latest` would change under us at a time we do not choose. Instead:
 
 - `ios-capacitor` (UAT) is pinned to `xcode: 27.2` in `codemagic.yaml` (Codemagic resolves it to the newest 27.2.x patch; 27.0, 27.1 and 27.3 also exist). This is the first Xcode 27 build.
 - `ios-capacitor-prod` stays on `xcode: latest` until Kevin has verified a TestFlight build from the UAT workflow (checklist below). Then pin it to the same version, in one commit, and update this section. Do this before April 2027, ideally before February.
@@ -369,12 +369,12 @@ Apple warned on build 58 (ITMS-90725) that from April 2027 uploads must be built
 
 **Known risks for the first Xcode 27 build** (found by desk review, no Mac available):
 
-- `SceneDelegate.swift` in Capacitor 8.5's template sets `window.rootViewController = CAPBridgeViewController()` in code, which can replace the storyboard's `SortedBridgeViewController`. The SortedNotifications plugin is still registered through `packageClassList` (setup-ios-notifications.sh), so check item 5 above; if it fails, patch SceneDelegate to use `SortedBridgeViewController()`.
+- `SceneDelegate.swift` in Capacitor 8.5's template sets `window?.rootViewController = CAPBridgeViewController()` in code, which bypasses the storyboard's `SortedBridgeViewController`. This is a known code path in today's builds too, not only Xcode 27, and may be behind G466/G478. `scripts/setup-ios-notifications.sh` now rewrites that line to `SortedBridgeViewController()` and fails the build if the template text moved. `packageClassList` registration stays as belt-and-braces. Still check the notification row on TestFlight.
 - The AppDelegate push and privacy patches match on `AppDelegate.swift` text. Capacitor 8.5's template is scene based; the push token callbacks stay on AppDelegate, but confirm both patch steps still report success in the log.
 - Swift 6 strict concurrency is not on (the template sets `SWIFT_VERSION = 5.0`), so `SortedNotificationsPlugin` should compile; moving to Swift 6 mode would flag the non-Sendable `CAPPluginCall` captures.
 - `@capgo/native-purchases` 8.9.6 documents StoreKit 2 on iOS 15 and later but states nothing about Xcode 27; Apple forum reports mention StoreKit test session problems in early 27 betas. Treat StoreKit as the highest-risk check.
 - Deployment target is 15.0 from the template; Xcode 27 still builds it, but Apple may raise the floor later.
-- Apple has signalled that `UIRequiresFullScreen` and `UIDesignRequiresCompatibility` are being phased out; neither is set in our Info.plist.
+- Apple has not said publicly how `UIRequiresFullScreen` and `UIDesignRequiresCompatibility` will be treated for the iOS 27 SDK; neither is set in our Info.plist, so watch the first build's warnings.
 
 ## G270: shared instrument prices migration (once per environment)
 

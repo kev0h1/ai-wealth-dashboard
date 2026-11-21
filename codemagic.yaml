@@ -142,9 +142,9 @@ workflows:
     environment:
       # C44: UAT is pinned to Xcode 27.2 (iOS 27 SDK) so the first Xcode 27
       # build is deliberate and visible. Apple rejects uploads built with an
-      # older SDK from April 2027 (ITMS-90725). Codemagic keeps `latest` on
-      # Xcode 26.6 and announces any move on GitHub Discussions, so `latest`
-      # would not reach Xcode 27 on its own at a time we choose. Production
+      # older SDK from April 2027 (ITMS-90725). Codemagic does not point
+      # `latest` at a new major immediately and announces the date on GitHub
+      # Discussions, so `latest` would move at a time we do not choose. Production
       # stays on `latest` until Kevin has verified a TestFlight build from
       # this workflow (checklist in docs/ops/RELEASE.md, "iOS: Xcode 27").
       # `27.2` resolves to the newest 27.2.x patch on Codemagic.
@@ -568,7 +568,7 @@ workflows:
       cancel_previous_builds: true
     integrations: *shared_integrations
     environment:
-      # C44: production stays on `latest` (currently Xcode 26.6) until Kevin
+      # C44: production stays on `latest` until Kevin
       # has verified a TestFlight build from ios-capacitor on Xcode 27.2.
       # Then change this to `xcode: 27.2` (or later) and update the decision
       # note in docs/ops/RELEASE.md. Must be done before April 2027.

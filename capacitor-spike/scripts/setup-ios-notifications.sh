@@ -10,8 +10,9 @@ STORYBOARD="${APP_DIR}/Base.lproj/Main.storyboard"
 CAP_CONFIG="${APP_DIR}/capacitor.config.json"
 SRC="${SPIKE_DIR}/native-notifications/ios/SortedNotificationsPlugin.swift"
 DEST="${APP_DIR}/SortedNotificationsPlugin.swift"
+SCENE_DELEGATE="${APP_DIR}/SceneDelegate.swift"
 
-[[ -f "${PROJECT}" && -f "${STORYBOARD}" && -f "${CAP_CONFIG}" ]] || { echo "ERROR: Capacitor iOS project missing. Run 'npx cap add ios' first." >&2; exit 1; }
+[[ -f "${PROJECT}" && -f "${STORYBOARD}" && -f "${CAP_CONFIG}" && -f "${SCENE_DELEGATE}" ]] || { echo "ERROR: Capacitor iOS project missing. Run 'npx cap add ios' first." >&2; exit 1; }
 cp "${SRC}" "${DEST}"
 
 python3 - "${PROJECT}" "${STORYBOARD}" "${CAP_CONFIG}" <<'PY'
@@ -67,6 +68,25 @@ if "SortedNotificationsPlugin" not in classes:
 json.dump(cfg, open(cap_config, "w"), indent="\t")
 open(cap_config, "a").write("\n")
 PY
+
+# C44: Capacitor 8.5's SceneDelegate builds the root view controller in code
+# (`CAPBridgeViewController()`), which bypasses the storyboard's
+# SortedBridgeViewController (and its capacitorDidLoad registration of
+# SortedNotificationsPlugin). Point it at our subclass. Idempotent: a second
+# run finds the rewritten line and changes nothing; the asserts below fail the
+# build loudly if the template text moved or the rewrite did not land.
+python3 - "${SCENE_DELEGATE}" <<'PY'
+import sys
+path = sys.argv[1]
+src = open(path).read()
+old = "window?.rootViewController = CAPBridgeViewController()"
+new = "window?.rootViewController = SortedBridgeViewController()"
+if old in src:
+    src = src.replace(old, new)
+    open(path, "w").write(src)
+PY
+grep -q "window?.rootViewController = SortedBridgeViewController()" "${SCENE_DELEGATE}" || { echo "ERROR: SceneDelegate.swift does not create SortedBridgeViewController; Capacitor's template changed" >&2; exit 1; }
+! grep -q "rootViewController = CAPBridgeViewController()" "${SCENE_DELEGATE}" || { echo "ERROR: SceneDelegate.swift still creates CAPBridgeViewController" >&2; exit 1; }
 
 grep -q "SortedNotificationsPlugin.swift in Sources" "${PROJECT}" || { echo "ERROR: notification Swift source was not added to the Xcode Sources phase" >&2; exit 1; }
 grep -q 'customClass="SortedBridgeViewController".*customModule="App".*customModuleProvider="target"' "${STORYBOARD}" || { echo "ERROR: notification bridge controller is not bound to the App target" >&2; exit 1; }
