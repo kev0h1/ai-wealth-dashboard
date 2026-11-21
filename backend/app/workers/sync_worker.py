@@ -34,6 +34,7 @@ from app.services.investment_prices import refresh_all_instruments
 from app.workers.ai_worker import task_refresh_savings_insights
 from app.services.retention import run_retention_sweep
 from app.services.safe_to_spend_history import run_safe_to_spend_snapshot
+from app.services.sync_freshness import complete_first_sync, fail_first_sync
 
 from app.core.log_config import configure_diagnostic_logging
 
@@ -131,19 +132,33 @@ async def task_sync_truelayer(ctx, connection_id: str, user_id: str):
         return {"skipped": "demo"}
     if await open_banking_paused(user_id, fail_closed=True):
         return {"skipped": "open_banking_paused"}
-    ids, new_count = await sync_connection(connection_id, user_id)
-    await apply_rules_bulk(user_id, structural=True)
-    await categorise_others_bg(user_id)
-    await apply_mirror_rules(user_id)
-    from app.services import own_transfer_judge  # G442: judge the pairs no rule settles
-    await own_transfer_judge.after_sync(user_id)
-    # trigger="auto": the reconcile cron and webhook syncs keep the
-    # new-transactions gate (a recompute is ~1.3 s of CPU plus a Haiku call
-    # per user, see app.services.derived_caches), but also recompute a cache
-    # doc that is missing or was written by an older engine build, so a
-    # deploy can never sit invisible behind the cache (G159).
-    from app.services.derived_caches import recompute_derived_caches
-    await recompute_derived_caches(user_id, new_count=new_count, trigger="auto")
+    first_sync_runs: list[tuple[str, str]] = []
+    ids, new_count = await sync_connection(connection_id, user_id, first_sync_runs=first_sync_runs)
+    try:
+        await apply_rules_bulk(user_id, structural=True)
+        await categorise_others_bg(user_id)
+        await apply_mirror_rules(user_id)
+        from app.services import own_transfer_judge  # G442: judge the pairs no rule settles
+        await own_transfer_judge.after_sync(user_id)
+        # trigger="auto": the reconcile cron and webhook syncs keep the
+        # new-transactions gate (a recompute is ~1.3 s of CPU plus a Haiku call
+        # per user, see app.services.derived_caches), but also recompute a cache
+        # doc that is missing or was written by an older engine build, so a
+        # deploy can never sit invisible behind the cache (G159).
+        from app.services.derived_caches import recompute_derived_caches
+        computed = await recompute_derived_caches(
+            user_id, new_count=new_count,
+            trigger="user" if first_sync_runs else "auto",
+            force=bool(first_sync_runs),
+        )
+        if first_sync_runs and computed.get("recomputed") is not True:
+            raise RuntimeError("derived cache compute did not complete")
+    except Exception:
+        for cid, run in first_sync_runs:
+            await fail_first_sync(connections_col, cid, run)
+        raise
+    for cid, run in first_sync_runs:
+        await complete_first_sync(connections_col, cid, run)
     await _enqueue_weekly_insight_refresh(ctx, user_id)
     await _warm_after_sync(user_id)
     return {"synced": len(ids), "new_transactions": new_count}

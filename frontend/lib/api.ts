@@ -3527,8 +3527,10 @@ export type MiscategorisedCount = { count: number; ids: string[]; pair_count?: n
 
 export type SyncStatus = {
   state: "idle" | "syncing" | "stalled" | "failed";
-  /** True only when no connection has ever synced (a genuine first sync). */
+  /** True until a connection's first pull and mandatory calculations finish. */
   first_sync?: boolean;
+  /** Includes settled connections, which are absent from the progress rows. */
+  has_connections?: boolean;
   /** A182: present (true) only when the bank reconfirmation prompt is switched on. */
   reconfirm_prompt_enabled?: boolean;
   connections: {
@@ -3541,6 +3543,7 @@ export type SyncStatus = {
     state?: "syncing" | "stalled" | "failed";
     /** G214: "new-bank" never synced; "background" is a re-sync of a bank that has data. */
     kind?: "new-bank" | "background";
+    phase?: "fetching" | "computing";
     /** G214: when this connection last synced (background rows only). */
     last_synced?: string | null;
   }[];
