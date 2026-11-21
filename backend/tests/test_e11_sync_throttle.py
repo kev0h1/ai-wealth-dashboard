@@ -28,9 +28,14 @@ class Cursorless:
                 continue
             if filt.get("status") and d.get("status") != filt["status"]:
                 continue
-            if "last_synced" in filt and (("last_synced" in d) != filt["last_synced"]["$exists"]):
+            for field in ("last_synced", "first_sync_pending_run"):
+                if field in filt and isinstance(filt[field], dict) and "$exists" in filt[field]:
+                    if ((field in d) != filt[field]["$exists"]):
+                        break
+            else:
+                n += 1
                 continue
-            n += 1
+            continue
         return n
 
     async def find_one_and_update(self, filt, upd, upsert=False):
@@ -78,6 +83,16 @@ def test_other_user_has_own_window(cols):
 def test_first_sync_after_connect_is_exempt(monkeypatch, cols):
     monkeypatch.setattr(colls, "finexer_consents_col", Cursorless([
         {"_id": "f", "user_id": UID, "status": "authorized"}]))  # never synced
+    assert run(sync_throttle.check_user_sync(UID, T0)) == 0
+    assert run(sync_throttle.check_user_sync(UID, T0 + timedelta(seconds=1))) == 0
+    assert cols.docs == {}
+
+
+def test_first_compute_pending_is_exempt_after_raw_sync(monkeypatch, cols):
+    monkeypatch.setattr(colls, "finexer_consents_col", Cursorless([{
+        "_id": "f", "user_id": UID, "status": "authorized", "last_synced": T0,
+        "first_sync_pending_run": "compute-run",
+    }]))
     assert run(sync_throttle.check_user_sync(UID, T0)) == 0
     assert run(sync_throttle.check_user_sync(UID, T0 + timedelta(seconds=1))) == 0
     assert cols.docs == {}

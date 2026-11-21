@@ -5,9 +5,10 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 import httpx
 
-from app.services.sync_freshness import sync_error_code, sync_in_progress
-
-logger = logging.getLogger(__name__)
+from app.services.sync_freshness import (
+    begin_first_sync, complete_first_sync, fail_first_sync,
+    mark_first_sync_computing, sync_error_code, sync_in_progress,
+)
 
 from app.core.config import (
     TRUELAYER_AUTH_URL, TRUELAYER_API_URL,
@@ -20,6 +21,29 @@ from app.services.categorisation import rule_categorise_directed, user_identity,
 from app.services.pending_transactions import replace_pending_for_account
 from app.services.derived_caches import TXN_MATERIAL_PROJECTION, mark_stale, txn_materially_changed
 from pymongo import ReturnDocument
+
+logger = logging.getLogger(__name__)
+
+
+class _FirstSyncIncomplete(RuntimeError):
+    """A mandatory raw first-pull response was absent or failed.
+
+    Established syncs preserve their historical best-effort behaviour, but a
+    first connection cannot publish readiness from partial or empty facts.
+    """
+
+
+def _endpoint_not_supported(response) -> bool:
+    """TrueLayer's documented 501 for an unsupported account category.
+
+    https://docs.truelayer.com/docs/data-api-errors
+    """
+    if response.status_code != 501:
+        return False
+    try:
+        return response.json().get("error") == "endpoint_not_supported"
+    except Exception:
+        return False
 
 
 def _parse_iso_utc(s: Optional[str]) -> Optional[datetime]:
@@ -216,7 +240,13 @@ async def cull_orphaned_connections(grace_hours: int = 24) -> int:
     return deleted
 
 
-async def sync_connection(connection_id: str, user_id: Optional[str] = None, from_date: Optional[str] = None) -> list:
+async def sync_connection(
+    connection_id: str,
+    user_id: Optional[str] = None,
+    from_date: Optional[str] = None,
+    *,
+    first_sync_runs: Optional[list[tuple[str, str]]] = None,
+) -> list:
     """Fetch accounts + cards + transactions for one TrueLayer connection.
 
     G210: a raised error is stamped on the connection (`last_sync_error`) so
@@ -226,15 +256,20 @@ async def sync_connection(connection_id: str, user_id: Optional[str] = None, fro
     from app.core.demo import is_demo_user  # C43: never sync the demo identity
     if is_demo_user(user_id):
         return [], 0
+    first_sync_run = await begin_first_sync(connections_col, connection_id, user_id or "unknown")
     try:
         async with sync_in_progress(connections_col, connection_id):
-            result = await _sync_connection(connection_id, user_id, from_date)
+            strict = {"require_complete": True} if first_sync_run else {}
+            result = await _sync_connection(connection_id, user_id, from_date, **strict)
             # The OAuth callback calls this directly, without the accounts
             # router's bulk classification pass. Revisit earlier rows once the
             # newly connected bank has supplied the missing counterpart.
             if user_id:
                 from app.services.own_account_transfers import reconcile_own_account_transfers
                 await reconcile_own_account_transfers(user_id)
+            await mark_first_sync_computing(connections_col, connection_id, first_sync_run)
+            if first_sync_run and first_sync_runs is not None:
+                first_sync_runs.append((connection_id, first_sync_run))
             return result
     except Exception as exc:
         try:
@@ -247,10 +282,53 @@ async def sync_connection(connection_id: str, user_id: Optional[str] = None, fro
             )
         except Exception:
             logger.exception("could not stamp last_sync_error for connection %s", connection_id)
+        await fail_first_sync(connections_col, connection_id, first_sync_run, sync_error_code(exc))
         raise
 
 
-async def _sync_connection(connection_id: str, user_id: Optional[str] = None, from_date: Optional[str] = None) -> list:
+async def sync_connection_with_derived(connection_id: str, user_id: str) -> tuple[list, int]:
+    """OAuth callback path: do not stop at a raw first-bank pull.
+
+    The regular worker and manual routes own their wider batching differently,
+    but a callback has exactly one connection and must still finish the same
+    rules plus confirmed forecast before releasing first-sync loading state.
+    """
+    first_sync_runs: list[tuple[str, str]] = []
+    ids, new_count = await sync_connection(
+        connection_id, user_id, first_sync_runs=first_sync_runs,
+    )
+    try:
+        from app.services.categorisation import apply_rules_bulk, categorise_others_bg
+        from app.services.manual_account_rules import apply_rules as apply_mirror_rules
+        from app.services import own_transfer_judge
+        from app.services.derived_caches import recompute_derived_caches
+
+        await apply_rules_bulk(user_id, structural=True)
+        await categorise_others_bg(user_id)
+        await apply_mirror_rules(user_id)
+        await own_transfer_judge.after_sync(user_id)
+        result = await recompute_derived_caches(
+            user_id, new_count=new_count,
+            trigger="user" if first_sync_runs else "auto",
+            force=bool(first_sync_runs),
+        )
+        if first_sync_runs and result.get("recomputed") is not True:
+            for cid, run in first_sync_runs:
+                await fail_first_sync(connections_col, cid, run)
+            return ids, new_count
+        for cid, run in first_sync_runs:
+            await complete_first_sync(connections_col, cid, run)
+        return ids, new_count
+    except Exception:
+        for cid, run in first_sync_runs:
+            await fail_first_sync(connections_col, cid, run)
+        raise
+
+
+async def _sync_connection(
+    connection_id: str, user_id: Optional[str] = None, from_date: Optional[str] = None,
+    *, require_complete: bool = False,
+) -> list:
     token = await get_valid_token(connection_id)
     if not token:
         # Dead consent: flag every account on this connection so the
@@ -259,6 +337,8 @@ async def _sync_connection(connection_id: str, user_id: Optional[str] = None, fr
             {"connection_id": connection_id},
             {"$set": {"status": "expired"}},
         )
+        if require_complete:
+            raise _FirstSyncIncomplete("TrueLayer consent has no valid token")
         return [], 0
 
     conn_doc = await connections_col.find_one({"_id": connection_id}, {"user_id": 1, "last_synced": 1, "excluded_accounts": 1})
@@ -313,6 +393,16 @@ async def _sync_connection(connection_id: str, user_id: Optional[str] = None, fr
             client.get(f"{TRUELAYER_API_URL}/data/v1/cards", headers=headers),
             client.get(f"{TRUELAYER_API_URL}/data/v1/me", headers=headers),
         )
+
+        accounts_supported = accs_r.status_code == 200
+        cards_supported = cards_r.status_code == 200
+        if require_complete:
+            accounts_unsupported = _endpoint_not_supported(accs_r)
+            cards_unsupported = _endpoint_not_supported(cards_r)
+            if (not accounts_supported and not accounts_unsupported) or (not cards_supported and not cards_unsupported):
+                raise _FirstSyncIncomplete("TrueLayer account enumeration failed")
+            if not (accounts_supported or cards_supported):
+                raise _FirstSyncIncomplete("TrueLayer returned no supported account endpoint")
 
         # Store TrueLayer's own identifiers — webhooks reference credentials_id,
         # not our internal connection id.
@@ -378,13 +468,19 @@ async def _sync_connection(connection_id: str, user_id: Optional[str] = None, fr
                         balance    = res[0].get("current", 0.0)
                         available  = res[0].get("available")
                         balance_ok = True
+                    elif require_complete:
+                        raise _FirstSyncIncomplete("TrueLayer account balance was empty")
                 else:
                     logger.warning("Balance fetch failed for account %s: HTTP %s", account_id, br.status_code)
+                    if require_complete:
+                        raise _FirstSyncIncomplete("TrueLayer account balance failed")
                 if tr.status_code == 200:
                     new = await _upsert_transactions(tr.json().get("results", []), account_id, user_id, identity=identity)
                     all_new_txns.extend(new)
                 else:
                     logger.warning("Transaction fetch failed for account %s: HTTP %s", account_id, tr.status_code)
+                    if require_complete:
+                        raise _FirstSyncIncomplete("TrueLayer account transactions failed")
                 # Bank-side PENDING transactions (see app/services/
                 # pending_transactions.py) — only acted on when the fetch
                 # succeeds; a failed fetch must never wipe a genuinely
@@ -403,6 +499,8 @@ async def _sync_connection(connection_id: str, user_id: Optional[str] = None, fr
                     logger.warning("Pending transaction fetch failed for account %s: HTTP %s", account_id, pr.status_code)
             except Exception:
                 logger.exception("Sync error for account %s", account_id)
+                if require_complete:
+                    raise
             # Never overwrite a known balance with 0 from a failed fetch
             balance_fields = {"balance": balance, "available": available, "balance_as_of": datetime.now(timezone.utc)} if balance_ok else {}  # naive-ok: persisted UTC instant, not a calendar day
             await accounts_col.update_one({"_id": account_id}, {
@@ -449,15 +547,23 @@ async def _sync_connection(connection_id: str, user_id: Optional[str] = None, fr
                         balance    = -float(res[0].get("current", 0.0) or 0.0)
                         available  = res[0].get("available")
                         balance_ok = True
+                    elif require_complete:
+                        raise _FirstSyncIncomplete("TrueLayer card balance was empty")
                 else:
                     logger.warning("Balance fetch failed for card %s: HTTP %s", card_id, cbr.status_code)
+                    if require_complete:
+                        raise _FirstSyncIncomplete("TrueLayer card balance failed")
                 if ctr.status_code == 200:
                     new = await _upsert_transactions(ctr.json().get("results", []), card_id, user_id, is_card=True, identity=identity)
                     all_new_txns.extend(new)
                 else:
                     logger.warning("Transaction fetch failed for card %s: HTTP %s", card_id, ctr.status_code)
+                    if require_complete:
+                        raise _FirstSyncIncomplete("TrueLayer card transactions failed")
             except Exception:
                 logger.exception("Sync error for card %s", card_id)
+                if require_complete:
+                    raise
             balance_fields = {"balance": balance, "available": available, "balance_as_of": datetime.now(timezone.utc)} if balance_ok else {}  # naive-ok: persisted UTC instant, not a calendar day
             await accounts_col.update_one({"_id": card_id}, {
                 "$set": {
@@ -486,6 +592,8 @@ async def _sync_connection(connection_id: str, user_id: Optional[str] = None, fr
             *[_sync_card(c) for c in card_accs],
             return_exceptions=True,
         )
+        if require_complete and any(isinstance(r, BaseException) for r in results):
+            raise _FirstSyncIncomplete("TrueLayer account fetch did not complete")
         fetched = [r for r in results if isinstance(r, str)]
 
         await connections_col.update_one(

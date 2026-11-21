@@ -35,7 +35,14 @@ async def _first_sync_pending(uid: str) -> bool:
     q = {"user_id": uid, "last_synced": {"$exists": False}}
     if await connections_col.count_documents(q, limit=1):
         return True
-    return bool(await finexer_consents_col.count_documents({**q, "status": "authorized"}, limit=1))
+    if await finexer_consents_col.count_documents({**q, "status": "authorized"}, limit=1):
+        return True
+    # G485: a raw pull can have stamped last_synced while the very first
+    # figures are still being calculated.  Its retry must remain exempt too.
+    marker = {"user_id": uid, "first_sync_pending_run": {"$exists": True}}
+    if await connections_col.count_documents(marker, limit=1):
+        return True
+    return bool(await finexer_consents_col.count_documents({**marker, "status": "authorized"}, limit=1))
 
 
 async def check_user_sync(uid: str, now: Optional[datetime] = None) -> int:

@@ -37,6 +37,9 @@ import UnlinkedGoalPlans from "@/components/upcoming/UnlinkedGoalPlans";
 import { assessPlanOverlap, hasPlanSource, isPlanSourceAccount, plansFromApi } from "@/lib/upcomingPlans";
 import { upcomingDisplayName } from "@/lib/upcomingDisplayName";
 import SetAsideList, { type SetAsideItem } from "@/components/upcoming/SetAsideList";
+import { useFirstSync } from "@/lib/useFirstSync";
+import FirstSyncCard from "@/components/FirstSyncCard";
+import FirstSyncStatus from "@/components/FirstSyncStatus";
 
 // Editing flows are not needed to understand the initial runway. Keeping them
 // out of the first Planning bundle makes the forecast usable sooner while the
@@ -199,6 +202,7 @@ export default function PlanningPage() {
   const { icons: iconOverrides } = useCategoryIcons();
   const router = useRouter();
   const searchParams = useSearchParams();
+  const firstSync = useFirstSync(reloadAfterFirstSync);
   const [planningNow] = useState(() => Date.now());
   // Penny screen context (B39) — the runway hero's own three headline
   // values (`runway`/`runwayStatus`/`isCalendarMonth`) are computed deep
@@ -218,7 +222,7 @@ export default function PlanningPage() {
   // number, so there is nothing to quote either.
   const pennyRunwayRef = useRef<UpcomingRunwayInput | undefined>(undefined);
   useEffect(() => {
-    setPennyScreenView("upcoming", pennyRunwayRef.current ? buildUpcomingRunwayView(pennyRunwayRef.current) : null);
+    setPennyScreenView("upcoming", !firstSync.pending && !firstSync.active && pennyRunwayRef.current ? buildUpcomingRunwayView(pennyRunwayRef.current) : null);
   });
 
   const [cashflow, setCashflow] = useState<CashflowData | null>(null);
@@ -234,7 +238,7 @@ export default function PlanningPage() {
   // Tour readiness — the runway hero and the upcoming list both read off
   // `cashflow`, so the tour must wait for it (or a genuine fetch error) the
   // same way upcomingBlock's own cashflowError/!cashflow gate does above.
-  useTutorialReady("upcoming", !!cashflow || cashflowError);
+  useTutorialReady("upcoming", !firstSync.pending && !firstSync.active && (!!cashflow || cashflowError));
 
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -282,14 +286,18 @@ export default function PlanningPage() {
   // can still wait for the browser's first idle slot instead of competing with
   // the forecast for initial render time.
   useEffect(() => {
-    api.cashflowWithForecast().then(setCashflow).catch(() => setCashflowError(true));
-  }, []);
+    if (firstSync.pending || firstSync.active) return;
+    let cancelled = false;
+    api.cashflowWithForecast().then((v) => { if (!cancelled) { setCashflow(v); setCashflowError(false); } }).catch(() => { if (!cancelled) setCashflowError(true); });
+    return () => { cancelled = true; };
+  }, [firstSync.pending, firstSync.active]);
 
   // E18: a forecast served stale while the worker recomputes is refetched once,
   // quietly, about five seconds later. The ref spends the single retry; a fresh
   // response re-arms it for the next correction.
   const staleRetried = useRef(false);
   useEffect(() => {
+    if (firstSync.pending || firstSync.active) return;
     if (cashflow && cashflow.cashflow_stale !== true) staleRetried.current = false;
     if (!shouldRefetchStaleCashflow(cashflow, staleRetried.current)) return;
     return scheduleStaleCashflowRefetch(
@@ -301,9 +309,10 @@ export default function PlanningPage() {
       },
       () => { staleRetried.current = true; },
     );
-  }, [cashflow]);
+  }, [cashflow, firstSync.pending, firstSync.active]);
 
   useEffect(() => {
+    if (firstSync.pending || firstSync.active) return;
     const idleWindow = window as Window & {
       requestIdleCallback?: (callback: IdleRequestCallback, options?: IdleRequestOptions) => number;
       cancelIdleCallback?: (handle: number) => void;
@@ -334,7 +343,19 @@ export default function PlanningPage() {
     }
     const timer = window.setTimeout(loadSecondary, 150);
     return () => window.clearTimeout(timer);
-  }, []);
+  }, [firstSync.pending, firstSync.active]);
+
+  async function reloadAfterFirstSync() {
+    setCashflowError(false);
+    setCashflow(null);
+    await Promise.all([
+      api.cashflowWithForecast().then(setCashflow),
+      getAccountsCached(true).then(setAccounts).catch(() => {}),
+      api.listAllocations().then((v) => { setAllocations(v); setAllocationsError(false); }).catch(() => setAllocationsError(true)),
+      api.listAccountPlans().then((v) => { setAccountPlans(v); setAccountPlansError(false); }).catch(() => setAccountPlansError(true)),
+      api.getToday().then((today) => { setAccountEligibility(today.account_eligibility ?? null); setTodayItems(today.items ?? null); }).catch(() => {}),
+    ]);
+  }
 
   // Refreshes both the allocations list (for the cards) and cashflow (for
   // the "remaining" figures the TO LAST subline/arithmetic reads) after a
@@ -711,7 +732,17 @@ export default function PlanningPage() {
   pennyRunwayRef.current = undefined;
   const upcomingBlock = (
     <>
-      {cashflowError ? (
+      {firstSync.pending ? (
+        <FirstSyncStatus error={firstSync.error} figuresError={firstSync.figuresError} onRetry={() => { void firstSync.refresh(); }} />
+      ) : firstSync.active ? (
+        <FirstSyncCard
+          surface="upcoming"
+          state={firstSync.status!.state as "syncing" | "stalled" | "failed"}
+          connections={firstSync.status!.connections}
+          retrying={firstSync.retrying}
+          onRetry={() => { void firstSync.retry(); }}
+        />
+      ) : cashflowError ? (
         <div className="flex flex-col items-center justify-center gap-2 py-16 text-center">
           <p className="text-sm text-slate-500 dark:text-slate-400">Couldn&apos;t load what&apos;s coming.</p>
           <button

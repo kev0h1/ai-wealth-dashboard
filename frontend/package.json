@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "check:g486-upcoming-available": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g486-upcoming-available.test.mjs",
+    "check:g485-first-sync": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g485-first-sync.test.mjs",
     "check:g483-welcome-screen": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g483-welcome-screen.test.mjs",
     "check:g476-card-plan-history": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g476-card-plan-history.test.mjs",
     "check:g475-card-plans": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g475-card-plans.test.mjs",
@@ -19,6 +20,7 @@
     "check:g478-accounts-add-layer": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g478-accounts-add-layer.test.mjs",
     "check:g466-ios-notifications-plugin": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g466-ios-notifications-plugin.test.mjs",
     "check:g409-notifications": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g409-notifications.test.mjs",
+    "check:h158-category-icons": "node scripts/h158-category-icons.test.mjs",
     "check:g450-category-icons": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g450-category-icons.test.mjs",
     "check:g381-card-payment-option": "node scripts/g381-card-payment-option.test.mjs",
     "check:g432-nav-and-income-scroll": "node scripts/g432-nav-and-income-scroll.test.mjs",

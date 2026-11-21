@@ -222,6 +222,9 @@ def test_webhook_sync_task_marks_stale(_env, monkeypatch):
 
     monkeypatch.setattr(finexer_sync, "sync_finexer_consent", fake_consent_sync)
     monkeypatch.setattr(finexer_sync, "sync_in_progress", fake_inprog)
+    # This fixture models an established webhook refresh. First-run readiness
+    # has its own storage-isolated coverage in test_first_sync_state.py.
+    monkeypatch.setattr(finexer_sync, "begin_first_sync", noop)
     monkeypatch.setattr(categorisation, "apply_rules_bulk", noop)
     monkeypatch.setattr(categorisation, "categorise_others_bg", noop)
     monkeypatch.setattr(mar, "apply_rules", noop)

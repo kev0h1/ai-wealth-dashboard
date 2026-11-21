@@ -71,6 +71,15 @@ class FakeCol:
                 return d
         return None
 
+    def find(self, query=None, projection=None):
+        query = query or {}
+
+        async def rows():
+            for d in self.docs:
+                if self._match(d, query):
+                    yield d
+        return rows()
+
     async def update_one(self, filt, update, upsert=False):
         for d in self.docs:
             if self._match(d, filt):
@@ -123,6 +132,9 @@ def _wire_common(monkeypatch):
         {"_id": "fx-a51", "user_id": "u-a51", "status": "authorized", "last_synced": None},
     ])
     monkeypatch.setattr(finexer_sync, "finexer_consents_col", consents)
+    import app.services.sync_freshness as sync_freshness
+    monkeypatch.setattr(sync_freshness, "finexer_consents_col", consents)
+    monkeypatch.setattr(sync_freshness, "connections_col", FakeCol())
 
     async def _no_user_identity(uid):
         return None
