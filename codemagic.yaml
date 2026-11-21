@@ -785,7 +785,7 @@ workflows:
           # the two Android workflows or the manual first upload.
           LATEST=$(google-play get-latest-build-number \
             --package-name co.uk.auriqltd.sorted \
-            --credentials "$GCLOUD_SERVICE_ACCOUNT_CREDENTIALS") || { echo "ERROR: google-play get-latest-build-number failed. Check the service account has access to co.uk.auriqltd.sorted in Play Console. Refusing to guess a versionCode."; exit 1; }
+            --credentials "@env:GCLOUD_SERVICE_ACCOUNT_CREDENTIALS") || { echo "ERROR: google-play get-latest-build-number failed. Check the service account has access to co.uk.auriqltd.sorted in Play Console. Refusing to guess a versionCode."; exit 1; }
           case "$LATEST" in
             ''|*[!0-9]*)
               echo "ERROR: google-play get-latest-build-number returned a non-numeric or empty value ('$LATEST'). Refusing to fall back to \$BUILD_NUMBER."

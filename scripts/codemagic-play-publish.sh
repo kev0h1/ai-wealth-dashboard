@@ -14,8 +14,9 @@
 # WITH the flag. Any other failure fails the step at once, with no retry.
 #
 # Credentials: GCLOUD_SERVICE_ACCOUNT_CREDENTIALS (Codemagic group
-# google_play), passed with --credentials exactly as the versionCode step does.
-# The value is never echoed. Runs on macOS bash 3.2 (Codemagic mac_mini_m2).
+# google_play), passed as `--credentials @env:GCLOUD_SERVICE_ACCOUNT_CREDENTIALS`
+# so the secret never appears in the process argument list (the cli-tools docs
+# define the @env: prefix for --credentials). The value is never echoed. Runs on macOS bash 3.2 (Codemagic mac_mini_m2).
 #
 # Test hooks: AAB_GLOB overrides the bundle location; the test puts a fake
 # `google-play` on PATH.
@@ -56,7 +57,7 @@ trap 'rm -rf "$OUT_DIR"' EXIT
 run_attempt() {
   local label="$1"; shift
   local out="$OUT_DIR/$label.log"
-  local args=(bundles publish --bundle "$AAB" --track "$TRACK" --credentials "$GCLOUD_SERVICE_ACCOUNT_CREDENTIALS")
+  local args=(bundles publish --bundle "$AAB" --track "$TRACK" --credentials "@env:GCLOUD_SERVICE_ACCOUNT_CREDENTIALS")
   if [ "$DRAFT" = "1" ]; then args+=(--draft); fi
   if [ $# -gt 0 ]; then args+=("$@"); fi
   set +e
@@ -67,7 +68,10 @@ run_attempt() {
   return $rc
 }
 
+# Tolerant match (C49 review): Google may wrap, re-case or reword slightly, so
+# normalise whitespace and match case-insensitively on the stable part.
 NEEDLE="Changes cannot be sent for review automatically"
+needs_flag() { tr '\n\r' '  ' < "$1" | tr -s ' ' | grep -qiE "cannot be sent for review"; }
 
 echo "Play publish: attempt 1 of 2, track $TRACK, draft=$DRAFT, WITHOUT --changes-not-sent-for-review"
 if run_attempt attempt1; then
@@ -75,7 +79,7 @@ if run_attempt attempt1; then
   exit 0
 fi
 
-if ! grep -qF "$NEEDLE" "$OUT_DIR/attempt1.log"; then
+if ! needs_flag "$OUT_DIR/attempt1.log"; then
   echo "ERROR: Play publish attempt 1 failed for a reason other than review state. Not retrying. See the CLI output above."
   exit 1
 fi

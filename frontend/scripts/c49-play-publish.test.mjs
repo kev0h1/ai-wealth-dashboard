@@ -53,7 +53,10 @@ const flag = "--changes-not-sent-for-review";
 
 // 2. First fails with the review-state text, retry with the flag succeeds.
 {
-  const r = run([[1, `Google error: ${NEEDLE}`], [0, "saved"]]);
+  const WRAPPED = "Google error: changes CANNOT be sent\nfor review   Automatically.";
+  const r = run([[1, WRAPPED], [0, "saved"]]);
+  // The old exact, case-sensitive match would NOT have matched this variant.
+  assert.ok(!WRAPPED.includes(NEEDLE), "variant defeats the old exact match");
   assert.equal(r.status, 0);
   assert.equal(r.calls.length, 2);
   assert.ok(!r.calls[0].includes(flag));
@@ -90,10 +93,14 @@ const flag = "--changes-not-sent-for-review";
   }
 }
 
-// 5. The secret is only passed to the CLI, never echoed by the script.
+// 5. The secret is never echoed and never in the CLI's argv: @env: form only.
 {
   const r = run([[1, NEEDLE], [0, "ok"]]);
   assert.ok(!r.out.includes(SECRET), "credentials never printed");
+  for (const c of r.calls) {
+    assert.ok(!c.includes(SECRET), "secret value not in argv");
+    assert.match(c, /--credentials @env:GCLOUD_SERVICE_ACCOUNT_CREDENTIALS(\s|$)/);
+  }
 }
 
 // codemagic.yaml wiring: no static flag, no built-in publishing, script step used.
@@ -112,6 +119,8 @@ for (const [wf, args] of [
   const b = block(wf);
   assert.doesNotMatch(b, /^\s+changes_not_sent_for_review:/m, `${wf} has no static flag`);
   assert.doesNotMatch(b, /^\s+google_play:\s*$/m, `${wf} has no built-in google_play publishing`);
-  assert.ok(b.includes(`codemagic-play-publish.sh" ${args}`), `${wf} calls the publish script with ${args}`);
+  assert.doesNotMatch(b, /--credentials "\$GCLOUD/, `${wf} keeps credentials off argv`);
+  const re = new RegExp(`^\\s+script: bash "\\$CM_BUILD_DIR/scripts/codemagic-play-publish\\.sh" ${args}\\s*$`, "m");
+  assert.match(b, re, `${wf} calls the publish script with exactly ${args}`);
 }
 console.log("c49-play-publish: ok");
