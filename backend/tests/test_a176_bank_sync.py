@@ -554,10 +554,13 @@ def test_pipeline_forwards_the_choice(monkeypatch):
 
     async def _noop(*a, **k):
         return None
+    async def _no_first_sync(*a, **k):
+        return None
     import app.services.categorisation as cat
     import app.services.manual_account_rules as mar
     monkeypatch.setattr(fs, "sync_finexer_consent", _sync)
     monkeypatch.setattr(fs, "sync_in_progress", lambda col, cid: _Ctx())
+    monkeypatch.setattr(fs, "begin_first_sync", _no_first_sync)
     monkeypatch.setattr(cat, "apply_rules_bulk", _noop)
     monkeypatch.setattr(cat, "categorise_others_bg", _noop)
     monkeypatch.setattr(mar, "apply_rules", _noop)

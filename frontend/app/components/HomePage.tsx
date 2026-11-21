@@ -8,6 +8,8 @@ import { startConsent } from "@/lib/startConsent";
 import { bestSpendAccount, type TodayRequestStatus } from "@/lib/spendFromAccount";
 import SafeToSpendCard from "@/components/SafeToSpendCard";
 import FirstSyncCard from "@/components/FirstSyncCard";
+import FirstSyncStatus from "@/components/FirstSyncStatus";
+import { hasHomeConnectionEvidence } from "@/lib/homeConnectionState";
 import { heroSyncingInfo, pollDelayMs, shouldPollTick } from "@/lib/syncStatusView";
 import TransactionRow from "@/components/TransactionRow";
 import PendingPaymentsGroup from "@/components/PendingPaymentsGroup";
@@ -241,9 +243,11 @@ export default function HomePage() {
   const [loadError, setLoadError] = useState(false);
   const [syncing, setSyncing] = useState(false);
   // G210: the server's first-sync state (idle / syncing / stalled / failed).
-  // null until the first answer; a failed read is treated as idle so a
-  // broken status call can never hide Home.
+  // null until the first answer. Unknown status is not proof that the user
+  // has no bank, especially while the accounts snapshot is still empty.
   const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null);
+  const [syncStatusError, setSyncStatusError] = useState(false);
+  const [firstSyncSettling, setFirstSyncSettling] = useState<SyncStatus | null>(null);
   const [syncRetrying, setSyncRetrying] = useState(false);
   const [syncError, setSyncError] = useState(false);
   // A retry inside a minute can be rate-limited. Keep that neutral feedback
@@ -432,9 +436,9 @@ export default function HomePage() {
       const todayP = cachedEndpoint(ENDPOINT.today.key, () => api.getToday(), { force, ttlMs: ENDPOINT.today.ttlMs, onUpdate: (v) => live(() => applyToday(v)) });
       // Awaited with the rest below so the page never settles (and
       // isFreshUser is never computed) against a stale "idle".
-      const syncP = cachedEndpoint(ENDPOINT.syncStatus.key, () => api.getSyncStatus(), { force, ttlMs: ENDPOINT.syncStatus.ttlMs, onUpdate: (v) => live(() => setSyncStatus(v)) })
-        .then((v) => { if (requestId === loadRequestRef.current) setSyncStatus(v); })
-        .catch(() => {});
+      const syncP = cachedEndpoint(ENDPOINT.syncStatus.key, () => api.getSyncStatus(), { force: true })
+        .then((v) => live(() => { setSyncStatus(v); setSyncStatusError(false); }))
+        .catch(() => live(() => setSyncStatusError(true)));
       // Over-fetch to 12 rather than 6: the micro-pot-shuffle filter below
       // (round-ups, penny transfers) can drop rows, and asking the server
       // for exactly 6 could leave fewer than 6 on screen after filtering.
@@ -737,12 +741,14 @@ export default function HomePage() {
       try {
         const next = await api.getSyncStatus();
         if (cancelled) return;
-        setSyncStatus(next);
         if (next.state === "idle") {
           cancelled = true;
+          if (syncStatusRef.current?.first_sync) setFirstSyncSettling(syncStatusRef.current);
           invalidateAllAccountData();
           await loadData();
+          setFirstSyncSettling(null);
         }
+        setSyncStatus(next);
       } catch {} finally {
         syncInFlightRef.current = false;
       }
@@ -760,11 +766,13 @@ export default function HomePage() {
       try {
         const next = await api.getSyncStatus();
         const wasRunning = syncStatusRef.current != null && syncStatusRef.current.state !== "idle";
-        setSyncStatus(next);
         if (wasRunning && next.state === "idle") {
+          if (syncStatusRef.current?.first_sync) setFirstSyncSettling(syncStatusRef.current);
           invalidateAllAccountData();
           await loadData();
+          setFirstSyncSettling(null);
         }
+        setSyncStatus(next);
       } catch {} finally {
         syncInFlightRef.current = false;
       }
@@ -781,11 +789,13 @@ export default function HomePage() {
     } catch {}
     try {
       const next = await api.getSyncStatus();
-      setSyncStatus(next);
       if (next.state === "idle") {
+        if (syncStatusRef.current?.first_sync) setFirstSyncSettling(syncStatusRef.current);
         invalidateAllAccountData();
         await loadData();
+        setFirstSyncSettling(null);
       }
+      setSyncStatus(next);
     } catch {}
     setSyncRetrying(false);
   }
@@ -989,18 +999,20 @@ export default function HomePage() {
   // account/Safe-to-Spend shells. Without the !loadError guard, a real
   // user whose /accounts fetch simply failed would see the "Connect your
   // first bank" hero and a blanked brief instead of the load-error retry UI.
-  const hasNoAccounts = !loading && !loadError && accounts.length === 0 && investmentAccounts.length === 0;
+  const hasConnectionEvidence = hasHomeConnectionEvidence({ status: syncStatus, bankConnectionCount: bankConnections.length, recentCount: recentTxns.length, pendingCount: recentPendingTotal });
+  const hasNoAccounts = !loading && !loadError && accounts.length === 0 && investmentAccounts.length === 0 && !hasConnectionEvidence;
   // G210: a first bank sync that is running, stuck or failed. While it is,
   // "no accounts yet" is not a fresh user, it is a user whose data is on its
   // way, so Home shows the sync ledger instead of the connect hero.
-  const syncState = syncStatus?.state ?? "idle";
+  const visibleSyncStatus = firstSyncSettling ?? syncStatus;
+  const syncState = visibleSyncStatus?.state ?? "idle";
   const firstSyncActive = syncState === "syncing" || syncState === "stalled" || syncState === "failed";
   // Only a genuine first sync (nothing has ever synced) replaces the verdict.
   // An established user adding a second bank sees the ledger ABOVE a normal
   // verdict, never instead of it.
   const verdictWithheld =
-    syncStatus?.first_sync === true && (syncState === "syncing" || syncState === "stalled");
-  const isFreshUser = hasNoAccounts && !firstSyncActive;
+    (visibleSyncStatus?.first_sync === true && firstSyncActive) || syncStatus === null;
+  const isFreshUser = hasNoAccounts && syncStatus !== null && !firstSyncActive;
 
   // User-pinned insight cards render once accounts exist and loading is done,
   // load error or not (unchanged from before G221 moved them into Your money).
@@ -1097,10 +1109,10 @@ export default function HomePage() {
           {/* ── THE BRIEF ── */}
           <div className="px-4 pt-5 lg:px-0 lg:pt-0" ref={greetingRef}>
             <HomeBrief
-              items={hasNoAccounts ? [] : companionItems}
+              items={hasNoAccounts || verdictWithheld ? [] : companionItems}
               firstName={firstName}
               displayName={displayName}
-              safeToSpend={safeToSpend}
+              safeToSpend={verdictWithheld ? null : safeToSpend}
               reconnectNames={reconnectNames}
               loading={loading}
               syncError={syncError}
@@ -1141,14 +1153,20 @@ export default function HomePage() {
             </div>
           )}
 
+          {!loading && syncStatus === null && (
+            <div className="px-4 lg:px-0 mt-5">
+              <FirstSyncStatus error={syncStatusError} onRetry={() => { void loadData(); }} />
+            </div>
+          )}
+
           {/* G210: first sync running / stuck / failed. With no accounts yet it
               replaces the connect hero; with accounts, a syncing or stalled sync
               takes the verdict slot (below), and a failed one sits above it. */}
-          {!loadError && !loading && firstSyncActive && syncStatus?.first_sync === true && (
+          {!loading && firstSyncActive && visibleSyncStatus?.first_sync === true && (
             <div className="px-4 lg:px-0 mt-5" data-tutorial-id={hasNoAccounts ? "tutorial-home-fresh" : undefined}>
               <FirstSyncCard
                 state={syncState as "syncing" | "stalled" | "failed"}
-                connections={syncStatus?.connections ?? []}
+                connections={visibleSyncStatus?.connections ?? []}
                 retrying={syncRetrying}
                 onRetry={handleSyncRetry}
                 onConnect={() => setShowBankPicker(true)}
@@ -1157,7 +1175,7 @@ export default function HomePage() {
           )}
 
           {/* Load error fallback */}
-          {loadError && (
+          {loadError && !verdictWithheld && (
             <div className="px-4 lg:px-0 mt-5">
               <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm p-5 text-center">
                 <p className="text-sm font-medium text-slate-600 dark:text-slate-300 mb-3">
@@ -1286,7 +1304,7 @@ export default function HomePage() {
               onOpenAccount={(id) => router.push(`/accounts?id=${id}`)}
               onOpenInvestments={() => router.push("/accounts?tab=Investments")}
               onViewAll={() => router.push("/accounts")}
-              emptyState={
+              emptyState={hasConnectionEvidence ? null :
                 <FirstAccountCard
                   canConnect={canConnectBank}
                   onConnect={() => setShowBankPicker(true)}
