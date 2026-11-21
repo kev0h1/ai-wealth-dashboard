@@ -68,7 +68,7 @@ assert.equal((page.match(/accountWalk\?*\.accounts/g) ?? []).length, 1, "only th
 assert.equal((page.match(/<UpcomingAccountsCard accounts=\{listedAccountSummaries\}/g) ?? []).length, 2, "G420: both placements read the filtered list");
 assert.match(page, /<UpcomingDetailFlow[\s\S]{0,400}?summaries=\{accountSummaries\}/);
 const details = readFileSync(new URL("../components/upcoming/UpcomingAccountDetails.tsx", import.meta.url), "utf8");
-assert.match(details, /const gap = accountPaymentGap\(account\);[\s\S]*?if \(gap !== null\)/, "the sheet verdict derives short from the payment gap");
+assert.match(details, /const gap = stored \? [\s\S]*?accountPaymentGap\(account\)[\s\S]*?if \(gap !== null\)/, "the sheet verdict derives short from the payment gap");
 // The real rendered short verdict below proves precedence over healthy copy.
 // An uncredited prediction stays visible as a non-crediting event.
 const none = summarise([]);

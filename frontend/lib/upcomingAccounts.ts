@@ -46,6 +46,8 @@ export type UpcomingAccountPosition = {
   availability?: Extract<AccountAvailabilityReading, { kind: "ready" }>;
   /** G486: the raw stored entry the availability working reads. */
   eligibility?: AccountEligibility;
+  /** G486: the account page would show "checking" or "unavailable" (a sync is running or failed) for this account, so Upcoming shows no figure either. */
+  availabilityPending?: "checking" | "unavailable";
 };
 
 export type UpcomingAccountSummary = {
@@ -145,6 +147,8 @@ export function accountPaymentGap(account: UpcomingAccountSummary): number | nul
 export function positionsFromToday(
   eligibility: Record<string, AccountEligibility> | null | undefined,
   accounts: (Pick<Account, "id" | "type" | "subtype"> & Partial<Account>)[],
+  /** The account page's snapshot status (AccountsPage currentAvailabilitySnapshot): loading while a sync runs, failed after one fails. */
+  snapshotStatus: "ready" | "loading" | "failed" = "ready",
 ): Record<string, UpcomingAccountPosition> | null {
   if (!eligibility) return null;
   const out: Record<string, UpcomingAccountPosition> = {};
@@ -155,9 +159,10 @@ export function positionsFromToday(
   for (const [id, entry] of Object.entries(eligibility)) {
     if (typeof entry.uncertain !== "boolean" || typeof entry.plans_reserved !== "number") continue;
     const owner = accounts.find((a) => a.id === id);
-    const reading = owner && isCurrent(id) ? accountAvailability(owner as Account, { status: "ready", positions: eligibility }) : undefined;
+    const reading = owner && isCurrent(id) ? accountAvailability(owner as Account, snapshotStatus === "ready" ? { status: "ready", positions: eligibility } : { status: snapshotStatus }) : undefined;
     out[id] = {
       ...(reading?.kind === "ready" ? { availability: reading, eligibility: entry } : {}),
+      ...(snapshotStatus !== "ready" && reading && reading.kind !== "ready" ? { availabilityPending: reading.kind } : {}),
       afterPayments: typeof entry.after_payments === "number" ? entry.after_payments : null,
       lowPoint: typeof entry.low_point === "number" ? entry.low_point : null,
       plansReserved: entry.plans_reserved,

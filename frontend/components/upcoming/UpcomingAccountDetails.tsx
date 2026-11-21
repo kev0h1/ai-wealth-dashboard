@@ -71,9 +71,13 @@ function VerdictBlock({ title, children, signal, covered = false }: { title: Rea
 
 function Verdict({ account, plans, plansStatus }: Required<Pick<UpcomingAccountDetailsProps, "account" | "plans" | "plansStatus">>) {
   const m = useMaskedMoney(), hidden = useBalancesHidden();
-  const reading = accountActionReading(account, plans, plansStatus);
-  const { result, signal, moves, gap: fullGap, combinedKnown } = reading;
-  const gap = accountPaymentGap(account);
+  const full = accountActionReading(account, plans, plansStatus);
+  const reading = full.projection;
+  const { result, signal, moves, gap: projectedGap, combinedKnown } = reading;
+  // G486: for an account with a stored Available, Short is that figure alone (negative), never the client walk.
+  const stored = full.available !== null;
+  const fullGap = stored ? 0 : projectedGap;
+  const gap = stored ? (full.gap > 0 ? accountPaymentGap(account) ?? full.gap / 100 : null) : accountPaymentGap(account);
   const uncounted = Math.round(account.events.filter(event => event.credited === false).reduce((sum, event) => sum + event.amount, 0) * 100);
   const uncountedLine = uncounted > 0 ? <p data-uncredited-note><MoneyText text={`Expected ${m(uncounted)} is not counted until it is confirmed.`} /></p> : null;
   if (gap !== null) {
@@ -99,9 +103,12 @@ function LedgerLine({ label, pence, total = false, positive = false, suggested =
 export default function UpcomingAccountDetails({ account, periodLabel, plans = [], plansStatus = "ready", onPlan, onEvent, editableEventIds }: UpcomingAccountDetailsProps) {
   const id = useId();
   const hidden = useBalancesHidden();
-  const reading = accountActionReading(account, plans, plansStatus);
+  const full = accountActionReading(account, plans, plansStatus);
+  const reading = full.projection;
   const coverLine = accountCoverLine(reading);
-  const { result, headline, combinedKnown, earlierGap, futureIncome, moves, afterMove, signal, ready } = reading;
+  const shortNow = full.available !== null ? full.gap > 0 : reading.gap > 0;
+  const { result, headline, combinedKnown, earlierGap: projectedEarlier, futureIncome, moves, afterMove, signal, ready } = reading;
+  const earlierGap = projectedEarlier && (full.available === null || shortNow);
   const opening = account.opening === null ? null : Math.round(account.opening * 100);
   const listedPayments = opening !== null && [account.opening, account.income, account.transfersIn, account.outgoing].every(Number.isFinite)
     ? opening + Math.round(account.income * 100) + Math.round(account.transfersIn * 100) - Math.round(account.outgoing * 100) : null;
@@ -112,13 +119,13 @@ export default function UpcomingAccountDetails({ account, periodLabel, plans = [
   ].sort((a, b) => (a.date ?? "9999").localeCompare(b.date ?? "9999") || Number(Boolean(b.move)) - Number(Boolean(a.move)) || a.order - b.order);
   return <div data-g417-account={account.id} data-g416-account={account.id} className={styles.sheetBody}>
     <section className={styles.resultBlock} aria-label="Account result before suggested moves">
-      <p className={styles.metricLabel}>{earlierGap ? futureIncome ? "Short before income arrives" : "Short earlier in this period" : combinedKnown ? "After payments and plans" : "After payments"}</p>
-      <div className={styles.headline}><strong data-pre-move data-account-plan-figure><AccountMoney pence={headline} /></strong>{reading.gap > 0 && <span className={styles.shortStatus}><AccountSignal signal={signal} />Short</span>}</div>
-      <p className={styles.note}>{headline === null ? "This account’s balance needs checking." : earlierGap ? `${account.firstShortDate ? `First shortfall ${activityDate(account.firstShortDate)}${futureIncome ? ", before income arrives" : ""}.` : "This account has an earlier shortfall."} The figure is the largest gap in this period.` : !ready ? "Before goals, set-asides and suggested moves." : !combinedKnown ? "Payments only. Plans need checking." : reading.gap > 0 ? "Before suggested moves. This is the gap to act on." : "Before suggested moves."}</p>
+      <p className={styles.metricLabel}>{earlierGap ? futureIncome ? "Short before income arrives" : "Short earlier in this period" : combinedKnown ? "Projected at payday, after payments and plans" : "Projected at payday, after payments"}</p>
+      <div className={styles.headline}><strong data-pre-move data-account-plan-figure><AccountMoney pence={headline} /></strong>{shortNow && <span className={styles.shortStatus}><AccountSignal signal={signal} />Short</span>}</div>
+      <p className={styles.note}>{headline === null ? "This account’s balance needs checking." : earlierGap ? `${account.firstShortDate ? `First shortfall ${activityDate(account.firstShortDate)}${futureIncome ? ", before income arrives" : ""}.` : "This account has an earlier shortfall."} The figure is the largest gap in this period.` : !ready ? "Before goals, set-asides and suggested moves." : !combinedKnown ? "Payments only. Plans need checking." : shortNow ? "Before suggested moves. This is the gap to act on." : "Before suggested moves."}</p>
       {earlierGap && <p className={styles.note}>{combinedKnown ? "After payments and plans" : "After payments"}: <AccountMoney pence={combinedKnown ? reading.afterPlans : reading.afterPayments} /> at the end of the period. That later balance does not remove this earlier gap.</p>}
       {result.estimated && ready && <p className={styles.note}>Paying account based on recent transfers · estimated</p>}
     </section>
-    {reading.availability && <AccountAvailabilityDetail reading={reading.availability} position={account.position?.eligibility} hidden={hidden} />}
+    {full.availability && <AccountAvailabilityDetail reading={full.availability} position={account.position?.eligibility} hidden={hidden} />}
     {moves.length > 0 && <section data-verdict data-covered-by-move={reading.incoming > 0 || undefined} className={styles.moveBridge} aria-label="Effect of suggested moves">
       <div className={styles.afterMove}><p className={styles.metricLabel}>Balance after the suggested {moves.length === 1 ? "move" : "moves"}</p><strong data-after-move><AccountMoney pence={afterMove} /></strong></div>
     </section>}

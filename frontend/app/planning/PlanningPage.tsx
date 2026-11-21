@@ -248,6 +248,7 @@ export default function PlanningPage() {
   // is built on). Absent on an old API or a failed read: accountPlan falls back
   // to its own arithmetic.
   const [accountEligibility, setAccountEligibility] = useState<Record<string, AccountEligibility> | null>(null);
+  const [syncState, setSyncState] = useState<"idle" | "syncing" | "stalled" | "failed" | null>(null);
   const [todayItems, setTodayItems] = useState<CompanionItem[] | null>(null);
   // Edit-only now — creation moved into SetAsideSheet's envelope step
   // (owner consolidation, 2026-08-29).
@@ -348,6 +349,25 @@ export default function PlanningPage() {
     api.getToday().then((today) => { setAccountEligibility(today.account_eligibility ?? null); setTodayItems(today.items ?? null); }).catch(() => {});
   }
 
+  // G486: mirror the account page's sync handling. While a sync runs (or after one fails) the account page shows
+  // "checking" or "unavailable" instead of Available, so By account shows no figure either. A finished sync reloads positions.
+  const reloadPositionsRef = useRef(reloadAccountPositions);
+  reloadPositionsRef.current = reloadAccountPositions;
+  useEffect(() => {
+    let cancelled = false, timer: number | undefined, last: string | null = null;
+    const poll = () => {
+      api.getSyncStatus().then((next) => {
+        if (cancelled) return;
+        if (last && last !== "idle" && next.state === "idle") reloadPositionsRef.current();
+        last = next.state;
+        setSyncState(next.state);
+        if (next.state === "syncing") timer = window.setTimeout(poll, 5000);
+      }).catch(() => {});
+    };
+    poll();
+    return () => { cancelled = true; if (timer) window.clearTimeout(timer); };
+  }, []);
+
   function refreshAllocations() {
     invalidateVerdictCache();
     reloadAccountPositions();
@@ -397,7 +417,9 @@ export default function PlanningPage() {
   const plans = cashflow ? assessPlanOverlap(plansFromApi(accountPlans ?? []), cashflow, accountEndMs, accounts) : [];
   const sourceIds = new Set(plans.filter((plan) => plan.active && hasPlanSource(plan)).map((plan) => plan.sourceId));
   const excludedAccountIds = new Set(accounts.filter((account) => !isCountedInLeftToSpend(account)).map((account) => account.id));
-  const accountPositions = positionsFromToday(accountEligibility, accounts) ?? {};
+  // G486: the same loading and failed handling as the account page (a running or failed sync shows no figure).
+  const availabilityStatus = syncState && syncState !== "idle" ? (syncState === "syncing" ? "loading" as const : "failed" as const) : "ready" as const;
+  const accountPositions = positionsFromToday(accountEligibility, accounts, availabilityStatus) ?? {};
   const planSources = accounts.filter((account) => (sourceIds.has(account.id) || accountPositions[account.id]?.spendFrom != null) && isPlanSourceAccount(account) && !excludedAccountIds.has(account.id)).map((account) => ({ id: account.id, bank: account.provider, name: account.name, balance: account.balance }));
   const accountWalk = cashflow ? walkUpcomingAccounts(cashflow, accountEndMs, planSources, excludedAccountIds) : null;
   const accountPeriodLabel = paymentsThroughLabel(accountEndMs);

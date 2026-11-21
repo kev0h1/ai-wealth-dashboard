@@ -8,7 +8,7 @@ import type { UpcomingAccountSummary } from "@/lib/upcomingAccounts";
 import type { Plan } from "@/lib/upcomingPlans";
 import { useBalancesHidden, maskMoneyText } from "@/lib/balancesHidden";
 import { FINE_FOLD_KEY } from "@/lib/upcomingAccountStatus";
-import { accountActionReading, accountSummaryMoney } from "@/lib/upcomingAccountPresentation";
+import { accountActionReading, accountSummaryMoney, rowNeedsAttention } from "@/lib/upcomingAccountPresentation";
 import { accountMoveSummary } from "@/lib/upcomingMoveSummary";
 import { AccountMoney, AccountSignal } from "./accountPresentation";
 import MoneyText from "@/components/MoneyText";
@@ -26,14 +26,14 @@ export interface UpcomingAccountsCardProps {
 type Reading = ReturnType<typeof accountActionReading>;
 function AccountRow({ account, reading, onOpen }: { account: UpcomingAccountSummary; reading: Reading; onOpen: (account: UpcomingAccountSummary) => void }) {
   const hidden = useBalancesHidden();
-  const { signal, gap, paymentGap, earlierGap, available, availableLabel } = reading;
-  // G486: the same stored figure and label as the account page's "Available to spend". A closing projection is the fallback only for accounts that page shows no figure for.
-  const headline = available ?? reading.headline;
-  const caption = available !== null && availableLabel ? gap > 0 ? `${availableLabel} · ${reading.caption.toLowerCase()}` : availableLabel : reading.caption;
+  const { signal, gap, paymentGap, earlierGap, available, availableLabel, pending } = reading;
+  // G486: the same stored figure, label and Short verdict as the account page's "Available to spend". A closing projection is the fallback only for accounts that page shows no figure for.
+  const headline = pending ? null : available ?? reading.headline;
+  const caption = available !== null && availableLabel ? gap > 0 ? `${availableLabel} · short` : availableLabel : reading.caption;
   const meta = BANK_META[bankKey({ provider: account.bank })];
   const summary = signal || reading.result.estimated ? accountMoveSummary(account, reading) : null;
-  const detail = gap > 0 ? earlierGap ? "short before payday" : paymentGap > 0 ? "short for payments" : "short for plans" : caption.toLowerCase();
-  const label = `Open ${account.bank}, ${displayAccountName(account.name)}: ${headline === null ? "Not yet known" : accountSummaryMoney(headline)}, ${detail}.${summary ? ` ${summary}` : ""}`;
+  const detail = available !== null && gap > 0 ? "short" : gap > 0 ? earlierGap ? "short before payday" : paymentGap > 0 ? "short for payments" : "short for plans" : caption.toLowerCase();
+  const label = `Open ${account.bank}, ${displayAccountName(account.name)}: ${headline === null ? pending ? caption.toLowerCase() : "Not yet known" : accountSummaryMoney(headline)}, ${detail}.${summary ? ` ${summary}` : ""}`;
   return <button type="button" data-account-row={account.id} onClick={() => onOpen(account)} aria-label={maskMoneyText(label, hidden)} className={styles.accountRow}>
     <span data-bank-badge className={styles.bankMark}><BankBadge logoSrc={bankLogoSrc(meta)} initials={meta?.initials ?? account.bank.slice(0, 2).toUpperCase()} initialsSize={meta?.initialsSize} altText="" brandBg={meta?.bg} size={32} /></span>
     <span className={styles.identity}><strong>{account.bank}</strong><span>{displayAccountName(account.name)}</span></span>
@@ -58,29 +58,32 @@ export default function UpcomingAccountsCard({ accounts, periodLabel, onOpen, pl
     const rows = accounts.map(account => ({ account, reading: accountActionReading(account, plans, plansStatus) }));
     // Funding a suggestion is a cue, not a shortfall. Unknown readings still
     // need checking and must never be described as fine.
-    const needsAttention = (reading: Reading) => reading.gap > 0 || reading.headline === null || reading.signal === "unknown";
     return {
-      attention: rows.filter(row => needsAttention(row.reading)).sort((a, b) => Number(b.reading.signal === "risk") - Number(a.reading.signal === "risk")),
-      fine: rows.filter(row => !needsAttention(row.reading)),
+      attention: rows.filter(row => rowNeedsAttention(row.reading)).sort((a, b) => Number(b.reading.signal === "risk") - Number(a.reading.signal === "risk")),
+      fine: rows.filter(row => !rowNeedsAttention(row.reading)),
       hasSuggestedMoves: rows.some(row => row.reading.moves.length > 0),
     };
   }, [accounts, plans, plansStatus]);
   const allClear = accounts.length > 0 && attention.length === 0;
-  const foldLabel = `${fine.length} ${fine.length === 1 ? "account is" : "accounts are"} fine${plansStatus === "ready" ? "" : " for payments"}`;
-  const pending = plansStatus !== "ready" && <div className={styles.pending} role="status">{plansStatus === "loading" ? "Checking goals and set-asides. Figures show payments only." : "Goals and set-asides could not be checked. Figures show payments only."}{plansStatus === "error" && onRetry && <button type="button" className={styles.retry} onClick={onRetry}>Try again</button>}</div>;
+  // G486: goals and set-asides are already inside every Available figure, so the "payments only" wording applies to fallback rows alone.
+  const fallbackRows = accounts.length === 0 || accounts.some(account => !account.position?.availability);
+  const finePaymentsOnly = plansStatus !== "ready" && fine.some(row => row.reading.available === null);
+  const foldLabel = `${fine.length} ${fine.length === 1 ? "account is" : "accounts are"} fine${finePaymentsOnly ? " for payments" : ""}`;
+  const partlyAvailable = accounts.some(account => account.position?.availability);
+  const pendingNote = plansStatus !== "ready" && fallbackRows && <div className={styles.pending} role="status">{plansStatus === "loading" ? `Checking goals and set-asides. ${partlyAvailable ? "Accounts without an available amount show" : "Figures show"} payments only.` : `Goals and set-asides could not be checked. ${partlyAvailable ? "Accounts without an available amount show" : "Figures show"} payments only.`}{plansStatus === "error" && onRetry && <button type="button" className={styles.retry} onClick={onRetry}>Try again</button>}</div>;
   // G420: nothing to list means no heading and no empty card, unless a loading or error state applies.
-  if (accounts.length === 0) return plansStatus === "ready" ? null : <section data-account-status-card="b" className={styles.card}>{pending}</section>;
+  if (accounts.length === 0) return plansStatus === "ready" ? null : <section data-account-status-card="b" className={styles.card}>{pendingNote}</section>;
   return <section aria-labelledby={headingId} data-account-status-card="b" data-g417-variant="a" data-g430-variant="a3" className={styles.card}>
     <div className={styles.listHeading}><h2 id={headingId}>By account</h2><p className={styles.period}>{periodLabel}</p></div>
     {<>
-      {allClear && <p data-all-clear className={styles.allClear}><Check size={16} aria-hidden="true" />{plansStatus === "ready" ? "Every account covers its payments and linked plans." : "Every account covers its payments. Plans are still to be checked."}</p>}
+      {allClear && <p data-all-clear className={styles.allClear}><Check size={16} aria-hidden="true" />{plansStatus === "ready" || !finePaymentsOnly ? "Every account covers its payments and linked plans." : "Every account covers its payments. Plans are still to be checked."}</p>}
       {attention.map(({ account, reading }) => <AccountRow key={account.id} account={account} reading={reading} onOpen={onOpen} />)}
       {fine.length > 0 && <div data-fine-group className={styles.fineGroup}>
         <button type="button" data-fine-fold aria-expanded={open} aria-controls={regionId} onClick={toggle} className={styles.fineToggle}><span>{foldLabel}</span><ChevronDown size={16} aria-hidden="true" className={`${open ? styles.rotated : ""} ${animate ? "transition-transform motion-reduce:transition-none" : ""}`} /></button>
         <div id={regionId} data-fine-region inert={!open} className={`grid ${animate ? "transition-[grid-template-rows,opacity] duration-200 ease-out motion-reduce:transition-none" : ""} ${open ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0"}`}><div className="min-h-0 overflow-hidden"><div className={styles.fineRows}>{fine.map(({ account, reading }) => <AccountRow key={account.id} account={account} reading={reading} onOpen={onOpen} />)}</div></div></div>
       </div>}
     </>}
-    {pending}
+    {pendingNote}
     {<p className={styles.listNote}>{hasSuggestedMoves ? "Suggested moves are for you to make. Nothing has been moved." : "Tap an account for its working."}</p>}
   </section>;
 }
