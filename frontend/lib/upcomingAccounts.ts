@@ -1,5 +1,6 @@
 import type { Account, AccountEligibility, CashflowData } from "./api";
 import { sourceClass } from "./coverPlanSourceClass";
+import { accountAvailability, type AccountAvailabilityReading } from "./accountAvailability";
 import { walkUpcomingAccounts } from "./upcomingAccountWalk";
 import { hasPlanSource, remaining, type Plan } from "./upcomingPlans";
 
@@ -40,6 +41,11 @@ export type UpcomingAccountPosition = {
   /** G410: set aside in this account for a suggested move out of it (already excluded from `spendFrom`). */
   earmarkedTotal?: number | null;
   earmarksOut?: { toAccountId: string; toName: string; amount: number }[] | null;
+  /** G486: the account page's own reading of this same stored position (`accountAvailability`, its eligibility gates included).
+   * Present only for an account the page shows Available for. By account renders this figure, label and working, never a closing projection. */
+  availability?: Extract<AccountAvailabilityReading, { kind: "ready" }>;
+  /** G486: the raw stored entry the availability working reads. */
+  eligibility?: AccountEligibility;
 };
 
 export type UpcomingAccountSummary = {
@@ -138,7 +144,7 @@ export function accountPaymentGap(account: UpcomingAccountSummary): number | nul
  * its own arithmetic. */
 export function positionsFromToday(
   eligibility: Record<string, AccountEligibility> | null | undefined,
-  accounts: Pick<Account, "id" | "type" | "subtype">[],
+  accounts: (Pick<Account, "id" | "type" | "subtype"> & Partial<Account>)[],
 ): Record<string, UpcomingAccountPosition> | null {
   if (!eligibility) return null;
   const out: Record<string, UpcomingAccountPosition> = {};
@@ -148,7 +154,10 @@ export function positionsFromToday(
   };
   for (const [id, entry] of Object.entries(eligibility)) {
     if (typeof entry.uncertain !== "boolean" || typeof entry.plans_reserved !== "number") continue;
+    const owner = accounts.find((a) => a.id === id);
+    const reading = owner && isCurrent(id) ? accountAvailability(owner as Account, { status: "ready", positions: eligibility }) : undefined;
     out[id] = {
+      ...(reading?.kind === "ready" ? { availability: reading, eligibility: entry } : {}),
       afterPayments: typeof entry.after_payments === "number" ? entry.after_payments : null,
       lowPoint: typeof entry.low_point === "number" ? entry.low_point : null,
       plansReserved: entry.plans_reserved,

@@ -15,6 +15,7 @@ import { AccountMoney, AccountSignal } from "./accountPresentation";
 import styles from "./UpcomingAccounts.module.css";
 import MoneyText from "@/components/MoneyText";
 import CoverNote from "@/components/CoverNote";
+import AccountAvailabilityDetail from "@/components/AccountAvailabilityDetail";
 import UpcomingCategoryIcon, { upcomingCategoryAppearance } from "./UpcomingCategoryIcon";
 
 export interface UpcomingAccountDetailsProps {
@@ -117,6 +118,7 @@ export default function UpcomingAccountDetails({ account, periodLabel, plans = [
       {earlierGap && <p className={styles.note}>{combinedKnown ? "After payments and plans" : "After payments"}: <AccountMoney pence={combinedKnown ? reading.afterPlans : reading.afterPayments} /> at the end of the period. That later balance does not remove this earlier gap.</p>}
       {result.estimated && ready && <p className={styles.note}>Paying account based on recent transfers · estimated</p>}
     </section>
+    {reading.availability && <AccountAvailabilityDetail reading={reading.availability} position={account.position?.eligibility} hidden={hidden} />}
     {moves.length > 0 && <section data-verdict data-covered-by-move={reading.incoming > 0 || undefined} className={styles.moveBridge} aria-label="Effect of suggested moves">
       <div className={styles.afterMove}><p className={styles.metricLabel}>Balance after the suggested {moves.length === 1 ? "move" : "moves"}</p><strong data-after-move><AccountMoney pence={afterMove} /></strong></div>
     </section>}

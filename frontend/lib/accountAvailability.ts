@@ -71,7 +71,12 @@ export function accountAvailability(
   if (accountKind(account) !== "Current" || account.manual || account.currency !== "GBP" || !isCountedInLeftToSpend(account)) return undefined;
   if (snapshot.status === "loading") return { kind: "checking" };
   if (snapshot.status !== "ready" || (account.status !== "connected" || account.paused)) return { kind: "unavailable" };
-  const position = snapshot.positions?.[account.id];
+  return availabilityFromPosition(snapshot.positions?.[account.id]);
+}
+
+/** G486: the one reading of a stored server position (`account_eligibility` entry). The account page and
+ * Upcoming's By account card both call this, so the figure, the label inputs and the working cannot differ. */
+export function availabilityFromPosition(position: AccountEligibility | undefined | null): AccountAvailabilityReading {
   if (!position || position.uncertain || typeof position.after_payments_and_plans !== "number" || !Number.isFinite(position.after_payments_and_plans)) return { kind: "unavailable" };
   // G436: Available is the account's own figure and can be negative (a shortfall no
   // current account covers stays on the account, shortfall first).
@@ -114,4 +119,9 @@ export function accountAvailability(
       : plansGap ? "Short after plans this pay period. Open the account for the working."
       : `Left after predicted money in and out, goals and set-asides this pay period${position.estimated ? "; some plan sources are estimated" : ""}${position.spend_from_requires_move ? ". This amount is available after the suggested move." : "."}`,
   };
+}
+
+/** G486: the label both surfaces put on the figure. */
+export function availabilityLabel(reading: Extract<AccountAvailabilityReading, { kind: "ready" }>): string {
+  return reading.requiresMove ? "Available after suggested move" : "Available to spend";
 }

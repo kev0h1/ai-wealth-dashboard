@@ -3,6 +3,7 @@ import { accountPlan, type Plan } from "./upcomingPlans";
 import { statusFor } from "./upcomingAccountStatus";
 import { suggestedMovesFor } from "./coverSuggestion";
 import { coverSplitSentence, uncoveredSentence } from "./coverNarrative";
+import { availabilityLabel } from "./accountAvailability";
 
 /** Whole-pound summaries keep meaningful penny-sized values and every sign. */
 export function accountSummaryMoney(pence: number | null): string {
@@ -70,7 +71,12 @@ export function accountActionReading(account: UpcomingAccountSummary, plans: Pla
     : ready && !combinedKnown ? "Payments only" : hasPlans ? "Left after plans" : "Left after payments";
   const futureIncome = earlierGap && paymentGap > 0 && account.firstShortDate !== null
     && account.events.some(event => event.credited !== false && event.kind === "income" && event.date > account.firstShortDate!);
-  return { result, ready, combinedKnown, afterPayments, afterPlans, headline, gap, paymentGap, earlierGap, moves, incoming, outgoing, afterMove, remainingGap, signal, hasPlans, caption, futureIncome };
+  // G486: the account page's stored Available, read through the same reading. Null when the page shows none
+  // (savings, uncertain, paused), so the row keeps its closing figure for those accounts only.
+  const availability = account.position?.availability ?? null;
+  const available = availability ? finitePence(availability.value) : null;
+  const availableLabelText = availability ? availabilityLabel(availability) : null;
+  return { available, availableLabel: availableLabelText, availability, result, ready, combinedKnown, afterPayments, afterPlans, headline, gap, paymentGap, earlierGap, moves, incoming, outgoing, afterMove, remainingGap, signal, hasPlans, caption, futureIncome };
 }
 
 const upFirst = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);

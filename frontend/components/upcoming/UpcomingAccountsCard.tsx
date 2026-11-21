@@ -26,7 +26,10 @@ export interface UpcomingAccountsCardProps {
 type Reading = ReturnType<typeof accountActionReading>;
 function AccountRow({ account, reading, onOpen }: { account: UpcomingAccountSummary; reading: Reading; onOpen: (account: UpcomingAccountSummary) => void }) {
   const hidden = useBalancesHidden();
-  const { headline, signal, caption, gap, paymentGap, earlierGap } = reading;
+  const { signal, gap, paymentGap, earlierGap, available, availableLabel } = reading;
+  // G486: the same stored figure and label as the account page's "Available to spend". A closing projection is the fallback only for accounts that page shows no figure for.
+  const headline = available ?? reading.headline;
+  const caption = available !== null && availableLabel ? gap > 0 ? `${availableLabel} · ${reading.caption.toLowerCase()}` : availableLabel : reading.caption;
   const meta = BANK_META[bankKey({ provider: account.bank })];
   const summary = signal || reading.result.estimated ? accountMoveSummary(account, reading) : null;
   const detail = gap > 0 ? earlierGap ? "short before payday" : paymentGap > 0 ? "short for payments" : "short for plans" : caption.toLowerCase();
@@ -34,7 +37,7 @@ function AccountRow({ account, reading, onOpen }: { account: UpcomingAccountSumm
   return <button type="button" data-account-row={account.id} onClick={() => onOpen(account)} aria-label={maskMoneyText(label, hidden)} className={styles.accountRow}>
     <span data-bank-badge className={styles.bankMark}><BankBadge logoSrc={bankLogoSrc(meta)} initials={meta?.initials ?? account.bank.slice(0, 2).toUpperCase()} initialsSize={meta?.initialsSize} altText="" brandBg={meta?.bg} size={32} /></span>
     <span className={styles.identity}><strong>{account.bank}</strong><span>{displayAccountName(account.name)}</span></span>
-    <span className={styles.rowFigure}><strong data-status-amount><AccountMoney pence={headline} /></strong><span data-status-caption className={styles.rowCaption}><AccountSignal signal={signal} /><span data-status-text>{caption}</span></span></span>
+    <span className={styles.rowFigure}><strong data-status-amount data-available={available !== null ? "true" : undefined}><AccountMoney pence={headline} /></strong><span data-status-caption className={styles.rowCaption}><AccountSignal signal={signal} /><span data-status-text>{caption}</span></span></span>
     <ChevronRight size={14} className={styles.chevron} aria-hidden="true" />
     {summary && <span data-account-summary className={styles.rowNote}><MoneyText text={maskMoneyText(summary, hidden)} /></span>}
   </button>;
