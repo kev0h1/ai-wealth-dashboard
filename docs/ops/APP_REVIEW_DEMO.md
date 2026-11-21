@@ -63,18 +63,18 @@ Replace the placeholders in the credentials fields only, never in this repo.
 - Password: `<demo password>`
 
 Notes field (limit 4,000 bytes per Apple's App Review Information reference;
-this block is 695 characters):
+this block is 823 characters):
 
 ```text
-Sorted normally signs in with Google or Apple. For review, please use the demo sign-in instead. Do not use Google or Apple sign-in.
+Sorted normally signs in with Google or Apple. For review, please use the demo sign-in instead. Do not use Google or Apple sign-in. If a notification permission screen appears first, tap Continue.
 
 1. On the sign-in screen, find the small underlined link "Demo sign-in". It sits below the Google and Apple buttons, in the same white card.
 2. Tap "Demo sign-in". Two fields open: Email and Password.
-3. Enter the username and password from the Sign-in required fields above, then tap "Sign in".
+3. Enter the email address and password from the Sign-in required fields above, then tap "Sign in".
 
 You will land on the Home screen straight away. No device linking, verification code, bank connection or payment is needed.
 
-The account holds sample data only. Bank linking and payments are switched off for it, so those screens will not complete. This is intended.
+The account holds sample data only. Bank linking and payments are switched off for it, so those screens will not complete. This is intended. Subscription purchases are not available on this account.
 ```
 
 ### (b) Play Console, App content, App access, "All or some functionality is restricted"
@@ -85,10 +85,10 @@ The account holds sample data only. Bank linking and payments are switched off f
 
 "Any other information required to access your app" (limit about 500
 characters; I could not confirm the exact figure from Google's public help,
-so check the counter in the form; this block is 361 characters):
+so check the counter in the form; this block is 431 characters):
 
 ```text
-Do not use Google or Apple sign-in. On the sign-in screen, tap the underlined link "Demo sign-in", below the Google and Apple buttons. Enter the username and password given here, then tap "Sign in". No device linking, verification code, bank connection or payment is needed. The account holds sample data only. Bank linking and payments are switched off for it.
+Do not use Google or Apple sign-in. On the sign-in screen, tap the underlined link "Demo sign-in", below the Google and Apple buttons. Enter the email address and password given here, then tap "Sign in". If a notification permission screen appears first, tap Continue. No device linking, verification code, bank connection or payment is needed. The account holds sample data only. Bank linking and payments are switched off for it.
 ```
 
 ### Checklist before submitting
@@ -97,4 +97,8 @@ Do not use Google or Apple sign-in. On the sign-in screen, tap the underlined li
 - [ ] `DEMO_LOGIN_ENABLED` and `DEMO_PASSWORD_HASH` set on Railway (API and worker).
 - [ ] Production demo seeded with `seed_demo_account.py --confirm --db-name <prod name>`.
 - [ ] New store build pointing at the production API.
+- [ ] After the Android prod build uploads, send the draft for review in Play Console (C45).
+- [ ] Re-run `seed_demo_account.py` just before submission so the dates are current.
 - [ ] Credentials pasted into both store forms.
+
+Setup steps: see "Kevin's steps" above.
