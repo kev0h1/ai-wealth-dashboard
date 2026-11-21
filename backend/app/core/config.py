@@ -116,6 +116,23 @@ def mask_email(email: str) -> str:
         return f"{local[:2]}***@{domain or '?'}"
     except Exception:
         return "***"
+def mask_email_hint(email: str | None) -> str | None:
+    """C48: a hint at whose account a thing belongs to, for showing to a
+    DIFFERENT signed-in user: 'kevin.maingi12@gmail.com' -> 'k•••@g•••.com'.
+    One letter of the local part, one letter of the domain and the final
+    suffix only (never the full domain, never enough to identify anyone from
+    the hint alone). Returns None when there is nothing usable; never raises."""
+    try:
+        local, sep, domain = (email or "").strip().partition("@")
+        if not sep or not local or not domain:
+            return None
+        head, dot, tail = domain.rpartition(".")
+        suffix = f".{tail}" if dot and tail else ""
+        return f"{local[0]}•••@{domain[0]}•••{suffix}"
+    except Exception:
+        return None
+
+
 REDIS_URL           = os.getenv("REDIS_URL", "redis://localhost:6379")
 
 # ── Rate limiting / proxy trust ─────────────────────────────────────────────

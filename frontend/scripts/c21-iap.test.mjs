@@ -30,7 +30,8 @@ import { resolvePurchaseChannel } from "../lib/purchaseChannel.ts";
 import { purchaseChannel, usePurchaseChannel, canPurchaseInApp } from "../lib/nativeAuth.ts";
 import {
   describeFreeTrial, periodText, hasStoreKitPlugin, toProductView, purchasePack, executePackPurchase,
-  executeSync, executeRestore,
+  executeSync, executeRestore, executeSubscriptionPurchase, findForeignEntitlement, accountMismatchMessage, accountMismatchOf,
+  APPLE_ACCOUNT_MISMATCH_CODE,
   PURCHASE_FAILED_MESSAGE, PURCHASE_RECORDED_MESSAGE, PURCHASE_NOT_RECORDED_MESSAGE, PURCHASE_REFUNDED_MESSAGE, PACK_REFUNDED_REASON,
 } from "../lib/storekit.ts";
 import { api as apiClient } from "../lib/api.ts";
@@ -238,7 +239,7 @@ check("C46: the not-recorded copy is plain: British, no em dash, no exclamation 
   && !/(refund|charged|money|pay back|credit)/i.test(PURCHASE_NOT_RECORDED_MESSAGE) && !/shortly/.test(PURCHASE_NOT_RECORDED_MESSAGE)
   && !/[—!]/.test(PURCHASE_REFUNDED_MESSAGE));
 check("C46: storekit.ts no longer uses 'will show here shortly' for a server decline",
-  /notAppliedOutcome[\s\S]{0,300}PURCHASE_NOT_RECORDED_MESSAGE/.test(storekit) && !/message: PURCHASE_RECORDED_MESSAGE \} as const\)\s*;/.test(storekit));
+  /notAppliedOutcome[\s\S]{0,700}PURCHASE_NOT_RECORDED_MESSAGE/.test(storekit) && !/message: PURCHASE_RECORDED_MESSAGE \} as const\)\s*;/.test(storekit));
 
 // C46: recovery paths post to the server and finish only what the server accepted.
 function recoverySk({ unfinished = [], purchases = [] }) {
@@ -277,7 +278,7 @@ function recoverySk({ unfinished = [], purchases = [] }) {
 }
 check("C46: no registerPlugin proxy is returned (A133): the new exports take the handle and return plain data",
   /export async function executeSync\(sk: StoreKitHandle, config: AppleIapConfig\): Promise<number>/.test(storekit)
-  && /export async function executeRestore\(sk: StoreKitHandle, config: AppleIapConfig\): Promise<\{ restored: number; failed: number \}>/.test(storekit)
+  && /export async function executeRestore\(sk: StoreKitHandle, config: AppleIapConfig\): Promise<RestoreResult>/.test(storekit)
   && /return withStoreKit\(\(sk\) => executeSync\(sk, config\)\)/.test(storekit));
 check("C46: the plan picker shows the not-recorded copy when a restore finds purchases the server declined",
   /failed > 0\) setError\(PURCHASE_NOT_RECORDED_MESSAGE\)/.test(read("components/PlanPicker.tsx")));
@@ -286,7 +287,7 @@ check("purchasePack without the plugin (plain Node) fails before charge, not as 
 
 const sheetSrc = stripComments(read("components/MoreMessagesSheet.tsx"));
 check("storekit.ts loads packs as INAPP and finishes a pack only through verifyAndFinish", /export async function loadStorePackProducts/.test(storekit) && /inapp: mod\.PURCHASE_TYPE\.INAPP/.test(storekit)
-  && (storekit.match(/finishTransaction/g) ?? []).length === 2);
+  && (storekit.match(/finishTransaction/g) ?? []).length === 3); // C48: applied, refunded and mismatch, all inside verifyOutcome
 check("the sheet's StoreKit branch keys on the storekit channel and reads pack ids from config.products",
   /usePurchaseChannel\(\) === "storekit"/.test(sheetSrc) && /iapCfg\?\.products\?\.\[`penny_\$\{packId\}`\]/.test(sheetSrc) && !/sorted\.(lite|standard|plus|max|penny)/.test(sheetSrc));
 check("the sheet is ready on StoreKit only when enabled, purchase_allowed and products loaded", /storekitReady = Boolean\(storekit && iapCfg\?\.enabled && iapCfg\.purchase_allowed && iapState === "ready"\)/.test(sheetSrc));
@@ -305,6 +306,80 @@ check("the sheet never reaches Stripe from the StoreKit branch", /storekit \? bu
     /\{blockedNote && \(\s*<p[^>]*>\{blockedNote\}<\/p>\s*\)\}/.test(sheetSrc) && ((sheetSrc.match(/\{blockedNote\}/g) ?? []).length === 1)
     && sheetSrc.indexOf("{blockedNote && (") < sheetSrc.indexOf("{plusLeads ? ("));
   check("C39: no copy is invented for the blocked note", !/blockedNote[^;]*"[A-Za-z ]{6,}"/.test(note));
+}
+
+
+// ── C48: a purchase already owned by another Sorted account ─────────────────
+{
+  const HINT = "k\u2022\u2022\u2022@g\u2022\u2022\u2022.com";
+  const mismatchErr = (hint = HINT) => Object.assign(new Error("403"), { status: 403, detail: { code: APPLE_ACCOUNT_MISMATCH_CODE, message: "x", owner_hint: hint } });
+  const msg = accountMismatchMessage(HINT);
+  check("C48: the mismatch copy names the other account by its masked hint and says what to do",
+    msg.includes(`(${HINT})`) && /belongs to another Sorted account/.test(msg) && /Sign in with that account/.test(msg) && /iPhone Settings/.test(msg));
+  check("C48: the mismatch copy never suggests Restore purchases, and is plain (no em dash, no exclamation mark, no money talk)",
+    !/restore/i.test(msg) && !/[\u2014!]/.test(msg) && !/(refund|charged|money|pay back|credit)/i.test(msg)
+    && !/Restore purchases/.test(accountMismatchMessage(null)) && !/\(/.test(accountMismatchMessage(null)));
+  check("C48: accountMismatchOf recognises only a 403 carrying the server's code",
+    accountMismatchOf(mismatchErr())?.ownerHint === HINT && accountMismatchOf(mismatchErr(null))?.ownerHint === null
+    && accountMismatchOf(Object.assign(new Error("403"), { status: 403 })) === undefined
+    && accountMismatchOf(Object.assign(new Error("400"), { status: 400, detail: { code: APPLE_ACCOUNT_MISMATCH_CODE } })) === undefined);
+
+  const mk = ({ purchase, entitlements = [] }) => {
+    const finished = [], bought = [];
+    return { finished, bought, sk: { subs: "subs", inapp: "inapp", plugin: {
+      getPurchases: async () => ({ purchases: entitlements }),
+      purchaseProduct: async (a) => { bought.push(a); return purchase ? purchase() : { jwsRepresentation: "jws-1", transactionId: "t-1" }; },
+      finishTransaction: async (a) => { finished.push(a.transactionId); },
+      restorePurchases: async () => {},
+    } } };
+  };
+  // Post-purchase mismatch (what Kevin hit on prod): the new copy, not "Try Restore purchases".
+  apiClient.verifyAppleTransaction = async () => { throw mismatchErr(); };
+  const a = mk({});
+  const out = await executeSubscriptionPurchase(a.sk, "store.lite", cfg());
+  check("C48: a purchase the server refuses as another account's shows the mismatch copy, not the not-recorded copy",
+    out.ok === false && out.message === msg && out.accountMismatch === true && out.message !== PURCHASE_NOT_RECORDED_MESSAGE && !/Restore purchases/.test(out.message));
+  check("C48: that transaction is finished (the answer is final, it must not be re-posted or block the sheet) and nothing else is", a.finished.join(",") === "t-1");
+  // Restore hitting the same mismatch.
+  const r = mk({}); r.sk.plugin.getPurchases = async () => ({ purchases: [{ jwsRepresentation: "j", transactionId: "t-r" }] });
+  const rr = await executeRestore(r.sk, cfg());
+  check("C48: Restore purchases reports the mismatch with the hint, counts no failure, and finishes the transaction",
+    rr.restored === 0 && rr.failed === 0 && rr.accountMismatch?.ownerHint === HINT && r.finished.join(",") === "t-r");
+  // Sync: a tokenless mismatched transaction is finished once, not retried forever.
+  const sy = mk({}); sy.sk.plugin.getUnfinishedTransactions = async () => ({ transactions: [{ jwsRepresentation: "j", transactionId: "t-s" }] });
+  check("C48: sync finishes a mismatched transaction so it is not re-posted every launch", (await executeSync(sy.sk, cfg())) === 0 && sy.finished.join(",") === "t-s");
+  // Other 403s and other failures keep their C46 behaviour.
+  apiClient.verifyAppleTransaction = async () => { throw Object.assign(new Error("403"), { status: 403 }); };
+  const o = mk({});
+  const oo = await executeSubscriptionPurchase(o.sk, "store.lite", cfg());
+  check("C48: a 403 without the mismatch code keeps the not-recorded copy and finishes nothing", oo.message === PURCHASE_NOT_RECORDED_MESSAGE && o.finished.length === 0);
+
+  // Pre-purchase detection.
+  const posted = [];
+  apiClient.verifyAppleTransaction = async (jws) => { posted.push(jws); throw mismatchErr(); };
+  const p = mk({ entitlements: [
+    { jwsRepresentation: "mine", transactionId: "t-m", appAccountToken: "TOK-1" },
+    { jwsRepresentation: "theirs", transactionId: "t-t", appAccountToken: "someone-else" },
+  ] });
+  const pre = await executeSubscriptionPurchase(p.sk, "store.lite", cfg());
+  check("C48: an active entitlement carrying another account's token stops the purchase before the sheet opens, with the mismatch copy",
+    pre.ok === false && pre.message === msg && pre.accountMismatch === true && p.bought.length === 0 && p.finished.length === 0);
+  check("C48: only the foreign entitlement is sent to the server for the owner hint (the user's own is not)", posted.join(",") === "theirs");
+  const own = mk({ entitlements: [{ jwsRepresentation: "mine", transactionId: "t-m", appAccountToken: "tok-1" }] });
+  apiClient.verifyAppleTransaction = async () => ({ ok: true, handled: true });
+  const ok = await executeSubscriptionPurchase(own.sk, "store.lite", cfg());
+  check("C48: the user's own entitlement does not block a purchase", ok.ok === true && own.bought.length === 1);
+  apiClient.verifyAppleTransaction = async () => { throw new Error("network down"); };
+  const down = mk({ entitlements: [{ jwsRepresentation: "theirs", transactionId: "t-t", appAccountToken: "someone-else" }] });
+  check("C48: if the check cannot reach the server the purchase still proceeds (the post-purchase refusal remains)",
+    (await findForeignEntitlement(down.sk, cfg())) === null);
+  apiClient.verifyAppleTransaction = realVerify;
+
+  const picker = read("components/PlanPicker.tsx");
+  check("C48: the plan picker shows the mismatch copy on a restore mismatch and keeps the not-recorded copy otherwise",
+    /if \(accountMismatch\) setError\(accountMismatchMessage\(accountMismatch\.ownerHint\)\);\s*\/\/ C46[^\n]*\n\s*else if \(failed > 0\) setError\(PURCHASE_NOT_RECORDED_MESSAGE\)/.test(picker));
+  check("C48: the ops person detail shows the mismatch count and masked owner",
+    /appleMismatchLabel\(sub\)/.test(read("app/ops/people/SubscriptionSection.tsx")));
 }
 
 if (failures > 0) {

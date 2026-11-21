@@ -124,6 +124,16 @@ def _parse_expiry(raw: str | None) -> datetime | None:
     return end
 
 
+async def apple_mismatch_summary(uid: str) -> dict:
+    """C48: times this person's Apple ID held a subscription owned by another
+    Sorted account: a count plus the last few events (masked owner and time
+    only, oldest first)."""
+    token_doc = await cols.apple_account_tokens_col.find_one({"user_id": uid}) or {}
+    recent = [{"at": _iso(m.get("at")), "owner_hint": m.get("owner_hint")}
+              for m in (token_doc.get("mismatches") or [])][-10:]
+    return {"count": int(token_doc.get("mismatch_count") or 0), "recent": recent}
+
+
 async def _detail(uid: str) -> dict:
     now = datetime.now(timezone.utc)  # naive-ok: aware comparison
     picked, sub = await get_subscription_doc(uid)
@@ -178,6 +188,7 @@ async def _detail(uid: str) -> dict:
         },
         "mcp": {"allowance": mcp["limit"], "used": mcp["used"], "remaining": mcp["remaining"]},
         "pack_ids": [p["id"] for p in PENNY_TOPUP_PACKS],
+        "apple_mismatch": await apple_mismatch_summary(uid),
     }
 
 

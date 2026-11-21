@@ -2576,6 +2576,8 @@ export type OpsSubscription = {
   };
   mcp: { allowance: number | null; used: number; remaining: number | null };
   pack_ids: string[];
+  /** C48: times this person's Apple ID held a subscription owned by another Sorted account (masked owner and time only). */
+  apple_mismatch?: { count: number; recent: { at: string | null; owner_hint: string | null }[] };
 };
 export type OpsAuditEntry = {
   at: string | null;

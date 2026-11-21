@@ -77,7 +77,14 @@ class AppleNotConfigured(Exception):
 
 
 class AppleAccountMismatch(Exception):
-    """A signed transaction is genuine but is not this user's."""
+    """A signed transaction is genuine but is not this user's. `owner_hint` is
+    a masked hint of the Sorted account that owns it (config.mask_email_hint),
+    or None when the owner is unknown. It never carries the full email, the
+    owner's id or any other personal data."""
+
+    def __init__(self, message: str = "", owner_hint: str | None = None):
+        super().__init__(message)
+        self.owner_hint = owner_hint
 
 
 # ── Configuration ────────────────────────────────────────────────────────────
@@ -411,6 +418,28 @@ async def handle_notification(signed_payload: str, *, now: datetime | None = Non
 
 # ── Client-submitted signed transaction: purchase and restore (sections 6, 7) ─
 
+MISMATCH_LOG_LIMIT = 20
+
+
+async def record_account_mismatch(uid: str, owner_hint: str | None, *, now: datetime | None = None) -> None:
+    """C48: note, for /ops, that this user's Apple ID holds a subscription
+    that belongs to another Sorted account. A running count plus the last few
+    events (masked owner, timestamp) on the user's own appAccountToken
+    document, so erasing the user erases them. Nothing is moved or bound: this
+    only records. Never raises (a logging fault must not change the refusal)."""
+    from app.db.collections import apple_account_tokens_col
+
+    at = now or datetime.now(timezone.utc)  # naive-ok: aware instant, persisted audit or compared with as_utc stamps
+    try:
+        await apple_account_tokens_col.update_one(
+            {"user_id": uid},
+            {"$inc": {"mismatch_count": 1},
+             "$push": {"mismatches": {"$each": [{"at": at, "owner_hint": owner_hint}], "$slice": -MISMATCH_LOG_LIMIT}}},
+        )
+    except Exception:
+        logger.warning("apple billing: could not record an account mismatch", exc_info=True)
+    logger.info("apple billing: account mismatch for %s (owner %s)", config.mask_email(uid), owner_hint or "unknown")
+
 async def verify_signed_transaction(uid: str, signed_transaction: str, *, now: datetime | None = None) -> dict:
     """Verify a transaction the app reports (StoreKit's jwsRepresentation),
     from a purchase or a restore, and apply it exactly as the matching
@@ -441,7 +470,8 @@ async def verify_signed_transaction(uid: str, signed_transaction: str, *, now: d
             doc = await subscriptions_col.find_one(seam.store_doc_filter(uid, PROVIDER))
             owned = bool(doc and doc.get("provider_subscription_id") == str(tx["originalTransactionId"]))
         if not owned:
-            raise AppleAccountMismatch("transaction belongs to a different account")
+            owner_hint = config.mask_email_hint(token_uid) if token_uid else None
+            raise AppleAccountMismatch("transaction belongs to a different account", owner_hint)
 
     signed_at = _ms(tx.get("signedDate"))
     if product.kind == "pack":

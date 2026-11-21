@@ -313,8 +313,13 @@ async def apple_verify(body: dict, user: dict = Depends(current_user)):
     except apple_billing.AppleVerificationError as exc:
         logger.warning("apple verify: rejected (%s)", exc)
         raise _apple_error(400, "APPLE_VERIFY_FAILED", "This purchase could not be verified.")
-    except apple_billing.AppleAccountMismatch:
-        raise _apple_error(403, "APPLE_ACCOUNT_MISMATCH", "This purchase belongs to a different account.")
+    except apple_billing.AppleAccountMismatch as exc:
+        # C48: say whose it is, masked, so the app can explain the account
+        # link. Nothing is bound or moved; the refusal stands.
+        await apple_billing.record_account_mismatch(user["email"], exc.owner_hint)
+        err = _apple_error(403, "APPLE_ACCOUNT_MISMATCH", "This purchase belongs to a different account.")
+        err.detail["owner_hint"] = exc.owner_hint
+        raise err
     return {
         "ok": True, "handled": bool(result.get("handled")), "reason": result.get("reason"),
         "tier": result.get("tier"), "status": result.get("status"),
