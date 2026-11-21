@@ -19,7 +19,8 @@ const deadlineText = (value: string | null) => value ? ` by ${new Date(`${value}
 
 /** G430 A3: presentation only, using the existing reading's integer pence. */
 export function accountMoveSummary(account: UpcomingAccountSummary, reading: Reading): string | null {
-  if (reading.headline === null || !reading.ready) return accountActionNote(account, reading);
+  if (reading.pending) return null;
+  if (reading.available === null && (reading.headline === null || !reading.ready)) return accountActionNote(account, reading);
   if (!reading.combinedKnown) return "Payments only. Plans need checking.";
   const estimated = reading.result.estimated ? "Paying account based on recent transfers." : "";
   if (reading.gap <= 0) return estimated || null;

@@ -141,8 +141,8 @@ assert.equal(accountPlan(missing, plans).afterPayments, null);
 assert.equal(accountPlan(missing, plans).afterPlans, null);
 assert.match(renderDetails(missing), /Balance needs checking/);
 const noPlansDetail = renderDetails(gap, [], "ready");
-assert.match(noPlansDetail, /After payments and plans/);
-assert.equal((noPlansDetail.match(/After payments and plans/g) ?? []).length, 1, "the complete result label is present once, with no second plan deduction");
+assert.match(noPlansDetail, /Projected at payday, after payments and plans/);
+assert.equal((noPlansDetail.match(/after payments and plans/gi) ?? []).length, 1, "the complete result label is present once, with no second plan deduction");
 assert.doesNotMatch(noPlansDetail, /Still to set aside/, "no reservation operand is rendered without a linked plan");
 
 const apiPlans = plansFromApi([{ id: "server", record_id: "r", kind: "allocation", name: "Server allocation", destination: "Pot", destination_account_ids: ["pot"], source_account_id: "monzo", source_basis: "chosen", period_amount: 360, filled_amount: 60, remaining: 299.99, active: true }]);

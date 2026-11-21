@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "check:g486-upcoming-available": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g486-upcoming-available.test.mjs",
     "check:g485-first-sync": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g485-first-sync.test.mjs",
     "check:g483-welcome-screen": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g483-welcome-screen.test.mjs",
     "check:g476-card-plan-history": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g476-card-plan-history.test.mjs",

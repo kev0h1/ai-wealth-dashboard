@@ -3,6 +3,7 @@ import { accountPlan, type Plan } from "./upcomingPlans";
 import { statusFor } from "./upcomingAccountStatus";
 import { suggestedMovesFor } from "./coverSuggestion";
 import { coverSplitSentence, uncoveredSentence } from "./coverNarrative";
+import { availabilityLabel } from "./accountAvailability";
 
 /** Whole-pound summaries keep meaningful penny-sized values and every sign. */
 export function accountSummaryMoney(pence: number | null): string {
@@ -29,7 +30,7 @@ const finitePence = (pounds: number | null | undefined) => {
 
 /** G417: an action reading before suggested moves, independent of the pooled
  * spending allocation. The engine's balances and payment gap remain authoritative. */
-export function accountActionReading(account: UpcomingAccountSummary, plans: Plan[], plansStatus: "loading" | "error" | "ready") {
+function legacyActionReading(account: UpcomingAccountSummary, plans: Plan[], plansStatus: "loading" | "error" | "ready") {
   const ready = plansStatus === "ready";
   const result = accountPlan(account, ready ? plans : []);
   const afterPayments = Number.isSafeInteger(result.afterPayments) ? result.afterPayments : null;
@@ -73,6 +74,39 @@ export function accountActionReading(account: UpcomingAccountSummary, plans: Pla
   return { result, ready, combinedKnown, afterPayments, afterPlans, headline, gap, paymentGap, earlierGap, moves, incoming, outgoing, afterMove, remainingGap, signal, hasPlans, caption, futureIncome };
 }
 
+export type ActionReading = ReturnType<typeof legacyActionReading>;
+
+/** G486: one source of truth for Short. For an account the account page shows Available for, the stored figure
+ * decides everything the row says: negative is Short (caption, red signal, attention group), zero or more is never
+ * Short, and the closing projection plays no part. Accounts without it (savings, paused, uncertain) keep the old
+ * reading. `projection` is the untouched closing-projection reading, for the sheet's own projection block. */
+export function accountActionReading(account: UpcomingAccountSummary, plans: Plan[], plansStatus: "loading" | "error" | "ready") {
+  const base = legacyActionReading(account, plans, plansStatus);
+  const availability = account.position?.availability ?? null;
+  const pending = account.position?.availabilityPending ?? null;
+  const available = availability ? finitePence(availability.value) : null;
+  const availableLabel = availability ? availabilityLabel(availability) : null;
+  let over: Partial<ActionReading> = {};
+  if (availability && available !== null) {
+    const short = available < 0 ? -available : 0;
+    over = {
+      ready: true, combinedKnown: true, gap: short, paymentGap: short, earlierGap: false, remainingGap: short, futureIncome: false,
+      signal: short > 0 ? "risk" as const : availability.requiresMove || base.moves.length ? "move" as const : null,
+      caption: short > 0 ? "Short" : availableLabel!,
+    };
+  } else if (pending) {
+    over = { signal: "unknown" as const, caption: pending === "checking" ? "Checking availability" : "Availability unavailable" };
+  }
+  return { ...base, ...over, available, availableLabel, availability, pending, projection: base };
+}
+
+/** G486: does this row belong in the attention group? Available rows by their own stored figure only. */
+export function rowNeedsAttention(reading: ReturnType<typeof accountActionReading>): boolean {
+  if (reading.pending) return true;
+  if (reading.available !== null) return reading.available < 0;
+  return reading.gap > 0 || reading.headline === null || reading.signal === "unknown";
+}
+
 const upFirst = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
 const exactMoney = (pence: number) => `${pence < 0 ? "−" : ""}£${(Math.abs(pence) / 100).toLocaleString("en-GB", { minimumFractionDigits: pence % 100 ? 2 : 0, maximumFractionDigits: 2 })}`;
 
@@ -89,7 +123,7 @@ export function accountMoveRows(moves: readonly UpcomingSuggestedMove[]): { name
 
 /** G428: the plain line when suggested moves reach into savings or still leave some of the gap uncovered.
  * Null when nothing needs saying. Whole pounds, a recommendation only. */
-export function accountCoverLine(reading: ReturnType<typeof accountActionReading>): string | null {
+export function accountCoverLine(reading: ActionReading): string | null {
   if (!reading.ready || reading.incoming <= 0) return null;
   const savingsPence = reading.moves.filter(move => move.amount > 0 && move.savings).reduce((sum, move) => sum + Math.round(move.amount * 100), 0);
   const uncovered = reading.remainingGap / 100;
@@ -100,7 +134,7 @@ export function accountCoverLine(reading: ReturnType<typeof accountActionReading
   return uncovered > 0.5 && reading.gap > 0 ? uncoveredSentence(uncovered) : null;
 }
 
-export function accountActionNote(account: UpcomingAccountSummary, reading: ReturnType<typeof accountActionReading>) {
+export function accountActionNote(account: UpcomingAccountSummary, reading: ActionReading) {
   const { result, ready, combinedKnown, headline, gap, paymentGap, earlierGap, moves, incoming, outgoing, afterMove, remainingGap, signal, futureIncome } = reading;
   const exact = (pence: number) => `${pence < 0 ? "−" : ""}£${(Math.abs(pence) / 100).toLocaleString("en-GB", { minimumFractionDigits: pence % 100 ? 2 : 0, maximumFractionDigits: 2 })}`;
   const to = moves.filter(move => move.amount < 0).map(move => move.counterpartName).join(" and ");
