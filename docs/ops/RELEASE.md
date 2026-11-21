@@ -345,6 +345,37 @@ Deploy Sorted to production. Follow docs/ops/RELEASE.md exactly and use only scr
 Do not run railway up, vercel deploy, git push to release, or set variables by any other means. Do not restart UAT services. Do not print secrets.
 ```
 
+## iOS: Xcode 27 (C44)
+
+Apple warned on build 58 (ITMS-90725) that from April 2027 uploads must be built with the iOS 27 SDK (Xcode 27 or later). Delivery works today.
+
+**Decision (2026-11-21).** Do not rely on `xcode: latest`. Codemagic keeps `latest` on Xcode 26.6 and announces a major move on its GitHub Discussions page, so it would change under us at a time we do not choose. Instead:
+
+- `ios-capacitor` (UAT) is pinned to `xcode: 27.2` in `codemagic.yaml` (Codemagic resolves it to the newest 27.2.x patch; 27.0, 27.1 and 27.3 also exist). This is the first Xcode 27 build.
+- `ios-capacitor-prod` stays on `xcode: latest` until Kevin has verified a TestFlight build from the UAT workflow (checklist below). Then pin it to the same version, in one commit, and update this section. Do this before April 2027, ideally before February.
+- After April 2027, keep an explicit pin on both workflows and move it deliberately, one verified TestFlight build at a time.
+
+**Running the first Xcode 27 build.** Merging this change to `main` touches `codemagic.yaml`, so the changeset filter starts an `ios-capacitor` build automatically. Otherwise start it by hand in Codemagic: app, workflow `ios-capacitor`, branch `main`, Start new build. Check the build log shows `Xcode 27.2` and the iOS 27 SDK. If the build fails, read the log before changing anything: the known risks are listed below.
+
+**What Kevin checks on the TestFlight build** (a real iPhone, ideally on iOS 27 and once on iOS 26):
+
+1. The app launches (Xcode 27 builds fail to launch without the UIScene lifecycle; Capacitor 8.5 supplies it).
+2. Sign-in with email and password, and Sign in with Apple.
+3. Demo sign-in.
+4. Push registration: allow notifications, then confirm the device token reaches the server and a test push arrives.
+5. Settings notification row: it reflects the iOS permission, and "Open settings" opens the iOS Settings page (SortedNotifications plugin).
+6. StoreKit with a sandbox account: the plans load, a purchase completes and unlocks the plan, then Restore purchases works.
+7. App switcher shows the privacy cover rather than live figures; biometric unlock still works.
+
+**Known risks for the first Xcode 27 build** (found by desk review, no Mac available):
+
+- `SceneDelegate.swift` in Capacitor 8.5's template sets `window.rootViewController = CAPBridgeViewController()` in code, which can replace the storyboard's `SortedBridgeViewController`. The SortedNotifications plugin is still registered through `packageClassList` (setup-ios-notifications.sh), so check item 5 above; if it fails, patch SceneDelegate to use `SortedBridgeViewController()`.
+- The AppDelegate push and privacy patches match on `AppDelegate.swift` text. Capacitor 8.5's template is scene based; the push token callbacks stay on AppDelegate, but confirm both patch steps still report success in the log.
+- Swift 6 strict concurrency is not on (the template sets `SWIFT_VERSION = 5.0`), so `SortedNotificationsPlugin` should compile; moving to Swift 6 mode would flag the non-Sendable `CAPPluginCall` captures.
+- `@capgo/native-purchases` 8.9.6 documents StoreKit 2 on iOS 15 and later but states nothing about Xcode 27; Apple forum reports mention StoreKit test session problems in early 27 betas. Treat StoreKit as the highest-risk check.
+- Deployment target is 15.0 from the template; Xcode 27 still builds it, but Apple may raise the floor later.
+- Apple has signalled that `UIRequiresFullScreen` and `UIDesignRequiresCompatibility` are being phased out; neither is set in our Info.plist.
+
 ## G270: shared instrument prices migration (once per environment)
 
 After the G270 branch is merged and the API has restarted (which creates the indexes), link existing holdings to the shared `instrument_prices` table. Dry-run first, from `backend/`; output is counts only:
