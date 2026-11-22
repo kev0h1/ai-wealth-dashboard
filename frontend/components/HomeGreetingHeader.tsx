@@ -6,7 +6,7 @@ import { Landmark, UserRound } from "lucide-react";
  * live HomeBrief and the first-paint HomeSkeleton render this exact element,
  * so nothing changes size, position or weight when data lands.
  */
-export default function HomeGreetingHeader({ greeting, avatarInitials }: { greeting: string; avatarInitials: string | null }) {
+export default function HomeGreetingHeader({ greeting, avatarInitials, namePending = false }: { greeting: string; avatarInitials: string | null; namePending?: boolean }) {
   return (
     <div className="flex items-center gap-2 mb-3" data-home-greeting-header>
       {/* Avatar: the primary mobile entry point to /settings. Visible circle is
@@ -20,7 +20,11 @@ export default function HomeGreetingHeader({ greeting, avatarInitials }: { greet
           {avatarInitials ?? <UserRound size={16} aria-hidden="true" />}
         </span>
       </Link>
-      <h1 className="flex-1 min-w-0 break-words text-[20px] font-bold tracking-tight text-slate-900 dark:text-slate-100 leading-tight sm:text-[28px]">{greeting}</h1>
+      <h1 className="flex-1 min-w-0 break-words text-[20px] font-bold tracking-tight text-slate-900 dark:text-slate-100 leading-tight sm:text-[28px]">
+        {greeting}
+        {/* G488: the name is still on its way. A skeleton pill holds its place so the greeting never says "there". */}
+        {namePending && <span aria-hidden="true" data-greeting-name-pending className="ml-1.5 inline-block h-5 w-14 translate-y-[3px] rounded-lg bg-slate-200 align-baseline animate-pulse motion-reduce:animate-none dark:bg-slate-700 sm:h-7 sm:w-20" />}
+      </h1>
       <Link
         href="/accounts"
         className="shrink-0 inline-flex min-h-11 items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-2.5 text-[13px] font-semibold text-slate-700 shadow-sm hover:bg-slate-50 active:scale-95 transition-transform motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"

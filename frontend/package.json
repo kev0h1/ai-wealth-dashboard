@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "check:g488-loading-gates": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g488-loading-gates.test.mjs",
     "check:g487-upcoming-no-hero": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g487-upcoming-no-hero.test.mjs",
     "check:g486-upcoming-available": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g486-upcoming-available.test.mjs",
     "check:g485-first-sync": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g485-first-sync.test.mjs",

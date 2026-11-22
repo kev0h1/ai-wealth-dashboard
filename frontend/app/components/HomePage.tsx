@@ -31,6 +31,9 @@ import { invalidateMiscategorisedCount } from "@/lib/miscategorisedCount";
 import { cachedEndpoint, ENDPOINT, peekEndpoint } from "@/lib/endpointCache";
 import HomeBrief, { HomeBriefClearedRow } from "@/components/HomeBrief";
 import HomeGreetingHeader from "@/components/HomeGreetingHeader";
+import { buildGreeting, useClockHour } from "@/lib/greeting";
+import { accountsGenuinelyEmpty, briefGate, recentActivityState } from "@/lib/homeLoadGates";
+import { readCachedFirstName, writeCachedFirstName } from "@/lib/firstNameCache";
 import HomeTransfersCheck from "@/components/HomeTransfersCheck";
 import { HomeNotificationPermission } from "@/components/notifications/NotificationPermissionProvider";
 import ReconnectStrip, { reconnectProviderLabel } from "@/components/ReconnectStrip";
@@ -101,7 +104,9 @@ const PinnedWidgetCard = dynamic(
 // sections, relocated rather than reinvented; the three strip
 // placeholders use the min-height values each of those files already
 // documents for their own loading skeleton (166 / 64 / 128px).
-function HomeSkeleton({ firstName, displayName }: { firstName?: string; displayName?: string }) {
+function HomeSkeleton({ firstName, nameResolved, displayName }: { firstName?: string; nameResolved: boolean; displayName?: string }) {
+  const hour = useClockHour();
+  const greeting = buildGreeting(hour, firstName, nameResolved);
   return (
     <div
       className="lg:grid lg:grid-cols-[minmax(0,5fr)_minmax(0,6fr)] lg:gap-6 lg:p-6 lg:max-w-7xl lg:mx-auto"
@@ -111,7 +116,7 @@ function HomeSkeleton({ firstName, displayName }: { firstName?: string; displayN
       {/* Left column */}
       <div>
         <div className="px-4 pt-5 lg:px-0 lg:pt-0">
-          <HomeGreetingHeader greeting={`Hi, ${firstName || "there"}`} avatarInitials={initialsOf(displayName) ?? null} />
+          <HomeGreetingHeader greeting={greeting.text} avatarInitials={initialsOf(displayName) ?? null} namePending={greeting.namePending} />
         </div>
 
         <div className="px-4 lg:px-0 mt-5">
@@ -195,22 +200,46 @@ export default function HomePage() {
   // shell), so there is no "just finished onboarding this render" case to
   // race here.
   const [profileFullName, setProfileFullName] = useState<string | undefined>(undefined);
+  // G488: false until the profile request has answered (or failed). Until then
+  // the greeting shows a name placeholder rather than a guess.
+  const [profileResolved, setProfileResolved] = useState(false);
+  const [profileLoaded, setProfileLoaded] = useState(false);
+  // The first name remembered from the last launch, read after mount so the
+  // server render and the hydrating render agree. Replaced by the live answer.
+  const [cachedFirstName, setCachedFirstName] = useState<string | undefined>(undefined);
   useEffect(() => {
-    const apply = (p: UserProfile) => setProfileFullName(p.full_name || undefined);
-    cachedEndpoint(ENDPOINT.profile.key, () => api.getProfile(), { ttlMs: ENDPOINT.profile.ttlMs, onUpdate: apply }).then(apply).catch(() => {});
+    const apply = (p: UserProfile) => { setProfileFullName(p.full_name || undefined); setProfileLoaded(true); setProfileResolved(true); };
+    cachedEndpoint(ENDPOINT.profile.key, () => api.getProfile(), { ttlMs: ENDPOINT.profile.ttlMs, onUpdate: apply }).then(apply).catch(() => setProfileResolved(true));
   }, []);
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- localStorage is only readable after mount
+    setCachedFirstName(readCachedFirstName(typeof window === "undefined" ? null : window.localStorage, user?.email));
+  }, [user?.email]);
   // A182: bank connections, for the 90-day reconfirmation prompt and the
   // plain reason on the reconnect strip.
   const [bankConnections, setBankConnections] = useState<Connection[]>([]);
   const nameSources = { fullName: profileFullName, sessionName: user?.name, email: user?.email };
   const displayName = resolveFullName(nameSources) ?? undefined;
-  const firstName = resolveDisplayName(nameSources) ?? undefined;
+  const resolvedFirstName = resolveDisplayName(nameSources) ?? undefined;
+  // G488: before the profile answers, the remembered name wins over the session
+  // name (which can differ from the profile's); after, the live answer is the
+  // only source, so a genuinely nameless profile greets with no name at all.
+  const firstName = profileLoaded ? resolvedFirstName : (cachedFirstName ?? resolvedFirstName);
+  const nameResolved = profileResolved || firstName !== undefined;
+  useEffect(() => {
+    if (!profileLoaded) return;
+    writeCachedFirstName(typeof window === "undefined" ? null : window.localStorage, user?.email, resolvedFirstName ?? null);
+  }, [profileLoaded, resolvedFirstName, user?.email]);
   const { hideNetWorth, preferencesReady, payPeriodConfig, homePinnedWidget } = usePreferences();
   const { colours } = useColours();
   // Read once per render so every initializer/guard below sees the same
   // snapshot — see lib/homeCache.ts for what this cache is and why it's
   // there.
-  const homeCache = getHomeCache();
+  // G488: a snapshot whose accounts request never completed (the 5s reveal
+  // valve cached it mid-load) would read as "no accounts" on the next mount,
+  // so only a snapshot with a settled accounts answer counts as warm.
+  const rawHomeCache = getHomeCache();
+  const homeCache = rawHomeCache && rawHomeCache.accountsStatus === "ready" ? rawHomeCache : null;
   const [accounts, setAccounts] = useState<Account[]>(homeCache?.accounts ?? []);
   const [investmentAccounts, setInvestmentAccounts] = useState<InvestmentAccount[]>(homeCache?.investmentAccounts ?? []);
   // Fed only by the lazy 90-day bulk fetch below, gated on homePinnedWidget —
@@ -288,6 +317,10 @@ export default function HomePage() {
   // SafeToSpendCard as `undefined` and both rendered as nothing at all.
   const [todayStatus, setTodayStatus] = useState<TodayRequestStatus>(homeCache?.todayStatus ?? "loading");
   const [availabilityFresh, setAvailabilityFresh] = useState(false);
+  // G488: true once GET /today has answered (or failed) at least once on this
+  // mount or in the warm snapshot. Penny's line waits for it, and does not go
+  // back to a skeleton on a later refresh.
+  const [todaySettled, setTodaySettled] = useState(homeCache != null && homeCache.todayStatus !== "loading");
   // G148 re-review — what happened to the GET /accounts this mount issued.
   // NOT derived from the page-level `loading` flag: that initialises to
   // `!homeCache`, so a warm remount starts with it already false, before
@@ -388,7 +421,7 @@ export default function HomePage() {
   // `revealedRef.current`), so a rapid double back-navigation during the
   // very first cold load can never seed the cache with empty/default data.
   useEffect(() => {
-    if (!revealedRef.current) return;
+    if (!revealedRef.current || accountsStatus !== "ready") return;
     setHomeCache({ accounts, investmentAccounts, safeToSpend, companionItems, accountEligibility, todayStatus, accountsStatus, recentTxns, recentPendingTxns, recentPendingTotal, recentActivityError });
   }, [accounts, investmentAccounts, safeToSpend, companionItems, accountEligibility, todayStatus, accountsStatus, recentTxns, recentPendingTxns, recentPendingTotal, recentActivityError]);
 
@@ -405,7 +438,7 @@ export default function HomePage() {
     // A cached payload must render immediately: do not reset the status flags
     // to "loading" when we are about to serve the same data from the cache.
     const warmToday = allowCache && peekEndpoint(ENDPOINT.today.key) !== undefined;
-    const warmAccounts = allowCache && getHomeCache() != null;
+    const warmAccounts = allowCache && getHomeCache()?.accountsStatus === "ready";
     setLoadError(false);
     setStsError(false);
     // G148: a retry or a manual sync is a fresh attempt, so the spend-from
@@ -428,6 +461,7 @@ export default function HomePage() {
         setCompanionItems(v.items);
         setAccountEligibility(v.account_eligibility ?? undefined);
         setTodayStatus("ready");
+        setTodaySettled(true);
         setAvailabilityFresh(true);
       };
       const accsP = getAccountsCached(force);
@@ -489,7 +523,7 @@ export default function HomePage() {
           // for the things that must block, and the brief/rail are not
           // among them. G148 only makes the failure VISIBLE where it
           // matters, as a distinct spend-from state rather than as a toast.
-          if (requestId === loadRequestRef.current) setTodayStatus("failed");
+          if (requestId === loadRequestRef.current) { setTodayStatus("failed"); setTodaySettled(true); }
         });
       recentTxP
         .then((r) => {
@@ -1000,7 +1034,7 @@ export default function HomePage() {
   // user whose /accounts fetch simply failed would see the "Connect your
   // first bank" hero and a blanked brief instead of the load-error retry UI.
   const hasConnectionEvidence = hasHomeConnectionEvidence({ status: syncStatus, bankConnectionCount: bankConnections.length, recentCount: recentTxns.length, pendingCount: recentPendingTotal });
-  const hasNoAccounts = !loading && !loadError && accounts.length === 0 && investmentAccounts.length === 0 && !hasConnectionEvidence;
+  const hasNoAccounts = accountsGenuinelyEmpty({ loading, loadError, accountsStatus, accountCount: accounts.length, investmentCount: investmentAccounts.length, hasConnectionEvidence });
   // G210: a first bank sync that is running, stuck or failed. While it is,
   // "no accounts yet" is not a fresh user, it is a user whose data is on its
   // way, so Home shows the sync ledger instead of the connect hero.
@@ -1040,6 +1074,14 @@ export default function HomePage() {
   // hasAccounts guard doesn't prematurely suppress a real user's entry row
   // before their accounts have arrived) — settles to a real boolean once
   // `loading` clears.
+  // G488: Penny's line needs both Left to spend and the companion items (and
+  // the sync status that decides whether a verdict is withheld). Until all have
+  // answered it is a skeleton, never "Nothing needs you today". A failed read is
+  // an error with a retry, not an all-clear.
+  const recentState = recentActivityState({ txLoading, accountsLoading: loading, error: recentActivityError, pendingCount: recentPendingTxns.length, recentCount: recent.length });
+  const briefState = briefGate({ loading, stsLoading, todaySettled, syncStatusKnown: syncStatus !== null, syncStatusError, loadError, stsError, todayStatus });
+  const briefLoading = briefState === "loading";
+  const briefFailed = briefState === "failed";
   const hasAccountsForBrief = loading ? undefined : accounts.length > 0 || investmentAccounts.length > 0;
 
   // ── Attention glow — at most one card glows per screen; priority resolved
@@ -1095,7 +1137,7 @@ export default function HomePage() {
           self-fetching strips can report their onReady in) but hidden via
           a plain display toggle, never unmounted, so nothing here ever
           double-fetches and the reveal is instant with no transition. */}
-      {!pageReady && <><p className="sr-only" role="status">Loading your overview</p><HomeSkeleton firstName={firstName} displayName={displayName} /></>}
+      {!pageReady && <><p className="sr-only" role="status">Loading your overview</p><HomeSkeleton firstName={firstName} nameResolved={nameResolved} displayName={displayName} /></>}
 
       {/* Desktop 2-col grid wrapper */}
       <div
@@ -1111,10 +1153,12 @@ export default function HomePage() {
             <HomeBrief
               items={hasNoAccounts || verdictWithheld ? [] : companionItems}
               firstName={firstName}
+              nameResolved={nameResolved}
               displayName={displayName}
               safeToSpend={verdictWithheld ? null : safeToSpend}
               reconnectNames={reconnectNames}
-              loading={loading}
+              loading={briefLoading}
+              loadFailed={briefFailed}
               syncError={syncError}
               hideNetWorth={hideNetWorth || !preferencesReady}
               onRefresh={loadData}
@@ -1330,7 +1374,7 @@ export default function HomePage() {
               </button>
             </div>
             <div className="space-y-6 lg:max-h-[calc(100vh-120px)] lg:overflow-y-auto">
-              {txLoading ? (
+              {recentState === "loading" ? (
                 <div role="status" aria-label="Loading recent activity" className="glass-card rounded-2xl p-4 space-y-3">
                   {[1, 2, 3, 4, 5].map((i) => (
                     <div key={i} className="flex items-center gap-3" aria-hidden="true">
@@ -1343,12 +1387,12 @@ export default function HomePage() {
                     </div>
                   ))}
                 </div>
-              ) : recentActivityError ? (
+              ) : recentState === "error" ? (
                 <div className="glass-card rounded-2xl p-4">
                   <p role="status" className="text-sm text-slate-600 dark:text-slate-300">{recentActivityError}</p>
                   <button type="button" onClick={() => { setTxLoading(true); void loadData(); }} className="mt-2 min-h-11 rounded-xl px-3 text-sm font-semibold text-indigo-700 hover:bg-indigo-50 active:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-indigo-300 dark:hover:bg-slate-700">Try again</button>
                 </div>
-              ) : recentPendingTxns.length === 0 && recent.length === 0 ? (
+              ) : recentState === "empty" ? (
                 <div className="glass-card rounded-2xl py-8 text-center">
                   <p className="text-sm text-slate-600 dark:text-slate-400">No transactions yet</p>
                 </div>

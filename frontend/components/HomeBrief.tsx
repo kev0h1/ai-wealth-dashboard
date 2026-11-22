@@ -16,6 +16,7 @@ import { coverPlanProtectsHeader, coverPlanSummary, type DueRange } from "@/lib/
 import PaydayPlanCard from "@/components/PaydayPlanCard";
 import PennyMark from "@/components/PennyMark";
 import HomeGreetingHeader from "@/components/HomeGreetingHeader";
+import { buildGreeting, useClockHour } from "@/lib/greeting";
 import { BRAND_GRADIENT } from "@/lib/brand";
 import { BankBadge } from "@/components/AccountMiniCard";
 import { useColours } from "@/components/ColourProvider";
@@ -76,6 +77,13 @@ interface HomeBriefProps {
   /** G457: banks needing reconnection (the reconnect banner's own list). */
   reconnectNames?: string[];
   firstName?: string;
+  /** G488: false while the profile (and so the first name) is still loading;
+   * the greeting then shows a name placeholder instead of guessing. Defaults to
+   * true for callers with a fixed name. */
+  nameResolved?: boolean;
+  /** G488: the companion items or the Left to spend figure failed to load. The
+   * brief says so and offers a retry, never the "Nothing needs you" line. */
+  loadFailed?: boolean;
   /** D7: the full resolved name (profile.full_name preferred, session name
    * as fallback, never an email or its local part — see lib/displayName.ts)
    * used for the avatar's initials below. `firstName` above is already
@@ -2401,32 +2409,18 @@ export function HomeBriefClearedRow({ cleared, router }: HomeBriefClearedRowProp
   );
 }
 
-export default function HomeBrief({ items, reconnectNames, firstName, displayName, safeToSpend, loading, syncError, hideNetWorth, onRefresh, attnTarget, dismissible, hasAccounts, onClearedChange, onCoverMoveVisibleChange, banner }: HomeBriefProps) {
+export default function HomeBrief({ items, reconnectNames, firstName, nameResolved = true, loadFailed = false, displayName, safeToSpend, loading, syncError, hideNetWorth, onRefresh, attnTarget, dismissible, hasAccounts, onClearedChange, onCoverMoveVisibleChange, banner }: HomeBriefProps) {
   const router = useRouter();
-  const name = firstName || "there";
-
   // Avatar initials — derived from the full resolved name (not just
   // firstName), up to two initials from the first two words. Falls back to
   // a generic person icon when there's no real name to work with yet.
-  // D7: this used to read the raw session name (`user?.name`) directly,
-  // which is not reliable — see lib/displayName.ts for why — so it now
-  // reads the same profile-preferred `displayName` the caller already
-  // resolved for the greeting above.
   const avatarInitials = initialsOf(displayName) ?? null;
 
-  // Hydration guard: render a neutral greeting on first paint to avoid SSR/client
-  // mismatch from new Date().getHours(), then swap to the time-aware version after mount.
-  const [greeting, setGreeting] = useState(`Hi, ${name}`);
-  useEffect(() => {
-    const hour = new Date().getHours();
-    setGreeting(
-      hour < 12
-        ? `Good morning, ${name}`
-        : hour < 18
-        ? `Good afternoon, ${name}`
-        : `Good evening, ${name}`
-    );
-  }, [name]);
+  // Hydration guard: the hour is read after mount (a server render has no
+  // viewer clock), so the first paint is the neutral "Hello". G488: never
+  // "there"; the name is a placeholder until resolved, absent if there is none.
+  const hour = useClockHour();
+  const greeting = buildGreeting(hour, firstName, nameResolved);
 
   return (
     <div>
@@ -2434,7 +2428,7 @@ export default function HomeBrief({ items, reconnectNames, firstName, displayNam
           this exact header, and fading it in again on reveal would make it
           vanish and reappear (G386/G400 no-flip rule). */}
       {/* Header row: shared with the first-paint skeleton (G411) */}
-      <HomeGreetingHeader greeting={greeting} avatarInitials={avatarInitials} />
+      <HomeGreetingHeader greeting={greeting.text} avatarInitials={avatarInitials} namePending={greeting.namePending} />
 
       {/* Caller-supplied banner — see HomeBriefProps.banner. Sits directly
           under the greeting row and above everything else this component
@@ -2450,6 +2444,11 @@ export default function HomeBrief({ items, reconnectNames, firstName, displayNam
         {syncError && <SyncErrorBanner glow={attnTarget === "sync"} />}
         {loading ? (
           <BriefSkeleton />
+        ) : loadFailed ? (
+          <div role="status" className="flex items-center gap-3">
+            <p className="flex-1 text-[15px] text-slate-700 dark:text-slate-200 leading-relaxed">I couldn&apos;t load your updates just now.</p>
+            {onRefresh && <button type="button" onClick={onRefresh} className="min-h-11 shrink-0 rounded-xl px-3 text-sm font-semibold text-indigo-700 hover:bg-indigo-50 active:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-indigo-300 dark:hover:bg-slate-700">Try again</button>}
+          </div>
         ) : (
           <BriefBody items={items} reconnectNames={reconnectNames} safeToSpend={safeToSpend} router={router} hideNetWorth={hideNetWorth} onRefresh={onRefresh} attnTarget={attnTarget} dismissible={dismissible} onClearedChange={onClearedChange} onCoverMoveVisibleChange={onCoverMoveVisibleChange} />
         )}

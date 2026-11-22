@@ -210,6 +210,9 @@ export default function PlanningPage() {
   useTutorialReady("upcoming", !firstSync.pending && !firstSync.active && (!!cashflow || cashflowError));
 
   const [accounts, setAccounts] = useState<Account[]>([]);
+  // G488: the account list has answered (or failed). Until then the rows and the
+  // "Nothing more expected" line below would be judged against an empty list.
+  const [accountsLoaded, setAccountsLoaded] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   // Allocations — see AllocationCards' own comment for the null-vs-error
   // distinction (null = loading/genuinely none, error = GET failed).
@@ -296,7 +299,7 @@ export default function PlanningPage() {
       // fresh-user card, app/planning/GrowPanel.tsx's empty ladder). Giving
       // this page one is a new empty state needing a design round, not a
       // route fix. Do not re-investigate; propose it to Kevin instead.
-      getAccountsCached().catch(() => [] as Account[]).then(setAccounts);
+      getAccountsCached().catch(() => [] as Account[]).then((list) => { setAccounts(list); setAccountsLoaded(true); });
       // Allocations are additive and must never block the forecast.
       api.listAllocations().then(setAllocations).catch(() => setAllocationsError(true));
       api.listAccountPlans().then(setAccountPlans).catch(() => setAccountPlansError(true));
@@ -715,8 +718,8 @@ export default function PlanningPage() {
             Retry
           </button>
         </div>
-      ) : !cashflow ? (
-        <div className="flex items-center justify-center py-16"><Spinner size={32} /></div>
+      ) : !cashflow || !accountsLoaded ? (
+        <div className="flex items-center justify-center py-16" role="status" aria-label="Loading what's coming"><Spinner size={32} /></div>
       ) : (() => {
         const { paydayLabel } = upcomingPeriod;
         const nextPaydayMidnight = upcomingPeriod.payday;
