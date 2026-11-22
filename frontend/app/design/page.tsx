@@ -32,6 +32,21 @@ type PreviewRoute = {
 
 const ROUTES: PreviewRoute[] = [
   {
+    slug: "upcoming-flow",
+    name: "Upcoming page flow · G489",
+    description:
+      "Two full-page proposals for the same account shortfall: A Account first, B Timeline first. One dated gap and one suggested move, followed by payments, set-asides and anything needing input. Fictional fixtures, both themes, no production or calculation changes. Impeccable design round awaiting Kevin's choice.",
+    states: [
+      { label: "Account short", value: "short" },
+      { label: "Payments covered", value: "covered" },
+    ],
+    variants: [
+      { label: "A · Account first", value: "a" },
+      { label: "B · Dated flow", value: "b" },
+    ],
+    group: "current",
+  },
+  {
     slug: "left-to-spend-money-in",
     name: "Left to spend with money still to come in · G480",
     description:
