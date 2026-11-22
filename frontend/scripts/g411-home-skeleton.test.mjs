@@ -11,12 +11,12 @@ const brief = readFileSync(new URL("../components/HomeBrief.tsx", import.meta.ur
 const page = readFileSync(new URL("../app/components/HomePage.tsx", import.meta.url), "utf8");
 
 // One shared header: both the live brief and the skeleton render it.
-assert.match(brief, /<HomeGreetingHeader greeting=\{greeting\} avatarInitials=\{avatarInitials\} \/>/, "live brief renders the shared header");
+assert.match(brief, /<HomeGreetingHeader greeting=\{greeting\.text\} avatarInitials=\{avatarInitials\} namePending=\{greeting\.namePending\} \/>/, "live brief renders the shared header");
 const skeleton = page.slice(page.indexOf("function HomeSkeleton"), page.indexOf("export default function HomePage"));
-assert.match(skeleton, /<HomeGreetingHeader greeting=\{`Hi, \$\{firstName \|\| "there"\}`\} avatarInitials=\{initialsOf\(displayName\) \?\? null\} \/>/, "skeleton renders the shared header with the neutral first-paint greeting");
+assert.match(skeleton, /<HomeGreetingHeader greeting=\{greeting\.text\} avatarInitials=\{initialsOf\(displayName\) \?\? null\} namePending=\{greeting\.namePending\} \/>/, "skeleton renders the shared header with the same greeting logic (G488)");
 assert.doesNotMatch(skeleton, /text-\[28px\] font-bold/, "skeleton no longer carries its own 28px heading");
 assert.doesNotMatch(brief.slice(brief.indexOf("export default function HomeBrief")), /className="rise-in"/, "brief root has no rise-in that would re-fade the header");
-assert.match(brief, /useState\(`Hi, \$\{name\}`\)/, "live first paint greeting is the same neutral Hi, name");
+assert.match(brief, /buildGreeting\(hour, firstName, nameResolved\)/, "live greeting comes from the same shared builder as the skeleton (G488)");
 
 assert.match(skeleton.slice(0, 600), /aria-hidden="true"\s+inert/, "skeleton root is inert so its header links are not focusable");
 
@@ -26,7 +26,7 @@ assert.match(html, /<h1[^>]*text-\[20px\][^>]*sm:text-\[28px\][^>]*>Hi, Kevin<\/
 assert.match(html, /aria-label="Account and settings"[^>]*href="\/settings"/);
 assert.match(html, /href="\/accounts"[^>]*>.*Accounts<\/a>/s);
 assert.match(html, />KM</);
-assert.equal(renderToStaticMarkup(h(HomeGreetingHeader, { greeting: "Hi, there", avatarInitials: null })).includes("lucide-user-round"), true, "no name falls back to the person icon");
+assert.equal(renderToStaticMarkup(h(HomeGreetingHeader, { greeting: "Good morning", avatarInitials: null })).includes("lucide-user-round"), true, "no name falls back to the person icon");
 
 // Service worker: load it into a stub scope.
 const src = readFileSync(new URL("../public/sw.js", import.meta.url), "utf8");
