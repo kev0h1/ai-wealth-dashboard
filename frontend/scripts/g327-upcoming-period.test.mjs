@@ -1,9 +1,6 @@
 import assert from "node:assert/strict";
-import React from "react";
-import { renderToStaticMarkup } from "react-dom/server";
 import { resolveUpcomingPeriod } from "../lib/upcomingPeriod.ts";
 import { paymentsThroughLabel, upcomingAccountWindow } from "../lib/upcomingAccounts.ts";
-import UpcomingHeroCard from "../components/upcoming/UpcomingHeroCard.tsx";
 
 // G327: Upcoming reads its pay period from the cashflow payload. A last-Friday
 // server period (25 Sep to 29 Oct, payday Fri 30 Oct, today 24 Oct = day 30 of 35)
@@ -42,15 +39,6 @@ assert.equal(paymentsThroughLabel(upcomingAccountWindow(endMs, Date.parse("2026-
 // A confirmed salary date never replaces the period's own payday.
 const observed = resolveUpcomingPeriod({ period: { ...period, payday_observed: { date: "2026-10-28", source: "confirmed" } } }, calendarSeed);
 assert.equal(observed.paydayLabel, "Fri 30 Oct");
-
-// The hero renders the payload-derived figures.
-const hero = renderToStaticMarkup(React.createElement(UpcomingHeroCard, {
-  isCalendarMonth: p.isCalendarMonth, daysToPayday: p.daysToPayday, paydayLabel: p.paydayLabel, spendableNow: 500,
-  runwayIncomeTotal: 0, runwayBillsTotal: 100, allocationsRemainingTotal: 0, savingsNow: 0, runway: 400, runwayStatus: "left",
-}));
-assert.match(hero, /Fri 30 Oct · 6 days/);
-assert.match(hero, /Projected at payday/);
-assert.doesNotMatch(hero, /31 Oct|month end/);
 
 // Calendar-month server period keeps month-end wording.
 const cal = resolveUpcomingPeriod({ period: { start: "2026-10-01", end: "2026-10-31", length_days: 31, day_number: 24, payday: "2026-11-01", label: "1 Oct to 31 Oct", payday_observed: null, type: "calendar_month" } }, { config: { type: "last_friday" }, nowMs: calendarSeed.nowMs });

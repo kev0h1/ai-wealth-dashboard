@@ -1,7 +1,7 @@
 // Plain-Node test for lib/pennyScreenViews.ts (B39), same framework-free
 // pattern as scripts/preferences-version.test.mjs et al — imports the REAL
 // production module (the exact functions SafeToSpendCard.tsx,
-// app/components/SpendPage.tsx and app/planning/PlanningPage.tsx call to
+// and app/components/SpendPage.tsx call to
 // both render AND publish a screen's Penny context), not a hand-copied
 // re-implementation, so this can never drift from what actually ships.
 //
@@ -16,14 +16,13 @@
 //   quotes, byte for byte — they're literally the same call, this just pins
 //   the mapping against fixtures so a future edit can't quietly split them)
 // - the hidden-balances case omits figures rather than masking them
-// - Spend/Upcoming views carry the server's own verdict/reading text
+// - Spend views carry the server's own verdict/reading text
 //   verbatim, never a client-invented paraphrase
 
 import {
   deriveSafeToSpendHeadline,
   buildSafeToSpendView,
   buildSpendPeriodView,
-  buildUpcomingRunwayView,
   buildTaxView,
 } from "../lib/pennyScreenViews.ts";
 
@@ -155,33 +154,6 @@ const verdict = {
   const negativeNet = { ...verdict, pills: { spent: 2000, income: 900, net: -1100 } };
   const view = buildSpendPeriodView(negativeNet);
   check("negative net uses the app's minus sign convention", view.figures[2].value, "−£1,100");
-}
-
-{
-  const view = buildUpcomingRunwayView({ runway: 240, runwayStatus: "left", isCalendarMonth: false, plansUnavailable: true });
-  check("upcoming runway label says it may be too high when plans are unavailable", /estimated.*too high/.test(view.figures[0].label), true);
-}
-
-// ── Upcoming runway view ──────────────────────────────────────────────────
-
-{
-  const view = buildUpcomingRunwayView({ runway: 240, runwayStatus: "left", isCalendarMonth: false });
-  check("upcoming route", view.route, "/upcoming");
-  check("upcoming scope for a pay-period cycle", view.scope, "Projected at payday");
-  check("upcoming verdict for money left over", view.verdict, "Left over");
-  check("upcoming figure for money left over", view.figures[0], { key: "runway", label: "Projected at payday", value: "£240" });
-}
-
-{
-  const view = buildUpcomingRunwayView({ runway: -60, runwayStatus: "short", isCalendarMonth: true });
-  check("upcoming scope for a calendar-month cycle", view.scope, "Projected at month end");
-  check("upcoming verdict for a shortfall", view.verdict, "Short");
-  check("upcoming figure carries the minus sign for a shortfall", view.figures[0].value, "−£60");
-}
-
-{
-  const view = buildUpcomingRunwayView({ runway: 0, runwayStatus: "even", isCalendarMonth: false });
-  check("upcoming verdict for exactly covered", view.verdict, "Exactly covered");
 }
 
 // ── Tax view (B41) ─────────────────────────────────────────────────────

@@ -4761,9 +4761,9 @@ _PAGE_EXPLAINER_COPY: dict[str, str] = {
         "lives on Upcoming instead."
     ),
     "upcoming": (
-        "This is Upcoming. It lays out what's coming before your next "
-        "payday, bills and expected income, and the runway that leaves "
-        "you. Anything that hasn't happened yet is an expectation based "
+        "This is Upcoming. It shows each account's Available to spend, "
+        "what you have set aside this period, and the payments due before "
+        "your next payday. Anything that hasn't happened yet is an expectation based "
         "on your own patterns, never a certainty."
     ),
     "insights": (
@@ -4989,8 +4989,8 @@ _TERMS_COPY: dict[str, str] = {
         "A pay period is the window the app measures everything against. "
         "By default it's simply the calendar month, but you can set it "
         "to your actual payday, a fortnightly cycle, or the last weekday "
-        "of the month instead. Whichever you choose drives the runway "
-        "figure, the payday divider, and when your spending comparisons "
+        "of the month instead. Whichever you choose drives Left to spend, "
+        "the payday divider, and when your spending comparisons "
         "reset, it's a personal setting, not something the app infers "
         "from your bank feed."
     ),
@@ -5048,14 +5048,14 @@ _NUMBERS_COPY: dict[str, str] = {
         "usually read lower than a simple subtraction."
     ),
     "planning_runway": (
-        "Planning's runway is what's spendable right now, plus income expected "
-        "before payday, minus bills still due, what you still have to set aside "
-        "and your goal plans for the period. It excludes pooled no-op transfers, "
-        "money moving between two of your own spendable accounts nets to nothing "
-        "for this total. It differs from left to spend's FREE figure only in that "
-        "it ends at payday rather than using the walk's lowest point, and it "
-        "doesn't subtract your safety buffer, which only applies to FREE. If goal "
-        "plans could not be loaded, the runway may read higher than it should."
+        "Upcoming no longer shows a single projected figure for payday, so "
+        "there is no pooled runway total to explain. Each account instead "
+        "shows what is available to spend after its own payments, goals and "
+        "set-asides. Left to spend on Home is the one overall figure, and it "
+        "excludes pooled no-op transfers, because money moving between two of "
+        "your own spendable accounts nets to nothing. It does not use "
+        "the end-of-period balance, it uses the walk's lowest point before "
+        "payday."
     ),
     "grow_surplus_monthly": (
         "Grow's monthly surplus is your typical monthly income minus "

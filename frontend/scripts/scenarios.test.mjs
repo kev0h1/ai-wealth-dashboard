@@ -16,7 +16,6 @@ import { readFileSync, readdirSync } from "node:fs";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { BalancesHiddenContext } from "../lib/balancesHidden.tsx";
-import UpcomingHeroCard from "../components/upcoming/UpcomingHeroCard.tsx";
 import UpcomingAccountsCard from "../components/upcoming/UpcomingAccountsCard.tsx";
 import UpcomingAccountDetails from "../components/upcoming/UpcomingAccountDetails.tsx";
 import AccountBankEmpty from "../components/AccountBankEmpty.tsx";
@@ -197,19 +196,7 @@ for (const slug of slugs) {
     const wrap = (hidden, el) => renderToStaticMarkup(React.createElement(BalancesHiddenContext.Provider, { value: hidden }, el));
     const RAW = /£\d/;
     const summaries = walk.accounts.map((account) => reconcileWithServerPosition(account, positions[account.id]));
-    const windowIncome = cashflow.upcoming_income.filter((i) => inServerWindow(i.days_away, snap.days_to_payday)).reduce((t, i) => t + i.amount, 0);
-    const windowBills = cashflow.upcoming_bills.filter((b) => inServerWindow(b.days_away, snap.days_to_payday) && !b.is_credit_card && !b.observed_pending).reduce((t, b) => t + b.amount, 0);
-    const spendableNow = cashflow.spendable_balance;
-    const plansReservedTotal = cashflow.plans_reserved ?? 0;
-    const runway = spendableNow + windowIncome - windowBills - plansReservedTotal;
-    const heroProps = {
-      isCalendarMonth: spec.pay_period_config.type === "calendar_month", daysToPayday: snap.days_to_payday, paydayLabel: "Fri 27 Nov",
-      spendableNow, runwayIncomeTotal: windowIncome, runwayBillsTotal: windowBills, allocationsRemainingTotal: 0, plansReservedTotal,
-      allocationsCount: 0, plansCount: cashflow.plans_count ?? 0, savingsNow: accounts.filter((a) => isSavingsAccount(a)).reduce((t, a) => t + a.balance, 0),
-      runway, runwayStatus: runway < 0 ? "short" : "left",
-    };
     const renders = [
-      ["hero", (hidden) => wrap(hidden, React.createElement(UpcomingHeroCard, heroProps))],
       ["by account", (hidden) => wrap(hidden, React.createElement(UpcomingAccountsCard, { accounts: summaries, periodLabel: "Thu 26 Nov", plans, plansStatus: "ready", onOpen() {} }))],
       ...summaries.map((account) => [`account sheet ${account.id}`, (hidden) => wrap(hidden, React.createElement(UpcomingAccountDetails, { account, periodLabel: "Thu 26 Nov", plans, plansStatus: "ready" })).split(/<section aria-labelledby="[^"]*-events">/)[0]]),
     ];
@@ -222,10 +209,7 @@ for (const slug of slugs) {
         assert.match(shownHtml, RAW, `${label}: no figure shown while balances are visible`);
         assert.doesNotMatch(shownHtml, /£••••/, `${label}: masked while balances are visible`);
       }
-      // The same figures are really there to hide: the shown hero carries the pooled balance and the plans reserved.
-      const hero = renders[0][1](false);
-      assert.match(hero, new RegExp(`£${spendableNow.toLocaleString("en-GB")}(\\.\\d+)?`), "shown hero carries the spendable balance");
-      assert.ok(renders.length >= 3, "hero, by account and at least one account sheet rendered");
+      assert.ok(renders.length >= 2, "by account and at least one account sheet rendered");
     });
   }
 

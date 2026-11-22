@@ -36,6 +36,5 @@ for (const name of ["spend", "upcoming", "planning"]) {
 }
 const text = TUTORIAL_FLOWS.flatMap(flow => [flow.label, flow.blurb, ...flow.steps.flatMap(step => [step.title, step.description, step.tip ?? ""])]).join("\n");
 assert.doesNotMatch(text, /safe to spend|left to last|\bAdd Bank\b|—|💡/i, "visible tutorial copy uses current names and the copy rules");
-assert.match(text, /payday or month end/, "forecast copy also fits calendar-month users");
 assert.match(text, /Help, tours and legal/, "replay directions name the current Account menu entry");
 console.log("G424: tutorial icons match production nav and Penny across appearances, pending stays markless, every step renders and visible copy uses current labels.");

@@ -9,7 +9,6 @@ import { upcomingDisplayName } from "../lib/upcomingDisplayName.ts";
 import UpcomingAttentionDay from "../components/upcoming/UpcomingAttentionDay.tsx";
 import UpcomingAccountsCard from "../components/upcoming/UpcomingAccountsCard.tsx";
 import UpcomingAccountDetails from "../components/upcoming/UpcomingAccountDetails.tsx";
-import UpcomingHeroCard from "../components/upcoming/UpcomingHeroCard.tsx";
 import { buildForecast, accountSummariesForForecast, SCENARIOS } from "../app/design/g176-upcoming-rows/fixtures.ts";
 
 const bill = (overrides = {}) => ({ name: "Bill", amount: 80, account_id: "a", account_bank: "Barclays", account_name: "Household account", account_balance: 100, expected_date: "2026-10-02", days_away: 1, kind: "commitment", ...overrides });
@@ -199,30 +198,4 @@ assert.equal(upcomingDisplayName(opaque), "Goldman Sachs");
 assert.equal(opaque.name, "goldman|sachs::opaque-account", "Presentation never mutates API identity");
 assert.equal(upcomingDisplayName({ name: opaque.name }), "Expected income");
 assert.equal(upcomingDisplayName({ name: "Council Tax" }), "Council Tax");
-const hero = renderToStaticMarkup(React.createElement(UpcomingHeroCard, {
-  isCalendarMonth: false, daysToPayday: 2, paydayLabel: "Fri 30 Oct", spendableNow: 1230,
-  runwayIncomeTotal: 15, runwayBillsTotal: 1045, allocationsRemainingTotal: 100,
-  savingsNow: 300, runway: 100, runwayStatus: "left",
-}));
-for (const label of ["Full calculation", "Cash to start", "Income before payday", "Bills before payday", "Still to set aside", "Projected balance", "Savings backup"]) assert.match(hero, new RegExp(label));
-assert.doesNotMatch(hero, /Plans this period/, "no plans, no plans row");
-const heroPlans = renderToStaticMarkup(React.createElement(UpcomingHeroCard, {
-  isCalendarMonth: false, daysToPayday: 2, paydayLabel: "Fri 30 Oct", spendableNow: 1230,
-  runwayIncomeTotal: 15, runwayBillsTotal: 1045, allocationsRemainingTotal: 100, plansReservedTotal: 80,
-  savingsNow: 300, runway: 20, runwayStatus: "left",
-}));
-assert.match(heroPlans, /Plans this period/);
-assert.match(heroPlans, /Goals and repayment plans planned this pay period\./);
-assert.match(heroPlans, /−£80/);
-assert.ok(heroPlans.indexOf("Still to set aside") < heroPlans.indexOf("Plans this period") && heroPlans.indexOf("Plans this period") < heroPlans.indexOf("Projected balance"), "plans row sits between set-aside and total");
-const heroPlansDown = renderToStaticMarkup(React.createElement(UpcomingHeroCard, {
-  isCalendarMonth: false, daysToPayday: 2, paydayLabel: "Fri 30 Oct", spendableNow: 1230,
-  runwayIncomeTotal: 15, runwayBillsTotal: 1045, allocationsRemainingTotal: 100, plansUnavailable: true,
-  savingsNow: 300, runway: 100, runwayStatus: "left",
-}));
-assert.match(heroPlansDown, /could not be loaded/);
-assert.match(heroPlansDown, />estimated</, "unavailable plans mark the headline as estimated");
-assert.doesNotMatch(heroPlans, />estimated</);
-assert.match(hero, /Payments can take a day or two to appear, so a very recent one may not be counted yet\./);
-assert.doesNotMatch(hero, /account short|accounts short|Barclays|HSBC|Review/);
-console.log("G176 account summaries, shared views, income labels and hero invariants passed");
+console.log("G176 account summaries, shared views, and income labels passed");

@@ -3,11 +3,10 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { AppRouterContext } from "next/dist/shared/lib/app-router-context.shared-runtime.js";
 import SafeToSpendCard from "../components/SafeToSpendCard.tsx";
-import UpcomingHeroCard from "../components/upcoming/UpcomingHeroCard.tsx";
 import ForecastStatusBadge from "../components/ForecastStatusBadge.tsx";
-import { deriveSafeToSpendHeadline, buildSafeToSpendView, buildUpcomingRunwayView } from "../lib/pennyScreenViews.ts";
-import { homeForecastPresentation, upcomingForecastPresentation } from "../lib/cashForecastStatus.ts";
-import { G287_ORDER, G287_SCENARIOS, g287CardProps, g287UpcomingProps } from "./fixtures/g287-forecast.ts";
+import { deriveSafeToSpendHeadline, buildSafeToSpendView } from "../lib/pennyScreenViews.ts";
+import { homeForecastPresentation } from "../lib/cashForecastStatus.ts";
+import { G287_ORDER, G287_SCENARIOS, g287CardProps } from "./fixtures/g287-forecast.ts";
 
 const noop = () => {};
 const router = { back: noop, forward: noop, refresh: noop, push: noop, replace: noop, prefetch: noop };
@@ -51,50 +50,16 @@ assert.equal(homeStatus("card-check").signed, false, "card growth never becomes 
 assert.equal(buildSafeToSpendView(ok("habitual"), { hidden: false }).figures[0].value, "−£573", "Penny sees Home's actual sign");
 assert.equal(buildSafeToSpendView(ok("buffer"), { hidden: false }).verdict, "Below buffer");
 
-const upcoming = (key, patch = {}) => {
-  const data = ok(key);
-  const headline = deriveSafeToSpendHeadline(data);
-  const props = g287UpcomingProps(data);
-  return upcomingForecastPresentation({ runway: props.runway, lowestCash: data.lowest_projected_balance, evidenceCurrent: true, nextPayday: Date.parse(data.next_payday), isCalendarMonth: false, metadata: data, headline, plansAvailable: true, ...patch });
-};
-assert.deepEqual(upcoming("habitual"), { status: { tone: "risk", label: "Short" }, qualifierTone: "risk" });
-assert.deepEqual(upcoming("chronology"), { status: { tone: "risk", label: "Earlier gap" }, qualifierTone: "neutral" }, "positive endpoint cannot hide an earlier payment gap");
-assert.deepEqual(upcoming("plans"), { status: { tone: "watch", label: "Plans gap" }, qualifierTone: "watch" });
-assert.deepEqual(upcoming("comfortable"), { status: { tone: "good", label: "Looks on track" }, qualifierTone: "good" });
-for (const patch of [
-  { evidenceCurrent: false }, { lowestCash: NaN }, { nextPayday: Date.parse("2031-01-01") }, { isCalendarMonth: true },
-  { metadata: null }, { headline: null }, { plansAvailable: false }, { metadata: { ...ok("comfortable"), calculation_status: "syncing" } },
-]) assert.equal(upcoming("comfortable", patch).status.tone, "neutral", "unproved metadata cannot claim on-track");
-assert.equal(upcoming("plans", { metadata: { ...ok("plans"), lowest_projected_balance: -1 } }).status.tone, "neutral", "conflicting metadata cannot turn a gap into reassurance");
-for (const key of ["habitual", "comfortable", "plans", "buffer", "card-check", "chronology"]) {
-  const props = g287UpcomingProps(ok(key));
-  const status = upcoming(key).status;
-  const published = buildUpcomingRunwayView({ ...props, forecastVerdict: status.label });
-  assert.equal(published.verdict, status.label, `${key}: Penny uses the displayed dated-risk verdict`);
-}
-assert.equal(upcoming("habitual", { metadata: null, headline: null, plansAvailable: false }).status.tone, "risk", "known dated payment gap survives absent optional metadata");
-const pendingContext = upcoming("plans", { metadata: null, headline: null, metadataPending: true });
-assert.equal(pendingContext.pending, true, "a pending context is distinct from a settled unknown forecast");
-const pendingCard = renderToStaticMarkup(React.createElement(UpcomingHeroCard, { ...g287UpcomingProps(ok("plans")), presentation: pendingContext }));
-assert.match(pendingCard, /data-forecast-pending="true" aria-hidden="true"/, "pending status reserves space without an accessible verdict");
-assert.doesNotMatch(pendingCard, /data-forecast-tone|Check forecast|role="status"/, "no default badge or live announcement before the context settles");
-assert.match(pendingCard, /−£150/, "the actual forecast figure is not held back for status context");
-assert.equal(upcoming("plans", { metadata: null, headline: null, metadataPending: false }).status.label, "Check forecast", "settled unavailable context keeps the real neutral fallback");
-assert.equal(upcoming("habitual", { metadata: null, headline: null, metadataPending: true }).pending, undefined, "proved payment risk is not delayed by optional context");
 for (const low of [undefined, NaN, Infinity]) {
   const data = { ...ok("comfortable"), lowest_projected_balance: low };
   assert.equal(homeForecastPresentation(data, deriveSafeToSpendHeadline(data)).status.tone, "neutral");
 }
-const ukBoundary = ok("comfortable").next_payday.slice(0, 10);
-assert.equal(upcoming("comfortable", { metadata: { ...ok("comfortable"), next_payday: `${ukBoundary}T23:00:00-01:00` } }).status.tone, "neutral", "compare UK calendar day, not timestamp prefix");
-
 for (const [tone, label] of [["risk", "Short"], ["watch", "Plans gap"], ["good", "On track"], ["neutral", "Check forecast"]]) {
   const badge = renderToStaticMarkup(React.createElement(ForecastStatusBadge, { status: { tone, label } }));
   assert.match(badge, new RegExp(`data-forecast-tone="${tone}"`));
   assert.match(badge, new RegExp(`>${label}</`));
 }
 
-const shortData = ok("habitual");
 const shortHome = render(React.createElement(SafeToSpendCard, { ...g287CardProps("habitual"), onRetry: noop, previewBalancesVisible: true }));
 assert.match(shortHome, /Shortfall before payday/);
 assert.match(shortHome, /−£573/);
@@ -114,17 +79,4 @@ assert.match(cards, /See your cards/);
 assert.match(cards, /Card spending this pay period/);
 assert.match(cards, /Card purchases aren&#x27;t deducted again/);
 
-const upcomingProps = g287UpcomingProps(shortData);
-const upcomingShort = renderToStaticMarkup(React.createElement(UpcomingHeroCard, { ...upcomingProps, presentation: upcoming("habitual") }));
-assert.match(upcomingShort, /Projected at payday/);
-assert.match(upcomingShort, /−£573/);
-assert.match(upcomingShort, /Full calculation/);
-assert.match(upcomingShort, /Savings backup/);
-assert.match(upcomingShort, /Payments can take a day or two to appear/);
-assert.match(upcomingShort, /text-\[30px\].*text-slate-900/, "main Upcoming figure stays ink");
-assert.match(upcomingShort, /justify-self-end/, "status uses the real right-aligned header row");
-const maskedUpcoming = renderToStaticMarkup(React.createElement(UpcomingHeroCard, { ...upcomingProps, balancesHidden: true, presentation: upcoming("habitual") }));
-assert.match(maskedUpcoming, /£••••/);
-assert.doesNotMatch(maskedUpcoming, /573|350|923|1,400/, "Upcoming masking does not leak figures");
-
-console.log("PASS G287: production forecast fixtures, semantic precedence, real Home and Upcoming cards, status badge, financial reconciliation, actions, disclosures and masking.");
+console.log("PASS G287: production forecast fixtures, semantic precedence, the real Home card, status badge, financial reconciliation, actions, disclosures and masking.");

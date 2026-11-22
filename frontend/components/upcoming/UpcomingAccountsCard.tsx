@@ -73,7 +73,7 @@ export default function UpcomingAccountsCard({ accounts, periodLabel, onOpen, pl
   const pendingNote = plansStatus !== "ready" && fallbackRows && <div className={styles.pending} role="status">{plansStatus === "loading" ? `Checking goals and set-asides. ${partlyAvailable ? "Accounts without an available amount show" : "Figures show"} payments only.` : `Goals and set-asides could not be checked. ${partlyAvailable ? "Accounts without an available amount show" : "Figures show"} payments only.`}{plansStatus === "error" && onRetry && <button type="button" className={styles.retry} onClick={onRetry}>Try again</button>}</div>;
   // G420: nothing to list means no heading and no empty card, unless a loading or error state applies.
   if (accounts.length === 0) return plansStatus === "ready" ? null : <section data-account-status-card="b" className={styles.card}>{pendingNote}</section>;
-  return <section aria-labelledby={headingId} data-account-status-card="b" data-g417-variant="a" data-g430-variant="a3" className={styles.card}>
+  return <section aria-labelledby={headingId} data-tutorial-id="tutorial-planning-accounts" data-account-status-card="b" data-g417-variant="a" data-g430-variant="a3" className={styles.card}>
     <div className={styles.listHeading}><h2 id={headingId}>By account</h2><p className={styles.period}>{periodLabel}</p></div>
     {<>
       {allClear && <p data-all-clear className={styles.allClear}><Check size={16} aria-hidden="true" />{plansStatus === "ready" || !finePaymentsOnly ? "Every account covers its payments and linked plans." : "Every account covers its payments. Plans are still to be checked."}</p>}
