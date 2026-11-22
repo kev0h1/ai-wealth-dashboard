@@ -37,13 +37,13 @@ for (const state of [[9, "Alex", true], [9, undefined, false], [9, undefined, tr
   const loadingHeader = renderToStaticMarkup(h(HomeGreetingHeader, { greeting: "Good morning,", avatarInitials: null, namePending: true }));
   assert.match(loadingHeader, /Good morning,/);
   assert.match(loadingHeader, /data-greeting-name-pending/, "loading: skeleton pill");
-  assert.match(loadingHeader, /animate-pulse/);
+  assert.match(loadingHeader, /Name loading/, "loading state is available to assistive technology");
   assert.doesNotMatch(loadingHeader, /there/i);
   const emptyHeader = renderToStaticMarkup(h(HomeGreetingHeader, { greeting: "Good morning", avatarInitials: null }));
   assert.doesNotMatch(emptyHeader, /data-greeting-name-pending/, "resolved: no pill");
   assert.match(emptyHeader, />Good morning</);
   const named = renderToStaticMarkup(h(HomeGreetingHeader, { greeting: "Good morning, Alex", avatarInitials: "A" }));
-  assert.match(named, /Good morning, Alex/);
+  assert.match(text(named), /Good morning, Alex/, "responsive spans retain the complete greeting");
 }
 
 // 2. First-name cache (wd_hide_balances pattern): per email, cleared on sign-out.

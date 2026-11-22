@@ -22,11 +22,16 @@ assert.match(skeleton.slice(0, 600), /aria-hidden="true"\s+inert/, "skeleton roo
 
 // Markup identity and content.
 const html = renderToStaticMarkup(h(HomeGreetingHeader, { greeting: "Hi, Alex", avatarInitials: "AB" }));
-assert.match(html, /<h1[^>]*text-\[20px\][^>]*sm:text-\[28px\][^>]*>Hi, Alex<\/h1>/);
+const heading = html.match(/<h1\b[^>]*>(.*?)<\/h1>/s)?.[1].replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim();
+assert.equal(heading, "Hi, Alex", "the responsive greeting preserves its words and separating space");
 assert.match(html, /aria-label="Account and settings"[^>]*href="\/settings"/);
-assert.match(html, /href="\/accounts"[^>]*>.*Accounts<\/a>/s);
+assert.match(html, /aria-label="Your accounts"[^>]*href="\/accounts"/);
+assert.match(html, /aria-label="Home shortcuts"/);
+assert.match(html, /data-phosphor-icon="bank"/);
+assert.match(html, /data-phosphor-icon="gear-six"/);
+assert.doesNotMatch(html, /lucide-/);
 assert.match(html, />AB</);
-assert.equal(renderToStaticMarkup(h(HomeGreetingHeader, { greeting: "Good morning", avatarInitials: null })).includes("lucide-user-round"), true, "no name falls back to the person icon");
+assert.match(renderToStaticMarkup(h(HomeGreetingHeader, { greeting: "Good morning", avatarInitials: null })), /data-phosphor-icon="user-circle"/, "no name falls back to the person icon");
 
 // Service worker: load it into a stub scope.
 const src = readFileSync(new URL("../public/sw.js", import.meta.url), "utf8");

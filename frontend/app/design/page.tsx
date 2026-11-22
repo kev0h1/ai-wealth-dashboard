@@ -47,14 +47,6 @@ const ROUTES: PreviewRoute[] = [
     group: "current",
   },
   {
-    slug: "home-header-controls",
-    name: "Home header controls · G491",
-    description: "Two matching Settings and Accounts shortcuts with the greeting leading. A compact pair beside the greeting, B a labelled row below. Full Home context with fictional data, Phosphor icons, 44px targets, loading initials, long names and hidden balances. Header proposals only.",
-    variants: [{ label: "A · Compact pair", value: "a" }, { label: "B · Labelled row", value: "b" }],
-    states: [{ label: "Loaded", value: "ready" }, { label: "Loading name", value: "loading" }, { label: "Hidden balances", value: "hidden" }, { label: "Long name", value: "long" }, { label: "No name", value: "unnamed" }],
-    group: "current",
-  },
-  {
     slug: "left-to-spend-money-in",
     name: "Left to spend with money still to come in · G480",
     description:
