@@ -82,12 +82,10 @@ import { useEffect } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { EyeOff } from "lucide-react";
-import UpcomingHeroCard from "@/components/upcoming/UpcomingHeroCard";
 import SetAsideList from "@/components/upcoming/SetAsideList";
 import DayGroups from "./DayGroups";
 import {
   ALLOCATIONS, HERO_POSITIVE, HERO_NEGATIVE,
-  RUNWAY_POSITIVE, RUNWAY_NEGATIVE,
   BILLS_POSITIVE, BILLS_NEGATIVE,
 } from "./fixtures";
 
@@ -126,8 +124,6 @@ export default function G124Client() {
   }, [mode]);
 
   const scenario = state === "negative" ? HERO_NEGATIVE : HERO_POSITIVE;
-  const runway = state === "negative" ? RUNWAY_NEGATIVE : RUNWAY_POSITIVE;
-  const runwayStatus = runway < 0 ? "short" : runway > 0 ? "left" : "even";
   const bills = state === "positive" ? BILLS_POSITIVE : BILLS_NEGATIVE;
 
   return (
@@ -151,20 +147,6 @@ export default function G124Client() {
           </div>
 
           <div className="space-y-4">
-            <UpcomingHeroCard
-              isCalendarMonth={scenario.isCalendarMonth}
-              daysToPayday={scenario.daysToPayday}
-              paydayLabel={scenario.paydayLabel}
-              spendableNow={scenario.spendableNow}
-              runwayIncomeTotal={scenario.runwayIncomeTotal}
-              runwayBillsTotal={scenario.runwayBillsTotal}
-              allocationsRemainingTotal={scenario.allocationsRemainingTotal}
-              plansReservedTotal={scenario.plansReservedTotal}
-              savingsNow={scenario.savingsNow}
-              runway={runway}
-              runwayStatus={runwayStatus}
-            />
-
             <section aria-labelledby="set-aside-heading">
               <div className="mb-2 flex min-h-11 items-center justify-between gap-3 px-1">
                 <h2 id="set-aside-heading" className="text-sm font-semibold text-slate-800 dark:text-slate-100">Set aside this period</h2>
@@ -173,7 +155,7 @@ export default function G124Client() {
               {/* No live edit sheet in a static preview — production wires
                   this to PlanningPage.tsx's own AllocationSheet. */}
               <SetAsideList items={ALLOCATIONS} onEdit={() => {}} />
-              <p className="mt-2 px-1 text-xs text-slate-500 dark:text-slate-400">Only the amount still to reserve reduces the forecast above.</p>
+              <p className="mt-2 px-1 text-xs text-slate-500 dark:text-slate-400">Only the amount still to reserve is held back.</p>
             </section>
 
             <section aria-labelledby="upcoming-ledger-heading" className="space-y-3">

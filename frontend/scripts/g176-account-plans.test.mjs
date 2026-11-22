@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import UpcomingHeroCard from "../components/upcoming/UpcomingHeroCard.tsx";
 import UpcomingAccountDetails from "../components/upcoming/UpcomingAccountDetails.tsx";
 import UpcomingAccountsCard from "../components/upcoming/UpcomingAccountsCard.tsx";
 import { PlanRecordView } from "../components/plans/PlanRecordView.tsx";
@@ -12,7 +11,7 @@ import { UpcomingEditForm } from "../components/UpcomingEditForm.tsx";
 import { accountPlan, assessPlanOverlap, hasChosenPlanSource, hasPlanSource, plansFromApi, remaining } from "../lib/upcomingPlans.ts";
 import { planReturn } from "../lib/upcomingFlowStack.ts";
 import { walkUpcomingAccounts } from "../lib/upcomingAccountWalk.ts";
-import { cashflowFor, forecastFor, heroFor, plansFor } from "../app/design/g176-account-plans/fixtures.ts";
+import { cashflowFor, forecastFor, plansFor } from "../app/design/g176-account-plans/fixtures.ts";
 
 const end = Date.parse("2026-10-29T23:59:59Z");
 const previewSource = readFileSync(new URL("../app/design/g176-account-plans/PreviewClient.tsx", import.meta.url), "utf8");
@@ -154,11 +153,6 @@ const namedCredit = { name: "Salary", amount: 100, account_id: "monzo", expected
 const withCredit = walkUpcomingAccounts({ ...emptyCashflow, upcoming_income: [namedCredit] }, end, [{ id: "monzo", bank: "Monzo", name: "Everyday", balance: 348 }]);
 assert.equal(withCredit.accounts[0].closing, 448);
 assert.equal(forecastFor("gap").coverage.size, 2, "Plan-source enrichment does not alter original bill coverage maps");
-
-const heroWithoutGoal = heroFor("gap", plans.filter((plan) => plan.kind === "allocation"));
-assert.deepEqual(heroFor("gap", plans), heroWithoutGoal, "Goal changes do not change the existing hero equation");
-const hero = renderToStaticMarkup(React.createElement(UpcomingHeroCard, { isCalendarMonth: false, daysToPayday: 30, paydayLabel: "Fri 30 Oct", spendableNow: heroWithoutGoal.cash / 100, runwayIncomeTotal: 0, runwayBillsTotal: heroWithoutGoal.bills / 100, allocationsRemainingTotal: heroWithoutGoal.allocations / 100, savingsNow: 1250, runway: heroWithoutGoal.runway / 100, runwayStatus: "left" }));
-assert.match(hero, /Projected balance/);
 
 // G216: payment and income rows in the account sheet open the payment detail.
 {

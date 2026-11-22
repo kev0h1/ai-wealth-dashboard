@@ -3,9 +3,9 @@
 import { Smartphone, Zap } from "lucide-react";
 import { BANK_META, BankBadge, bankKey, bankLogoSrc } from "@/components/AccountMiniCard";
 import { MoveCard } from "@/components/HomeBrief";
-import UpcomingHeroCard from "@/components/upcoming/UpcomingHeroCard";
+import UpcomingAccountsCard from "@/components/upcoming/UpcomingAccountsCard";
 import UpcomingRow, { type UpcomingRowModel } from "@/components/upcoming/UpcomingRow";
-import { MOVE_SUGGESTION, UPCOMING_HERO } from "./fixtures";
+import { MOVE_SUGGESTION, UPCOMING_ACCOUNTS } from "./fixtures";
 import data from "./campaign-data.json";
 import styles from "./worlds.module.css";
 
@@ -19,7 +19,7 @@ function BankIdentity({ bank }: { bank: string }) {
 }
 
 export function UpcomingCampaignProof() {
-  return <section data-marketing-proof="upcoming"><p className={styles.proofCaption}>{data.person} · {data.period}</p><UpcomingHeroCard {...UPCOMING_HERO} spendableNow={data.everyday.balance + data.bills.balance} runwayBillsTotal={paymentsTotal} runway={data.everyday.balance + data.bills.balance - paymentsTotal} /></section>;
+  return <section data-marketing-proof="upcoming"><p className={styles.proofCaption}>{data.person} · {data.period}</p><UpcomingAccountsCard accounts={UPCOMING_ACCOUNTS} periodLabel="8–30 October" plans={[]} onOpen={noOp} /></section>;
 }
 
 export function ForecastContext() {

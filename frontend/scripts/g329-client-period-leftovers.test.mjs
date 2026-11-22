@@ -1,10 +1,6 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import React from "react";
-import { renderToStaticMarkup } from "react-dom/server";
 import { resolveHomeChartWindow, periodsLeftFrom, pickServerPeriod } from "../lib/serverPeriodWindow.ts";
-import { payExpectedLabel } from "../lib/upcomingPeriod.ts";
-import UpcomingHeroCard from "../components/upcoming/UpcomingHeroCard.tsx";
 
 // G329: a calendar-month client seed must never leak into rendered period dates
 // once a server period exists. Server period: last Friday, 25 Sep to 29 Oct.
@@ -59,16 +55,5 @@ assert.match(spend, /new Date\(dateToUTCDay\(serverPeriod\.start\)\)/, "SpendTre
 assert.match(spend, /currentServer\.start/, "category redirect prefers the verdict period");
 assert.match(sheet, /fetchVerdictData\(0\)/, "sheet fetches the verdict once when no host period exists");
 assert.match(sheet, /pickServerPeriod\(serverPeriod, cachedVerdict\(0\)\?\.period, fetchedPeriod\)/);
-
-// "Pay expected" renders only when payday_observed differs from the payday.
-assert.equal(payExpectedLabel(period), null);
-assert.equal(payExpectedLabel(undefined), null);
-assert.equal(payExpectedLabel({ ...period, payday_observed: { date: "2026-10-30", source: "confirmed" } }), null, "same date is not a second payday");
-assert.equal(payExpectedLabel({ ...period, payday_observed: { date: "2026-10-28", source: "confirmed" } }), "Pay expected Wed 28 Oct.");
-const heroProps = { isCalendarMonth: false, daysToPayday: 6, paydayLabel: "Fri 30 Oct", spendableNow: 500, runwayIncomeTotal: 0, runwayBillsTotal: 100, allocationsRemainingTotal: 0, savingsNow: 0, runway: 400, runwayStatus: "left" };
-assert.doesNotMatch(renderToStaticMarkup(React.createElement(UpcomingHeroCard, heroProps)), /Pay expected/);
-const withLine = renderToStaticMarkup(React.createElement(UpcomingHeroCard, { ...heroProps, payExpectedLabel: "Pay expected Wed 28 Oct." }));
-assert.match(withLine, /Fri 30 Oct · 6 days/);
-assert.match(withLine, /Pay expected Wed 28 Oct\./);
 
 console.log("g329 client period leftovers: ok");

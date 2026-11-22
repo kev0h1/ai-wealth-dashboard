@@ -20,7 +20,7 @@ OUT = FRONTEND / "public/design-media/c22"
 SOURCES = {
     "safe-to-spend": ["components/SafeToSpendCard.tsx"],
     "connect": ["components/bank-connect/BankConnectionParts.tsx"],
-    "upcoming": ["components/upcoming/UpcomingHeroCard.tsx", "components/upcoming/UpcomingAccountsCard.tsx"],
+    "upcoming": ["components/upcoming/UpcomingAccountsCard.tsx"],
     "suggestions": ["components/HomeBrief.tsx", "components/CoverPlanSourcesCard.tsx"],
     "payday": ["components/PaydayPlanCard.tsx"],
     "investments": ["components/InvestmentMiniCard.tsx"],

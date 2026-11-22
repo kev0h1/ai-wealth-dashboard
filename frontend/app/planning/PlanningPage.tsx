@@ -10,19 +10,14 @@ import { getAccountsCached } from "@/lib/accountsCache";
 import { invalidateVerdictCache } from "@/lib/verdictCache";
 import { usePreferences } from "@/components/PreferencesContext";
 import { useColours } from "@/components/ColourProvider";
-import { payExpectedLabel, resolveUpcomingPeriod } from "@/lib/upcomingPeriod";
+import { resolveUpcomingPeriod } from "@/lib/upcomingPeriod";
 import { useCategoryIcons } from "@/components/IconProvider";
 import { upcomingCategoryAppearance } from "@/components/upcoming/UpcomingCategoryIcon";
 import { useRouter, useSearchParams } from "next/navigation";
 import Spinner from "@/components/Spinner";
 import { useTutorialReady } from "@/components/TutorialContext";
-import { setPennyScreenView } from "@/components/PennySheetProvider";
-import { buildUpcomingRunwayView, deriveSafeToSpendHeadline, type UpcomingRunwayInput } from "@/lib/pennyScreenViews";
-import { forecastPence, upcomingForecastPresentation } from "@/lib/cashForecastStatus";
-import { useForecastContext } from "@/lib/useForecastContext";
 import { isPooledNoOp, doesNotTouchCash } from "@/lib/cashWalk";
 import { computeClusterMarkers } from "@/lib/upcomingMarkers";
-import UpcomingHeroCard from "@/components/upcoming/UpcomingHeroCard";
 import UpcomingAttentionDay from "@/components/upcoming/UpcomingAttentionDay";
 import UpcomingDivider from "@/components/upcoming/UpcomingDivider";
 import type { UpcomingRowModel } from "@/components/upcoming/UpcomingRow";
@@ -41,7 +36,7 @@ import { useFirstSync } from "@/lib/useFirstSync";
 import FirstSyncCard from "@/components/FirstSyncCard";
 import FirstSyncStatus from "@/components/FirstSyncStatus";
 
-// Editing flows are not needed to understand the initial runway. Keeping them
+// Editing flows are not needed to understand the initial page. Keeping them
 // out of the first Planning bundle makes the forecast usable sooner while the
 // same components load on demand when a user opens a sheet.
 const UpcomingDetailFlow = dynamic(() => import("@/components/upcoming/UpcomingDetailFlow"));
@@ -103,7 +98,7 @@ function billKeyMatchesName(key: string | null, name: string): boolean {
 
 // Compact set-aside ledger — the approved Upcoming design treats envelopes
 // and one-offs as inputs to this pay period's forecast, not as large planning
-// cards. The right-hand amount is the unfilled remainder that the runway
+// cards. The right-hand amount is the unfilled remainder that By account
 // actually subtracts; the supporting line keeps filled/target figures and
 // recurrence visible without making the user reconstruct that relationship.
 // Pending entries show no money figure because nothing is reserved yet.
@@ -114,7 +109,7 @@ function billKeyMatchesName(key: string | null, name: string): boolean {
 // that surface's design preview. This function only resolves PlanningPage's
 // own Allocation + Account data down to the SetAsideItem shape that shared
 // component actually takes — the same "props, not raw fetches" boundary
-// UpcomingHeroCard/UpcomingDayCard already use.
+// UpcomingDayCard already uses.
 function toSetAsideItem(a: Allocation, accounts: Account[]): SetAsideItem {
   const feedAccount = accounts.find((acc) => acc.id === a.fill_account_id);
   const feedLabel = a.fill_display_name || feedAccount?.name || null;
@@ -173,7 +168,7 @@ function PlansSection({
       ) : allocationsError ? (
         <div className="glass-card rounded-2xl px-4 py-4" role="status">
           <p className="text-sm font-medium text-slate-700 dark:text-slate-200">Couldn’t load what you’ve set aside.</p>
-          <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">The forecast above is still available.</p>
+          <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">Your accounts and payments are still shown.</p>
         </div>
       ) : empty ? (
         <div className="glass-card rounded-2xl px-4 py-4">
@@ -189,53 +184,27 @@ function PlansSection({
           }}
         />
       )}
-      {!loading && !allocationsError && !empty && <p className="mt-2 px-1 text-xs text-slate-500 dark:text-slate-400">Only the amount still to reserve reduces the forecast above.</p>}
     </section>
   );
 }
 
+// G487: the one caveat the removed payday forecast card carried, kept as a
+// quiet line under By account (which is where a very recent payment is missed).
+function PaymentsLagNote() {
+  return <p data-upcoming-payments-note className="px-1 text-xs leading-5 text-slate-500 dark:text-slate-400">Payments can take a day or two to appear, so a very recent one may not be counted yet.</p>;
+}
+
 export default function PlanningPage() {
-  const { payPeriodConfig, setPayPeriodConfig, hideNetWorth, preferencesReady } = usePreferences();
-  // B55: same rule as Home's SafeToSpendCard, hidden until preferences resolve.
-  const balancesHidden = hideNetWorth || !preferencesReady;
+  const { payPeriodConfig, setPayPeriodConfig } = usePreferences();
   const { colours } = useColours();
   const { icons: iconOverrides } = useCategoryIcons();
   const router = useRouter();
   const searchParams = useSearchParams();
   const firstSync = useFirstSync(reloadAfterFirstSync);
   const [planningNow] = useState(() => Date.now());
-  // Penny screen context (B39) — the runway hero's own three headline
-  // values (`runway`/`runwayStatus`/`isCalendarMonth`) are computed deep
-  // inside `upcomingBlock`'s render-time IIFE below (a large row-by-row
-  // simulation that depends on a lot of page-only state — see that block's
-  // own extensive comments), not inside a hook, so they can't be read
-  // directly from a `useEffect` here. This ref is written to, in plain JS
-  // (no hook-order concern — it's not a hook call), the moment those three
-  // values are known inside the IIFE; the effect below reads it back AFTER
-  // every commit (no dependency array) and publishes whatever it currently
-  // holds via `buildUpcomingRunwayView` — the SAME function a node test
-  // pins against fixture inputs — so the figure Penny can quote back can
-  // never disagree with the one just rendered. `undefined` (the initial
-  // value, and while `upcomingBlock`'s own early "nothing left to pay"/
-  // loading/error branches are showing instead) means "nothing to
-  // publish", not "not decided yet" — those branches have no runway
-  // number, so there is nothing to quote either.
-  const pennyRunwayRef = useRef<UpcomingRunwayInput | undefined>(undefined);
-  useEffect(() => {
-    setPennyScreenView("upcoming", !firstSync.pending && !firstSync.active && pennyRunwayRef.current ? buildUpcomingRunwayView(pennyRunwayRef.current) : null);
-  });
-
   const [cashflow, setCashflow] = useState<CashflowData | null>(null);
   const [cashflowError, setCashflowError] = useState(false);
-  // G386: the verdict rides in the cashflow payload (`forecast`), so figure and
-  // status render from one response. Only an older API that omits the key falls
-  // back to the second request, and the hero holds its chip and coloured word
-  // together in a placeholder until that lands (never a neutral chip that flips).
-  const embeddedForecast = cashflow?.forecast ?? null;
-  const fetchedForecast = useForecastContext(embeddedForecast ? null : cashflow, api.safeToSpend);
-  const forecastContext = embeddedForecast ? { data: embeddedForecast, pending: false } : fetchedForecast;
-
-  // Tour readiness — the runway hero and the upcoming list both read off
+  // Tour readiness — the By account card and the upcoming list both read off
   // `cashflow`, so the tour must wait for it (or a genuine fetch error) the
   // same way upcomingBlock's own cashflowError/!cashflow gate does above.
   useTutorialReady("upcoming", !firstSync.pending && !firstSync.active && (!!cashflow || cashflowError));
@@ -281,14 +250,14 @@ export default function PlanningPage() {
   const periodStart = upcomingPeriod.start;
   const periodEnd = upcomingPeriod.end;
 
-  // The runway is the page's primary answer, so its request starts alone.
+  // The By account card is the page's primary answer, so its request starts alone.
   // Plans now follow it in the page hierarchy, but their supporting requests
   // can still wait for the browser's first idle slot instead of competing with
   // the forecast for initial render time.
   useEffect(() => {
     if (firstSync.pending || firstSync.active) return;
     let cancelled = false;
-    api.cashflowWithForecast().then((v) => { if (!cancelled) { setCashflow(v); setCashflowError(false); } }).catch(() => { if (!cancelled) setCashflowError(true); });
+    api.cashflow().then((v) => { if (!cancelled) { setCashflow(v); setCashflowError(false); } }).catch(() => { if (!cancelled) setCashflowError(true); });
     return () => { cancelled = true; };
   }, [firstSync.pending, firstSync.active]);
 
@@ -302,7 +271,7 @@ export default function PlanningPage() {
     if (!shouldRefetchStaleCashflow(cashflow, staleRetried.current)) return;
     return scheduleStaleCashflowRefetch(
       () => {
-        api.cashflowWithForecast().then((fresh) => {
+        api.cashflow().then((fresh) => {
           // G421: never inside an undo window, or a removed row would come back.
           if (canApplyStaleCashflow(lastPlannedDeleteRef.current, lastDismissRef.current)) setCashflow(fresh);
         }).catch(() => {});
@@ -349,7 +318,7 @@ export default function PlanningPage() {
     setCashflowError(false);
     setCashflow(null);
     await Promise.all([
-      api.cashflowWithForecast().then(setCashflow),
+      api.cashflow().then(setCashflow),
       getAccountsCached(true).then(setAccounts).catch(() => {}),
       api.listAllocations().then((v) => { setAllocations(v); setAllocationsError(false); }).catch(() => setAllocationsError(true)),
       api.listAccountPlans().then((v) => { setAccountPlans(v); setAccountPlansError(false); }).catch(() => setAccountPlansError(true)),
@@ -393,7 +362,7 @@ export default function PlanningPage() {
     invalidateVerdictCache();
     reloadAccountPositions();
     api.listAllocations().then(setAllocations).catch(() => {});
-    api.cashflowWithForecast().then(setCashflow).catch(() => {});
+    api.cashflow().then(setCashflow).catch(() => {});
     api.listAccountPlans().then((items) => { setAccountPlans(items); setAccountPlansError(false); }).catch(() => setAccountPlansError(true));
   }
 
@@ -403,7 +372,7 @@ export default function PlanningPage() {
     invalidateVerdictCache();
     reloadAccountPositions();
     try {
-      const [forecast, envelopes, plans] = await Promise.all([api.cashflowWithForecast(), api.listAllocations(), api.listAccountPlans()]);
+      const [forecast, envelopes, plans] = await Promise.all([api.cashflow(), api.listAllocations(), api.listAccountPlans()]);
       setCashflow(forecast); setAllocations(envelopes); setAccountPlans(plans);
       setAccountPlansError(false); setAllocationsError(false);
     } catch (error) {
@@ -419,7 +388,7 @@ export default function PlanningPage() {
 
   function retryCashflow() {
     setCashflowError(false);
-    api.cashflowWithForecast().then(setCashflow).catch(() => setCashflowError(true));
+    api.cashflow().then(setCashflow).catch(() => setCashflowError(true));
   }
 
   // Pay period deep link
@@ -433,7 +402,7 @@ export default function PlanningPage() {
   }, []);
 
   // One window and one result feed the account card, its working and row
-  // coverage. They are source-account evidence, never inputs to the hero.
+  // coverage. They are source-account evidence, never inputs to the pooled walk.
   const accountEndMs = upcomingAccountWindow(periodEnd.getTime(), planningNow, upcomingPeriod.fromServer ? upcomingPeriod.daysToPayday : undefined);
   const plans = cashflow ? assessPlanOverlap(plansFromApi(accountPlans ?? []), cashflow, accountEndMs, accounts) : [];
   const sourceIds = new Set(plans.filter((plan) => plan.active && hasPlanSource(plan)).map((plan) => plan.sourceId));
@@ -616,7 +585,7 @@ export default function PlanningPage() {
     } catch {}
     if (!refetch) return;
     try {
-      const fresh = await api.cashflowWithForecast();
+      const fresh = await api.cashflow();
       // Only apply when no other optimistic delete or dismiss is pending.
       if (lastPlannedDeleteRef.current === null && lastDismissRef.current === null) setCashflow(fresh);
     } catch {}
@@ -698,7 +667,7 @@ export default function PlanningPage() {
             ),
           };
         });
-        api.cashflowWithForecast().then(setCashflow).catch(() => {});
+        api.cashflow().then(setCashflow).catch(() => {});
       });
   }
 
@@ -715,7 +684,7 @@ export default function PlanningPage() {
     try {
       await last.request;
       await api.restoreRecurring(last.name);
-      const fresh = await api.cashflowWithForecast();
+      const fresh = await api.cashflow();
       setCashflow(fresh);
     } catch {}
   }
@@ -724,12 +693,6 @@ export default function PlanningPage() {
   /* renderRow only captures ref-backed mutation handlers for later user
      events; it never reads those refs while this JSX is being produced. */
   /* eslint-disable react-hooks/refs */
-  // Reset before every render's ternary below runs: only the success IIFE
-  // branch (rawItems.length > 0) ever sets this back to a real value, so an
-  // error/loading/nothing-left-to-pay render correctly clears whatever a
-  // PRIOR render may have published, rather than leaving Penny quoting a
-  // runway figure that is no longer on screen.
-  pennyRunwayRef.current = undefined;
   const upcomingBlock = (
     <>
       {firstSync.pending ? (
@@ -755,7 +718,7 @@ export default function PlanningPage() {
       ) : !cashflow ? (
         <div className="flex items-center justify-center py-16"><Spinner size={32} /></div>
       ) : (() => {
-        const { isCalendarMonth, daysToPayday, paydayLabel } = upcomingPeriod;
+        const { paydayLabel } = upcomingPeriod;
         const nextPaydayMidnight = upcomingPeriod.payday;
 
         const NEXT_PERIOD_LOOKAHEAD_MS = 5 * 86400000;
@@ -767,7 +730,7 @@ export default function PlanningPage() {
          .map(b => ({
            ...b,
            // The card and row adapter use this exact boundary too. Payday
-           // remains outside the hero equation regardless of lookahead.
+           // remains outside the pooled walk regardless of lookahead.
            next_period: new Date(b.expected_date).getTime() > accountEndMs,
          }))
          .sort(compareUpcomingEvents);
@@ -782,6 +745,7 @@ export default function PlanningPage() {
                 <p className="text-slate-500 dark:text-slate-400 text-sm">Nothing more expected this pay period</p>
               </div>
               <UpcomingAccountsCard accounts={listedAccountSummaries} periodLabel={accountPeriodLabel} plans={plans} plansStatus={plansStatus} onOpen={(account) => setFlowView({ kind: "account", id: account.id })} />
+              {listedAccountSummaries.length > 0 && <PaymentsLagNote />}
               <PlansSection
                 allocations={allocations}
                 allocationsError={allocationsError}
@@ -798,12 +762,11 @@ export default function PlanningPage() {
           );
         }
 
-        // "Spendable everywhere" (Kevin, 2026-08): runway uses the same
+        // "Spendable everywhere" (Kevin, 2026-08): the row balances use the same
         // spendable-cash pool as the Home Safe-to-Spend hero — savings are
         // never silently folded in. Falls back to available_balance for
         // caches computed before spendable_balance existed.
         const spendableNow = cashflow.spendable_balance ?? cashflow.available_balance ?? 0;
-        const savingsNow = cashflow.savings_balance ?? 0;
 
         // POOLED transfer rule (Kevin, 2026-08-26, live-data bug: the
         // pooled "left" figure read £8,753 on payday, £3,794 of which was
@@ -828,7 +791,7 @@ export default function PlanningPage() {
         // never counted that destination in the first place, so that money
         // genuinely leaves this pool and must keep debiting (proven on
         // live data: a RAINY DAY SAVER standing order was silently netting
-        // itself out of the runway before destination_spendable existed at
+        // itself out of the pooled balance before destination_spendable existed at
         // all). An untraced movement (no learned destination pair) also
         // keeps debiting, same fail-safe direction as before: undercount
         // the credit rather than overstate available cash on a payload
@@ -843,90 +806,10 @@ export default function PlanningPage() {
             return { ...item, balance_after: running, is_credit_card: false, isMovement: false };
           }
           // This is the existing pooled working, not account coverage.
-          // Its cash-transfer/card exclusions and hero arithmetic stay intact.
+          // Its cash-transfer/card exclusions and arithmetic stay intact.
           if (!doesNotTouchCash(item)) running -= item.amount;
           return { ...item, balance_after: running, is_credit_card: Boolean(item.is_credit_card), isMovement: isOwnAccountMove(item) };
         });
-
-        const billsBeforePayday = rawItems.filter(item => {
-          if (item.type !== "bill") return false;
-          const d = new Date(item.expected_date);
-          return d < nextPaydayMidnight;
-        });
-        // Excludes pooled no-op bills and credit-card charges before
-        // summing, same doesNotTouchCash rule as the running walk above and
-        // the same reason: a bill that's actually a traced standing order
-        // into another of the user's own SPENDABLE accounts hasn't left the
-        // pool this runway figure is drawn from, so it was never a real
-        // reduction to begin with, there is no separate credit to net back
-        // in (that was the old, more roundabout approach: sum every bill,
-        // then subtract the traced inflows back out; this is the same
-        // arithmetic result but honest about what it means, the no-op bill
-        // just isn't "a bill" for this total). A standing order into
-        // SAVINGS, or an untraced movement, is the opposite case: that
-        // money genuinely leaves this pool, so it must keep reducing the
-        // runway and stays in the sum. G109: a charge sitting ON a credit
-        // card is excluded the same way — no cash has left any bank account
-        // yet, only a limit moved; the repayment TO the card is a plain
-        // debit on the paying account and is unaffected, it keeps reducing
-        // this total as before.
-        const runwayBillsTotal = billsBeforePayday
-          .filter(b => !doesNotTouchCash(b))
-          .reduce((s, b) => s + b.amount, 0);
-        // Income landing before payday belongs in the same equation as the
-        // row-by-row ledger below. Previously rows credited it while the hero
-        // ignored it, so the final row and headline could disagree.
-        const runwayIncomeTotal = rawItems
-          .filter(item => item.type === "income" && new Date(item.expected_date) < nextPaydayMidnight)
-          .reduce((s, item) => s + item.amount, 0);
-        // Allocations reduce what's left to last the period by their UNFILLED
-        // remainder only, never the full amount_per_period: filled money has
-        // already left the balances baked into spendableNow, so subtracting
-        // the full amount here would double-count it. `remaining` is exactly
-        // that unfilled portion, server-computed (GET /cashflow's own
-        // `allocations` array, same enriched shape as GET /allocations) — no
-        // client-side fill maths, per the backend contract this mirrors.
-        // Absent on older cached payloads, so this degrades to 0/no line.
-        const allocationsRemainingTotal = (cashflow.allocations ?? [])
-          .filter(a => a.active)
-          .reduce((s, a) => s + a.remaining, 0);
-        // G227: goal plan contributions for this period, one server figure
-        // shared with Home's "Plans reserved" (commitments_reserved), so the
-        // two surfaces agree. The per-account view keeps its own plan lines.
-        const plansReservedTotal = cashflow.plans_reserved ?? 0;
-        const allocationsRemainingCount = (cashflow.allocations ?? []).filter(a => a.active && a.remaining > 0).length;
-        const plansUnavailable = cashflow.plans_available === false;
-        // Every input is already a penny amount. Normalise their combined
-        // result at this presentation boundary so 0.3 - 0.1 - 0.2 remains an
-        // exactly-covered forecast, without changing the dated event walk,
-        // reserves or reconciliation inputs.
-        const runway = forecastPence(spendableNow + runwayIncomeTotal - runwayBillsTotal - allocationsRemainingTotal - plansReservedTotal);
-        const runwayNegative = runway < 0;
-        const runwayStatus = runwayNegative ? "short" : runway > 0 ? "left" : "even";
-        // Reuse the existing date-ordered pooled walk, strictly before payday.
-        // Savings fallback, stale balances, invalid events or incomplete plans
-        // cannot prove that payments are safe. The amount above is unchanged.
-        const cashEvidence = typeof cashflow.spendable_balance === "number" && Number.isFinite(cashflow.spendable_balance)
-          && cashflow.balances_live !== false && rawItems.every(item => Number.isFinite(Date.parse(item.expected_date)) && Number.isFinite(item.amount));
-        const lowestCash = cashEvidence ? forecastPence(Math.min(cashflow.spendable_balance!, ...items
-          .filter(item => Date.parse(item.expected_date) < nextPaydayMidnight.getTime())
-          .map(item => item.balance_after))) : null;
-        const statusData = forecastContext.data;
-        const forecastPresentation = upcomingForecastPresentation({
-          runway, lowestCash, evidenceCurrent: cashEvidence, nextPayday: nextPaydayMidnight.getTime(), isCalendarMonth,
-          metadata: statusData, headline: statusData?.status === "ok" ? deriveSafeToSpendHeadline(statusData) : null,
-          metadataPending: forecastContext.pending,
-          plansAvailable: !plansUnavailable,
-        });
-        // Penny screen context (B39) — plain JS assignment, not a hook
-        // call (see `pennyRunwayRef`'s own declaration above for why this
-        // lives inside a render-time IIFE rather than a `useEffect`). The
-        // publish effect up top reads this back after the commit and calls
-        // the SAME `buildUpcomingRunwayView` a node test pins against
-        // fixture inputs, so the figure Penny can quote back can never
-        // disagree with the hero below, which renders these same three
-        // values.
-        pennyRunwayRef.current = forecastPresentation.pending ? undefined : { runway, runwayStatus, isCalendarMonth, plansUnavailable, forecastVerdict: forecastPresentation.status.label };
 
         // Bank-side settling debits are display-only: their cash has already
         // left. Neither the shared account walk nor this pooled walk deducts
@@ -1137,31 +1020,8 @@ export default function PlanningPage() {
 
         return (
           <div className="space-y-4">
-            {/* The same production runway and account evidence render in
-                the approved G176 preview. The hero calculation stays here. */}
-            {(cashflow.spendable_balance ?? cashflow.available_balance) != null && (
-              <UpcomingHeroCard
-                isCalendarMonth={isCalendarMonth}
-                daysToPayday={daysToPayday}
-                paydayLabel={paydayLabel}
-                payExpectedLabel={payExpectedLabel(cashflow.period)}
-                spendableNow={spendableNow}
-                runwayIncomeTotal={runwayIncomeTotal}
-                runwayBillsTotal={runwayBillsTotal}
-                allocationsRemainingTotal={allocationsRemainingTotal}
-                plansReservedTotal={plansReservedTotal}
-                allocationsCount={allocationsRemainingCount}
-                plansCount={cashflow.plans_count}
-                plansUnavailable={plansUnavailable}
-                savingsNow={savingsNow}
-                runway={runway}
-                runwayStatus={runwayStatus}
-                presentation={forecastPresentation}
-                balancesHidden={balancesHidden}
-              />
-            )}
-
             <UpcomingAccountsCard accounts={listedAccountSummaries} periodLabel={accountPeriodLabel} plans={plans} plansStatus={plansStatus} onRetry={() => { setAccountPlansError(false); api.listAccountPlans().then(setAccountPlans).catch(() => setAccountPlansError(true)); }} onOpen={(account) => setFlowView({ kind: "account", id: account.id })} />
+            {listedAccountSummaries.length > 0 && <PaymentsLagNote />}
 
             <PlansSection
               allocations={allocations}
@@ -1275,7 +1135,7 @@ export default function PlanningPage() {
         <PlanOneOffSheet
           accounts={accounts}
           onClose={() => setPlanSheetOpen(false)}
-          onSaved={() => { invalidateVerdictCache(); api.cashflowWithForecast().then(setCashflow).catch(() => {}); }}
+          onSaved={() => { invalidateVerdictCache(); api.cashflow().then(setCashflow).catch(() => {}); }}
         />
       )}
 
