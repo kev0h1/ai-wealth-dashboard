@@ -108,6 +108,18 @@ const ROUTES: PreviewRoute[] = [
 
 
   {
+    slug: "home-card-layout",
+    name: "Home card presentation · G490",
+    description:
+      "Two full Home proposals with the existing card wording preserved. The debt card leads; transfers, Card detail and Cover plan use the same presentation system, with one primary action. Fictional fixtures, both themes, no production or calculation changes. Impeccable design round awaiting Kevin's choice.",
+    states: [{ label: "Full Home", value: "default" }],
+    variants: [
+      { label: "A · Ledger", value: "a" },
+      { label: "B · Queue", value: "b" },
+    ],
+    group: "current",
+  },
+  {
     slug: "sorted-website",
     name: "Sorted marketing website · C35",
     description: "Three independent static homepages: A Product first, B Everyday money, C Clear perspective. Real app imagery, source-checked prices and disclosures, no forms or tracking. Open the full static page from the review gallery. Public pages and Vercel deployment follow the chosen direction and verified store links.",
