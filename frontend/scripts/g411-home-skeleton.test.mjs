@@ -21,11 +21,11 @@ assert.match(brief, /buildGreeting\(hour, firstName, nameResolved\)/, "live gree
 assert.match(skeleton.slice(0, 600), /aria-hidden="true"\s+inert/, "skeleton root is inert so its header links are not focusable");
 
 // Markup identity and content.
-const html = renderToStaticMarkup(h(HomeGreetingHeader, { greeting: "Hi, Kevin", avatarInitials: "KM" }));
-assert.match(html, /<h1[^>]*text-\[20px\][^>]*sm:text-\[28px\][^>]*>Hi, Kevin<\/h1>/);
+const html = renderToStaticMarkup(h(HomeGreetingHeader, { greeting: "Hi, Alex", avatarInitials: "AB" }));
+assert.match(html, /<h1[^>]*text-\[20px\][^>]*sm:text-\[28px\][^>]*>Hi, Alex<\/h1>/);
 assert.match(html, /aria-label="Account and settings"[^>]*href="\/settings"/);
 assert.match(html, /href="\/accounts"[^>]*>.*Accounts<\/a>/s);
-assert.match(html, />KM</);
+assert.match(html, />AB</);
 assert.equal(renderToStaticMarkup(h(HomeGreetingHeader, { greeting: "Good morning", avatarInitials: null })).includes("lucide-user-round"), true, "no name falls back to the person icon");
 
 // Service worker: load it into a stub scope.

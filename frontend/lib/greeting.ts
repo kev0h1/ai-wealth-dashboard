@@ -11,14 +11,16 @@ export interface Greeting {
   namePending: boolean;
 }
 
-/** `hour` is null on the server and first client render (hydration guard), which
- * gives the neutral "Hello" until the clock is read after mount. */
-export function greetingPrefix(hour: number | null): string {
-  if (hour === null) return "Hello";
+/** `hour` is null on the server and first client render (hydration guard);
+ * buildGreeting then renders no prefix at all, so the words never change. */
+export function greetingPrefix(hour: number): string {
   return hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
 }
 
 export function buildGreeting(hour: number | null, firstName: string | null | undefined, nameResolved: boolean): Greeting {
+  // Hour unknown (server render, first client render): only the pill, so the
+  // text does not visibly change from a neutral word to "Good morning,".
+  if (hour === null) return { text: "", namePending: true };
   const prefix = greetingPrefix(hour);
   const name = (firstName ?? "").trim();
   if (name) return { text: `${prefix}, ${name}`, namePending: false };

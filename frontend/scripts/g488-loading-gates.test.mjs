@@ -23,13 +23,14 @@ const text = (html) => html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
 const withRouter = (el) => renderToStaticMarkup(h(AppRouterContext.Provider, { value: router }, el));
 
 // 1. Greeting: a name, a placeholder while it loads, nothing when there is none. Never "there".
-assert.deepEqual(buildGreeting(9, "Kevin", true), { text: "Good morning, Kevin", namePending: false });
-assert.deepEqual(buildGreeting(9, "Kevin", false), { text: "Good morning, Kevin", namePending: false }, "a cached name shows at once");
+assert.deepEqual(buildGreeting(9, "Alex", true), { text: "Good morning, Alex", namePending: false });
+assert.deepEqual(buildGreeting(9, "Alex", false), { text: "Good morning, Alex", namePending: false }, "a cached name shows at once");
 assert.deepEqual(buildGreeting(9, undefined, false), { text: "Good morning,", namePending: true }, "loading: placeholder");
 assert.deepEqual(buildGreeting(14, undefined, true), { text: "Good afternoon", namePending: false }, "resolved, no name: no name at all");
 assert.deepEqual(buildGreeting(20, "", true), { text: "Good evening", namePending: false });
-assert.equal(buildGreeting(null, undefined, false).text, "Hello,", "first paint before the clock is read");
-for (const state of [[9, "Kevin", true], [9, undefined, false], [9, undefined, true], [null, undefined, false]]) {
+assert.deepEqual(buildGreeting(null, undefined, false), { text: "", namePending: true }, "before the clock is read: pill only, no prefix to flash");
+assert.deepEqual(buildGreeting(null, "Alex", true), { text: "", namePending: true }, "same with a name known");
+for (const state of [[9, "Alex", true], [9, undefined, false], [9, undefined, true], [null, undefined, false]]) {
   assert.doesNotMatch(buildGreeting(...state).text, /there/i);
 }
 {
@@ -41,8 +42,8 @@ for (const state of [[9, "Kevin", true], [9, undefined, false], [9, undefined, t
   const emptyHeader = renderToStaticMarkup(h(HomeGreetingHeader, { greeting: "Good morning", avatarInitials: null }));
   assert.doesNotMatch(emptyHeader, /data-greeting-name-pending/, "resolved: no pill");
   assert.match(emptyHeader, />Good morning</);
-  const named = renderToStaticMarkup(h(HomeGreetingHeader, { greeting: "Good morning, Kevin", avatarInitials: "K" }));
-  assert.match(named, /Good morning, Kevin/);
+  const named = renderToStaticMarkup(h(HomeGreetingHeader, { greeting: "Good morning, Alex", avatarInitials: "A" }));
+  assert.match(named, /Good morning, Alex/);
 }
 
 // 2. First-name cache (wd_hide_balances pattern): per email, cleared on sign-out.
@@ -50,13 +51,13 @@ for (const state of [[9, "Kevin", true], [9, undefined, false], [9, undefined, t
   const data = new Map();
   const store = { getItem: (k) => data.get(k) ?? null, setItem: (k, v) => data.set(k, v), removeItem: (k) => data.delete(k) };
   assert.equal(readCachedFirstName(store, "a@x.uk"), undefined, "nothing cached yet");
-  writeCachedFirstName(store, "a@x.uk", "Kevin");
-  assert.equal(readCachedFirstName(store, "a@x.uk"), "Kevin");
-  assert.equal(readCachedFirstName(store, "A@X.uk"), "Kevin", "email match ignores case");
+  writeCachedFirstName(store, "a@x.uk", "Alex");
+  assert.equal(readCachedFirstName(store, "a@x.uk"), "Alex");
+  assert.equal(readCachedFirstName(store, "A@X.uk"), "Alex", "email match ignores case");
   assert.equal(readCachedFirstName(store, "b@x.uk"), undefined, "another account never sees it");
   writeCachedFirstName(store, "a@x.uk", null);
   assert.equal(readCachedFirstName(store, "a@x.uk"), undefined, "a nameless profile forgets the name");
-  writeCachedFirstName(store, "a@x.uk", "Kevin");
+  writeCachedFirstName(store, "a@x.uk", "Alex");
   clearCachedFirstName(store);
   assert.equal(readCachedFirstName(store, "a@x.uk"), undefined, "sign-out clears it");
   data.set("wd_first_name", "not json");
@@ -75,7 +76,7 @@ assert.equal(briefGate({ ...base, stsError: true }), "failed");
 assert.equal(briefGate({ ...base, stsError: true, loadError: true }), "ready", "the page-level load error owns the retry");
 assert.equal(briefGate({ ...base, loading: true, todayStatus: "failed" }), "loading", "loading outranks failed");
 
-const brief = (props) => withRouter(h(HomeBrief, { items: [], safeToSpend: null, syncError: false, loading: false, firstName: "Kevin", ...props }));
+const brief = (props) => withRouter(h(HomeBrief, { items: [], safeToSpend: null, syncError: false, loading: false, firstName: "Alex", ...props }));
 const fallbackCopy = /Nothing needs you today|Nothing new needs you|isn't ready yet|isn&#x27;t ready yet/;
 {
   const loading = brief({ loading: true, safeToSpend: FIGURE_DATA["on-track"] });
