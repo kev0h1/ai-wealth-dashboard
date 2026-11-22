@@ -6,7 +6,6 @@ import assert from "node:assert/strict";
 import React, { createElement as h } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { BalancesHiddenContext } from "../lib/balancesHidden.tsx";
-import UpcomingHeroCard from "../components/upcoming/UpcomingHeroCard.tsx";
 import UpcomingAccountsCard from "../components/upcoming/UpcomingAccountsCard.tsx";
 import UpcomingAccountDetails from "../components/upcoming/UpcomingAccountDetails.tsx";
 import UpcomingRow from "../components/upcoming/UpcomingRow.tsx";
@@ -21,38 +20,7 @@ import { ACCOUNTS, SCENARIOS, PERIOD, plansFor, forecastFor } from "../app/desig
 
 const RAW = /£\d/;
 const wrap = (hidden, el) => renderToStaticMarkup(h(BalancesHiddenContext.Provider, { value: hidden }, el));
-const heroProps = {
-  isCalendarMonth: false, daysToPayday: 9, paydayLabel: "Fri 30 Oct", spendableNow: 1234.56,
-  runwayIncomeTotal: 2100, runwayBillsTotal: 876, allocationsRemainingTotal: 300, plansReservedTotal: 150,
-  allocationsCount: 2, plansCount: 1, savingsNow: 4321, runway: -1234, runwayStatus: "short",
-};
 let renders = 0;
-
-// Hero: context-driven and prop-driven, both signs.
-for (const [label, build] of [
-  ["context", (hidden, extra) => wrap(hidden, h(UpcomingHeroCard, { ...heroProps, ...extra }))],
-  ["prop", (hidden, extra) => wrap(false, h(UpcomingHeroCard, { ...heroProps, ...extra, balancesHidden: hidden }))],
-]) {
-  for (const extra of [{}, { runway: 980, runwayStatus: "left" }]) {
-    const hiddenHtml = build(true, extra);
-    assert.doesNotMatch(hiddenHtml, RAW, `hero ${label}: no raw amount in text or aria`);
-    assert.match(hiddenHtml, /£••••/, `hero ${label}: mask shown`);
-    assert.match(hiddenHtml, /aria-label="Amount hidden, (short|left)"/, `hero ${label}: aria-label masked`);
-    assert.match(hiddenHtml, /Savings backup/, `hero ${label}: savings line present but masked`);
-    const shown = build(false, extra);
-    assert.match(shown, /£1,234\.56/, `hero ${label}: exact spendable now visible in the calculation`);
-    assert.match(shown, /£4,321/, `hero ${label}: savings visible`);
-    assert.match(shown, /pounds (short|left)"/, `hero ${label}: aria-label restored`);
-    assert.doesNotMatch(shown, /£••••/, `hero ${label}: nothing masked when visible`);
-    renders += 2;
-  }
-}
-// G304 explainer receives the mask-aware formatter.
-{
-  const html = wrap(true, h(UpcomingHeroCard, heroProps));
-  assert.match(html, /£••••/);
-  assert.doesNotMatch(html.replace(/<[^>]+>/g, ""), RAW, "explainer text masked");
-}
 
 // By account rows and account sheet, across the scenario fixtures.
 for (const { id } of SCENARIOS) {
@@ -134,4 +102,4 @@ for (const { id } of SCENARIOS) {
   renders += 6;
 }
 
-console.log(`PASS B55: ${renders} Upcoming renders, hero (text, aria, explainer, savings), By account rows, account sheets and envelope rows masked when hidden and restored when shown.`);
+console.log(`PASS B55: ${renders} Upcoming renders, By account rows, account sheets and envelope rows masked when hidden and restored when shown.`);

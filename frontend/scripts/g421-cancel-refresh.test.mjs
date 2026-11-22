@@ -17,7 +17,7 @@ function body(src, marker, length = 1200) {
 // Planned payment delete: awaited, never fire-and-forget, then refetch.
 const confirm = body(planning, "async function confirmPlannedDelete(");
 assert.ok(confirm.indexOf("await api.deletePlanned(") < confirm.indexOf("invalidateVerdictCache()"));
-assert.ok(confirm.indexOf("invalidateVerdictCache()") < confirm.indexOf("await api.cashflowWithForecast()"));
+assert.ok(confirm.indexOf("invalidateVerdictCache()") < confirm.indexOf("await api.cashflow()"));
 assert.doesNotMatch(planning, /api\.deletePlanned\([^)]*\)\.catch/, "no fire-and-forget planned delete");
 const timer = body(planning, "function deletePlannedWithUndo(", 1400);
 assert.match(timer, /void confirmPlannedDelete\(id\)/);
@@ -41,7 +41,7 @@ assert.ok(cancel.indexOf("invalidateVerdictCache()") < cancel.indexOf("onCancell
 const flush = body(planning, "function flushPlannedDelete()", 700);
 assert.match(flush, /confirmPlannedDelete\(p\.id, false\)/, "flush skips the refetch");
 assert.match(confirm, /if \(!refetch\) return;/);
-assert.ok(confirm.indexOf("if (!refetch) return;") < confirm.indexOf("await api.cashflowWithForecast()"));
+assert.ok(confirm.indexOf("if (!refetch) return;") < confirm.indexOf("await api.cashflow()"));
 assert.match(confirm, /lastPlannedDeleteRef\.current === null && lastDismissRef\.current === null\) setCashflow\(fresh\)/, "refetch applies only when nothing else is pending");
 const undo = body(planning, "function undoPlannedDelete()", 700);
 assert.match(undo, /lastPlannedDeleteRef\.current = null/, "undo restores the one pending delete once");

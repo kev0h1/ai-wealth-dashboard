@@ -10,7 +10,6 @@ import { ConsentCard, ProposalConfirmCard } from "@/components/PennyConversation
 import PaydayPlanCard from "@/components/PaydayPlanCard";
 import SafeToSpendCard from "@/components/SafeToSpendCard";
 import UpcomingAccountsCard from "@/components/upcoming/UpcomingAccountsCard";
-import UpcomingHeroCard from "@/components/upcoming/UpcomingHeroCard";
 import {
   INVESTMENT,
   MOVE_SUGGESTION,
@@ -23,7 +22,6 @@ import {
   PROOF_PERSON,
   SAFE_TO_SPEND,
   UPCOMING_ACCOUNTS,
-  UPCOMING_HERO,
 } from "./fixtures";
 
 export type FeatureId = "connect" | "safe-to-spend" | "upcoming" | "suggestions" | "payday" | "investments" | "penny";
@@ -31,7 +29,7 @@ export type FeatureId = "connect" | "safe-to-spend" | "upcoming" | "suggestions"
 export const PROOF_SOURCES: Record<FeatureId, readonly string[]> = {
   connect: ["@/components/bank-connect/BankConnectionParts: BankResults, ConnectionNotice"],
   "safe-to-spend": ["@/components/SafeToSpendCard: default"],
-  upcoming: ["@/components/upcoming/UpcomingHeroCard: default", "@/components/upcoming/UpcomingAccountsCard: default"],
+  upcoming: ["@/components/upcoming/UpcomingAccountsCard: default"],
   suggestions: ["@/components/HomeBrief: MoveCard", "@/components/CoverPlanSourcesCard: default"],
   payday: ["@/components/PaydayPlanCard: default"],
   investments: ["@/components/InvestmentMiniCard: default"],
@@ -60,7 +58,7 @@ export default function ProductionProof({ feature, expanded = false }: { feature
   switch (feature) {
     case "connect": return wrap(<ConnectProof expanded={expanded} />);
     case "safe-to-spend": return wrap(<SafeToSpendCard data={SAFE_TO_SPEND} spendFrom={{ kind: "unavailable", reason: "loading" }} previewBalancesVisible />);
-    case "upcoming": return wrap(<div className="space-y-3"><UpcomingHeroCard {...UPCOMING_HERO} /><UpcomingAccountsCard accounts={UPCOMING_ACCOUNTS} periodLabel="8–30 October" plans={[]} onOpen={noOp} /></div>);
+    case "upcoming": return wrap(<div className="space-y-3"><UpcomingAccountsCard accounts={UPCOMING_ACCOUNTS} periodLabel="8–30 October" plans={[]} onOpen={noOp} /></div>);
     case "suggestions": return wrap(<div className="space-y-3"><MoveCard item={MOVE_SUGGESTION} hideNetWorth={false} maskAmounts={(text) => text} previewMode />{expanded && <CoverPlanSourcesCard accounts={PROOF_ACCOUNTS} excludedIds={new Set()} onToggle={noOp} />}</div>);
     case "payday": return wrap(<PaydayPlanCard item={PAYDAY_PLAN} router={router} hideNetWorth={false} maskAmounts={(text) => text} onClose={noOp} />);
     case "investments": return wrap(<InvestmentMiniCard account={INVESTMENT} calm glass grid />);

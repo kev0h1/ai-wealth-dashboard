@@ -255,53 +255,6 @@ export function buildSpendPeriodView(verdict: SpendVerdict): PennyScreenView {
   };
 }
 
-/**
- * Upcoming is a forecast rather than an amount the user can spend today.
- * Keep its familiar whole-pound reading once it reaches a pound, but never
- * round a real sub-pound runway to £0. That would make a 42p shortage look
- * like an even forecast in both the hero and Penny's screen context.
- */
-export function formatUpcomingRunwayAmount(value: number): string {
-  const absolute = Math.abs(value);
-  const subPound = absolute > 0 && absolute < 1;
-  return `£${absolute.toLocaleString("en-GB", {
-    minimumFractionDigits: subPound ? 2 : 0,
-    maximumFractionDigits: subPound ? 2 : 0,
-  })}`;
-}
-
-export type UpcomingRunwayInput = {
-  runway: number;
-  runwayStatus: "short" | "left" | "even";
-  isCalendarMonth: boolean;
-  /** Goal plans could not be loaded, so the runway may be too high. */
-  plansUnavailable?: boolean;
-  /** G287: the same verified dated-risk verdict rendered beside the figure. */
-  forecastVerdict?: string;
-};
-
-/** Upcoming's runway hero — mirrors PlanningPage.tsx's own
- * `runway`/`runwayStatus`/`isCalendarMonth` locals exactly (that file
- * computes them inline mid-render inside a large simulation and hands the
- * three results here rather than this function re-deriving them, since the
- * simulation itself depends on a lot of page-only state — see that file's
- * own comment on its Penny-view publish ref for why). */
-export function buildUpcomingRunwayView(input: UpcomingRunwayInput): PennyScreenView {
-  const { runway, runwayStatus, isCalendarMonth, plansUnavailable } = input;
-  const label = runwayStatus === "short" ? "Short" : runwayStatus === "even" ? "Exactly covered" : "Left over";
-  return {
-    route: "/upcoming",
-    scope: isCalendarMonth ? "Projected at month end" : "Projected at payday",
-    verdict: input.forecastVerdict ?? label,
-    figures: [{
-      key: "runway",
-      label: (isCalendarMonth ? "Projected at month end" : "Projected at payday") + (plansUnavailable ? " (estimated, goal plans not loaded so it may be too high)" : ""),
-      value: `${runwayStatus === "short" ? "−" : ""}${formatUpcomingRunwayAmount(runway)}`,
-    }],
-    asOf: new Date().toISOString(),
-  };
-}
-
 // ── Tax (B41) ────────────────────────────────────────────────────────────
 // Only the primitive fields buildTaxView actually needs, NOT app/tax/
 // TaxCanvas.tsx's own `TaxCanvasModel` type — that type lives in a "use
@@ -310,7 +263,7 @@ export function buildUpcomingRunwayView(input: UpcomingRunwayInput): PennyScreen
 // file's header comment on why: Node's `--experimental-strip-types` can't
 // parse JSX/TSX, which is what makes scripts/penny-screen-views.test.mjs
 // possible). Same reasoning `UpcomingRunwayInput` above already follows,
-// for the same reason (PlanningPage.tsx's runway locals).
+// for the same reason.
 export type TaxViewInput = {
   heroHeadline: string;
   taxYearLabel: string;

@@ -5143,7 +5143,7 @@ async def _get_txn_dates_for_income_key(uid: str, key: str) -> list:
 
 
 @router.get("/cashflow")
-async def get_cashflow(user: dict = Depends(current_user), include: str = ""):
+async def get_cashflow(user: dict = Depends(current_user)):
     uid    = user["email"]
     cached = await cashflow_cache_col.find_one({"_id": uid})
 
@@ -5314,20 +5314,6 @@ async def get_cashflow(user: dict = Depends(current_user), include: str = ""):
         resp["plans_reserved"] = 0
         resp["plans_count"] = 0
         resp["plans_available"] = False
-
-    # G386: opt-in (`?include=forecast`, sent only by Upcoming) so the hero's
-    # status chip and colour render from this one response instead of a second
-    # GET /safe-to-spend a round trip later. The SAME cached verdict that
-    # endpoint serves (shared read-through, so a warm cache costs nothing and a
-    # cold one fills it for Home); `pace` is dropped, Upcoming never reads it.
-    # On failure the key is simply absent and the client falls back to its own
-    # request, held in a skeleton rather than a neutral chip.
-    if "forecast" in {p.strip() for p in include.split(",")}:
-        try:
-            _fc = await cached_safe_to_spend_response(uid)
-            resp["forecast"] = {k: v for k, v in _fc.items() if k != "pace"}
-        except Exception:
-            logger.exception("forecast attach failed for %s, omitting", mask_email(uid))
 
     return resp
 

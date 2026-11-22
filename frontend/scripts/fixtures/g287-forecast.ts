@@ -66,19 +66,3 @@ export function g287CardProps(scenario: G287Scenario): { data: SafeToSpend | nul
     ...(scenario === "stale" ? { syncing: { kind: "refresh" as const, bank: "Barclays", stalled: true, asOf: entry.data?.status === "ok" ? entry.data.last_synced : null } } : {}),
   };
 }
-
-export function g287UpcomingProps(data: SafeToSpendOk) {
-  const spendableNow = data.spendable_now;
-  if (spendableNow == null) throw new Error("G287 Upcoming fixture needs a known spendable balance");
-  const runway = spendableNow + data.income_before_payday - data.bills_total - (data.allocations_reserved ?? 0) - (data.commitments_reserved ?? 0);
-  return {
-    isCalendarMonth: false, daysToPayday: data.days_until_payday,
-    paydayLabel: new Date(data.next_payday).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" }),
-    spendableNow, runwayIncomeTotal: data.income_before_payday,
-    runwayBillsTotal: data.bills_total, allocationsRemainingTotal: data.allocations_reserved ?? 0,
-    allocationsCount: data.allocations_count, plansReservedTotal: data.commitments_reserved ?? 0,
-    plansCount: data.commitments_count, plansUnavailable: false, savingsNow: 1400,
-    runway, runwayStatus: runway < 0 ? "short" as const : runway > 0 ? "left" as const : "even" as const,
-    balancesHidden: false,
-  };
-}

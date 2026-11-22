@@ -9,7 +9,7 @@ import { AppRouterContext } from "next/dist/shared/lib/app-router-context.shared
 import SafeToSpendCard from "../components/SafeToSpendCard.tsx";
 import { FIGURE_DATA } from "../app/design/safe-to-spend-figure/fixtures.ts";
 import { SPEND_FROM_RAIL } from "../app/design/sts-accounts-route/fixtures.ts";
-import PooledLedgerExplainer, { POOLED_SENTENCE, POOLED_PROJECTION_SENTENCE, ENVELOPE_EDIT_HREF, PLAN_EDIT_HREF } from "../components/PooledLedgerExplainer.tsx";
+import PooledLedgerExplainer, { POOLED_SENTENCE, ENVELOPE_EDIT_HREF, PLAN_EDIT_HREF } from "../components/PooledLedgerExplainer.tsx";
 
 const fmt2 = (v) => `£${v.toFixed(2)}`;
 const render = (props) => renderToStaticMarkup(createElement(PooledLedgerExplainer, { format: fmt2, ...props }));
@@ -47,11 +47,8 @@ assert.match(many, /Your plans hold back £60\.00\. You can edit them on Plannin
 // Hidden balances stay hidden.
 assert.match(text(render({ pooled: false, envelope: { amount: 9 }, format: () => "£••••" })), /holds back £••••/);
 
-// Projection wording on Upcoming.
-assert.match(text(render({ pooled: true, poolingSentence: POOLED_PROJECTION_SENTENCE })), /total across all your accounts/);
-
 // Copy rules on every new string.
-for (const s of [both, many, POOLED_SENTENCE, POOLED_PROJECTION_SENTENCE]) {
+for (const s of [both, many, POOLED_SENTENCE]) {
   assert.ok(!s.includes("!") && !s.includes("—") && !/saved|saving|free up|released/i.test(s), "copy rules");
 }
 
@@ -71,14 +68,11 @@ assert.match(single, /Your set-aside holds back/);
 const noReserve = card({ ...reserved, allocations_reserved: 0, commitments_reserved: 0 }, SPEND_FROM_RAIL);
 assert.ok(!/holds back/.test(noReserve), "no reservations: no release lines");
 
-// Wiring: both ledgers render the shared component inside their expanded ledger.
+// Wiring: Home renders the shared component inside its expanded ledger.
 const home = readFileSync(new URL("../components/SafeToSpendCard.tsx", import.meta.url), "utf8");
 assert.match(home, /<PooledLedgerExplainer[\s\S]*?pooled=\{spendFromPlan\.entries\.length > 1\}/);
 const disclosureSource=readFileSync(new URL('../components/SafeToSpendDisclosures.tsx',import.meta.url),'utf8');
 const calculation=disclosureSource.slice(disclosureSource.indexOf('<details data-g324-calculation'),disclosureSource.indexOf('</details>',disclosureSource.indexOf('<details data-g324-calculation')));
 assert.match(calculation,/\{reservationDetails\}/,'shared explanation remains inside the calculation disclosure');
 assert.match(home, /reservationDetails=\{<PooledLedgerExplainer/);
-const up = readFileSync(new URL("../components/upcoming/UpcomingHeroCard.tsx", import.meta.url), "utf8");
-assert.ok(up.indexOf("<PooledLedgerExplainer") > up.indexOf("<details"), "inside the details");
-assert.ok(up.indexOf("<PooledLedgerExplainer") < up.indexOf("</details>"), "before details closes");
 console.log("g304 ledger explainer: ok");

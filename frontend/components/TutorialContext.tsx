@@ -237,18 +237,19 @@ export const TUTORIAL_FLOWS: TutorialFlow[] = [
     readyKey: "upcoming",
     steps: [
       {
-        id: "upcoming-left",
-        target: "tutorial-planning-left",
+        id: "upcoming-accounts",
+        target: "tutorial-planning-accounts",
+        fallbackTarget: "tutorial-planning-upcoming",
         tooltipSide: "below",
         iconName: "Upcoming",
-        title: "Your pay-period forecast",
+        title: "Each account, covered or not",
         description:
-          "An estimate of what may remain at payday or month end, after expected income, payments, plans and set-asides.",
+          "Every account shows what is available after its payments, plans and set-asides this pay period. Tap one for its working.",
       },
       {
         id: "upcoming-list",
         target: "tutorial-planning-upcoming",
-        fallbackTarget: "tutorial-planning-left",
+        fallbackTarget: "tutorial-planning-accounts",
         tooltipSide: "above",
         iconName: "Payments",
         title: "What is still coming",
@@ -262,7 +263,7 @@ export const TUTORIAL_FLOWS: TutorialFlow[] = [
         iconName: "SetAsides",
         title: "Set aside this period",
         description:
-          "A set-aside holds back money for this pay period, so the forecast does not treat it as free to spend.",
+          "A set-aside holds back money for this pay period, so it is not treated as free to spend.",
       },
       {
         id: "upcoming-add",

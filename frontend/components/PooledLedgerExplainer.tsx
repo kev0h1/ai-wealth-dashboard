@@ -5,14 +5,12 @@ import MoneyText from "@/components/MoneyText";
 // figure is shared across every account and names the reservations that hold
 // cash back, each with an inline link to the surface where it is edited.
 // Wording is recommendation-only: it never says money is saved or freed, and
-// nothing here moves money. Shared by Home's Safe to Spend card and
-// Upcoming's runway card so the two ledgers cannot drift apart.
+// nothing here moves money. Used by Home's Left to spend card.
 
 export const ENVELOPE_EDIT_HREF = "/upcoming#pay-period-plans";
 export const PLAN_EDIT_HREF = "/planning#commitments";
 
 export const POOLED_SENTENCE = "This figure is shared by all your accounts. It is not a separate amount for each one.";
-export const POOLED_PROJECTION_SENTENCE = "This is the total across all your accounts together, not a figure for each one.";
 
 export type LedgerReservation = { amount: number; count?: number };
 
