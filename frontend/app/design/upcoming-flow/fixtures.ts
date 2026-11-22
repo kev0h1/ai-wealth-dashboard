@@ -92,7 +92,7 @@ export const scenarios: Record<ScenarioId, Scenario> = {
     id: "partial",
     label: "A move still leaves a gap",
     headline: "Barclays still needs money",
-    reading: "Moving £75 from NatWest would still leave £142.68 to cover. NatWest can spare no more in this example.",
+    reading: "Moving £75 from NatWest would still leave £142.68 to cover.",
     periodLabel: "22 to 26 Nov",
     accounts: [
       { id: "barclays", bank: "Barclays", name: "Everyday", kind: "Current account", purpose: "paying", canPayPlan: true, status: "short", statusLabel: "Still short", availabilityPence: -14268, availabilityLabel: "Available after suggested move", requiresMove: true, cashNowPence: 305, afterPaymentsPence: -21768, paymentLowPence: -21768, firstNeedDate: "2026-11-22", note: "The dated payment walk does not assume that the suggested move has arrived." },
