@@ -274,15 +274,27 @@ the production smoke checks first and does not tag if any fail, then pushes the
 tag. It deploys nothing. Run from the shared tree, by Kevin or the coordinator
 (a developer session never releases).
 
-### Android: send the Play release for review (C45)
+### Android: Play publishing and "Send for review" (C45, C49)
 
-`android-capacitor-prod` uploads to the Play production track as a draft, and
-both Android workflows set `changes_not_sent_for_review: true`. Play refuses
-to send changes for review automatically while the app has a rejected or
-pending update, and the upload used to be discarded with "Changes cannot be
-sent for review automatically". The upload is now saved without being sent,
-so after each upload Kevin opens Play Console, checks the release, and sends
-it for review himself.
+Both Android workflows publish through `scripts/codemagic-play-publish.sh`, a
+script step calling `google-play bundles publish` with the same
+`GCLOUD_SERVICE_ACCOUNT_CREDENTIALS`. The production workflow adds `--draft`.
+A static `changes_not_sent_for_review` (C45) failed in whichever review state
+it did not match: Google forbids it when the app has no unsendable changes
+(version 31 lost) and requires it when the app has a rejected or pending
+update (version 29 lost). So the script:
+
+1. publishes WITHOUT `--changes-not-sent-for-review`; if that works, Google
+   sent the release for review itself and there is nothing to do;
+2. if the output contains "Changes cannot be sent for review automatically",
+   retries WITH the flag. The upload is saved but not sent, and the log ends
+   with `ACTION NEEDED: Kevin must open Play Console and press 'Send for
+   review'`;
+3. fails the build at once, with the CLI output and no retry, on any other
+   first failure, and fails after the retry if both attempts fail.
+
+Tested without Codemagic by `npm run check:c49-play-publish` in `frontend/`
+(fake `google-play` on PATH).
 
 ## d) Rollback
 
