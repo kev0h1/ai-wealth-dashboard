@@ -2,7 +2,7 @@
 
 import { ChevronDown, CircleAlert } from "lucide-react";
 import type { AccountEligibility } from "@/lib/api";
-import { formatAvailabilityAmount, type AccountAvailabilityReading } from "@/lib/accountAvailability";
+import { availabilityLabel, formatAvailabilityAmount, type AccountAvailabilityReading } from "@/lib/accountAvailability";
 import MoneyText from "@/components/MoneyText";
 import { coverSplitSentence } from "@/lib/coverNarrative";
 
@@ -35,7 +35,7 @@ export default function AccountAvailabilityDetail({ reading, position, hidden, l
     ...working.movesIn.map((m): [string, number] => [m.label, m.amount]),
   ] : [];
   const covered = reading.coveredByMove;
-  const availableLabel = reading.requiresMove ? "Available after suggested move" : "Available to spend";
+  const availableLabel = availabilityLabel(reading);
   // A suggested move from savings is shown, never added: it counts once it is made.
   const savingsNote = working?.savingsMove
     ? `A suggested move of ${formatAvailabilityAmount(working.savingsMove.amount)} from ${working.savingsMove.label} would cover the rest. It counts once you make the move.`

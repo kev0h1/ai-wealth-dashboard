@@ -28,6 +28,9 @@ def test_first_connection_reconciles_after_rows_arrive(monkeypatch):
     monkeypatch.setattr(sync, "sync_in_progress", progress)
     monkeypatch.setattr(sync, "_sync_connection", fetch)
     monkeypatch.setattr(transfers, "reconcile_own_account_transfers", reconcile)
+    async def no_first_sync(*_a, **_k):
+        return None
+    monkeypatch.setattr(sync, "begin_first_sync", no_first_sync)
     assert asyncio.run(sync.sync_connection("connection", "owner")) == ["account"]
     assert calls == [("fetch", "connection", "owner"), ("reconcile", "owner")]
 

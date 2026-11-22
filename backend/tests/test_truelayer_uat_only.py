@@ -234,7 +234,7 @@ def _truelayer_callback_env(monkeypatch, doc):
     monkeypatch.setattr(tl, "connections_col", _Col())
     monkeypatch.setattr(tl.httpx, "AsyncClient", lambda *a, **k: _Client())
     monkeypatch.setattr(tl, "save_connection", _save)
-    monkeypatch.setattr(tl, "sync_connection", _sync)
+    monkeypatch.setattr(tl, "sync_connection_with_derived", _sync)
     return tl, asyncio
 
 

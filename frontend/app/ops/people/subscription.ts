@@ -113,6 +113,16 @@ export function trialLabel(s: OpsSubscription): string {
   return `${start}${end}`;
 }
 
+/** C48: "2 times, last 21 Nov 2026 (owner k•••@g•••.com)", or "None". */
+export function appleMismatchLabel(s: OpsSubscription): string {
+  const m = s.apple_mismatch;
+  if (!m || m.count < 1) return "None";
+  const last = m.recent[m.recent.length - 1];
+  const times = `${m.count} ${m.count === 1 ? "time" : "times"}`;
+  if (!last) return times;
+  return `${times}, last ${last.at ? date(last.at) : "date unknown"}${last.owner_hint ? ` (owner ${last.owner_hint})` : ""}`;
+}
+
 export function renewalLabel(s: OpsSubscription): string {
   if (s.cancels_at) return `Cancels ${date(s.cancels_at)}`;
   if (s.renews_at) return `Renews ${date(s.renews_at)}`;

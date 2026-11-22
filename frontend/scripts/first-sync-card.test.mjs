@@ -46,7 +46,7 @@ assert.match(render("syncing", { connections: [] }), /Your bank connected/);
 
 // Source guards.
 const home = readFileSync(new URL("../app/components/HomePage.tsx", import.meta.url), "utf8");
-assert.match(home, /firstSyncActive && syncStatus\?\.first_sync === true && \(/, "HomePage renders FirstSyncCard under the sync condition");
+assert.match(home, /firstSyncActive && visibleSyncStatus\?\.first_sync === true && \(/, "HomePage renders FirstSyncCard while sync or its fresh reads are pending");
 assert.match(home, /<FirstSyncCard/);
 assert.match(home, /api\.getSyncStatus\(\)/);
 assert.match(home, /invalidateAllAccountData\(\);\s*await loadData\(\)/, "idle transition reloads Home once");
@@ -67,7 +67,7 @@ assert.ok(iBriefSync > 0 && iHeadroom > iBriefSync, "the Home line handles synci
 assert.match(briefViews.slice(iBriefSync, iBriefSync + 700), /first sync is still running/);
 const views = readFileSync(new URL("../lib/pennyScreenViews.ts", import.meta.url), "utf8");
 assert.match(views, /calculation_status === "syncing"/, "Penny view builder guards syncing");
-assert.match(home, /verdictWithheld\s*=\s*\s*syncStatus\?\.first_sync === true/, "only a genuine first sync withholds the verdict");
+assert.match(home, /verdictWithheld\s*=\s*\(visibleSyncStatus\?\.first_sync === true/, "a genuine first sync withholds the verdict");
 assert.match(home, /document\.visibilityState !== "visible"/, "poll pauses when hidden");
 assert.match(home, /inFlight/, "poll never overlaps");
 console.log("first-sync-card: ok");

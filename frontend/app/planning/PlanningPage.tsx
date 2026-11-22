@@ -37,6 +37,9 @@ import UnlinkedGoalPlans from "@/components/upcoming/UnlinkedGoalPlans";
 import { assessPlanOverlap, hasPlanSource, isPlanSourceAccount, plansFromApi } from "@/lib/upcomingPlans";
 import { upcomingDisplayName } from "@/lib/upcomingDisplayName";
 import SetAsideList, { type SetAsideItem } from "@/components/upcoming/SetAsideList";
+import { useFirstSync } from "@/lib/useFirstSync";
+import FirstSyncCard from "@/components/FirstSyncCard";
+import FirstSyncStatus from "@/components/FirstSyncStatus";
 
 // Editing flows are not needed to understand the initial runway. Keeping them
 // out of the first Planning bundle makes the forecast usable sooner while the
@@ -199,6 +202,7 @@ export default function PlanningPage() {
   const { icons: iconOverrides } = useCategoryIcons();
   const router = useRouter();
   const searchParams = useSearchParams();
+  const firstSync = useFirstSync(reloadAfterFirstSync);
   const [planningNow] = useState(() => Date.now());
   // Penny screen context (B39) — the runway hero's own three headline
   // values (`runway`/`runwayStatus`/`isCalendarMonth`) are computed deep
@@ -218,7 +222,7 @@ export default function PlanningPage() {
   // number, so there is nothing to quote either.
   const pennyRunwayRef = useRef<UpcomingRunwayInput | undefined>(undefined);
   useEffect(() => {
-    setPennyScreenView("upcoming", pennyRunwayRef.current ? buildUpcomingRunwayView(pennyRunwayRef.current) : null);
+    setPennyScreenView("upcoming", !firstSync.pending && !firstSync.active && pennyRunwayRef.current ? buildUpcomingRunwayView(pennyRunwayRef.current) : null);
   });
 
   const [cashflow, setCashflow] = useState<CashflowData | null>(null);
@@ -234,7 +238,7 @@ export default function PlanningPage() {
   // Tour readiness — the runway hero and the upcoming list both read off
   // `cashflow`, so the tour must wait for it (or a genuine fetch error) the
   // same way upcomingBlock's own cashflowError/!cashflow gate does above.
-  useTutorialReady("upcoming", !!cashflow || cashflowError);
+  useTutorialReady("upcoming", !firstSync.pending && !firstSync.active && (!!cashflow || cashflowError));
 
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -248,6 +252,7 @@ export default function PlanningPage() {
   // is built on). Absent on an old API or a failed read: accountPlan falls back
   // to its own arithmetic.
   const [accountEligibility, setAccountEligibility] = useState<Record<string, AccountEligibility> | null>(null);
+  const [syncState, setSyncState] = useState<"idle" | "syncing" | "stalled" | "failed" | null>(null);
   const [todayItems, setTodayItems] = useState<CompanionItem[] | null>(null);
   // Edit-only now — creation moved into SetAsideSheet's envelope step
   // (owner consolidation, 2026-08-29).
@@ -281,14 +286,18 @@ export default function PlanningPage() {
   // can still wait for the browser's first idle slot instead of competing with
   // the forecast for initial render time.
   useEffect(() => {
-    api.cashflowWithForecast().then(setCashflow).catch(() => setCashflowError(true));
-  }, []);
+    if (firstSync.pending || firstSync.active) return;
+    let cancelled = false;
+    api.cashflowWithForecast().then((v) => { if (!cancelled) { setCashflow(v); setCashflowError(false); } }).catch(() => { if (!cancelled) setCashflowError(true); });
+    return () => { cancelled = true; };
+  }, [firstSync.pending, firstSync.active]);
 
   // E18: a forecast served stale while the worker recomputes is refetched once,
   // quietly, about five seconds later. The ref spends the single retry; a fresh
   // response re-arms it for the next correction.
   const staleRetried = useRef(false);
   useEffect(() => {
+    if (firstSync.pending || firstSync.active) return;
     if (cashflow && cashflow.cashflow_stale !== true) staleRetried.current = false;
     if (!shouldRefetchStaleCashflow(cashflow, staleRetried.current)) return;
     return scheduleStaleCashflowRefetch(
@@ -300,9 +309,10 @@ export default function PlanningPage() {
       },
       () => { staleRetried.current = true; },
     );
-  }, [cashflow]);
+  }, [cashflow, firstSync.pending, firstSync.active]);
 
   useEffect(() => {
+    if (firstSync.pending || firstSync.active) return;
     const idleWindow = window as Window & {
       requestIdleCallback?: (callback: IdleRequestCallback, options?: IdleRequestOptions) => number;
       cancelIdleCallback?: (handle: number) => void;
@@ -333,7 +343,19 @@ export default function PlanningPage() {
     }
     const timer = window.setTimeout(loadSecondary, 150);
     return () => window.clearTimeout(timer);
-  }, []);
+  }, [firstSync.pending, firstSync.active]);
+
+  async function reloadAfterFirstSync() {
+    setCashflowError(false);
+    setCashflow(null);
+    await Promise.all([
+      api.cashflowWithForecast().then(setCashflow),
+      getAccountsCached(true).then(setAccounts).catch(() => {}),
+      api.listAllocations().then((v) => { setAllocations(v); setAllocationsError(false); }).catch(() => setAllocationsError(true)),
+      api.listAccountPlans().then((v) => { setAccountPlans(v); setAccountPlansError(false); }).catch(() => setAccountPlansError(true)),
+      api.getToday().then((today) => { setAccountEligibility(today.account_eligibility ?? null); setTodayItems(today.items ?? null); }).catch(() => {}),
+    ]);
+  }
 
   // Refreshes both the allocations list (for the cards) and cashflow (for
   // the "remaining" figures the TO LAST subline/arithmetic reads) after a
@@ -347,6 +369,25 @@ export default function PlanningPage() {
     setAccountEligibility(null);
     api.getToday().then((today) => { setAccountEligibility(today.account_eligibility ?? null); setTodayItems(today.items ?? null); }).catch(() => {});
   }
+
+  // G486: mirror the account page's sync handling. While a sync runs (or after one fails) the account page shows
+  // "checking" or "unavailable" instead of Available, so By account shows no figure either. A finished sync reloads positions.
+  const reloadPositionsRef = useRef(reloadAccountPositions);
+  reloadPositionsRef.current = reloadAccountPositions;
+  useEffect(() => {
+    let cancelled = false, timer: number | undefined, last: string | null = null;
+    const poll = () => {
+      api.getSyncStatus().then((next) => {
+        if (cancelled) return;
+        if (last && last !== "idle" && next.state === "idle") reloadPositionsRef.current();
+        last = next.state;
+        setSyncState(next.state);
+        if (next.state === "syncing") timer = window.setTimeout(poll, 5000);
+      }).catch(() => {});
+    };
+    poll();
+    return () => { cancelled = true; if (timer) window.clearTimeout(timer); };
+  }, []);
 
   function refreshAllocations() {
     invalidateVerdictCache();
@@ -397,7 +438,9 @@ export default function PlanningPage() {
   const plans = cashflow ? assessPlanOverlap(plansFromApi(accountPlans ?? []), cashflow, accountEndMs, accounts) : [];
   const sourceIds = new Set(plans.filter((plan) => plan.active && hasPlanSource(plan)).map((plan) => plan.sourceId));
   const excludedAccountIds = new Set(accounts.filter((account) => !isCountedInLeftToSpend(account)).map((account) => account.id));
-  const accountPositions = positionsFromToday(accountEligibility, accounts) ?? {};
+  // G486: the same loading and failed handling as the account page (a running or failed sync shows no figure).
+  const availabilityStatus = syncState && syncState !== "idle" ? (syncState === "syncing" ? "loading" as const : "failed" as const) : "ready" as const;
+  const accountPositions = positionsFromToday(accountEligibility, accounts, availabilityStatus) ?? {};
   const planSources = accounts.filter((account) => (sourceIds.has(account.id) || accountPositions[account.id]?.spendFrom != null) && isPlanSourceAccount(account) && !excludedAccountIds.has(account.id)).map((account) => ({ id: account.id, bank: account.provider, name: account.name, balance: account.balance }));
   const accountWalk = cashflow ? walkUpcomingAccounts(cashflow, accountEndMs, planSources, excludedAccountIds) : null;
   const accountPeriodLabel = paymentsThroughLabel(accountEndMs);
@@ -689,7 +732,17 @@ export default function PlanningPage() {
   pennyRunwayRef.current = undefined;
   const upcomingBlock = (
     <>
-      {cashflowError ? (
+      {firstSync.pending ? (
+        <FirstSyncStatus error={firstSync.error} figuresError={firstSync.figuresError} onRetry={() => { void firstSync.refresh(); }} />
+      ) : firstSync.active ? (
+        <FirstSyncCard
+          surface="upcoming"
+          state={firstSync.status!.state as "syncing" | "stalled" | "failed"}
+          connections={firstSync.status!.connections}
+          retrying={firstSync.retrying}
+          onRetry={() => { void firstSync.retry(); }}
+        />
+      ) : cashflowError ? (
         <div className="flex flex-col items-center justify-center gap-2 py-16 text-center">
           <p className="text-sm text-slate-500 dark:text-slate-400">Couldn&apos;t load what&apos;s coming.</p>
           <button

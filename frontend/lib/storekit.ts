@@ -160,6 +160,20 @@ export const PURCHASE_RECORDED_MESSAGE = "Your purchase is recorded with Apple a
  *  asks the server again. No promise about money. */
 export const PURCHASE_NOT_RECORDED_MESSAGE =
   "We couldn't record this purchase on your account. Apple has it, so you do not need to buy it again. Try Restore purchases in a moment.";
+/** C48: the server's 403 code when the Apple ID's subscription belongs to a
+ *  different Sorted account (backend/app/routers/billing.py). */
+export const APPLE_ACCOUNT_MISMATCH_CODE = "APPLE_ACCOUNT_MISMATCH";
+
+/** C48: the plain explanation of an account mismatch. `ownerHint` is the
+ *  server's masked hint ("k•••@g•••.com"), the only thing ever known about the
+ *  other account. Restore purchases is deliberately not suggested: it can
+ *  never fix this, because the subscription belongs to the other account. No
+ *  promise about money. */
+export function accountMismatchMessage(ownerHint?: string | null): string {
+  const who = ownerHint ? ` (${ownerHint})` : "";
+  return `This Apple ID's Sorted subscription belongs to another Sorted account${who}. Sign in with that account to use it, or manage or cancel it in iPhone Settings.`;
+}
+
 /** A refunded consumable pack: terminal, nothing to restore. */
 export const PURCHASE_REFUNDED_MESSAGE = "Apple has refunded this purchase, so there is nothing to record.";
 
@@ -172,7 +186,16 @@ function isServerDecline(err: unknown): boolean {
 }
 export type PurchaseOutcome =
   | { ok: true }
-  | { ok: false; cancelled: boolean; message: string };
+  | { ok: false; cancelled: boolean; message: string; accountMismatch?: boolean };
+
+/** C48: the owner hint of a mismatch refusal, or undefined when `err` is not
+ *  one. A 403 with the server's APPLE_ACCOUNT_MISMATCH code; the hint is null
+ *  when the server could not name the owner. */
+export function accountMismatchOf(err: unknown): { ownerHint: string | null } | undefined {
+  const e = err as { status?: unknown; detail?: { code?: unknown; owner_hint?: unknown } | null } | null;
+  if (e?.status !== 403 || e.detail?.code !== APPLE_ACCOUNT_MISMATCH_CODE) return undefined;
+  return { ownerHint: typeof e.detail.owner_hint === "string" ? e.detail.owner_hint : null };
+}
 
 function isCancellation(err: unknown): boolean {
   const text = err instanceof Error ? err.message : String(err ?? "");
@@ -185,16 +208,36 @@ function isCancellation(err: unknown): boolean {
  *  changes, change this too, or refunded packs stay queued. */
 export const PACK_REFUNDED_REASON = "transaction was refunded";
 
-type VerifyOutcome = "applied" | "refunded" | "declined";
+type VerifyOutcome = "applied" | "refunded" | "declined" | "mismatch";
+type VerifyResult = { outcome: VerifyOutcome; ownerHint?: string | null };
 
 /** Posts the signed transaction to the server and finishes it ONLY when the
  *  server accepted it (C46). Used by the purchase, Restore purchases and
  *  syncUnfinishedTransactions, so a stuck transaction recovers through the
  *  same server call and finish on every path. Throws when the server cannot
  *  be reached. */
-async function verifyOutcome(sk: StoreKitHandle, tx: Pick<Transaction, "jwsRepresentation" | "transactionId">): Promise<VerifyOutcome> {
-  if (!tx.jwsRepresentation) return "declined";
-  const res = await api.verifyAppleTransaction(tx.jwsRepresentation);
+async function verifyOutcome(sk: StoreKitHandle, tx: Pick<Transaction, "jwsRepresentation" | "transactionId">): Promise<VerifyResult> {
+  if (!tx.jwsRepresentation) return { outcome: "declined" };
+  let res;
+  try {
+    res = await api.verifyAppleTransaction(tx.jwsRepresentation);
+  } catch (err) {
+    // C48: the server said, finally, that this subscription belongs to another
+    // Sorted account. Unlike every other decline this one is FINISHED: the
+    // answer will never change for this transaction (restore cannot fix it),
+    // the owning account already holds the entitlement, and leaving it queued
+    // would re-post it on every launch and make StoreKit skip the purchase
+    // sheet. Finishing only clears Apple's local queue; it does not touch the
+    // subscription, and nothing is granted to this account.
+    const mismatch = accountMismatchOf(err);
+    if (!mismatch) throw err;
+    try {
+      await sk.plugin.finishTransaction({ transactionId: tx.transactionId });
+    } catch {
+      /* already finished */
+    }
+    return { outcome: "mismatch", ownerHint: mismatch.ownerHint };
+  }
   // Finish only once the server has actually applied it; an unhandled answer
   // leaves the transaction queued for syncUnfinishedTransactions. The one
   // exception is a refunded pack, which is terminal: finish it so it is not
@@ -205,24 +248,56 @@ async function verifyOutcome(sk: StoreKitHandle, tx: Pick<Transaction, "jwsRepre
     } catch {
       /* already finished */
     }
-    return "refunded";
+    return { outcome: "refunded" };
   }
-  if (!res.ok || !res.handled) return "declined";
+  if (!res.ok || !res.handled) return { outcome: "declined" };
   try {
     await sk.plugin.finishTransaction({ transactionId: tx.transactionId });
   } catch {
     /* already finished: the server has the entitlement either way */
   }
-  return "applied";
+  return { outcome: "applied" };
 }
 
 async function verifyAndFinish(sk: StoreKitHandle, tx: Pick<Transaction, "jwsRepresentation" | "transactionId">): Promise<boolean> {
-  return (await verifyOutcome(sk, tx)) === "applied";
+  return (await verifyOutcome(sk, tx)).outcome === "applied";
 }
 
 /** The copy for a purchase whose verification did not apply. */
-function notAppliedOutcome(outcome: VerifyOutcome): PurchaseOutcome {
-  return { ok: false, cancelled: false, message: outcome === "refunded" ? PURCHASE_REFUNDED_MESSAGE : PURCHASE_NOT_RECORDED_MESSAGE };
+function notAppliedOutcome(result: VerifyResult): PurchaseOutcome {
+  if (result.outcome === "mismatch") {
+    return { ok: false, cancelled: false, message: accountMismatchMessage(result.ownerHint), accountMismatch: true };
+  }
+  return { ok: false, cancelled: false, message: result.outcome === "refunded" ? PURCHASE_REFUNDED_MESSAGE : PURCHASE_NOT_RECORDED_MESSAGE };
+}
+
+/** C48: before the purchase sheet opens, is this Apple ID already holding an
+ *  active Sorted subscription that carries ANOTHER account's appAccountToken?
+ *  Apple allows one subscription per Apple ID per group, so buying would only
+ *  return that transaction and the server would refuse it. Each such current
+ *  entitlement goes through the existing verify route (Apple's signed
+ *  transaction, so no token lookup endpoint exists to probe): the server's
+ *  APPLE_ACCOUNT_MISMATCH answer carries the masked owner hint. Anything
+ *  else, including an unreachable server, lets the purchase proceed, because
+ *  the post-purchase check still refuses it. Nothing is finished here. */
+export async function findForeignEntitlement(sk: StoreKitHandle, config: AppleIapConfig): Promise<{ ownerHint: string | null } | null> {
+  const mine = (config.app_account_token ?? "").toLowerCase();
+  let purchases: Transaction[];
+  try {
+    ({ purchases } = await sk.plugin.getPurchases({ productType: sk.subs, onlyCurrentEntitlements: true }));
+  } catch {
+    return null;
+  }
+  for (const tx of purchases) {
+    if (!tx.appAccountToken || tx.appAccountToken.toLowerCase() === mine || !tx.jwsRepresentation) continue;
+    try {
+      await api.verifyAppleTransaction(tx.jwsRepresentation);
+    } catch (err) {
+      const mismatch = accountMismatchOf(err);
+      if (mismatch) return mismatch;
+    }
+  }
+  return null;
 }
 
 /** The copy for a failure AFTER Apple took the purchase. */
@@ -234,11 +309,6 @@ function chargedFailureMessage(err: unknown): string {
  *  has the server verify the signed transaction. The server, not this
  *  function, decides what the user is entitled to. */
 export async function purchaseSubscription(productKey: string, config: AppleIapConfig): Promise<PurchaseOutcome> {
-  // Two failure copies. Before Apple completes the purchase nothing was
-  // charged; once Apple has charged and only our server step fails, the
-  // purchase exists and will be picked up, so the user must not be told they
-  // were not charged.
-  let charged = false;
   const productIdentifier = config.products[productKey];
   if (!config.enabled || !config.app_account_token || !productIdentifier) {
     return { ok: false, cancelled: false, message: "This plan cannot be bought in the app yet." };
@@ -247,17 +317,35 @@ export async function purchaseSubscription(productKey: string, config: AppleIapC
     return { ok: false, cancelled: false, message: config.blocked_message || "You already have a plan." };
   }
   try {
-    return await withStoreKit(async (sk) => {
-      const tx = await sk.plugin.purchaseProduct({
-        productIdentifier,
-        productType: sk.subs,
-        appAccountToken: config.app_account_token as string,
-        autoAcknowledgePurchases: false,
-      });
-      charged = true;
-      const outcome = await verifyOutcome(sk, tx);
-      return outcome === "applied" ? ({ ok: true } as const) : notAppliedOutcome(outcome);
+    return await withStoreKit((sk) => executeSubscriptionPurchase(sk, productIdentifier, config));
+  } catch (err) {
+    if (isCancellation(err)) return { ok: false, cancelled: true, message: "" };
+    return { ok: false, cancelled: false, message: PURCHASE_FAILED_MESSAGE };
+  }
+}
+
+/** The subscription purchase step once the plugin is in hand (exported for
+ *  the guard-rail test). Two failure copies. Before Apple completes the
+ *  purchase nothing was charged; once Apple has charged and only our server
+ *  step fails, the purchase exists and will be picked up, so the user must not
+ *  be told they were not charged. C48: an Apple ID that already holds another
+ *  Sorted account's subscription is told so BEFORE the sheet opens. */
+export async function executeSubscriptionPurchase(sk: StoreKitHandle, productIdentifier: string, config: AppleIapConfig): Promise<PurchaseOutcome> {
+  let charged = false;
+  try {
+    const foreign = await findForeignEntitlement(sk, config);
+    if (foreign) {
+      return { ok: false, cancelled: false, message: accountMismatchMessage(foreign.ownerHint), accountMismatch: true };
+    }
+    const tx = await sk.plugin.purchaseProduct({
+      productIdentifier,
+      productType: sk.subs,
+      appAccountToken: config.app_account_token as string,
+      autoAcknowledgePurchases: false,
     });
+    charged = true;
+    const result = await verifyOutcome(sk, tx);
+    return result.outcome === "applied" ? { ok: true } : notAppliedOutcome(result);
   } catch (err) {
     if (isCancellation(err)) return { ok: false, cancelled: true, message: "" };
     if (charged) return { ok: false, cancelled: false, message: chargedFailureMessage(err) };
@@ -279,8 +367,8 @@ export async function executePackPurchase(sk: StoreKitHandle, productIdentifier:
       autoAcknowledgePurchases: false,
     });
     charged = true;
-    const outcome = await verifyOutcome(sk, tx);
-    return outcome === "applied" ? { ok: true } : notAppliedOutcome(outcome);
+    const result = await verifyOutcome(sk, tx);
+    return result.outcome === "applied" ? { ok: true } : notAppliedOutcome(result);
   } catch (err) {
     if (!charged && isCancellation(err)) return { ok: false, cancelled: true, message: "" };
     if (charged) return { ok: false, cancelled: false, message: chargedFailureMessage(err) };
@@ -315,7 +403,15 @@ export async function purchasePack(productKey: string, config: AppleIapConfig): 
 /** Restore purchases: asks the store for this Apple ID's current
  *  subscriptions that carry this user's token and has the server verify each.
  *  Idempotent. */
-export async function restorePurchases(config: AppleIapConfig): Promise<{ restored: number; failed: number }> {
+export type RestoreResult = {
+  restored: number;
+  failed: number;
+  /** C48: set when a purchase belongs to another Sorted account. Shown as its
+   *  own explanation, never as "try Restore purchases again". */
+  accountMismatch?: { ownerHint: string | null };
+};
+
+export async function restorePurchases(config: AppleIapConfig): Promise<RestoreResult> {
   if (!config.enabled || !config.app_account_token) return { restored: 0, failed: 0 };
   return withStoreKit((sk) => executeRestore(sk, config));
 }
@@ -323,7 +419,7 @@ export async function restorePurchases(config: AppleIapConfig): Promise<{ restor
 /** The restore step once the plugin is in hand (exported for the guard-rail
  *  test): every purchase goes to the server, and only the ones it accepts are
  *  finished and counted. */
-export async function executeRestore(sk: StoreKitHandle, config: AppleIapConfig): Promise<{ restored: number; failed: number }> {
+export async function executeRestore(sk: StoreKitHandle, config: AppleIapConfig): Promise<RestoreResult> {
   await sk.plugin.restorePurchases();
   const { purchases } = await sk.plugin.getPurchases({
     productType: sk.subs,
@@ -332,15 +428,18 @@ export async function executeRestore(sk: StoreKitHandle, config: AppleIapConfig)
   });
   let restored = 0;
   let failed = 0;
+  let accountMismatch: { ownerHint: string | null } | undefined;
   for (const tx of purchases) {
     try {
-      if (await verifyAndFinish(sk, tx)) restored += 1;
+      const result = await verifyOutcome(sk, tx);
+      if (result.outcome === "applied") restored += 1;
+      else if (result.outcome === "mismatch") accountMismatch = { ownerHint: result.ownerHint ?? null };
       else failed += 1;
     } catch {
       failed += 1;
     }
   }
-  return { restored, failed };
+  return accountMismatch ? { restored, failed, accountMismatch } : { restored, failed };
 }
 
 /** Transactions StoreKit still has queued because an earlier verification
