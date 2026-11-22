@@ -54,6 +54,11 @@ let failures = [];
 // must leave that cache alone.
 const ALLOWED_UNREACHABLE = [
   [
+    "lib/firstNameCache.ts",
+    "clearCachedFirstName",
+    "G488: the greeting's first name is profile data, not account- or transaction-derived; an account mutation must not blank it. It is cleared on sign-out by AuthProvider.logout.",
+  ],
+  [
     "lib/endpointCache.ts",
     "invalidateEndpoint",
     "G425: the single-key variant of the per-endpoint client cache; invalidateAllAccountData() already clears every key through invalidateAllEndpoints(), and this narrower function exists for write paths (PreferencesContext, the api fetch wrapper) that must drop only the money keys.",
