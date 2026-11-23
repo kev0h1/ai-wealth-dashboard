@@ -32,6 +32,13 @@ from app.core.config import MONGO_URI
 from app.db.guard import guarded_drop_database
 from motor.motor_asyncio import AsyncIOMotorClient
 
+# H159: these tests seed "old" wealth_test_* databases and/or launch child
+# pytest processes whose conftest runs a REAL stale-database sweep against the
+# shared mongod; on different xdist workers, one test's sweep could drop
+# another's seeded database. Both files share one group, so they run serially
+# on one worker (needs `--dist loadgroup`).
+pytestmark = pytest.mark.xdist_group("h90_stale_sweep")
+
 _OLD_ENOUGH_SECONDS = conftest._STALE_TEST_DB_AGE_SECONDS + 600  # comfortably past the threshold
 
 
