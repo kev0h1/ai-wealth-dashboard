@@ -944,7 +944,9 @@ commits instead of rewriting old ones, so the next `session.sh finish`
 push is a normal fast-forward. After a clean merge it reinstalls dependencies if the
 merge changed a lockfile (`pip install -r backend/requirements.txt` into the
 shared venv, `npm ci` in `frontend/`), then runs the backend suite
-(capped at 1500s by default, override with `INTEGRATE_SUITE_TIMEOUT_S`; the run time is printed as a `[suite]` line, H152),
+(capped at 1500s by default, override with `INTEGRATE_SUITE_TIMEOUT_S`; the run time is printed as a `[suite]` line, H152;
+since H159 it runs under pytest-xdist with `INTEGRATE_SUITE_WORKERS` workers, default 4, `0` or `1` for the old serial run,
+see "Parallel backend suite" below),
 rebuilds the frontend and restarts `wealth-frontend` if `frontend/` or
 `shared/` changed, restarts `wealth-api` and `wealth-worker` if `backend/`
 changed at all (the worker imports services and core modules under
@@ -1069,3 +1071,40 @@ systemctl enable --now integrate.timer
 Until that's done (or in the meantime), the coordinator session can just
 run `scripts/integrate.py --once` by hand after any item is sent to
 review.
+
+## Parallel backend suite (H159)
+
+`scripts/integrate.py` and the `scripts/session.sh finish` gate run the backend
+suite under pytest-xdist: `pytest -q --maxfail=1 -n <workers> --dist loadgroup tests`
+(serial runs keep `-q -x`). Workers default to 4 and are set with
+`INTEGRATE_SUITE_WORKERS` (integrate) or `SESSION_SUITE_WORKERS` (session.sh finish);
+`0` or `1` falls back to the serial run, and so does a venv without `pytest-xdist`
+(a line says so). `scripts/check_scenarios_order.py` stays a separate serial pass.
+
+- Each worker gets its own database, `<run name>_gw<N>` (for example
+  `wealth_test_1700000000_ab12cd34_gw0`), derived in `backend/tests/conftest.py`
+  (`_worker_db_name`). The names still satisfy `_TEST_DB_PREFIX_RE` and
+  `app.db.guard.TEST_DB_NAME_RE`, so every existing drop guard applies unchanged.
+  The controller keeps the bare run name, never writes to it and never runs the
+  session fixtures, so it leaves no database. Each worker drops only its own
+  database in its own session teardown and holds its own lock file; only the
+  controller (and any child pytest a test launches) runs the stale-database sweep,
+  and the sweep's name pattern accepts the `_gw<N>` suffix so a crashed run's
+  worker databases are reaped like any other stale one.
+- Tests that run a real stale sweep or seed "old" databases
+  (`test_h90_stale_sweep_liveness.py`, `test_h90_parallel_runs_do_not_collide.py`)
+  share `xdist_group("h90_stale_sweep")` so they run serially on one worker. New
+  tests that share cross-process state (a fixed /tmp path, a seeded old database)
+  should use `pytest.mark.xdist_group("<name>")` the same way. Parametrize ids
+  must be identical on every worker, so never put a random value in one.
+- Memory: peak resident memory for the controller plus 4 workers measured about
+  1.55 GB; `host_memory.suite_required_mb()` asks for 500 MB + 500 MB per worker
+  (2500 MB at 4 workers; 1500 MB serial).
+- Timing on the shared 6-core box (8,622 tests, other sessions running): serial
+  913s (15m13s), `-n 4` 286s and 334s on two runs (4m46s and 5m34s), same pass
+  count both ways (8,622 passed, 4 skipped); about 3x faster. Install note: `pytest-xdist==3.8.0` and
+  `execnet==2.1.2` are in `backend/requirements.txt`; the integrate pass that
+  merges a requirements change reinstalls them itself, and the coordinator's
+  shared venv needs `backend/.venv/bin/pip install -r backend/requirements.txt`
+  once if it is run before that merge.
+
