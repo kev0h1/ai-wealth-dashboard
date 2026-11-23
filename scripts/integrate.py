@@ -118,6 +118,34 @@ HEALTH_CHECK_INTERVAL_S = 2
 # at 8072 tests on 2026-11-12, so the old hardcoded 600s blocked every pass.
 # Override with INTEGRATE_SUITE_TIMEOUT_S.
 BACKEND_SUITE_TIMEOUT_S = int(os.environ.get("INTEGRATE_SUITE_TIMEOUT_S", "1500"))
+# H159: the suite runs under pytest-xdist with this many workers (each gets its
+# own wealth_test_* database, see backend/tests/conftest.py). 0 or 1 falls back
+# to the old serial run. Override with INTEGRATE_SUITE_WORKERS.
+DEFAULT_SUITE_WORKERS = 4
+
+
+def _suite_workers(raw: Optional[str] = None) -> int:
+    """Worker count for the backend suite from INTEGRATE_SUITE_WORKERS
+    (default 4). Anything unparseable or below 2 means serial (0)."""
+    if raw is None:
+        raw = os.environ.get("INTEGRATE_SUITE_WORKERS")
+    if raw is None or not raw.strip():
+        return DEFAULT_SUITE_WORKERS
+    try:
+        n = int(raw.strip())
+    except ValueError:
+        return 0
+    return n if n >= 2 else 0
+
+
+def _suite_pytest_args(workers: int) -> list[str]:
+    """pytest arguments for the backend suite: fail-fast either way
+    (`-x` serially, `--maxfail=1` under xdist, which has no `-x` of its own
+    worth the name), `loadgroup` so tests marked `xdist_group` stay together
+    on one worker."""
+    if workers < 2:
+        return ["-q", "-x", "tests"]
+    return ["-q", "--maxfail=1", "-n", str(workers), "--dist", "loadgroup", "tests"]
 
 
 class IntegrateError(RuntimeError):
@@ -759,14 +787,18 @@ def _run_backend_tests() -> None:
     single shared "wealth_test" literal H90's first pass originally used
     here, so an integrate pass running concurrently with a `session.sh
     finish` (or another integrate pass) can never collide with it."""
-    _require_memory(host_memory.SUITE_REQUIRED_MB, "the backend suite")
+    workers = _suite_workers()
     venv_python = REPO_ROOT / "backend" / ".venv" / "bin" / "python"
+    if workers >= 2:
+        probe_rc, _ = _sh([str(venv_python), "-c", "import xdist"], cwd=REPO_ROOT / "backend", timeout=60)
+        if probe_rc != 0:
+            print("[suite] pytest-xdist is not installed in backend/.venv; running the suite serially", flush=True)
+            workers = 0
+    _require_memory(host_memory.suite_required_mb(workers), "the backend suite")
+    print(f"[suite] running with {workers if workers >= 2 else 1} worker(s)", flush=True)
     started = time.monotonic()
     rc, out = _sh(
-        [
-            str(venv_python), "-m", "pytest", "-q", "-x",
-            "tests",
-        ],
+        [str(venv_python), "-m", "pytest", *_suite_pytest_args(workers)],
         cwd=REPO_ROOT / "backend",
         timeout=BACKEND_SUITE_TIMEOUT_S,
         env={"MONGO_DB": _fresh_test_db_name()},

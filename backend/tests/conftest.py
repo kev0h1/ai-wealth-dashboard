@@ -1,4 +1,5 @@
 import asyncio
+import atexit
 import fcntl
 import os
 import re
@@ -77,6 +78,47 @@ _configured_mongo_db = os.environ.get("MONGO_DB")
 if _configured_mongo_db is None or not _configured_mongo_db.strip():
     os.environ["MONGO_DB"] = _generate_test_db_name()
 
+
+# H159: pytest-xdist. Every worker inherits the controller's MONGO_DB, so
+# without this they would all share ONE database (and the first worker to
+# finish would drop it under the others). Each real xdist worker instead
+# derives its own database, "<run base name>_<worker id>" (e.g.
+# "wealth_test_1700000000_ab12cd34_gw0"), which still satisfies both
+# `_TEST_DB_PREFIX_RE` and app.db.guard's TEST_DB_NAME_RE, so every
+# existing guard applies to it unchanged. The controller keeps the bare
+# base name, never writes to it (Mongo creates a database lazily on first
+# write) and never runs session fixtures, so it leaves nothing behind.
+#
+# A "real worker" is detected by PYTEST_XDIST_WORKER plus the controller
+# having recorded its own pid in WEALTH_XDIST_CONTROLLER_PID and being this
+# process's direct parent. A pytest subprocess that a test spawns from
+# inside a worker inherits PYTEST_XDIST_WORKER too, but its parent is the
+# worker, not the controller, so it does NOT get a derived name and keeps
+# the MONGO_DB its test deliberately gave it.
+def _worker_db_name(base: str, worker_id: str) -> str:
+    """Per-worker database name for xdist worker `worker_id`. The worker id
+    is reduced to ASCII alphanumerics so it can never inject anything the
+    guards would not accept; an id with nothing usable left raises rather
+    than collapsing two workers onto one name."""
+    safe = "".join(ch for ch in worker_id if ch.isascii() and ch.isalnum())
+    if not safe:
+        raise ValueError(f"unusable xdist worker id {worker_id!r}")
+    return f"{base}_{safe}"
+
+
+_XDIST_WORKER_ID = os.environ.get("PYTEST_XDIST_WORKER")
+_IS_XDIST_WORKER = bool(
+    _XDIST_WORKER_ID
+    and os.environ.get("WEALTH_XDIST_CONTROLLER_PID") == str(os.getppid())
+)
+_RUN_BASE_DB = os.environ["MONGO_DB"]
+if _IS_XDIST_WORKER:
+    os.environ["MONGO_DB"] = _worker_db_name(_RUN_BASE_DB, _XDIST_WORKER_ID)
+elif not _XDIST_WORKER_ID:
+    # Possibly the xdist controller: record who we are so workers (our
+    # direct children) can recognise us. Harmless in a serial run.
+    os.environ["WEALTH_XDIST_CONTROLLER_PID"] = str(os.getpid())
+
 import pytest
 
 import app.routers.billing as billing_router_module
@@ -150,6 +192,15 @@ def _release_own_lock(name: str) -> None:
         _lock_path_for(name).unlink(missing_ok=True)
     except OSError:
         pass
+
+
+def _release_own_lock_if_held(name: str) -> None:
+    """H159 atexit hook (the xdist controller never runs the session
+    teardown that normally releases its lock, so its lockfile would be left
+    behind): releases only a lock THIS process actually acquired, so it can
+    never unlink a lockfile another live session holds."""
+    if _own_lock_file is not None:
+        _release_own_lock(name)
 
 
 def _lock_dir_is_usable() -> tuple[bool, str]:
@@ -242,7 +293,7 @@ def _has_a_live_owner(name: str) -> bool:
 # "..._test_..." name a human might set by hand), so the stale-database
 # sweep never touches a database it didn't itself create the naming
 # convention for.
-_GENERATED_TEST_DB_RE = re.compile(r"^wealth_test_(\d+)_[0-9a-f]{8}$")
+_GENERATED_TEST_DB_RE = re.compile(r"^wealth_test_(\d+)_[0-9a-f]{8}(?:_gw\d+)?$")
 _STALE_TEST_DB_AGE_SECONDS = 3600
 
 
@@ -424,6 +475,12 @@ def _refuse_unless_test_db_and_sweep_stale() -> None:
     # already holding its lock by the time either one sweeps, or the
     # liveness check has no evidence to find yet.
     _acquire_own_lock(_app_db.name)
+    atexit.register(_release_own_lock_if_held, _app_db.name)
+    if _IS_XDIST_WORKER:
+        # H159: the controller already swept before spawning workers; a
+        # worker sweeping too would only race its siblings' just-created
+        # databases, so it never sweeps.
+        return
     try:
         dropped = asyncio.run(_sweep_stale_test_databases(_app_db.name))
     except Exception:

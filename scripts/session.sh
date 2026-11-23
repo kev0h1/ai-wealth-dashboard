@@ -1008,7 +1008,24 @@ cmd_finish() {
     echo "$untracked"
   fi
 
-  require_memory "$worktree_dir" "the backend suite" 1500 || exit 1
+  # H159: run the suite under pytest-xdist. SESSION_SUITE_WORKERS (default
+  # 4; 0 or 1, or anything non-numeric, means the old serial run). Each
+  # worker gets its own wealth_test_* database derived from the name below
+  # (see backend/tests/conftest.py). Falls back to serial if pytest-xdist
+  # is not installed in this venv.
+  local suite_workers="${SESSION_SUITE_WORKERS:-4}"
+  [[ "$suite_workers" =~ ^[0-9]+$ ]] || suite_workers=0
+  if (( suite_workers >= 2 )) && ! "$worktree_dir/backend/.venv/bin/python" -c "import xdist" 2>/dev/null; then
+    log "pytest-xdist is not installed in backend/.venv; running the backend suite serially"
+    suite_workers=0
+  fi
+  local suite_args=(-q -x)
+  local suite_need
+  if (( suite_workers >= 2 )); then
+    suite_args=(-q --maxfail=1 -n "$suite_workers" --dist loadgroup)
+  fi
+  suite_need="$("$worktree_dir/backend/.venv/bin/python" "$worktree_dir/scripts/host_memory.py" --suite-required "$suite_workers" 2>/dev/null || echo 1500)"
+  require_memory "$worktree_dir" "the backend suite" "$suite_need" || exit 1
 
   log "running backend tests in $worktree_dir/backend..."
   # H90: explicit MONGO_DB alongside conftest.py's own default (belt
@@ -1032,7 +1049,7 @@ cmd_finish() {
   # collision between a handful of concurrent sessions.
   local mongo_test_db
   mongo_test_db="wealth_test_$(date +%s)_$(printf '%04x%04x' "$RANDOM" "$RANDOM")"
-  (cd "$worktree_dir/backend" && MONGO_DB="$mongo_test_db" "$worktree_dir/backend/.venv/bin/python" -m pytest -q -x \
+  (cd "$worktree_dir/backend" && MONGO_DB="$mongo_test_db" "$worktree_dir/backend/.venv/bin/python" -m pytest "${suite_args[@]}" \
     tests)
 
   log "running the scenario suite after its known polluters (H143) in $worktree_dir..."
