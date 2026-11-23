@@ -271,6 +271,16 @@ def test_tools_list_excludes_search_transactions_and_every_propose_tool():
     assert len(names) == 25
 
 
+def test_tools_list_hides_tools_outside_the_granted_scopes():
+    resp = _run(mcp.handle_jsonrpc_request(_principal(scopes={"plans:read"}), {
+        "jsonrpc": "2.0", "id": 3, "method": "tools/list",
+    }))
+    tools = resp["result"]["tools"]
+    assert tools
+    assert all(t["description"].endswith("Scope: plans:read.") for t in tools)
+    assert "get_accounts" not in {t["name"] for t in tools}
+
+
 def test_tools_list_entries_carry_scope_text_and_input_schema():
     resp = _run(mcp.handle_jsonrpc_request(_principal(), {
         "jsonrpc": "2.0", "id": 4, "method": "tools/list",

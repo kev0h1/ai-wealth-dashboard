@@ -296,6 +296,22 @@ async def get_oauth_request_details(req_id: str, user: dict = Depends(current_us
 async def decide_oauth_request(body: dict, user: dict = Depends(current_user)):
     req_id = str(body.get("req_id") or "")
     approve = bool(body.get("approve"))
+    # F22: validate the granted subset against the pending request BEFORE
+    # consuming it, so a malformed approve leaves the request retryable.
+    granted: list[str] | None = None
+    if approve and body.get("granted_scopes") is not None:
+        pending = await get_oauth_request(req_id)
+        if not pending:
+            raise HTTPException(404, "This request has expired. Please try connecting again.")
+        raw = body.get("granted_scopes")
+        if not isinstance(raw, list) or not all(isinstance(s, str) for s in raw):
+            raise HTTPException(400, "granted_scopes must be a list of scope names.")
+        if not raw:
+            raise HTTPException(400, "Choose at least one scope to share, or deny the request.")
+        if not set(raw).issubset(set(pending["scopes"])):
+            raise HTTPException(400, "granted_scopes must be a subset of the requested scopes.")
+        # Keep the requested order, drop duplicates.
+        granted = [s for s in pending["scopes"] if s in set(raw)]
     data = await pop_oauth_request(req_id)
     if not data:
         raise HTTPException(404, "This request has expired. Please try connecting again.")
@@ -313,7 +329,7 @@ async def decide_oauth_request(body: dict, user: dict = Depends(current_user)):
         "client_id": data["client_id"],
         "uid": user.get("email"),
         "redirect_uri": redirect_uri,
-        "scopes": data["scopes"],
+        "scopes": granted if granted is not None else data["scopes"],
         "code_challenge": data["code_challenge"],
         "created_at": now,
         "expires_at": now + timedelta(seconds=CODE_TTL),
@@ -539,7 +555,9 @@ async def _handle_refresh_token_grant(form) -> JSONResponse:
     client = await oauth_clients_col.find_one({"_id": client_id})
     client_name = client.get("client_name") if client else client_id
     result = await _issue_token_pair(
-        client_id, client_name, doc["uid"], doc["scopes"],
+        client_id, client_name, doc["uid"],
+        # F22: the refresh token's own grant, never a client-supplied scope.
+        [s for s in (doc.get("scopes") or []) if s in V1_SCOPES],
         doc.get("origin_code_hash"), rotated_from=token_hash,
     )
     return JSONResponse(result)
@@ -598,13 +616,15 @@ async def list_connections(user: dict = Depends(current_user)):
             "last_used_at": None,
             "active_tokens": 0,
         })
-        entry["scopes"].update(doc.get("scopes") or [])
+        is_live = not doc.get("revoked_at") and doc.get("expires_at") and as_utc(doc["expires_at"]) > now
+        if is_live:  # F22: report what is currently granted, not past grants
+            entry["scopes"].update(doc.get("scopes") or [])
         if doc["created_at"] < entry["created_at"]:
             entry["created_at"] = doc["created_at"]
         last_used = doc.get("last_used_at")
         if last_used and (entry["last_used_at"] is None or last_used > entry["last_used_at"]):
             entry["last_used_at"] = last_used
-        if not doc.get("revoked_at") and doc.get("expires_at") and as_utc(doc["expires_at"]) > now:
+        if is_live:
             entry["active_tokens"] += 1
 
     connections = [
