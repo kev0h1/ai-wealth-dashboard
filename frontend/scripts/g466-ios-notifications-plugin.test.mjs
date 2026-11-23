@@ -58,9 +58,17 @@ ok("setup script adds SortedNotificationsPlugin to packageClassList, idempotentl
     "\t\tAAAA = {", "\t\t\tisa = PBXGroup;", "\t\t\tchildren = (", "\t\t\t);", "\t\t\tpath = App;", "\t\t};",
     "\t\tBBBB = {", "\t\t\tisa = PBXSourcesBuildPhase;", "\t\t\tfiles = (", "\t\t\t);", "\t\t};", ""].join("\n"));
   writeFileSync(join(app, "Base.lproj/Main.storyboard"), '<viewController customClass="CAPBridgeViewController" id="x"/>');
+  const sceneLine = "        window?.rootViewController = CAPBridgeViewController()";
+  writeFileSync(join(app, "SceneDelegate.swift"), `class SceneDelegate {\n    func f() {\n${sceneLine}\n    }\n}\n`);
   writeFileSync(join(app, "capacitor.config.json"), JSON.stringify({ appId: "x", packageClassList: ["NativePurchasesPlugin", "PushNotificationsPlugin"] }, null, "\t"));
   const run = () => execFileSync("bash", [join(spike, "scripts/setup-ios-notifications.sh")], { env: { ...process.env, IOS_DIR: dir }, encoding: "utf8" });
-  run(); run();
+  run();
+  const sceneOnce = readFileSync(join(app, "SceneDelegate.swift"), "utf8");
+  run();
+  // C44: the template's SceneDelegate bypassed the storyboard's SortedBridgeViewController.
+  assert.equal(sceneOnce.split("window?.rootViewController = SortedBridgeViewController()").length - 1, 1);
+  assert.ok(!sceneOnce.includes("CAPBridgeViewController()"));
+  assert.equal(readFileSync(join(app, "SceneDelegate.swift"), "utf8"), sceneOnce, "second run is a no-op");
   const cfg = JSON.parse(readFileSync(join(app, "capacitor.config.json"), "utf8"));
   assert.deepEqual(cfg.packageClassList, ["NativePurchasesPlugin", "PushNotificationsPlugin", "SortedNotificationsPlugin"]);
   assert.equal(cfg.appId, "x");

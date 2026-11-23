@@ -103,10 +103,23 @@ def test_ios_notification_setup_wires_sources_and_registers_on_reinstall(tmp_pat
     )
     cap_config = app / "capacitor.config.json"
     cap_config.write_text(json.dumps({"packageClassList": ["SomeOtherPlugin"]}))
+    scene_delegate = app / "SceneDelegate.swift"
+    scene_delegate.write_text(
+        "import UIKit\nimport Capacitor\n\nclass SceneDelegate: UIResponder, UIWindowSceneDelegate {\n"
+        "    func scene(_ scene: UIScene, willConnectTo session: UISceneSession, options connectionOptions: UIScene.ConnectionOptions) {\n"
+        "        window = UIWindow(windowScene: windowScene)\n"
+        "        window?.rootViewController = CAPBridgeViewController()\n"
+        "        window?.makeKeyAndVisible()\n    }\n}\n"
+    )
     script = SPIKE / "scripts/setup-ios-notifications.sh"
     environment = {**os.environ, "IOS_DIR": str(ios)}
     subprocess.run(["bash", str(script)], check=True, env=environment)
+    after_first_run = scene_delegate.read_text()
     subprocess.run(["bash", str(script)], check=True, env=environment)
+    # C44: the SceneDelegate bypass is rewritten once and a rerun is a no-op.
+    assert after_first_run.count("window?.rootViewController = SortedBridgeViewController()") == 1
+    assert "CAPBridgeViewController()" not in after_first_run
+    assert scene_delegate.read_text() == after_first_run
     class_list = json.loads(cap_config.read_text())["packageClassList"]
     assert class_list.count("SortedNotificationsPlugin") == 1
     assert "SomeOtherPlugin" in class_list
@@ -161,3 +174,21 @@ def test_codemagic_uses_shared_ios_setup_for_uat_and_production() -> None:
     # the same anchor, so source wiring cannot drift between iOS artefacts.
     assert "&step_ios_privacy_patch" in codemagic
     assert "*step_ios_privacy_patch" in codemagic
+
+
+def test_ios_notification_setup_fails_loudly_when_scene_delegate_text_moved(tmp_path: Path) -> None:
+    ios = tmp_path / "ios"
+    app = ios / "App/App"
+    (ios / "App/App.xcodeproj").mkdir(parents=True)
+    (app / "Base.lproj").mkdir(parents=True)
+    (ios / "App/App.xcodeproj/project.pbxproj").write_text("x")
+    (app / "Base.lproj/Main.storyboard").write_text("x")
+    (app / "capacitor.config.json").write_text("{}")
+    (app / "SceneDelegate.swift").write_text("class SceneDelegate {}\n")
+    result = subprocess.run(
+        ["bash", str(SPIKE / "scripts/setup-ios-notifications.sh")],
+        env={**os.environ, "IOS_DIR": str(ios)},
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode != 0
