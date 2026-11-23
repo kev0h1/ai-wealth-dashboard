@@ -987,6 +987,24 @@ async def task_warm_rollover(ctx, now_utc: datetime | None = None):
     return await warm_schedule.warm_recent_users(now_utc)
 
 
+async def task_refresh_card_plan_progress(ctx, user_id: str, again: bool = False):
+    """G492: calculate one persisted card-plan result off the request path."""
+    from app.services import card_plan_store
+    out = await card_plan_store.refresh(user_id)
+    if not again and out.get("status") == "superseded":
+        await card_plan_store.enqueue_refresh(user_id, again=True)
+    return out
+
+
+async def task_card_plan_progress_rollover(ctx, now_utc: datetime | None = None):
+    """Queue every relevant user's date-sensitive progress after London midnight."""
+    from app.services import warm_schedule
+    if not warm_schedule.is_london_rollover(now_utc):
+        return {"skipped": "not_london_midnight"}
+    from app.services import card_plan_store
+    return await card_plan_store.enqueue_relevant_users()
+
+
 async def _engine_refresh_on_startup() -> None:
     try:
         from app.services.derived_caches import refresh_stale_cashflow_caches
@@ -1014,6 +1032,15 @@ async def _filed_transfer_store_refresh_on_startup() -> None:
                     await refresh_all_filed_transfers())
     except Exception:
         logger.exception("filed transfer store refresh on worker startup failed")
+
+
+async def _card_plan_progress_enqueue_on_startup() -> None:
+    """Deploy/backfill trigger only: financial work remains queued per user."""
+    try:
+        from app.services import card_plan_store
+        logger.info("worker startup: queued card-plan progress %s", await card_plan_store.enqueue_relevant_users())
+    except Exception:
+        logger.exception("card-plan progress enqueue on worker startup failed")
 
 
 async def _dead_consent_sweep_on_startup() -> None:
@@ -1053,6 +1080,7 @@ async def _on_startup(ctx: dict) -> None:
     ctx["dead_consent_sweep_task"] = asyncio.create_task(_dead_consent_sweep_on_startup())
     ctx["review_store_refresh_task"] = asyncio.create_task(_review_store_refresh_on_startup())
     ctx["filed_transfer_store_refresh_task"] = asyncio.create_task(_filed_transfer_store_refresh_on_startup())
+    ctx["card_plan_progress_enqueue_task"] = asyncio.create_task(_card_plan_progress_enqueue_on_startup())
 
 
 async def task_health_samples(ctx) -> dict:
@@ -1118,7 +1146,9 @@ class WorkerSettings:
                  # E16: same job-id dedupe reasoning; keep_result=0 so the
                  # next write can enqueue a fresh warm straight after.
                  arq_func(task_warm_user, keep_result=0),
+                 arq_func(task_refresh_card_plan_progress, keep_result=0),
                  task_warm_rollover,
+                 task_card_plan_progress_rollover,
                  # G442: keep_result=0 so the job id only dedupes a burst.
                  arq_func(task_judge_transfer_pairs, keep_result=0),
                  task_backfill_transfer_judgements] + tip_job_functions()
@@ -1147,6 +1177,7 @@ class WorkerSettings:
         # E16: day-rollover warm, 00:05 Europe/London (23:05 UTC in BST,
         # 00:05 UTC in GMT; the task checks London time and skips the other).
         cron(task_warm_rollover, hour={23, 0}, minute=5, run_at_startup=False),
+        cron(task_card_plan_progress_rollover, hour={23, 0}, minute=7, run_at_startup=False),
     ]
     redis_settings = RedisSettings.from_dsn(REDIS_URL)
     max_jobs = 5

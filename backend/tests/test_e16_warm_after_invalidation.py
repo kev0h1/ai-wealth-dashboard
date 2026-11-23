@@ -89,12 +89,59 @@ def test_invalidate_paths_all_go_through_bump():
     assert ids == sorted([f"warm:{UID + '.sync'}", f"warm:{UID}"])
 
 
+def test_g492_input_write_builds_progress_before_any_screen_read(monkeypatch):
+    from app.services import card_plan_progress, card_plan_store
+    from tests.test_g492_card_plan_store import _Col
+
+    snapshots = _Col()
+    monkeypatch.setattr(card_plan_store, "card_plan_progress_col", snapshots)
+    monkeypatch.setattr(card_plan_store, "user_data_version_col", data_version.user_data_version_col)
+    order = []
+
+    async def compute(uid, previous=None):
+        order.append("progress")
+        assert uid == UID
+        return {"plans": {"plan": {"status": "ready"}}, "baselines": {}}
+
+    async def response(uid):
+        assert UID in snapshots.docs, "progress must be stored before responses are built"
+        order.append("response")
+        return {}
+
+    async def put(*args, **kwargs):
+        return None
+
+    monkeypatch.setattr(card_plan_progress, "compute_progress", compute)
+    monkeypatch.setattr(response_cache, "aput", put)
+    for name in ("_compute_today", "_compute_cover_plan", "_compute_safe_to_spend",
+                 "_compute_spend_verdict", "_compute_miscategorised_count",
+                 "_compute_miscategorised_list", "_compute_grow", "_compute_commitments"):
+        monkeypatch.setattr(warmup, name, response)
+
+    # Use the real input invalidation and worker warm entry points. No GET or
+    # card_plan_store.read call is needed to enqueue or persist the result.
+    _run(response_cache.ainvalidate(UID))
+    assert len(_warm_jobs()) == 1 and snapshots.docs == {}
+    name, args, _kwargs = _warm_jobs()[0]
+    assert name == "task_warm_user"
+    out = _run(sync_worker.task_warm_user({}, *args))
+    assert out["failed"] == 0 and order[0] == "progress"
+    assert snapshots.docs[UID]["input_version"] == 2
+    assert snapshots.docs[UID]["payload"]["plans"]["plan"]["status"] == "ready"
+    assert len(_warm_jobs()) == 1, "the warm itself must not enqueue another warm"
+
+
 def test_warm_does_not_enqueue_another_warm(monkeypatch):
     async def fake(uid):
         # a compute step that invalidates, like a router that self-heals
         await response_cache.ainvalidate(uid)
         return {"status": "ok"}
 
+    async def progress(uid):
+        # G492's dedicated store neither invalidates nor writes response_cache.
+        return {"status": "ok"}
+
+    monkeypatch.setattr(warmup, "_compute_card_plan_progress", progress)
     for n in ("_compute_today", "_compute_cover_plan", "_compute_safe_to_spend",
               "_compute_spend_verdict", "_compute_miscategorised_count",
               "_compute_miscategorised_list", "_compute_grow", "_compute_commitments"):
