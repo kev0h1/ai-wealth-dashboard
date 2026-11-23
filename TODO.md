@@ -1292,6 +1292,7 @@ Board: the private page /ops/go-live on UAT reads and edits these files. Session
 - [ ] **F22. MCP per-scope consent, backend: let the customer grant a subset of the requested scopes (Finexer Q2)** [owner: claude]
 - [ ] **F23. MCP consent journey design: pick individual scopes, per-scope data explanation, third-party risk notice and verified redirect host (Finexer Q2, Q3, A73)** [owner: codex]
 - [ ] **F24. MCP client allowlist: replace open dynamic client registration so only assessed assistants can obtain tokens (Finexer Q3)** [owner: claude]
+- [ ] **F25. MCP Privacy Policy and Terms wording: extend the connector sections for Finexer review (Finexer Q5)** [owner: claude]
 
 ## G. Design and copy follow-ups
 
