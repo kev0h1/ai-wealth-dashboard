@@ -28,6 +28,18 @@ PAGE_KB = (os.sysconf("SC_PAGE_SIZE") // 1024) if hasattr(os, "sysconf") else 4
 # Defaults shared with frontend_build.py, session.sh and integrate.py.
 BUILD_REQUIRED_MB = 2500
 SUITE_REQUIRED_MB = 1500
+# H159: the backend suite under pytest-xdist. A controller plus N workers;
+# see docs/ops/BACKLOG.md for the measured figures behind these two numbers.
+SUITE_PER_WORKER_MB = 500
+SUITE_CONTROLLER_MB = 500
+
+
+def suite_required_mb(workers: int) -> int:
+    """Available MB needed before starting the backend suite with `workers`
+    xdist workers (0 or 1 means the serial run)."""
+    if workers < 2:
+        return SUITE_REQUIRED_MB
+    return max(SUITE_REQUIRED_MB, SUITE_CONTROLLER_MB + SUITE_PER_WORKER_MB * workers)
 
 
 class MemoryGateError(RuntimeError):
@@ -121,12 +133,17 @@ def _print_table(rows: list[dict]) -> None:
 def main(argv: Optional[list[str]] = None) -> int:
     ap = argparse.ArgumentParser(description="Read-only host memory report; never kills anything.")
     ap.add_argument("--require", type=int, metavar="MB", help="exit 1 unless at least MB is available")
+    ap.add_argument("--suite-required", type=int, metavar="WORKERS",
+                    help="print the MB the backend suite needs with WORKERS xdist workers and exit")
     ap.add_argument("--stale-sessions", type=float, metavar="HOURS",
                     help="list Claude session processes older than HOURS for review (never kills)")
     ap.add_argument("--top", type=int, default=12, help="how many largest processes to show (default 12)")
     args = ap.parse_args(argv)
 
     avail = available_mb()
+    if args.suite_required is not None:
+        print(suite_required_mb(args.suite_required))
+        return 0
     if args.require is not None:
         try:
             require_available(args.require, "this step", avail)

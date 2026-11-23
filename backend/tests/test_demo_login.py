@@ -86,7 +86,7 @@ def test_username_is_case_insensitive_and_trimmed():
 
 @pytest.mark.parametrize("user,pw", [
     (DEMO_EMAIL, "wrong"), ("someone@else.com", _PASSWORD), ("", ""), (DEMO_EMAIL, ""),
-])
+], ids=["wrong-password", "unknown-user", "empty-both", "empty-password"])  # H159: a random _PASSWORD must not become a test id (xdist needs identical ids on every worker)
 def test_every_failure_is_the_same_generic_401(user, pw):
     with pytest.raises(HTTPException) as exc:
         _login(user, pw)

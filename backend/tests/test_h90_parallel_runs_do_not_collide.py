@@ -34,6 +34,15 @@ import subprocess
 import time
 from pathlib import Path
 
+import pytest
+
+# H159: these tests seed "old" wealth_test_* databases and/or launch child
+# pytest processes whose conftest runs a REAL stale-database sweep against the
+# shared mongod; on different xdist workers, one test's sweep could drop
+# another's seeded database. Both files share one group, so they run serially
+# on one worker (needs `--dist loadgroup`).
+pytestmark = pytest.mark.xdist_group("h90_stale_sweep")
+
 _TESTS_DIR = Path(__file__).resolve().parent
 _BACKEND_DIR = _TESTS_DIR.parent
 _VENV_PYTHON = _BACKEND_DIR / ".venv" / "bin" / "python"

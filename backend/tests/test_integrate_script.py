@@ -1758,3 +1758,41 @@ def test_backend_suite_passes_timeout_and_reports_it(monkeypatch, capsys):
     monkeypatch.setattr(integrate, "_sh", lambda *a, **k: (124, "timed out"))
     with pytest.raises(integrate.IntegrateError, match=f"timeout {integrate.BACKEND_SUITE_TIMEOUT_S}s"):
         integrate._run_backend_tests()
+
+
+def test_suite_workers_default_override_and_serial_fallback(monkeypatch):
+    """H159: INTEGRATE_SUITE_WORKERS defaults to 4; 0, 1 or junk means serial."""
+    monkeypatch.delenv("INTEGRATE_SUITE_WORKERS", raising=False)
+    assert integrate._suite_workers() == 4
+    assert integrate._suite_workers("") == 4
+    assert integrate._suite_workers("6") == 6
+    assert integrate._suite_workers("1") == 0
+    assert integrate._suite_workers("0") == 0
+    assert integrate._suite_workers("lots") == 0
+    monkeypatch.setenv("INTEGRATE_SUITE_WORKERS", "3")
+    assert integrate._suite_workers() == 3
+
+
+def test_suite_pytest_args_serial_and_parallel():
+    assert integrate._suite_pytest_args(0) == ["-q", "-x", "tests"]
+    par = integrate._suite_pytest_args(4)
+    assert "--maxfail=1" in par and "-x" not in par
+    assert par[par.index("-n") + 1] == "4"
+    assert par[par.index("--dist") + 1] == "loadgroup"
+    assert par[-1] == "tests"
+
+
+def test_backend_suite_falls_back_to_serial_without_xdist(monkeypatch, capsys):
+    monkeypatch.setattr(integrate.host_memory, "available_mb", lambda *a, **k: 10**9)
+    monkeypatch.setattr(integrate, "_xdist_available", lambda *_: False)
+    monkeypatch.delenv("INTEGRATE_SUITE_WORKERS", raising=False)
+    seen = {}
+
+    def fake_sh(cmd, **kw):
+        seen["cmd"] = cmd
+        return 0, ""
+
+    monkeypatch.setattr(integrate, "_sh", fake_sh)
+    integrate._run_backend_tests()
+    assert "-n" not in seen["cmd"] and "-x" in seen["cmd"]
+    assert "running the suite serially" in capsys.readouterr().out
