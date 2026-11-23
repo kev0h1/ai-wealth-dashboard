@@ -25,10 +25,18 @@ export type PlanFixture = {
 };
 
 // Generated through the real pure backend calculator, with fictional inputs.
-const onTrack: PlanFixture = generated.rows.onTrack;
-const shortfall: PlanFixture = generated.rows.shortfall;
-const futureFirst: PlanFixture = generated.rows.futureFirst;
-const futureSecond: PlanFixture = generated.rows.futureSecond;
+function readGeneratedPlan(row: Omit<PlanFixture, "progressTone"> & { progressTone: string }): PlanFixture {
+  const tone = row.progressTone;
+  if (tone !== "onPace" && tone !== "behind" && tone !== "neutral") {
+    throw new Error("Unknown preview progress tone");
+  }
+  return { ...row, progressTone: tone };
+}
+
+const onTrack = readGeneratedPlan(generated.rows.onTrack);
+const shortfall = readGeneratedPlan(generated.rows.shortfall);
+const futureFirst = readGeneratedPlan(generated.rows.futureFirst);
+const futureSecond = readGeneratedPlan(generated.rows.futureSecond);
 
 const unavailablePlan: PlanFixture = {
   id: "unavailable",
@@ -64,7 +72,7 @@ export const PREVIEW_STATES: Record<Exclude<PreviewState, "hidden">, { debtTotal
   loading: { debtTotal: null, plans: [] },
   unavailable: { debtTotal: null, plans: [] },
   long: { debtTotal: generated.debtTotals.ready, plans: [longName, shortfall, unavailablePlan] },
-  paused: { debtTotal: generated.debtTotals.ready, plans: [generated.rows.paused, shortfall, unavailablePlan] },
+  paused: { debtTotal: generated.debtTotals.ready, plans: [readGeneratedPlan(generated.rows.paused), shortfall, unavailablePlan] },
   stale: { debtTotal: generated.debtTotals.ready, plans: [] },
   empty: { debtTotal: "£0", plans: [] },
 };
