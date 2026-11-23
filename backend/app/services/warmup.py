@@ -90,6 +90,12 @@ async def _compute_commitments(uid: str) -> dict:
     return await list_commitments({"email": uid})
 
 
+async def _compute_card_plan_progress(uid: str) -> dict:
+    """G492's durable progress snapshot, never a response-cache payload."""
+    from app.services import card_plan_store
+    return await card_plan_store.refresh(uid)
+
+
 # Per-uid in-flight tasks for warm_user's single-flight guard (see warm_user's
 # own docstring) — a plain module-level dict is safe here with no lock: every
 # access below is a synchronous dict get/set with no `await` in between, and
@@ -194,6 +200,17 @@ async def _warm_user_body(uid: str, include_cover_plan: bool, t0: float) -> dict
     async def _step(name, compute_fn, *, self_caching: bool) -> None:
         try:
             payload = await compute_fn(uid)
+            # G492's persisted progress has its own status contract.  A
+            # failed/superseded build is not a successful warm merely because
+            # it returned a diagnostic dict; leave it visible to the worker's
+            # follow-up path instead.
+            if name == "card_plan_progress" and (
+                not isinstance(payload, dict) or payload.get("status") != "ok"
+            ):
+                logger.warning("warm_user(%s): %s returned %s", uid, name,
+                               payload.get("status") if isinstance(payload, dict) else type(payload).__name__)
+                failed.append(name)
+                return
             # G210: a "syncing" Safe to Spend payload is never persisted.
             # G234: a today payload whose pooled Safe to Spend was unreadable or
             # syncing carries account_eligibility=None ("not available"); like
@@ -212,6 +229,9 @@ async def _warm_user_body(uid: str, include_cover_plan: bool, t0: float) -> dict
             logger.exception("warm_user(%s): %s failed to warm", uid, name)
             failed.append(name)
 
+    # This stored result must be ready before any warmed commitments response
+    # reads it.  It owns its Mongo write and must never be put in response_cache.
+    await _step("card_plan_progress", _compute_card_plan_progress, self_caching=True)
     await _step("today", _compute_today, self_caching=False)
     if include_cover_plan:
         await _step("cover_plan", _compute_cover_plan, self_caching=False)

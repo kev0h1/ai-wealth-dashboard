@@ -72,7 +72,7 @@ def test_warm_user_populates_cover_plan(monkeypatch):
     async def ok(uid):
         return {"status": "ok"}
 
-    for n in ("_compute_today", "_compute_safe_to_spend", "_compute_spend_verdict",
+    for n in ("_compute_card_plan_progress", "_compute_today", "_compute_safe_to_spend", "_compute_spend_verdict",
               "_compute_miscategorised_count", "_compute_miscategorised_list",
               "_compute_grow", "_compute_commitments"):
         monkeypatch.setattr(warmup, n, ok)
@@ -92,7 +92,7 @@ def _stub_other_steps(monkeypatch):
     async def ok(uid):
         return {"status": "ok"}
 
-    for n in ("_compute_today", "_compute_safe_to_spend", "_compute_spend_verdict",
+    for n in ("_compute_card_plan_progress", "_compute_today", "_compute_safe_to_spend", "_compute_spend_verdict",
               "_compute_miscategorised_count", "_compute_miscategorised_list",
               "_compute_grow", "_compute_commitments"):
         monkeypatch.setattr(warmup, n, ok)

@@ -1030,16 +1030,53 @@ export type GoalSchedulePreview = {
 
 /** G475: the facts a card repayment plan row shows. Estimates, hedged when spoken. */
 export type CardPlanFacts = {
+  status?: "ready" | "pending" | "stale" | "unavailable";
+  as_of?: string | null;
+  reason?: string;
   card_name?: string | null;
   balance_owed?: number | null;
   this_period_planned?: number | null;
-  paid_this_period?: number;
+  paid_this_period?: number | null;
+  paid_since_start?: number | null;
+  paid_from_source_this_period?: number | null;
+  reserved_from_source_this_period?: number | null;
+  tracking_start?: string | null;
+  display_period_planned?: number | null;
+  amount_varies?: boolean;
+  final_period_amount?: boolean;
+  schedule_state?: "not_started" | "active" | "paused" | "ended";
+  starts_on?: string | null;
+  next_payment?: number | null;
+  next_payment_date?: string | null;
+  period_label?: string;
   would_clear_by_month?: string | null;
   would_clear_by?: string | null;
-  promo?: {
-    until: string; balance: number; balance_is_offer: boolean;
-    planned_by_end: number; clears_before_end: boolean;
-  } | null;
+  promo?: CardPlanOfferFacts | null;
+  offers?: CardPlanOfferFacts[];
+};
+
+/** G492: positions, residual and target are computed and stored by the backend. */
+export type CardPlanOfferFacts = {
+  id?: string | null;
+  until: string;
+  balance: number | null;
+  balance_is_offer: boolean;
+  planned_by_end?: number | null;
+  residual_at_end?: number | null;
+  clears_before_end?: boolean;
+  outlook?: "paused" | "short" | "behind" | "on_track";
+  progress: {
+    status: "ready" | "not_started" | "unavailable";
+    reason?: string;
+    basis?: "reconciled_single_offer";
+    balance_as_of?: string;
+    start_date?: string;
+    target?: number;
+    paid?: number;
+    expected_by_now?: number;
+    paid_percent?: number;
+    expected_percent?: number;
+  };
 };
 
 /** G476: one payment into a card, from both legs. `matched` means the paying account's debit was found. */

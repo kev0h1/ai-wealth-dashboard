@@ -18,6 +18,7 @@ export function isCardAccount(account: Pick<Account, "type" | "subtype">): boole
 
 const gbp = (value: number) => `£${Math.round(value).toLocaleString("en-GB")}`;
 const gbp2 = (value: number) => `£${value.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+const exactMoney = (value: number) => Number.isInteger(value) ? gbp(value) : gbp2(value);
 
 function longDate(iso: string): string {
   const d = new Date(`${iso.slice(0, 10)}T12:00:00Z`);
@@ -28,18 +29,27 @@ function longDate(iso: string): string {
 
 /** "£150 a pay period" or "£150 each pay period (monthly)": the plan's amount for the live period. */
 export function planAmountLine(facts: CardPlanFacts | null | undefined, periodLabel: string | null | undefined): string {
-  const planned = facts?.this_period_planned;
+  if (facts?.status === "pending") return "Preparing plan figures";
+  if (facts?.status === "stale" || facts?.status === "unavailable") return "Plan figures unavailable";
+  const planned = facts?.display_period_planned ?? facts?.this_period_planned;
   if (planned == null) return "Amount unavailable";
+  if (facts?.schedule_state === "paused") return "Plan paused";
+  if (facts?.schedule_state === "ended") return "Schedule ended";
+  if (facts?.final_period_amount) return `${exactMoney(planned)} planned this pay period`;
+  if (facts?.amount_varies) return `${exactMoney(planned)} planned ${facts.schedule_state === "not_started" ? "next pay period" : "this pay period"}`;
   const cadence = periodLabel ? `each pay period (${periodLabel})` : "a pay period";
-  return `${gbp(planned)} ${cadence}`;
+  const starts = facts?.schedule_state === "not_started" && facts.starts_on ? ` from ${longDate(facts.starts_on)}` : "";
+  return `${exactMoney(planned)} ${cadence}${starts}`;
 }
 
 /** What has been paid towards this period's amount. Never a promise. */
 export function paidLine(facts: CardPlanFacts | null | undefined): string | null {
   if (!facts || facts.this_period_planned == null) return null;
-  const paid = facts.paid_this_period ?? 0;
+  if (facts.schedule_state === "not_started" && facts.starts_on) return `Repayments count from ${longDate(facts.starts_on)}`;
+  if (facts.paid_this_period == null) return "Payment data unavailable";
+  const paid = facts.paid_this_period;
   if (paid <= 0) return "Nothing paid yet this pay period";
-  return `${gbp2(paid)} paid this pay period`;
+  return `${gbp2(paid)} paid to this card this pay period`;
 }
 
 /** "would clear by Mar 2028": hedged, and silent when the balance is cleared or no month is known. */
@@ -52,13 +62,13 @@ export function projectedMonthLine(facts: CardPlanFacts | null | undefined): str
 export function offerLine(facts: CardPlanFacts | null | undefined): string | null {
   const promo = facts?.promo;
   if (!promo) return null;
+  if (promo.planned_by_end == null || promo.balance == null || promo.residual_at_end == null) return "Offer projection unavailable";
   const by = `${gbp(promo.planned_by_end)} by ${longDate(promo.until)}`;
   const against = promo.balance_is_offer ? "the offer balance" : "the card balance";
   if (promo.clears_before_end) {
     return `The offer ends ${longDate(promo.until)}. The plan would pay about ${by}, which would cover ${against} of about ${gbp(promo.balance)}.`;
   }
-  const left = Math.max(0, promo.balance - promo.planned_by_end);
-  return `The offer ends ${longDate(promo.until)}. The plan would pay about ${by}, which would leave about ${gbp(left)} of ${against} when it ends.`;
+  return `The offer ends ${longDate(promo.until)}. The plan would pay about ${by}, which would leave about ${gbp(promo.residual_at_end)} of ${against} when it ends.`;
 }
 
 /** What the sheet says about where a prefilled amount came from. */
