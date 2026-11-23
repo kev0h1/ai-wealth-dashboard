@@ -70,6 +70,9 @@ savings_labels_col      = db["savings_insight_labels"]
 
 # Debt repayment plans
 debt_plans_col          = db["debt_plans"]
+# G492: one durable, worker-computed repayment-progress snapshot per user.
+# Unlike response_cache, readers never compute this result on a miss.
+card_plan_progress_col  = db["card_plan_progress"]
 
 # Card terms (per-user confirmed APR/promo facts) + shared product-rate cache
 card_terms_col          = db["card_terms"]
@@ -166,6 +169,12 @@ cashflow_cache_col      = db["cashflow_cache"]
 # Money shape cache (per-pay-period Fixed/Moved/Free/Left breakdown,
 # computed after sync, read at page load — see app/services/money_shape.py)
 money_shape_cache_col   = db["money_shape_cache"]
+
+# G493 overspending engine: stored per-user result (`_id` = uid, computed at sync,
+# app/services/overspending.py) and the user's asked "one-off" answers (one doc
+# per user and period end, `_id` = "{uid}:{period_end}").
+overspending_cache_col  = db["overspending_cache"]
+overspending_ack_col    = db["overspending_ack"]
 
 # Upcoming payment overrides (user-edits to forecast dates/amounts)
 upcoming_overrides_col  = db["upcoming_overrides"]
@@ -586,7 +595,7 @@ ERASURE_MANIFEST = frozenset({
     "transfer_review_store_col", "filed_transfer_store_col", "own_transfer_judgements_col",
     "statement_accounts_col", "statement_transactions_col", "statement_uploads_col",
     "yapily_consents_col", "yapily_accounts_col", "yapily_transactions_col",
-    "savings_insights_col", "savings_labels_col", "debt_plans_col",
+    "savings_insights_col", "savings_labels_col", "debt_plans_col", "card_plan_progress_col",
     "card_terms_col", "card_product_rates_col", "savings_goals_col",
     "manual_accounts_col", "manual_transactions_col", "manual_account_rules_col",
     "manual_account_mirrors_col", "investment_accounts_col", "investment_holdings_col",
@@ -594,7 +603,8 @@ ERASURE_MANIFEST = frozenset({
     "subscription_usage_col", "penny_topups_col", "mcp_call_packs_col",
     "billing_customers_col", "billing_events_col", "apple_account_tokens_col", "play_purchases_col",
     "play_account_ids_col", "cashflow_cache_col",
-    "money_shape_cache_col", "upcoming_overrides_col", "upcoming_rules_col",
+    "money_shape_cache_col", "overspending_cache_col", "overspending_ack_col",
+    "upcoming_overrides_col", "upcoming_rules_col",
     "webhook_events_col", "excluded_accounts_col", "locks_col",
     "worker_runs_col", "finexer_consents_col", "finexer_customers_col",
     "finexer_providers_col", "provider_logos_col", "pending_transactions_col", "behaviour_portrait_col",

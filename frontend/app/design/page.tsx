@@ -32,6 +32,14 @@ type PreviewRoute = {
 
 const ROUTES: PreviewRoute[] = [
   {
+    slug: "card-plan-progress",
+    name: "Debt repayment plan rows · G492",
+    description: "A Progress first and B Payment row compare compact plans with full names, scheduled payments, recorded offer targets and an expected-by-now marker. Fictional reconciled fixtures include future starts, long names, unavailable progress and hidden figures. Financial results are precomputed; no live data or bank actions.",
+    variants: [{ label: "A · Progress first", value: "a" }, { label: "B · Payment row", value: "b" }],
+    states: [{ label: "Ready", value: "ready" }, { label: "Future start", value: "future" }, { label: "Paused", value: "paused" }, { label: "Loading", value: "loading" }, { label: "Updating", value: "stale" }, { label: "Unavailable", value: "unavailable" }, { label: "No plans", value: "empty" }, { label: "Hidden", value: "hidden" }, { label: "Long names", value: "long" }],
+    group: "current",
+  },
+  {
     slug: "overspending-moments",
     name: "Overspending, without the nagging · G494",
     description:
@@ -50,27 +58,6 @@ const ROUTES: PreviewRoute[] = [
     variants: [
       { label: "A · A clear moment", value: "a" },
       { label: "B · A quieter note", value: "b" },
-    ],
-    group: "current",
-  },
-  {
-    slug: "upcoming-flow",
-    name: "Upcoming page flow · G489",
-    description:
-      "Preferred E keeps set-asides and goals in one card with independent collapsible groups. Account rows open the existing details sheet. F retains matching separate plan cards for comparison. Both keep the production dated payment components unchanged. Eight fictional cases cover empty and populated plans, multiple accounts, conditional figures, long names, loading and errors. Both themes and hidden balances.",
-    states: [
-      { label: "Current example", value: "current" },
-      { label: "Set-asides and goals", value: "populated" },
-      { label: "Several accounts", value: "several" },
-      { label: "Conditional figures", value: "shared" },
-      { label: "No plans yet", value: "empty" },
-      { label: "Checking plans", value: "checking" },
-      { label: "Plans unavailable", value: "error" },
-      { label: "Long names and states", value: "long" },
-    ],
-    variants: [
-      { label: "E · Together", value: "e" },
-      { label: "F · Separate", value: "f" },
     ],
     group: "current",
   },

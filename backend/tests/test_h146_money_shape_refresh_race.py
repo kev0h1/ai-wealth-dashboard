@@ -85,6 +85,14 @@ def test_recompute_derived_caches_does_not_log_exception(monkeypatch, caplog):
 
     monkeypatch.setattr(derived_caches, "cache_needs_recompute", needs)
     monkeypatch.setattr(analytics, "compute_and_cache_cashflow", cashflow)
+    # G493: the overspending refresh runs right after money shape; this test is
+    # about the money shape race, so it is stubbed (its own tests cover it).
+    import app.services.overspending as overspending
+
+    async def overspending_ok(uid, **kw):
+        return None
+
+    monkeypatch.setattr(overspending, "compute_and_cache_overspending", overspending_ok)
     with caplog.at_level(logging.INFO):
         res = asyncio.run(derived_caches.recompute_derived_caches(UID, new_count=1, trigger="auto"))
     assert res == {"recomputed": True, "reason": "dirty"}

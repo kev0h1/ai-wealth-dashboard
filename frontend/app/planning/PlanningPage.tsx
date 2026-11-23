@@ -28,10 +28,9 @@ import { withCoverSuggestions } from "@/lib/coverSuggestion";
 import { compareUpcomingEvents, upcomingAccountAssessment, walkUpcomingAccounts } from "@/lib/upcomingAccountWalk";
 import { accountsWithPeriodActivity, paymentsThroughLabel, positionsFromToday, reconcileWithServerPosition, upcomingAccountWindow } from "@/lib/upcomingAccounts";
 import UpcomingAccountsCard from "@/components/upcoming/UpcomingAccountsCard";
-import UnlinkedGoalPlans from "@/components/upcoming/UnlinkedGoalPlans";
 import { assessPlanOverlap, hasPlanSource, isPlanSourceAccount, plansFromApi } from "@/lib/upcomingPlans";
 import { upcomingDisplayName } from "@/lib/upcomingDisplayName";
-import SetAsideList, { type SetAsideItem } from "@/components/upcoming/SetAsideList";
+import UpcomingPlansCard from "@/components/upcoming/UpcomingPlansCard";
 import { useFirstSync } from "@/lib/useFirstSync";
 import FirstSyncCard from "@/components/FirstSyncCard";
 import FirstSyncStatus from "@/components/FirstSyncStatus";
@@ -96,102 +95,10 @@ function billKeyMatchesName(key: string | null, name: string): boolean {
   return namePart === name;
 }
 
-// Compact set-aside ledger — the approved Upcoming design treats envelopes
-// and one-offs as inputs to this pay period's forecast, not as large planning
-// cards. The right-hand amount is the unfilled remainder that By account
-// actually subtracts; the supporting line keeps filled/target figures and
-// recurrence visible without making the user reconstruct that relationship.
-// Pending entries show no money figure because nothing is reserved yet.
-//
-// G131 fold-in (g124-upcoming-refine, variant A, the "raw-string clutter"
-// hygiene fix): the row rendering itself now lives in the shared
-// components/upcoming/SetAsideList.tsx, imported by both this page and
-// that surface's design preview. This function only resolves PlanningPage's
-// own Allocation + Account data down to the SetAsideItem shape that shared
-// component actually takes — the same "props, not raw fetches" boundary
-// UpcomingDayCard already uses.
-function toSetAsideItem(a: Allocation, accounts: Account[]): SetAsideItem {
-  const feedAccount = accounts.find((acc) => acc.id === a.fill_account_id);
-  const feedLabel = a.fill_display_name || feedAccount?.name || null;
-  const startsLabel = new Date(a.period_start).toLocaleDateString("en-GB", { day: "numeric", month: "short" });
-  return {
-    id: a.id,
-    name: a.name,
-    feedLabel,
-    feedSuffix: a.match_type === "description_contains" ? " · similar payments" : undefined,
-    amountPerPeriod: a.period_amount ?? a.amount_per_period,
-    filledThisPeriod: a.filled_this_period,
-    remaining: a.remaining,
-    recurrence: a.recurrence,
-    pending: a.pending,
-    completed: a.completed,
-    pendingStartsLabel: a.pending ? startsLabel : undefined,
-    createdViaPenny: a.created_via === "penny",
-  };
-}
-
-// One section and one creation door for the two current-period plan types:
-// an envelope or a one-off payment. Long-term goals are deliberately absent
-// here and live on Planning.
-function PlansSection({
-  allocations,
-  allocationsError,
-  accounts,
-  onAdd,
-  onEditAllocation,
-}: {
-  allocations: Allocation[] | null;
-  allocationsError: boolean;
-  accounts: Account[];
-  onAdd: () => void;
-  onEditAllocation: (a: Allocation) => void;
-}) {
-  const loading = allocations === null && !allocationsError;
-  const activeAllocations = (allocations ?? []).filter((a) => a.active);
-  const empty = activeAllocations.length === 0;
-
-  return (
-    <section id="pay-period-plans" className="scroll-mt-20" data-tutorial-id="tutorial-planning-plans" aria-labelledby="pay-period-plans-heading">
-      <div className="flex min-h-11 items-center justify-between gap-3 px-1">
-        <h2 id="pay-period-plans-heading" className="text-sm font-semibold text-slate-800 dark:text-slate-100">Set aside this period</h2>
-        <button
-          type="button"
-          onClick={onAdd}
-          data-tutorial-id="tutorial-planning-add"
-          className="min-h-11 rounded-lg px-2 text-xs font-semibold text-indigo-600 transition-colors hover:bg-indigo-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-indigo-400 dark:hover:bg-indigo-900/20"
-        >
-          + Add
-        </button>
-      </div>
-      {loading ? (
-        <div className="glass-card h-[62px] animate-pulse rounded-2xl" aria-label="Loading pay-period plans" />
-      ) : allocationsError ? (
-        <div className="glass-card rounded-2xl px-4 py-4" role="status">
-          <p className="text-sm font-medium text-slate-700 dark:text-slate-200">Couldn’t load what you’ve set aside.</p>
-          <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">Your accounts and payments are still shown.</p>
-        </div>
-      ) : empty ? (
-        <div className="glass-card rounded-2xl px-4 py-4">
-          <p className="text-sm font-medium text-slate-700 dark:text-slate-200">Nothing set aside yet.</p>
-          <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">Add a set-aside or one-off payment for this pay period.</p>
-        </div>
-      ) : (
-        <SetAsideList
-          items={activeAllocations.map((a) => toSetAsideItem(a, accounts))}
-          onEdit={(id) => {
-            const a = activeAllocations.find((x) => x.id === id);
-            if (a) onEditAllocation(a);
-          }}
-        />
-      )}
-    </section>
-  );
-}
-
 // G487: the one caveat the removed payday forecast card carried, kept as a
 // quiet line under By account (which is where a very recent payment is missed).
 function PaymentsLagNote() {
-  return <p data-upcoming-payments-note className="px-1 text-xs leading-5 text-slate-500 dark:text-slate-400">Payments can take a day or two to appear, so a very recent one may not be counted yet.</p>;
+  return <p data-upcoming-payments-note className="px-1 text-xs leading-5 text-slate-600 dark:text-slate-300">Payments can take a day or two to appear, so a very recent one may not be counted yet.</p>;
 }
 
 export default function PlanningPage() {
@@ -387,6 +294,18 @@ export default function PlanningPage() {
   function openAllocation(allocation: Allocation) {
     if (accountPlans?.some((plan) => plan.id === `allocation:${allocation.id}`)) setFlowView({ kind: "plan", id: `allocation:${allocation.id}` });
     else setAllocationSheet(allocation);
+  }
+
+  function retryAllocations() {
+    setAllocationsError(false);
+    setAllocations(null);
+    api.listAllocations().then(setAllocations).catch(() => setAllocationsError(true));
+  }
+
+  function retryAccountPlans() {
+    setAccountPlansError(false);
+    setAccountPlans(null);
+    api.listAccountPlans().then(setAccountPlans).catch(() => setAccountPlansError(true));
   }
 
   function retryCashflow() {
@@ -743,20 +662,24 @@ export default function PlanningPage() {
         if (rawItems.length === 0) {
           // Nothing left to pay this period — the whole spendable pool is free.
           return (
-            <div className="space-y-3">
+            <div className="space-y-5">
               <div className="glass-card rounded-2xl p-8 text-center">
                 <p className="text-slate-500 dark:text-slate-400 text-sm">Nothing more expected this pay period</p>
               </div>
-              <UpcomingAccountsCard accounts={listedAccountSummaries} periodLabel={accountPeriodLabel} plans={plans} plansStatus={plansStatus} onOpen={(account) => setFlowView({ kind: "account", id: account.id })} />
+              <UpcomingAccountsCard accounts={listedAccountSummaries} periodLabel={accountPeriodLabel} plans={plans} plansStatus={plansStatus} onRetry={retryAccountPlans} onOpen={(account) => setFlowView({ kind: "account", id: account.id })} />
               {listedAccountSummaries.length > 0 && <PaymentsLagNote />}
-              <PlansSection
+              <UpcomingPlansCard
                 allocations={allocations}
                 allocationsError={allocationsError}
+                plans={plans}
+                plansStatus={plansStatus}
                 accounts={accounts}
                 onAdd={() => setSetAsideSheetOpen(true)}
                 onEditAllocation={openAllocation}
+                onPlan={(id) => setFlowView({ kind: "plan", id })}
+                onRetryAllocations={retryAllocations}
+                onRetryPlans={retryAccountPlans}
               />
-              <UnlinkedGoalPlans plans={plansStatus === "ready" ? plans : []} onPlan={(id) => setFlowView({ kind: "plan", id })} />
               {/* PennyPromptBar removed here too (owner, 2026-08-25: "I
                   think we can remove penny from the planning page") — see
                   the removal comment further below, where the bar used to
@@ -1022,18 +945,22 @@ export default function PlanningPage() {
         }
 
         return (
-          <div className="space-y-4">
-            <UpcomingAccountsCard accounts={listedAccountSummaries} periodLabel={accountPeriodLabel} plans={plans} plansStatus={plansStatus} onRetry={() => { setAccountPlansError(false); api.listAccountPlans().then(setAccountPlans).catch(() => setAccountPlansError(true)); }} onOpen={(account) => setFlowView({ kind: "account", id: account.id })} />
+          <div className="space-y-5">
+            <UpcomingAccountsCard accounts={listedAccountSummaries} periodLabel={accountPeriodLabel} plans={plans} plansStatus={plansStatus} onRetry={retryAccountPlans} onOpen={(account) => setFlowView({ kind: "account", id: account.id })} />
             {listedAccountSummaries.length > 0 && <PaymentsLagNote />}
 
-            <PlansSection
+            <UpcomingPlansCard
               allocations={allocations}
               allocationsError={allocationsError}
+              plans={plans}
+              plansStatus={plansStatus}
               accounts={accounts}
               onAdd={() => setSetAsideSheetOpen(true)}
               onEditAllocation={openAllocation}
+              onPlan={(id) => setFlowView({ kind: "plan", id })}
+              onRetryAllocations={retryAllocations}
+              onRetryPlans={retryAccountPlans}
             />
-            <UnlinkedGoalPlans plans={plansStatus === "ready" ? plans : []} onPlan={(id) => setFlowView({ kind: "plan", id })} />
 
             {currentPeriodItems.length === 0 && groups.length > 0 && (
               <div className="glass-card rounded-2xl p-8 text-center">
@@ -1066,10 +993,10 @@ export default function PlanningPage() {
             and slate-950/white ink, and the header row aligns items-start
             (was items-center) with gap-4 (was gap-3). The descriptive
             sentence beneath the title is untouched content. */}
-        <div className="mb-4 flex items-start justify-between gap-4">
+        <div className="mb-5 flex items-start justify-between gap-4">
           <div>
             <h1 className="text-[28px] font-bold leading-tight tracking-[-0.035em] text-slate-950 dark:text-white">Before payday</h1>
-            <p className="mt-1 max-w-sm text-sm text-slate-500 dark:text-slate-400">What will enter or leave, and whether every payment is covered.</p>
+            <p className="mt-1 max-w-sm text-sm leading-6 text-slate-600 dark:text-slate-300">What will enter or leave, and whether every payment is covered.</p>
           </div>
           {/* Hidden predictions are recoverable, not deleted. Eye-off keeps
               that meaning distinct from a destructive bin action. */}

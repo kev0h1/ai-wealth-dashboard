@@ -36,8 +36,9 @@ for (const id of ["long", "watch", "clear", "all"]) {
   const { lead, region } = split(html);
   assert.match(html, /data-g417-variant="a"/);
   assert.doesNotMatch(html, /Available|Spend from/, "the action list does not reuse Home's pooled allocation language");
-  assert.match(lead, /short for payments/, "payment-risk detail remains accessible in the row label");
-  assert.match(lead, /short for plans/, "plan-risk detail remains accessible in the row label");
+  assert.match(lead,/data-tone="risk"/,"payment risk retains its visible and accessible cue");
+  assert.match(lead.replace(/<[^>]+>/g,""),/Short/);
+  assert.match(lead.replace(/<[^>]+>/g,""),/Plans need a look/,"plan-only caution stays distinct from payment risk");
   assert.equal(rows(lead).length, 2, "only attention rows before the fold region");
   assert.equal(rows(region).length, 18, "fine rows sit inside the fold region");
   assert.match(html, /18 accounts are fine/);
@@ -60,7 +61,7 @@ for (const id of ["long", "watch", "clear", "all"]) {
 {
   const { html } = render("clear");
   const { lead, region } = split(html);
-  assert.match(html, /Every account covers its payments and linked plans\./);
+  assert.match(html,/6 accounts are fine/,"approved E uses the count in the compact fine fold");
   assert.equal(rows(lead).length, 0);
   assert.equal(rows(region).length, 6);
   assert.match(html, /6 accounts are fine/);
@@ -84,7 +85,8 @@ for (const plansStatus of ["loading", "error"]) {
 {
   const fixture = fixtureFor("clear");
   const html = renderToStaticMarkup(React.createElement(UpcomingAccountsCard, { accounts: fixture.accounts, plans: [], plansStatus: "loading", periodLabel: PERIOD, onOpen() {} }));
-  assert.match(html, /Every account covers its payments\. Plans are still to be checked\./);
+  assert.match(html,/accounts are fine for payments/);
+  assert.match(html,/Checking goals and set-asides/);
 }
 
 // Ordering of all tiers on a synthetic mix: payments, plans, watch.

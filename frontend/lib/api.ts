@@ -748,6 +748,69 @@ export type SpendVerdictPaceEntry = {
   usual: number | null;
 };
 
+/** G493: the stored overspending result (computed at sync, read-only; null when
+ *  none is stored yet). Same Out and In as Spend's `pills`. Data only: no copy. */
+export type OverspendingFundedBy = { savings: number; cards: number; current_account: number };
+
+export type OverspendingDriver = { category: string; spent: number; usual_by_now: number; excess: number };
+
+export type OverspendingOnCourse = {
+  /** False until enough days have passed to project (every projected_* is null). */
+  available: boolean;
+  projected_out: number | null;
+  projected_in: number | null;
+  /** Predicted money in still expected before payday (Left to spend's window); null when unreadable. */
+  predicted_income: number | null;
+  on_course_to_cross: boolean | null;
+  projected_gap: number | null;
+  /** Top two categories above their usual so far, positive excess only; may be empty. */
+  drivers: OverspendingDriver[];
+};
+
+export type OverspendingTrendPeriod = {
+  start: string;
+  end: string;
+  out: number;
+  in: number;
+  gap: number;
+  from_savings: number;
+  funded_by: OverspendingFundedBy;
+  savings_covered: boolean;
+  acknowledged: boolean;
+};
+
+export type OverspendingTrend = {
+  periods_considered: number;
+  /** Completed periods (of those considered, at most 4) in which savings covered part of a gap. */
+  dipped_count: number;
+  /** Most recent completed periods in a row with savings_covered. */
+  consecutive: number;
+  /** Oldest first, most recent last. */
+  periods: OverspendingTrendPeriod[];
+};
+
+export type Overspending = {
+  period: { start: string; end: string; length_days: number; days_elapsed: number };
+  out: number;
+  in: number;
+  gap: number;
+  crossed: boolean;
+  crossed_by: number;
+  /** First date cumulative Out passed cumulative In; null when not crossed. */
+  crossed_on: string | null;
+  /** Net money out of savings in the period (moves back in netted off). */
+  from_savings: number;
+  /** Sums exactly to `gap` (all zero when there is no gap). */
+  funded_by: OverspendingFundedBy;
+  savings_covered: boolean;
+  on_course: OverspendingOnCourse;
+  trend: OverspendingTrend;
+  /** The user answered "one-off" for this period (asked, never inferred). */
+  acknowledged: boolean;
+  computed_at?: string;
+  schema_version?: number;
+};
+
 export type SpendVerdict = {
   state: SpendVerdictState;
   reading: string;
@@ -775,6 +838,9 @@ export type SpendVerdict = {
    *  Server-computed (spend_impact.is_unresolved_material) so the footnote
    *  and the reading text can never disagree. */
   unresolved_material?: boolean;
+  /** G493: the stored overspending result. Current period only (offset 0);
+   *  null when none is stored, absent for closed periods and older payloads. */
+  overspending?: Overspending | null;
   /** The period-level priced consequence the backend now ships. Optional/
    *  additive, unread by any consumer yet — typed here so future work
    *  (a period-level consequence surface) doesn't need to touch this file
@@ -1030,16 +1096,53 @@ export type GoalSchedulePreview = {
 
 /** G475: the facts a card repayment plan row shows. Estimates, hedged when spoken. */
 export type CardPlanFacts = {
+  status?: "ready" | "pending" | "stale" | "unavailable";
+  as_of?: string | null;
+  reason?: string;
   card_name?: string | null;
   balance_owed?: number | null;
   this_period_planned?: number | null;
-  paid_this_period?: number;
+  paid_this_period?: number | null;
+  paid_since_start?: number | null;
+  paid_from_source_this_period?: number | null;
+  reserved_from_source_this_period?: number | null;
+  tracking_start?: string | null;
+  display_period_planned?: number | null;
+  amount_varies?: boolean;
+  final_period_amount?: boolean;
+  schedule_state?: "not_started" | "active" | "paused" | "ended";
+  starts_on?: string | null;
+  next_payment?: number | null;
+  next_payment_date?: string | null;
+  period_label?: string;
   would_clear_by_month?: string | null;
   would_clear_by?: string | null;
-  promo?: {
-    until: string; balance: number; balance_is_offer: boolean;
-    planned_by_end: number; clears_before_end: boolean;
-  } | null;
+  promo?: CardPlanOfferFacts | null;
+  offers?: CardPlanOfferFacts[];
+};
+
+/** G492: positions, residual and target are computed and stored by the backend. */
+export type CardPlanOfferFacts = {
+  id?: string | null;
+  until: string;
+  balance: number | null;
+  balance_is_offer: boolean;
+  planned_by_end?: number | null;
+  residual_at_end?: number | null;
+  clears_before_end?: boolean;
+  outlook?: "paused" | "short" | "behind" | "on_track";
+  progress: {
+    status: "ready" | "not_started" | "unavailable";
+    reason?: string;
+    basis?: "reconciled_single_offer";
+    balance_as_of?: string;
+    start_date?: string;
+    target?: number;
+    paid?: number;
+    expected_by_now?: number;
+    paid_percent?: number;
+    expected_percent?: number;
+  };
 };
 
 /** G476: one payment into a card, from both legs. `matched` means the paying account's debit was found. */
@@ -2105,6 +2208,8 @@ export type TodayResponse = {
   status: "ok";
   items: CompanionItem[];
   account_eligibility?: Record<string, AccountEligibility> | null;
+  /** G493: the stored overspending result (null when none is stored). Read-only. */
+  overspending?: Overspending | null;
 };
 
 export type CoverPlanResponse = TodayResponse;

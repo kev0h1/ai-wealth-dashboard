@@ -271,7 +271,8 @@
     "check:g395-bank-coverage": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g395-bank-coverage.test.mjs",
     "check:g399-dismiss-refresh": "node --no-warnings scripts/g399-dismiss-refresh.test.mjs",
     "check:g421-cancel-refresh": "node --no-warnings scripts/g421-cancel-refresh.test.mjs",
-    "check:g421-cover-rows": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g421-cover-rows.test.mjs"
+    "check:g421-cover-rows": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g421-cover-rows.test.mjs",
+    "check:g489-approved-upcoming": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g489-approved-upcoming.test.mjs"
   },
   "dependencies": {
     "@aparajita/capacitor-biometric-auth": "^10.0.0",

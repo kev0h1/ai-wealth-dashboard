@@ -7,7 +7,7 @@ import React, { createElement as h } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { accountAvailability, availabilityLabel, formatAvailabilityAmount } from "../lib/accountAvailability.ts";
 import { positionsFromToday } from "../lib/upcomingAccounts.ts";
-import { accountActionReading } from "../lib/upcomingAccountPresentation.ts";
+import { accountActionReading, accountSummaryMoney } from "../lib/upcomingAccountPresentation.ts";
 import { BalancesHiddenContext } from "../lib/balancesHidden.tsx";
 import UpcomingAccountsCard from "../components/upcoming/UpcomingAccountsCard.tsx";
 
@@ -30,7 +30,10 @@ for (const summary of summaries) {
   const a = markup.indexOf(`data-account-row="${summary.id}"`);
   const b = markup.indexOf("data-account-row=", a + 1);
   const row = text(markup.slice(a, b < 0 ? undefined : b));
-  assert.ok(row.includes(formatAvailabilityAmount(page.value)), `${summary.id}: row shows ${formatAvailabilityAmount(page.value)} in ${row}`);
+  const pence = Math.round(page.value * 100);
+  const exact = `${pence < 0 ? "−" : ""}£${(Math.abs(pence) / 100).toLocaleString("en-GB", { minimumFractionDigits: pence % 100 ? 2 : 0, maximumFractionDigits: 2 })}`;
+  assert.ok(row.includes(exact), `${summary.id}: approved E preserves the exact stored figure ${exact} in ${row}`);
+  assert.equal(accountSummaryMoney(pence), formatAvailabilityAmount(page.value), `${summary.id}: the shared whole-pound summary formatter remains unchanged`);
   assert.equal(reading.gap > 0, page.value < 0, `${summary.id}: Short agrees with the figure`);
   n += 1;
 }

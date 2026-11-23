@@ -79,7 +79,7 @@ assert.match(unknownGoals, /Summer break/);
 assert.doesNotMatch(unknownGoals, /Savings challenge/);
 assert.equal(renderToStaticMarkup(React.createElement(UnlinkedGoalPlans, { plans, onPlan() {} })), "", "Known goal payers do not produce a duplicate action list");
 const pageSource = readFileSync(new URL("../app/planning/PlanningPage.tsx", import.meta.url), "utf8");
-assert.equal((pageSource.match(/<UnlinkedGoalPlans /g) ?? []).length, 2, "Unknown goals stay reachable in both the empty and populated Upcoming page paths");
+assert.equal((pageSource.match(/<UpcomingPlansCard\b/g) ?? []).length, 2, "Unknown goals stay reachable in both the empty and populated Upcoming page paths");
 assert.match(previewSource, /<UnlinkedGoalPlans /, "The preview uses the same goal linking affordance");
 assert.equal(accountPlan(forecastFor("gap").accounts[1], suggested).reservedPence, 0, "Do not deduct Monzo's allocation from another account");
 const confirmedSuggested = suggested.map((plan) => plan.id === "round-ups" ? { ...plan, evidence: "chosen" } : plan);
