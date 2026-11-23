@@ -122,7 +122,7 @@ const row = (markup, id) => {
 };
 let html = card();
 assert.match(html, /data-g417-variant="a"/);
-assert.match(text(row(html, "source")), /£700Left after plans/, "the list leads with the pre-move after-plans result, not its pooled allocation");
+assert.match(text(row(html, "source")), /£700\.03Left after plans/, "the list leads with the pre-move after-plans result, not its pooled allocation");
 assert.doesNotMatch(row(html, "source"), /aria-label="[^"]*(suggested move|set aside)/i, "G430 keeps outgoing move detail in the account sheet, with no duplicate in the compact row label");
 assert.match(sourceSheet(), /data-suggested-move=/, "the full suggested debit remains available in account detail");
 assert.doesNotMatch(html, /Available|Spend from/, "G417 removes pooled-availability language from Upcoming");
@@ -160,7 +160,7 @@ assert.doesNotMatch(text(cardRepaymentSheet), /£25 short for/, "card-repayment 
 for (const status of ["loading", "error"]) {
   const unavailableCard = card(false, status);
   assert.match(unavailableCard, /Figures show payments only/);
-  assert.match(text(row(unavailableCard, "source")), /£722Left after payments/, `${status}: authoritative payment baseline remains visible`);
+  assert.match(text(row(unavailableCard, "source")), /£722\.29Payments only/, `${status}: exact authoritative payment baseline remains visibly qualified`);
   assert.match(unavailableCard, /Figures show payments only/, `${status}: plans remain explicitly qualified outside the row`);
   assert.doesNotMatch(unavailableCard, /data-suggested-bridge|data-suggested-move/, `${status}: recommendation rows are suppressed`);
   const unavailableSheet = sourceSheet(false, status);
