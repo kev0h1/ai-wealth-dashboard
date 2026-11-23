@@ -30,7 +30,7 @@ BUILD_REQUIRED_MB = 2500
 SUITE_REQUIRED_MB = 1500
 # H159: the backend suite under pytest-xdist. A controller plus N workers;
 # see docs/ops/BACKLOG.md for the measured figures behind these two numbers.
-SUITE_PER_WORKER_MB = 700
+SUITE_PER_WORKER_MB = 500
 SUITE_CONTROLLER_MB = 500
 
 
