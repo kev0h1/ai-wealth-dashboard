@@ -1295,7 +1295,7 @@ Board: the private page /ops/go-live on UAT reads and edits these files. Session
 - [ ] **F25. MCP Privacy Policy and Terms wording: extend the connector sections for Finexer review (Finexer Q5)** [owner: claude] [priority: p2]
 - [ ] **F26. MCP pre-enablement security retest of the final build and report for Finexer (Finexer Q4)** [owner: claude] [priority: p2]
 - [ ] **F27. MCP journey screenshots for Finexer: add Sorted in the assistant, consent screen, connected, Settings disconnect, activity log, policy sections (Finexer Q5)** [owner: claude]
-- [ ] **F28. MCP: fold in the approved consent journey variant (build step after Kevin picks, Finexer Q2 and Q3)** [owner: claude]
+- [ ] **F28. MCP: fold in the approved consent journey variant (build step after Kevin picks, Finexer Q2 and Q3)** [owner: claude] [priority: p2]
 - [ ] **F29. MCP: confirm decisions, then submit the Finexer reply for Q2 to Q5 and keep the connector off until written sign-off** [owner: kevin]
 
 ## G. Design and copy follow-ups
