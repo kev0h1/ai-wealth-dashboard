@@ -406,6 +406,63 @@ def test_decision_approve_creates_code_bound_to_uid_and_returns_redirect(monkeyp
     assert code_doc["used_at"] is None
 
 
+def _seed_req(store, scopes):
+    store["rq"] = {
+        "client_id": "c1", "client_name": "Claude", "redirect_uri": "https://claude.ai/cb",
+        "scopes": scopes, "state": "s", "code_challenge": "ch",
+    }
+
+
+def test_decision_grants_a_subset_of_requested_scopes(monkeypatch):
+    _, codes, _, store = _install_fakes(monkeypatch)
+    _seed_req(store, ["accounts:read", "plans:read", "insights:read"])
+    _run(oauth.decide_oauth_request(
+        {"req_id": "rq", "approve": True, "granted_scopes": ["insights:read", "accounts:read"]},
+        user={"email": "u@e.com"},
+    ))
+    assert next(iter(codes.docs.values()))["scopes"] == ["accounts:read", "insights:read"]
+
+
+@pytest.mark.parametrize("granted", [[], ["accounts:read", "transactions:read"], "accounts:read", [1]])
+def test_decision_rejects_empty_superset_or_malformed_grant_and_keeps_request(monkeypatch, granted):
+    _, codes, _, store = _install_fakes(monkeypatch)
+    _seed_req(store, ["accounts:read", "plans:read"])
+    with pytest.raises(HTTPException) as exc:
+        _run(oauth.decide_oauth_request(
+            {"req_id": "rq", "approve": True, "granted_scopes": granted}, user={"email": "u@e.com"},
+        ))
+    assert exc.value.status_code == 400
+    assert not codes.docs
+    assert "rq" in store  # still retryable
+
+
+def test_decision_without_granted_scopes_grants_all_requested(monkeypatch):
+    _, codes, _, store = _install_fakes(monkeypatch)
+    _seed_req(store, ["accounts:read", "plans:read"])
+    _run(oauth.decide_oauth_request({"req_id": "rq", "approve": True}, user={"email": "u@e.com"}))
+    assert next(iter(codes.docs.values()))["scopes"] == ["accounts:read", "plans:read"]
+
+
+def test_subset_survives_code_exchange_and_refresh_and_client_scope_param_is_ignored(monkeypatch):
+    clients, codes, tokens, _ = _install_fakes(monkeypatch)
+    clients.docs["client-1"] = {"_id": "client-1", "client_id": "client-1", "client_name": "Claude"}
+    code, verifier, code_doc = _run(_approve_and_get_code(scopes=["plans:read"]))
+    codes.docs[code_doc["_id"]] = code_doc
+    import json
+    resp = _run(oauth.token_endpoint(_FakeFormRequest({
+        "grant_type": "authorization_code", "code": code, "redirect_uri": "https://claude.ai/cb",
+        "client_id": "client-1", "code_verifier": verifier,
+    })))
+    body = json.loads(resp.body)
+    assert body["scope"] == "plans:read"
+    assert all(d["scopes"] == ["plans:read"] for d in tokens.docs.values())
+    resp2 = _run(oauth.token_endpoint(_FakeFormRequest({
+        "grant_type": "refresh_token", "refresh_token": body["refresh_token"], "client_id": "client-1",
+        "scope": "accounts:read plans:read insights:read",
+    })))
+    assert json.loads(resp2.body)["scope"] == "plans:read"
+
+
 def test_decision_deny_returns_access_denied_and_consumes_request(monkeypatch):
     _, codes, _, store = _install_fakes(monkeypatch)
     store["req2"] = {
@@ -913,7 +970,8 @@ def test_list_connections_aggregates_per_client(monkeypatch):
     assert len(result["connections"]) == 1
     conn = result["connections"][0]
     assert conn["client_id"] == "claude-1"
-    assert set(conn["scopes"]) == {"accounts:read", "plans:read"}
+    # F22: only live tokens report scopes; h3 (expired) no longer widens it.
+    assert set(conn["scopes"]) == {"accounts:read"}
     # h3 is expired, so only h1 (access) + h2 (refresh) count as active.
     assert conn["active_tokens"] == 2
 

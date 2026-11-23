@@ -373,11 +373,15 @@ async def resolve_mcp_principal(request: Request) -> dict:
     return {"uid": user.get("email"), "client": "session", "scopes": set(V1_SCOPES)}
 
 
-def _mcp_tool_list() -> list[dict]:
+def _mcp_tool_list(scopes=None) -> list[dict]:
+    """`scopes` (F22): the principal's granted scopes; tools outside it are
+    hidden. None lists every tool (catalogue/doc callers)."""
     out = []
     for t in visible_tool_schemas(MCP_TOOLS):  # G455: no tip tool with TIPS_ENABLED off
         fn = t["function"]
         scope = TOOL_SCOPES[fn["name"]]
+        if scopes is not None and scope not in scopes:
+            continue
         out.append({
             "name": fn["name"],
             "description": f"{fn['description']}\n\nScope: {scope}.",
@@ -614,7 +618,7 @@ async def handle_jsonrpc_request(principal: dict, msg: dict) -> dict | None:
         elif method == "ping":
             result = {}
         elif method == "tools/list":
-            result = {"tools": _mcp_tool_list()}
+            result = {"tools": _mcp_tool_list(principal.get("scopes", set()))}
         elif method == "tools/call":
             result = await _handle_tools_call(principal, msg.get("params") or {})
         else:
