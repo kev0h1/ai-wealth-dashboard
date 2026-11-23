@@ -1,15 +1,14 @@
 "use client";
 
 import { useEffect, useId, useMemo, useState } from "react";
-import { Check, ChevronDown, ChevronRight } from "lucide-react";
+import { ChevronDown, ChevronRight } from "lucide-react";
 import { displayAccountName } from "@/lib/accountName";
-import { BANK_META, BankBadge, bankKey, bankLogoSrc } from "@/components/AccountMiniCard";
+import { tidyAccountText } from "@/lib/accountDisplay";
+import { BANK_META, BankIcon, bankKey } from "@/components/AccountMiniCard";
 import type { UpcomingAccountSummary } from "@/lib/upcomingAccounts";
 import type { Plan } from "@/lib/upcomingPlans";
-import { useBalancesHidden, maskMoneyText } from "@/lib/balancesHidden";
 import { FINE_FOLD_KEY } from "@/lib/upcomingAccountStatus";
-import { accountActionReading, accountSummaryMoney, rowNeedsAttention } from "@/lib/upcomingAccountPresentation";
-import { accountMoveSummary } from "@/lib/upcomingMoveSummary";
+import { accountActionReading, rowNeedsAttention } from "@/lib/upcomingAccountPresentation";
 import { AccountMoney, AccountSignal } from "./accountPresentation";
 import MoneyText from "@/components/MoneyText";
 import styles from "./UpcomingAccounts.module.css";
@@ -25,25 +24,37 @@ export interface UpcomingAccountsCardProps {
 
 type Reading = ReturnType<typeof accountActionReading>;
 function AccountRow({ account, reading, onOpen }: { account: UpcomingAccountSummary; reading: Reading; onOpen: (account: UpcomingAccountSummary) => void }) {
-  const hidden = useBalancesHidden();
-  const { signal, gap, paymentGap, earlierGap, available, availableLabel, pending } = reading;
-  // G486: the same stored figure, label and Short verdict as the account page's "Available to spend". A closing projection is the fallback only for accounts that page shows no figure for.
+  const { signal, available, availableLabel, pending } = reading;
   const headline = pending ? null : available ?? reading.headline;
-  const caption = available !== null && availableLabel ? gap > 0 ? `${availableLabel} · short` : availableLabel : reading.caption;
+  const caption = available !== null && availableLabel ? availableLabel : !reading.projection.ready ? "Payments only" : reading.caption;
   const meta = BANK_META[bankKey({ provider: account.bank })];
-  const summary = signal || reading.result.estimated ? accountMoveSummary(account, reading) : null;
-  const detail = available !== null && gap > 0 ? "short" : gap > 0 ? earlierGap ? "short before payday" : paymentGap > 0 ? "short for payments" : "short for plans" : caption.toLowerCase();
-  const label = `Open ${account.bank}, ${displayAccountName(account.name)}: ${headline === null ? pending ? caption.toLowerCase() : "Not yet known" : accountSummaryMoney(headline)}, ${detail}.${summary ? ` ${summary}` : ""}`;
-  return <button type="button" data-account-row={account.id} onClick={() => onOpen(account)} aria-label={maskMoneyText(label, hidden)} className={styles.accountRow}>
-    <span data-bank-badge className={styles.bankMark}><BankBadge logoSrc={bankLogoSrc(meta)} initials={meta?.initials ?? account.bank.slice(0, 2).toUpperCase()} initialsSize={meta?.initialsSize} altText="" brandBg={meta?.bg} size={32} /></span>
-    <span className={styles.identity}><strong>{account.bank}</strong><span>{displayAccountName(account.name)}</span></span>
-    <span className={styles.rowFigure}><strong data-status-amount data-available={available !== null ? "true" : undefined}><AccountMoney pence={headline} /></strong><span data-status-caption className={styles.rowCaption}><AccountSignal signal={signal} /><span data-status-text>{caption}</span></span></span>
-    <ChevronRight size={14} className={styles.chevron} aria-hidden="true" />
-    {summary && <span data-account-summary className={styles.rowNote}><MoneyText text={maskMoneyText(summary, hidden)} /></span>}
+  const bank = meta?.label ?? tidyAccountText(account.bank);
+  const status = pending ? pending === "checking" ? "Checking" : "Needs checking"
+    : signal === "risk" ? "Short"
+    : signal === "plan" ? "Plans need a look"
+    : signal === "unknown" ? reading.result.uncertain && account.status !== "unknown" ? "Plans need checking" : "Needs checking"
+    : signal === "move" && (reading.incoming > 0 || account.position?.availability?.requiresMove) ? "Move suggested" : null;
+  return <button type="button" data-account-row={account.id} data-flow-focus={`account-${account.id}`} data-balanced-row={`account-${account.id}`} aria-haspopup="dialog" onClick={() => onOpen(account)} className={styles.accountRow}>
+    <span data-row-content className={styles.accountRowContent}>
+      <span className={styles.accountReadings}>
+        <span className={styles.accountIdentityBlock}>
+          <span className={styles.bankIdentity}>
+            <span data-bank-badge className={styles.bankMark} aria-hidden="true"><BankIcon identity={{ provider: account.bank }} size={28} altText="" /></span>
+            <span className={styles.identity}><strong><MoneyText text={bank} /></strong><span><MoneyText text={displayAccountName(account.name)} /></span></span>
+          </span>
+          {status && <span className={styles.rowStatusOffset}><span data-status-cue data-tone={signal} className={styles.rowStatus}><AccountSignal signal={signal} /><span>{status}</span></span></span>}
+        </span>
+        <span className={styles.rowFigure}>
+          {pending ? <span aria-busy={pending === "checking"} data-status-amount className={styles.pendingAmount}>{pending === "checking" ? <span aria-hidden="true" className={styles.figurePlaceholder} /> : "Unavailable"}</span> : <strong data-status-amount data-available={available !== null ? "true" : undefined}><AccountMoney pence={headline} exact={headline !== null && headline % 100 !== 0} /></strong>}
+          <span data-status-caption className={styles.rowCaption}><span data-status-text>{pending ? pending === "checking" ? "Figure pending" : "Availability unavailable" : caption}{!pending && reading.result.estimated ? " · estimated" : ""}</span></span>
+        </span>
+      </span>
+      <ChevronRight size={16} className={styles.chevron} aria-hidden="true" />
+    </span>
   </button>;
 }
 
-/** Approved G430 A3 layout; G417 still leads with the gap before any suggested move. */
+/** G489 approved E. Existing financial readings and account-sheet navigation stay authoritative. */
 export default function UpcomingAccountsCard({ accounts, periodLabel, onOpen, plans = [], plansStatus = "ready", onRetry }: UpcomingAccountsCardProps) {
   const headingId = useId(), regionId = useId();
   const [open, setOpen] = useState(false), [animate, setAnimate] = useState(false);
@@ -54,17 +65,16 @@ export default function UpcomingAccountsCard({ accounts, periodLabel, onOpen, pl
     const next = !open; setAnimate(true); setOpen(next);
     try { if (next) sessionStorage.setItem(FINE_FOLD_KEY, "1"); else sessionStorage.removeItem(FINE_FOLD_KEY); } catch {}
   };
-  const { attention, fine, hasSuggestedMoves } = useMemo(() => {
+  const { attention, fine } = useMemo(() => {
     const rows = accounts.map(account => ({ account, reading: accountActionReading(account, plans, plansStatus) }));
-    // Funding a suggestion is a cue, not a shortfall. Unknown readings still
-    // need checking and must never be described as fine.
+    // E keeps a conditional incoming move visible without calling it Short.
+    // Funding another account remains a cue inside the fine-account fold.
+    const needsAction = (reading: Reading) => rowNeedsAttention(reading) || reading.availability?.requiresMove === true;
     return {
-      attention: rows.filter(row => rowNeedsAttention(row.reading)).sort((a, b) => Number(b.reading.signal === "risk") - Number(a.reading.signal === "risk")),
-      fine: rows.filter(row => !rowNeedsAttention(row.reading)),
-      hasSuggestedMoves: rows.some(row => row.reading.moves.length > 0),
+      attention: rows.filter(row => needsAction(row.reading)).sort((a, b) => Number(b.reading.signal === "risk") - Number(a.reading.signal === "risk")),
+      fine: rows.filter(row => !needsAction(row.reading)),
     };
   }, [accounts, plans, plansStatus]);
-  const allClear = accounts.length > 0 && attention.length === 0;
   // G486: goals and set-asides are already inside every Available figure, so the "payments only" wording applies to fallback rows alone.
   const fallbackRows = accounts.length === 0 || accounts.some(account => !account.position?.availability);
   const finePaymentsOnly = plansStatus !== "ready" && fine.some(row => row.reading.available === null);
@@ -73,17 +83,15 @@ export default function UpcomingAccountsCard({ accounts, periodLabel, onOpen, pl
   const pendingNote = plansStatus !== "ready" && fallbackRows && <div className={styles.pending} role="status">{plansStatus === "loading" ? `Checking goals and set-asides. ${partlyAvailable ? "Accounts without an available amount show" : "Figures show"} payments only.` : `Goals and set-asides could not be checked. ${partlyAvailable ? "Accounts without an available amount show" : "Figures show"} payments only.`}{plansStatus === "error" && onRetry && <button type="button" className={styles.retry} onClick={onRetry}>Try again</button>}</div>;
   // G420: nothing to list means no heading and no empty card, unless a loading or error state applies.
   if (accounts.length === 0) return plansStatus === "ready" ? null : <section data-account-status-card="b" className={styles.card}>{pendingNote}</section>;
-  return <section aria-labelledby={headingId} data-account-status-card="b" data-g417-variant="a" data-g430-variant="a3" className={styles.card}>
+  return <section aria-labelledby={headingId} data-tutorial-id="tutorial-planning-accounts" data-account-status-card="b" data-g417-variant="a" data-g489-variant="e" className={styles.card}>
     <div className={styles.listHeading}><h2 id={headingId}>By account</h2><p className={styles.period}>{periodLabel}</p></div>
     {<>
-      {allClear && <p data-all-clear className={styles.allClear}><Check size={16} aria-hidden="true" />{plansStatus === "ready" || !finePaymentsOnly ? "Every account covers its payments and linked plans." : "Every account covers its payments. Plans are still to be checked."}</p>}
       {attention.map(({ account, reading }) => <AccountRow key={account.id} account={account} reading={reading} onOpen={onOpen} />)}
       {fine.length > 0 && <div data-fine-group className={styles.fineGroup}>
-        <button type="button" data-fine-fold aria-expanded={open} aria-controls={regionId} onClick={toggle} className={styles.fineToggle}><span>{foldLabel}</span><ChevronDown size={16} aria-hidden="true" className={`${open ? styles.rotated : ""} ${animate ? "transition-transform motion-reduce:transition-none" : ""}`} /></button>
+        <button type="button" data-fine-fold data-balanced-row="other-account-fold" aria-expanded={open} aria-controls={regionId} onClick={toggle} className={styles.fineToggle}><span data-row-content className={styles.fineToggleContent}><span>{foldLabel}</span><ChevronDown size={16} aria-hidden="true" className={`${open ? styles.rotated : ""} ${animate ? "transition-transform motion-reduce:transition-none" : ""}`} /></span></button>
         <div id={regionId} data-fine-region inert={!open} className={`grid ${animate ? "transition-[grid-template-rows,opacity] duration-200 ease-out motion-reduce:transition-none" : ""} ${open ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0"}`}><div className="min-h-0 overflow-hidden"><div className={styles.fineRows}>{fine.map(({ account, reading }) => <AccountRow key={account.id} account={account} reading={reading} onOpen={onOpen} />)}</div></div></div>
       </div>}
     </>}
     {pendingNote}
-    {<p className={styles.listNote}>{hasSuggestedMoves ? "Suggested moves are for you to make. Nothing has been moved." : "Tap an account for its working."}</p>}
   </section>;
 }

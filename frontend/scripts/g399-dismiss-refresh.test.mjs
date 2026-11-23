@@ -32,7 +32,7 @@ assert.ok(move.indexOf("await api.skipUpcomingOccurrence(") < move.indexOf("awai
 // Upcoming's own skip refetches the cashflow after the API resolves.
 const upcoming = body(planning, "function skipOccurrence(", 1400);
 assert.ok(upcoming.indexOf("api.skipUpcomingOccurrence(") < upcoming.indexOf(".then("));
-assert.match(upcoming, /api\.cashflowWithForecast\(\)\.then\(setCashflow\)/);
+assert.match(upcoming, /api\.cashflow\(\)\.then\(setCashflow\)/);
 
 // Edit sheet: operation awaited, then onSaved (the owner's refresh), then close.
 assert.match(editForm, /request\.run\(operation, onDone \?\? onCancel, undefined, async \(\) => \{ invalidateVerdictCache\(\); await onSaved\(\); \}\)/);
@@ -42,7 +42,7 @@ for (const call of ["services.editUpcoming(", "services.clearUpcomingOverride(",
 const run = body(editorSupport, "async function run(", 1400);
 assert.ok(run.indexOf("await operation()") < run.indexOf("await current.refresh()"));
 assert.match(detailFlow, /async function saved\(\) \{ await props\.onRefresh\(\); \}/);
-assert.match(planning, /onSaved=\{\(\) => \{ invalidateVerdictCache\(\); api\.cashflowWithForecast\(\)\.then\(setCashflow\)/);
+assert.match(planning, /onSaved=\{\(\) => \{ invalidateVerdictCache\(\); api\.cashflow\(\)\.then\(setCashflow\)/);
 
 // The Spend verdict client cache is cleared at every site.
 assert.match(unfunded, /invalidateVerdictCache\(\)/);

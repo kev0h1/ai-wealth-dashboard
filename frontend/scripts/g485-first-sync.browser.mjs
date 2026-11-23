@@ -58,7 +58,7 @@ export class ApiError extends Error{constructor(status){super('Synthetic failure
 export const api=new Proxy({getSyncStatus:()=>new Promise((resolve,reject)=>window.requests.push({resolve,reject})),syncAccounts:async()=>{window.syncCalls++},
 accounts:async()=>window.accounts,getInvestmentAccounts:async()=>[],safeToSpend:async()=>window.safe,getToday:async()=>({items:[],account_eligibility:{}}),transactionsSearch:async()=>({items:window.recent,total:window.recent.length,pending_items:[],pending_total:0}),
 getProfile:async()=>({full_name:'Alex Example'}),getSubscription:async()=>({tier:'plus'}),connections:async()=>[],oldestTransaction:async()=>({date:null}),getMirror:async()=>({status:'empty',traits:[]}),getSavingsInsights:async()=>[],getMoneyShape:async()=>null,
-spendVerdict:async()=>window.verdict,spendingSignals:async()=>({}),getMiscategorisedCount:async()=>({count:0,pair_count:0,review_total:0,ids:[]}),cashflowWithForecast:async()=>window.cashflow,
+spendVerdict:async()=>window.verdict,spendingSignals:async()=>({}),getMiscategorisedCount:async()=>({count:0,pair_count:0,review_total:0,ids:[]}),cashflow:async()=>window.cashflow,
 listAllocations:async()=>[],listAccountPlans:async()=>[],dismissedSeries:async()=>({user:[],engine:[]}),allTransactions:async()=>[]},
 {get(o,k){if(k in o)return (...args)=>{window.apiCalls.push(String(k));return o[k](...args)};return async()=>{window.apiCalls.push('UNEXPECTED:'+String(k));return []}}});`,
 };

@@ -23,7 +23,7 @@ import { titleFor, statusFor, humanizeRaw, fmtC, type SetAsideDisplayInput } fro
 // Shared with the design preview (app/design/g124-upcoming-refine/) so the
 // two can't drift — this component takes an already-resolved
 // SetAsideDisplayInput per row rather than the raw Allocation/Account API
-// shapes, the same "props, not raw fetches" boundary UpcomingHeroCard and
+// shapes, the same "props, not raw fetches" boundary UpcomingAccountsCard and
 // UpcomingDayCard already use; PlanningPage.tsx does the Allocation +
 // Account -> SetAsideItem resolution itself (see its own toSetAsideItem
 // helper), and the preview's fixtures are written directly in this shape.

@@ -54,13 +54,14 @@ assert.match(api, /createCardPlan: \(body: \{[\s\S]{0,200}card_account_id: strin
 // ── Upcoming rows: a repayment plan travels as a goal but is worded as a repayment ─
 const upcoming = read("lib/upcomingPlans.ts");
 const detail = read("components/upcoming/UpcomingDetailFlow.tsx");
-const unlinked = read("components/upcoming/UnlinkedGoalPlans.tsx");
+const planCard = read("components/upcoming/UpcomingPlansCard.tsx");
 const icons = read("components/upcoming/detailPrimitives.tsx");
 assert.match(upcoming, /planKind: item\.plan_kind \?\? null/, "the plan flag reaches the row");
 assert.match(icons, /cardPlan \? CreditCard : kind === "goal" \? Target : Wallet/, "a repayment plan gets the card icon, not the goal target");
 assert.match(detail, /Your card repayment plan/, "the sheet subtitle says repayment plan");
 assert.match(detail, /<PlanIcon kind="goal" cardPlan=\{Boolean\(plan\.planKind\)\} \/>/);
-assert.match(unlinked, /Repayment plans needing a paying account/);
+assert.match(planCard,/Repayment plans/);
+assert.ok(planCard.includes("cardPlan={Boolean(plan?.planKind)}"),"the live combined card keeps the repayment icon");
 assert.match(read("components/PaydayPlanCard.tsx"), /"repayment plan"/, "the payday plan names it a repayment plan, not a goal");
 assert.match(page, /setEditingPlan\(repayment\)/, "a plan deep link opens the plan, not a missing goal");
 
@@ -68,19 +69,26 @@ assert.match(page, /setEditingPlan\(repayment\)/, "a plan deep link opens the pl
 const facts = {
   card_name: "Example Amex", balance_owed: 600, this_period_planned: 150, paid_this_period: 60,
   would_clear_by: "Feb 2027", would_clear_by_month: "2027-02",
-  promo: { until: "2027-01-31", balance: 450, balance_is_offer: true, planned_by_end: 600, clears_before_end: true },
+  promo: { until: "2027-01-31", balance: 450, balance_is_offer: true, planned_by_end: 600, residual_at_end: 0, clears_before_end: true },
 };
 assert.equal(planAmountLine(facts, "monthly"), "£150 each pay period (monthly)");
 assert.equal(planAmountLine(facts, null), "£150 a pay period");
 assert.equal(planAmountLine(null, null), "Amount unavailable");
-assert.equal(paidLine(facts), "£60.00 paid this pay period");
+assert.equal(paidLine(facts), "£60.00 paid to this card this pay period");
 assert.equal(paidLine({ ...facts, paid_this_period: 0 }), "Nothing paid yet this pay period");
 assert.equal(projectedMonthLine(facts), "At this pace it would clear by about Feb 2027", "the clear-by month is hedged");
 assert.equal(projectedMonthLine({ ...facts, would_clear_by: null }), null, "no month, no claim");
 assert.match(offerLine(facts), /ends 31 Jan 2027\. The plan would pay about £600 by 31 Jan 2027, which would cover the offer balance of about £450\./, "the offer is a fact with a date");
-const short = { ...facts, promo: { ...facts.promo, planned_by_end: 400, clears_before_end: false } };
+const short = { ...facts, promo: { ...facts.promo, planned_by_end: 400, residual_at_end: 50, clears_before_end: false } };
 assert.match(offerLine(short), /would leave about £50 of the offer balance when it ends\./, "a shortfall is stated as a fact");
 assert.equal(offerLine({ ...facts, promo: null }), null);
+assert.equal(paidLine({ ...facts, paid_this_period: undefined }), "Payment data unavailable", "missing payment data is not an observed zero");
+assert.equal(planAmountLine({ status: "pending" }, "monthly"), "Preparing plan figures");
+const future = { ...facts, this_period_planned: 0, display_period_planned: 30.71,
+  paid_this_period: 0, schedule_state: "not_started", starts_on: "2026-11-27" };
+assert.equal(planAmountLine(future, "monthly"), "£30.71 each pay period (monthly) from 27 Nov 2026", "G492 distinguishes the real schedule from a not-yet-started current period");
+assert.equal(paidLine(future), "Repayments count from 27 Nov 2026");
+assert.equal(offerLine({ ...facts, promo: { ...facts.promo, residual_at_end: undefined } }), "Offer projection unavailable", "the browser never invents a residual");
 assert.equal(prefillBasisLine("direct_debit", true), "About, from your usual direct debit. Change it if you like.");
 assert.equal(prefillBasisLine("fixed_payment", false), "From the fixed payment on this card. Change it if you like.");
 assert.equal(prefillBasisLine(null, false), null);

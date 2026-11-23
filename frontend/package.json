@@ -3,6 +3,8 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "check:g488-loading-gates": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g488-loading-gates.test.mjs",
+    "check:g487-upcoming-no-hero": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g487-upcoming-no-hero.test.mjs",
     "check:g486-upcoming-available": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g486-upcoming-available.test.mjs",
     "check:g485-first-sync": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g485-first-sync.test.mjs",
     "check:g483-welcome-screen": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g483-welcome-screen.test.mjs",
@@ -128,7 +130,6 @@
     "check:g176-account-status": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g176-account-status.test.mjs",
     "check:g176-attention": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g176-attention.test.mjs",
     "check:g329-client-period-leftovers": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g329-client-period-leftovers.test.mjs",
-    "check:g386-hero-no-flip": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g386-hero-no-flip.test.mjs",
     "check:g327-upcoming-period": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g327-upcoming-period.test.mjs",
     "check:g360-one-account-walk": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g360-one-account-walk.test.mjs",
     "check:g410-earmark": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g410-earmark.test.mjs",
@@ -195,7 +196,6 @@
     "check:g275-aim-first-load": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g275-aim-first-load.test.mjs",
     "check:g218-figure-tone": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g218-figure-tone.test.mjs",
     "check:g287-sts-tone": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g287-forecast.test.mjs",
-    "check:g331-upcoming-zero": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g331-upcoming-zero.test.mjs",
     "check:g268-charts-default": "node --no-warnings --experimental-strip-types --experimental-loader ./scripts/_ts-extensionless-loader.mjs scripts/g268-charts-default.test.mjs",
     "check:g264-jump-strip": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g264-jump-strip.test.mjs",
     "check:g272-investment-flow": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g272-investment-flow.test.mjs",
@@ -271,7 +271,8 @@
     "check:g395-bank-coverage": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g395-bank-coverage.test.mjs",
     "check:g399-dismiss-refresh": "node --no-warnings scripts/g399-dismiss-refresh.test.mjs",
     "check:g421-cancel-refresh": "node --no-warnings scripts/g421-cancel-refresh.test.mjs",
-    "check:g421-cover-rows": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g421-cover-rows.test.mjs"
+    "check:g421-cover-rows": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g421-cover-rows.test.mjs",
+    "check:g489-approved-upcoming": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g489-approved-upcoming.test.mjs"
   },
   "dependencies": {
     "@aparajita/capacitor-biometric-auth": "^10.0.0",

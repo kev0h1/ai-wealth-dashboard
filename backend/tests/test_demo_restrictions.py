@@ -324,6 +324,8 @@ DEMO_ALLOWED = {
     ("PATCH", "/savings/manual-account/{acc_id}"): _R7,
     ("POST", "/spend/intent-preview"): _R9,
     ("DELETE", "/spend/intent/{category}"): _R9,
+    ("POST", "/spend/overspend/one-off"): _R9,
+    ("DELETE", "/spend/overspend/one-off"): _R9,
     ("POST", "/spend/verdict/dismiss-unresolved"): _R9,
     ("POST", "/statement/upload"): _R8,
     ("PATCH", "/subscription/admin/set-tier"): _R10,

@@ -1,5 +1,6 @@
 "use client";
 
+import { clearCachedFirstName } from "@/lib/firstNameCache";
 import { createContext, useContext, useEffect, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { Capacitor } from "@capacitor/core";
@@ -445,6 +446,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       localStorage.removeItem("reconnect_expected"); // holds a provider, an account id, and a masked last-4 only
       clearPendingConsent(localStorage); // A193: an unfinished bank-connect marker must not outlive the session
+      clearCachedFirstName(localStorage); // G488: the greeting name must not outlive the session
       localStorage.removeItem("wd_bracket"); // income tax bracket
       localStorage.removeItem("tax_checklist_done"); // per-user tax checklist progress
       sessionStorage.removeItem(FINE_FOLD_KEY); // G229: Upcoming "By account" fold memory

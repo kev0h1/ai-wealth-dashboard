@@ -11,7 +11,6 @@ import { useSheetA11y } from "@/lib/useSheetA11y";
 import { useSheetOpen } from "@/lib/useSheetOpen";
 import UpcomingDetailsSheet from "@/components/upcoming/UpcomingDetailsSheet";
 import UpcomingRowDetails from "@/components/upcoming/UpcomingRowDetails";
-import UpcomingHeroCard from "@/components/upcoming/UpcomingHeroCard";
 import UpcomingAccountsCard from "@/components/upcoming/UpcomingAccountsCard";
 import UpcomingAccountDetails from "@/components/upcoming/UpcomingAccountDetails";
 import { canDismissUpcomingOccurrence } from "@/lib/upcomingAttention";
@@ -228,13 +227,6 @@ function Preview({ variant, scenario, mode }: { variant: Variant; scenario: Scen
         <div className="grid items-start gap-8 lg:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)] lg:gap-10">
           <div data-account-summary className="space-y-6 lg:sticky lg:top-6">
             {variant === "c" ? <>
-              <UpcomingHeroCard
-                isCalendarMonth={false} daysToPayday={2} paydayLabel="Thu 1 Oct"
-                spendableNow={forecast.cash / 100} runwayIncomeTotal={0}
-                runwayBillsTotal={forecast.outgoing / 100} allocationsRemainingTotal={0}
-                savingsNow={0} runway={forecast.closing / 100}
-                runwayStatus={forecast.closing < 0 ? "short" : forecast.closing === 0 ? "even" : "left"}
-              />
               <UpcomingAccountsCard accounts={accountSummaries} periodLabel="Payments through Wed 30 Sept" onOpen={(item) => setSelected({ kind: "account", id: item.id as AccountId })} />
             </> : <>
               <Verdict forecast={forecast} />
@@ -251,7 +243,7 @@ function Preview({ variant, scenario, mode }: { variant: Variant; scenario: Scen
         </div>
         <footer className="mt-10 border-t border-slate-300 pt-5 text-xs leading-5 text-slate-600 dark:border-slate-700 dark:text-slate-400">
           <p><span className="font-semibold">{variant.toUpperCase()} · {note.name}.</span> {note.description}</p>
-          {variant === "c" && <p className="mt-2">Approved direction. The hero, By account view, account working, day groups and payment details all render the production components with invented figures.</p>}
+          {variant === "c" && <p className="mt-2">Approved direction. The By account view, account working, day groups and payment details all render the production components with invented figures.</p>}
           <p className="mt-2">G176 design example. Invented accounts and figures; no incoming money, overdraft or unlisted payments. Change the example above to compare mixed, short and covered accounts.</p>
         </footer>
       </main>

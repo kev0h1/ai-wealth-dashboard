@@ -41,7 +41,7 @@ import logging
 import math
 import re
 from collections import defaultdict
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time, timedelta, timezone
 
 from fastapi import HTTPException
 
@@ -92,6 +92,23 @@ def card_link_matches(card_id: str, txn: dict) -> bool:
     return bool(card_id) and isinstance(link, dict) and str(link.get("card_account_id") or "") == str(card_id)
 
 
+def payment_matches(doc: dict, txn: dict) -> bool:
+    """A reconciled card identity outranks a broad narrative match.
+
+    G492: two cards can share a bank's payment wording. A debit already linked
+    to the other card must never fulfil this plan just because its text also
+    matches. Non-card goal rules retain their existing semantics.
+    """
+    card_id = str(doc.get("card_account_id") or "") if doc.get("plan_kind") == "card_repayment" else ""
+    if card_id:
+        marker = txn.get("own_transfer_match") or {}
+        link = marker.get("card_repayment") if isinstance(marker, dict) else None
+        if isinstance(link, dict) and link.get("card_account_id"):
+            return str(link["card_account_id"]) == card_id
+    rule = doc.get("fill_rule")
+    return bool(isinstance(rule, dict) and rule_matches(rule, txn))
+
+
 def display_name(txn: dict) -> str:
     return clean_name((txn.get("merchant_name") or "").strip() or (txn.get("description") or ""))
 
@@ -126,12 +143,15 @@ def tracking_start(doc: dict) -> date | None:
 
 def _day(t: dict):
     d = t.get("date")
-    return d.date() if hasattr(d, "date") else d
+    return timeutil.to_user_date(d) if isinstance(d, datetime) else d
 
 
 def _bounds(start: date, end: date) -> tuple[datetime, datetime]:
-    return (datetime(start.year, start.month, start.day),
-            datetime(end.year, end.month, end.day, 23, 59, 59))
+    # Mongo dates are naive UTC; a London start during BST is 23:00 UTC on
+    # the preceding day. Include the final microsecond, not only second 59.
+    lo = datetime.combine(start, time.min, timeutil.LONDON).astimezone(timezone.utc).replace(tzinfo=None)
+    hi = datetime.combine(end + timedelta(days=1), time.min, timeutil.LONDON).astimezone(timezone.utc).replace(tzinfo=None)
+    return lo, hi - timedelta(microseconds=1)
 
 
 async def _load(uid: str, account_ids: list[str], kind: str, start: date, end: date) -> list[dict]:
@@ -192,8 +212,19 @@ def claims_debit(me: dict, rivals: list[dict], txn: dict, my_expected_pence: int
     penny) wins, otherwise the earliest-created. Every plan evaluates the same
     inputs, so `_pot_progress_and_slice` and `/account-plans` always agree.
     `me` and each rival: {doc, expected_pence}."""
+    day = _day(txn)
+
+    def eligible(candidate: dict) -> bool:
+        begins = tracking_start(candidate["doc"])
+        return begins is None or (isinstance(day, date) and day >= begins)
+
+    # G492: a future plan cannot win an earlier debit and then discard it in
+    # its own start-date filter. Use the debit's London day in every caller,
+    # including historical progress and the current source reservation.
+    if not eligible(me):
+        return False
     amount_pence = int(round(abs(float(txn.get("amount") or 0)) * 100))
-    field = [me] + [r for r in rivals if rule_matches(r["rule"], txn)]
+    field = [me] + [r for r in rivals if eligible(r) and rule_matches(r["rule"], txn)]
     exact = [c for c in field if c["expected_pence"] == amount_pence]
     pool = exact or field
     winner = min(pool, key=lambda c: _created_key(c["doc"]))
@@ -228,12 +259,12 @@ async def period_fulfilment(
         start = begin
     debits = await _load(uid, [source_id], "debit", start, window_end)
     hits = sorted(
-        (t for t in debits if (rule is not None and rule_matches(rule, t)) or card_link_matches(card_id, t)),
+        (t for t in debits if payment_matches(doc, t)),
         key=lambda t: t["date"],
     )
     if rivals:
         me = {"doc": doc, "rule": rule, "expected_pence": expected_pence}
-        hits = [t for t in hits if claims_debit(me, rivals, t, me["expected_pence"])]
+        hits = [t for t in hits if card_link_matches(card_id, t) or claims_debit(me, rivals, t, me["expected_pence"])]
     matched_pence = sum(int(round(abs(float(t.get("amount") or 0)) * 100)) for t in hits)
     matched = matched_pence / 100
     verdict = assess(expected_pence, matched_pence, exact=exact)

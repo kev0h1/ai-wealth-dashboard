@@ -444,31 +444,31 @@ def test_the_debt_plan_walk_follows_the_plan_and_pays_nothing_after_it_ends():
     assert debt_plan._amortise(600.0, 999.0, TODAY, [], predicted_by_month=short)["payoff_month"] is None
 
 
-def test_the_plan_row_carries_a_hedged_clear_by_month_and_the_offer_fact(monkeypatch):
+def test_the_plan_row_reads_its_hedged_projection_from_storage(monkeypatch):
+    from app.services import card_plan_store
     plan = _plan()
-    monkeypatch.setattr(commitments, "commitments_col", _Collection([plan]))
-    terms = {"user_id": UID, "account_id": "card", "promos": [
-        {"kind": "balance_transfer", "until": "2027-01-31", "apr_pct": 0, "balance": 450.0},
-    ]}
-    monkeypatch.setattr(dbc, "card_terms_col", _Rows([terms]))
+    facts = {
+        "status": "ready", "would_clear_by": "Feb 2027", "paid_this_period": 60.0,
+        "this_period_planned": 150.0,
+        "promo": {"until": "2027-01-31", "balance": 450.0, "balance_is_offer": True,
+                  "planned_by_end": 540.0, "residual_at_end": 0.0, "clears_before_end": True},
+    }
 
-    async def cached(uid):
-        return {"cards": [{"account_id": "card", "name": "Example Amex Alpha", "debt": 600.0, "payoff_month": "2027-02"}]}
-    monkeypatch.setattr(commitments, "get_debt_plan_cached", cached)
-    item = {"fulfilment": {"expected_pence": 15000, "matched_pence": 6000}, "this_period_amount": 150.0}
+    async def stored(uid):
+        assert uid == UID
+        return {"status": "ok", "as_of": "2026-10-12", "plans": {str(plan["_id"]): facts}}
+
+    async def forbidden(*args, **kwargs):
+        raise AssertionError("a plan row must not calculate a debt projection on load")
+
+    monkeypatch.setattr(card_plan_store, "read", stored)
+    monkeypatch.setattr(commitments, "get_debt_plan_cached", forbidden)
+    # Deliberately different generic values prove the read cannot silently
+    # recalculate from a second source instead of its coherent stored facts.
+    item = {"fulfilment": {"expected_pence": 0, "matched_pence": 0}, "this_period_amount": 0.0}
     asyncio.run(commitments._attach_card_plans(UID, [item], [plan], CFG, TODAY))
-    facts = item["card_plan"]
-    assert facts["would_clear_by"] == "Feb 2027" and facts["paid_this_period"] == 60.0
-    assert facts["this_period_planned"] == 150.0
-    # 12 Oct, 1 Nov, 1 Dec and 1 Jan fall on or before 31 Jan: 600 against a 450 offer.
-    promo = facts["promo"]
-    assert promo["until"] == "2027-01-31" and promo["balance"] == 450.0 and promo["balance_is_offer"] is True
-    assert promo["planned_by_end"] == 600.0 and promo["clears_before_end"] is True
-    short = _plan(schedule=_schedule(pence=10000))
-    item2 = {"fulfilment": None, "this_period_amount": 100.0}
-    asyncio.run(commitments._attach_card_plans(UID, [item2], [short], CFG, TODAY))
-    # 4 x 100 reaches 400 by 31 Jan, short of the 450 on the offer.
-    assert item2["card_plan"]["promo"]["planned_by_end"] == 400.0 and item2["card_plan"]["promo"]["clears_before_end"] is False
+    assert item["card_plan"] is facts
+    assert item["card_plan"]["promo"]["planned_by_end"] == 540.0
 
 
 def test_a_card_plan_is_never_eased(monkeypatch):

@@ -52,8 +52,8 @@ ALLOWLIST: set[tuple[str, int]] = {
     # ValueError raised by app.services.spend_impact.compute_intent_preview /
     # app.services.checkpoints.delete_intent with an authored message
     # ("'<category>' is not currently over usual, nothing to preview", etc.)
-    ("app/routers/spend_verdict.py", 79),
-    ("app/routers/spend_verdict.py", 95),
+    ("app/routers/spend_verdict.py", 125),
+    ("app/routers/spend_verdict.py", 141),
     # ValueError raised by app.services.checkpoints.create_checkpoint /
     # record_intent / update_checkpoint (G242 PATCH) with an authored message
     # ("ref must be a non-empty category name", "aim_amount must be a
@@ -146,7 +146,9 @@ ALLOWLIST: set[tuple[str, int]] = {
     # app/services/goal_schedule.py ("The end date is before the start date."),
     # forwarded to the user as a 400 or a Penny tool error; the HTTPException
     # sites below carry commitments._validate_name's authored detail.
-    ("app/routers/commitments.py", 1328),
+    # G492 shortens stored card-plan attachment above this unchanged helper;
+    # same authored validation forward, verified against the base AST.
+    ("app/routers/commitments.py", 1282),
     ("app/services/penny_goal_schedule.py", 506),
     ("app/services/penny_goal_schedule.py", 1015),
     ("app/services/penny_goal_schedule.py", 1066),

@@ -58,7 +58,7 @@ def replaces_prediction(doc: dict | None) -> bool:
     )
 
 
-async def active_card_plans(uid: str, today: date | None = None) -> dict[str, dict]:
+async def active_card_plans(uid: str, today: date | None = None, *, include_future: bool = False) -> dict[str, dict]:
     """{card_account_id: plan doc} for every plan that replaces its card's
     prediction. The oldest plan wins if a duplicate ever slipped through. A plan
     whose schedule has run out (the last pay period it asks for is over) stops
@@ -82,9 +82,30 @@ async def active_card_plans(uid: str, today: date | None = None) -> dict[str, di
         first = min((due for due, _a in goal_schedule.events(doc["schedule"], cfg)), default=None)
         # A plan that asks for nothing yet (its first payment is in a later pay
         # period) reserves nothing, so it must not hide the card's prediction.
-        if last is not None and last >= today and first is not None and first <= period_end:
+        if last is not None and last >= today and first is not None and (include_future or first <= period_end):
             out.setdefault(str(doc["card_account_id"]), doc)
     return out
+
+
+async def forecast_card_plans(uid: str, today: date | None = None) -> dict[str, dict]:
+    """Future plans affect future forecasts without reserving money today."""
+    return await active_card_plans(uid, today, include_future=True)
+
+
+def signed_card_balance(card: dict, *, manual: bool = False) -> float | None:
+    """The same signed balance and field precedence for every plan reader."""
+    for field in (("balance",) if manual else ("balance", "current_balance", "available_balance")):
+        value = card.get(field)
+        if value is None:
+            continue
+        if isinstance(value, bool):
+            return None
+        try:
+            value = float(value)
+        except (TypeError, ValueError):
+            return None
+        return value if math.isfinite(value) else None
+    return None
 
 
 async def owed_balance(uid: str, card_id: str) -> float | None:
@@ -107,16 +128,8 @@ async def owed_balance(uid: str, card_id: str) -> float | None:
             # `balance`). A field that is absent or None is skipped, and if none
             # is readable the answer is None, never 0, so a missing balance can
             # not drop the reserve.
-            for field in (("balance",) if manual else ("balance", "current_balance", "available_balance")):
-                value = doc.get(field)
-                if value is None:
-                    continue
-                try:
-                    raw = float(value)
-                except (TypeError, ValueError):
-                    return None
-                return max(0.0, -raw) if raw == raw else None
-            return None
+            raw = signed_card_balance(doc, manual=manual)
+            return max(0.0, -raw) if raw is not None else None
     return None
 
 
@@ -159,19 +172,56 @@ def replace_planned_card_bills(
     return kept, dropped
 
 
-def plan_month_amounts(schedule: dict, cfg: dict, today: date, horizon: int) -> dict[int, float]:
+def remaining_plan_events(
+    schedule: dict, cfg: dict, today: date, *, paid_this_period_pence: int = 0,
+) -> list[tuple[date, int]]:
+    """The same unpaid schedule used by the offer and debt projections.
+
+    A period payment is due for the whole pay period. An unpaid event whose
+    nominal date has passed is still reserved, so project it from today rather
+    than silently losing it. Payments already made consume the current
+    period's events in order; later periods are untouched. Previous periods
+    do not roll over, matching the reservation engine.
+    """
+    start, end = get_pay_period_for_date(today, cfg)
+    paid = max(0, int(paid_this_period_pence))
+    out: list[tuple[date, int]] = []
+    for due, pence in sorted(goal_schedule.events(schedule, cfg)):
+        if due < start:
+            continue
+        if due <= end:
+            used = min(paid, pence)
+            paid -= used
+            pence -= used
+            due = max(today, due)
+        if pence > 0:
+            out.append((due, pence))
+    return out
+
+
+def plan_month_amounts(
+    schedule: dict, cfg: dict, today: date, horizon: int, *, paid_this_period_pence: int = 0,
+    prior_payments: list[tuple[date, int]] | None = None,
+) -> dict[int, float]:
     """{month index 1..horizon: pounds} for the debt plan's month walk, from the
     schedule's own events. Month 1 is next month (an event still to come this
     month counts in month 1, as the debt plan's other predicted payments do).
     Months after the schedule ends are 0: the plan pays nothing there, so the
     walk never falls back to a usual payment the plan has replaced."""
     out = {i: 0.0 for i in range(1, horizon + 1)}
-    for due, pence in goal_schedule.events(schedule, cfg):
-        if due < today:
-            continue
+    for due, pence in remaining_plan_events(
+        schedule, cfg, today, paid_this_period_pence=paid_this_period_pence,
+    ):
         i = max(1, (due.year * 12 + due.month) - (today.year * 12 + today.month))
         if i <= horizon:
             out[i] = round(out[i] + pence / 100, 2)
+    first = min((d for d, _a in goal_schedule.events(schedule, cfg)), default=None)
+    cutoff = get_pay_period_for_date(first, cfg)[0] if first else today
+    for due, pence in prior_payments or []:
+        if today <= due < cutoff:
+            i = max(1, (due.year * 12 + due.month) - (today.year * 12 + today.month))
+            if i <= horizon:
+                out[i] = round(out[i] + max(0, pence) / 100, 2)
     return out
 
 

@@ -43,13 +43,14 @@ function render(hidden, account = two) {
   return renderToStaticMarkup(h(BalancesHiddenContext.Provider, { value: hidden }, h(UpcomingAccountsCard, { accounts: [account], periodLabel: "this pay period", onOpen() {}, plans, plansStatus: "ready" })));
 }
 const shown = render(false);
-assert.match(shown, /data-account-summary/);
-assert.match(shown.replace(/<[^>]+>/g, ""), /£270 to move in/);
+assert.doesNotMatch(shown,/data-account-summary/);
+assert.doesNotMatch(shown.replace(/<[^>]+>/g,""),/£270 to move in/);
+assert.match(shown,/aria-haspopup="dialog"/,"G489 opens the existing detailed recommendation");
 assert.doesNotMatch(shown, /data-move-rows|data-source-bank|data-source-name|data-savings-source/);
 assert.doesNotMatch(shown, /Your Barclays account|Starling Personal/);
 assert.doesNotMatch(shown, /RAW HOLDER NAME/);
 const masked = render(true);
-assert.match(masked, /data-account-summary/);
+assert.doesNotMatch(masked,/data-account-summary/);
 assert.doesNotMatch(masked, /£270|£200|£70/, "the aggregate summary is masked");
 
 // The engine's source rows remain available to the detail sheet, but not to
@@ -60,7 +61,7 @@ const sharedName = withLegs([
   { ...leg("savings", 70, "BARCLAYS PERSONAL GBP"), savings: true },
 ]);
 const sharedMarkup = render(false, sharedName);
-assert.match(sharedMarkup, /data-account-summary/);
+assert.doesNotMatch(sharedMarkup,/data-account-summary/);
 assert.doesNotMatch(sharedMarkup, /data-move-rows|data-source-bank|data-source-name|data-savings-source|From savings, a suggestion/);
 assert.doesNotMatch(sharedMarkup, /Barclays Personal GBP/);
 assert.deepEqual(accountMoveRows(suggestedMovesFor(sharedName)), [

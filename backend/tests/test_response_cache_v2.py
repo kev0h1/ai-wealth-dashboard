@@ -325,6 +325,14 @@ def test_warm_user_writes_every_entry_under_new_version(monkeypatch):
             return payload
         return _compute
 
+    async def _progress(uid):
+        calls.append("card_plan_progress")
+        assert uid == UID
+        # G492 has its own durable collection. A successful warm must not
+        # turn it into an ordinary response_cache entry.
+        return {"status": "ok"}
+
+    monkeypatch.setattr(warmup, "_compute_card_plan_progress", _progress)
     monkeypatch.setattr(warmup, "_compute_today", _mock("today", {"status": "ok", "items": []}, self_caching=False))
     monkeypatch.setattr(warmup, "_compute_cover_plan", _mock("cover_plan", {"status": "ok", "items": []}, self_caching=False))
     monkeypatch.setattr(warmup, "_compute_safe_to_spend", _mock("safe_to_spend", {"status": "ok"}, self_caching=False))
@@ -339,18 +347,19 @@ def test_warm_user_writes_every_entry_under_new_version(monkeypatch):
         result = await warmup.warm_user(UID)
         assert result["failed"] == []
         assert sorted(result["warmed"]) == sorted(
-            ["today", "cover_plan", "safe_to_spend", "spend_verdict:0", "miscategorised_list", "miscategorised_count:0", "grow", "commitments"]
+            ["card_plan_progress", "today", "cover_plan", "safe_to_spend", "spend_verdict:0", "miscategorised_list", "miscategorised_count:0", "grow", "commitments"]
         )
         after = await data_version.current(UID)
         assert after == before + 1  # warm_user's own bump, nothing else touched it
 
+        assert await response_cache.aget("card_plan_progress", UID) is None
         for name in ("today", "cover_plan", "safe_to_spend", "spend_verdict:0", "miscategorised_list", "miscategorised_count:0", "grow", "commitments"):
             cached = await response_cache.aget(name, UID)
             assert cached is not None, f"{name} was not warmed"
 
     asyncio.run(go())
     assert set(calls) == {
-        "today", "cover_plan", "safe_to_spend", "spend_verdict:0", "miscategorised_list", "miscategorised_count:0", "grow", "commitments",
+        "card_plan_progress", "today", "cover_plan", "safe_to_spend", "spend_verdict:0", "miscategorised_list", "miscategorised_count:0", "grow", "commitments",
     }
 
 
@@ -365,6 +374,10 @@ def test_warm_user_tolerates_one_step_failing(monkeypatch):
     async def _ok(uid):
         return {"ok": True}
 
+    async def _progress_ok(uid):
+        return {"status": "ok"}
+
+    monkeypatch.setattr(warmup, "_compute_card_plan_progress", _progress_ok)
     monkeypatch.setattr(warmup, "_compute_today", _ok)
     monkeypatch.setattr(warmup, "_compute_cover_plan", _ok)
     monkeypatch.setattr(warmup, "_compute_safe_to_spend", _ok)
@@ -405,6 +418,10 @@ def test_warm_user_single_flight_shares_one_run(monkeypatch):
     async def _ok(uid):
         return {"ok": True}
 
+    async def _progress_ok(uid):
+        return {"status": "ok"}
+
+    monkeypatch.setattr(warmup, "_compute_card_plan_progress", _progress_ok)
     monkeypatch.setattr(warmup, "_compute_today", _slow_today)
     monkeypatch.setattr(warmup, "_compute_safe_to_spend", _ok)
     monkeypatch.setattr(warmup, "_compute_spend_verdict", _ok)

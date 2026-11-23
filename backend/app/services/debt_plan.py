@@ -344,6 +344,37 @@ def _compute_rate_schedule(
     return segments, standard_apr
 
 
+def _payments_before_plan(bills: list[dict], today: date, cutoff: date) -> list[tuple[date, int]]:
+    """Keep the ordinary dated payment only before a future plan takes over.
+
+    Reuse the mapper's actual interval or the confirmed fixed monthly bill.
+    Unknown cadence contributes only its one known dated bill, never a guessed
+    repeat. The activation boundary is the first plan pay period, the same
+    boundary used by today's reservation replacement.
+    """
+    out = []
+    for bill in bills:
+        try:
+            first = date.fromisoformat(str(bill.get('next_date') or '')[:10])
+            pence = max(0, int(round(float(bill.get('amount') or 0) * 100)))
+        except (TypeError, ValueError):
+            continue
+        due = first
+        for n in range(HORIZON_MONTHS * 31):
+            if due >= cutoff:
+                break
+            if due >= today and pence:
+                out.append((due, pence))
+            if bill.get('_fixed_monthly'):
+                month = _add_months(first, n + 1)
+                due = date(month.year, month.month, min(first.day, calendar.monthrange(month.year, month.month)[1]))
+            elif bill.get('_interval_days'):
+                due += timedelta(days=max(2, int(bill['_interval_days'])))
+            else:
+                break
+    return sorted(out)
+
+
 async def _map_upcoming_bills_to_cards(
     uid: str,
     today: date,
@@ -505,6 +536,7 @@ async def _map_upcoming_bills_to_cards(
                         "confidence": confidence,
                         "matched": n_matched,
                         "occurrences": n_total,
+                        "_interval_days": interval_days,
                     })
                     recorded_occurrence = True
                 cur_d += timedelta(days=interval_days)
@@ -1526,7 +1558,8 @@ async def compute_debt_plan(uid: str) -> dict:
             predicted_by_card[aid] = {**predicted_by_card.get(aid, {}), month_index: amount}
         bills_by_card[aid] = [{"name": "Statement payment", "amount": amount,
                                "next_date": due.isoformat(), "confidence": 1.0,
-                               "estimated": True, "matched": 0, "occurrences": 0}]
+                               "estimated": True, "matched": 0, "occurrences": 0,
+                               "_fixed_monthly": bill.get("payment_method") == "fixed"}]
         ambiguous_card_ids.discard(aid)
 
     # G475: a card with a repayment plan is projected from the plan alone. The
@@ -1534,15 +1567,34 @@ async def compute_debt_plan(uid: str) -> dict:
     # walk never counts a usual payment on top of what the plan pays.
     planned_cards: set[str] = set()
     planned_info: dict[str, dict] = {}
+    planned_prior: dict[str, tuple[dict, date]] = {}
     try:
         from app.services import card_repayment_plans, goal_schedule
         card_ids_here = {str(a["_id"]) for a in cc_accounts}
-        for aid, plan_doc in (await card_repayment_plans.active_card_plans(uid)).items():
+        for aid, plan_doc in (await card_repayment_plans.forecast_card_plans(uid)).items():
             if aid not in card_ids_here:
                 continue
-            months = card_repayment_plans.plan_month_amounts(plan_doc["schedule"], pay_cfg, today, HORIZON_MONTHS)
+            # G492: the bank balance already contains booked repayments. Only
+            # the unpaid part of this period may be projected a second time.
+            # Use the reservation engine's own matching and tracking start.
+            from app.routers.commitments import _plan_fulfilment
+            from app.services.pay_period import get_pay_period_for_date
+            ps, pe = get_pay_period_for_date(today, pay_cfg)
+            due = goal_schedule.period_amount(plan_doc["schedule"], ps, pe, pay_cfg)
+            fulfilment = await _plan_fulfilment(plan_doc, due / 100, ps, pe, exact=True)
+            paid = int((fulfilment or {}).get("matched_pence") or 0)
+            first = min(d for d, _a in goal_schedule.events(plan_doc["schedule"], pay_cfg))
+            activation = get_pay_period_for_date(first, pay_cfg)[0]
+            prior = _payments_before_plan(bills_by_card.get(aid, []), today, activation)
+            months = card_repayment_plans.plan_month_amounts(
+                plan_doc["schedule"], pay_cfg, today, HORIZON_MONTHS,
+                paid_this_period_pence=paid, prior_payments=prior,
+            )
+            planned_prior[aid] = (dict(predicted_by_card.get(aid, {})), activation)
             predicted_by_card[aid] = months
-            upcoming = next(((d, a) for d, a in sorted(goal_schedule.events(plan_doc["schedule"], pay_cfg)) if d >= today and a > 0), None)
+            upcoming = next(iter(card_repayment_plans.remaining_plan_events(
+                plan_doc["schedule"], pay_cfg, today, paid_this_period_pence=paid,
+            )), None)
             bills_by_card[aid] = [{
                 "name": "Repayment plan", "amount": round((upcoming[1] if upcoming else 0) / 100, 2),
                 "next_date": upcoming[0].isoformat() if upcoming else None,
@@ -1553,6 +1605,7 @@ async def compute_debt_plan(uid: str) -> dict:
             planned_info[aid] = {
                 "schedule": goal_schedule.schedule_label(plan_doc["schedule"]),
                 "next_payment": round((upcoming[1] if upcoming else 0) / 100, 2),
+                "starts_on": first.isoformat(),
             }
     except Exception as _plan_exc:
         log.warning("debt_plan: card repayment plans unavailable: %s", _plan_exc)
@@ -1566,7 +1619,8 @@ async def compute_debt_plan(uid: str) -> dict:
             acc.get("nickname") or acc.get("display_name") or acc.get("name") or "Credit card"
         ).strip()
 
-        raw_balance = float(acc.get("balance") or 0.0)
+        from app.services.card_repayment_plans import signed_card_balance
+        raw_balance = signed_card_balance(acc) or 0.0
         debt = -raw_balance if raw_balance < 0 else 0.0
         available = acc.get("available")
         if available is not None:
@@ -1591,6 +1645,22 @@ async def compute_debt_plan(uid: str) -> dict:
 
         # 1. Movement
         movement = _compute_movement(today, pay_cfg, txns, flags)
+        if aid in planned_prior:
+            old_months, activation = planned_prior[aid]
+            # Entire modeled months before a distant plan begins retain the
+            # existing usual-payment forecast. Its transition month uses the
+            # mapper's actual dated occurrences only, not the whole old month
+            # on top of the new schedule.
+            for i in range(1, HORIZON_MONTHS + 1):
+                m = _add_months(today, i)
+                month_end = date(m.year, m.month, calendar.monthrange(m.year, m.month)[1])
+                if month_end >= activation:
+                    break
+                predicted_by_card[aid][i] = max(0.0, float(old_months.get(i, movement.get('monthly') or 0)))
+            if activation > today:
+                flags['assumptions'].append(
+                    'usual payments are projected before the first repayment-plan pay period; the plan replaces them from that period'
+                )
         if movement["monthly"] is not None and movement["monthly"] < 0:
             flags["assumptions"].append(
                 "spending on this card currently outpaces payments, projected flat, not growing"
@@ -1707,13 +1777,13 @@ async def compute_debt_plan(uid: str) -> dict:
         # Near-term source: predicted bills or median
         if pbm and debt > 0 and aid in planned_cards:
             near_term_source = "repayment plan"
-            near_term_bills = bills_by_card.get(aid, [])
+            near_term_bills = [{k: v for k, v in b.items() if not k.startswith("_")} for b in bills_by_card.get(aid, [])]
             flags["assumptions"].append(
                 "projected from your repayment plan, which replaces its usual payment"
             )
         elif pbm and debt > 0:
             near_term_source = "upcoming bills"
-            near_term_bills = bills_by_card.get(aid, [])
+            near_term_bills = [{k: v for k, v in b.items() if not k.startswith("_")} for b in bills_by_card.get(aid, [])]
             flags["assumptions"].append(
                 "its usual payment is already in your upcoming bills, the projection's first month uses it"
             )
