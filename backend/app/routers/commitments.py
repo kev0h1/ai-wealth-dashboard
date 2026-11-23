@@ -1176,69 +1176,23 @@ async def _attach_sources(uid: str, items: list[dict], docs: list[dict]) -> None
 
 
 async def _attach_card_plans(uid: str, items: list[dict], docs: list[dict], cfg: dict, today: date) -> None:
-    """G475: the facts a card repayment plan row shows, read from the same
-    sources as everything else: this period's planned and paid figures from the
-    plan's own fulfilment, the month the card would clear from the debt plan
-    (which already follows the plan's schedule), and, when the card has an
-    offer with an end date, whether the plan's payments would reach that
-    offer's balance before it ends. Estimates only; the sheet hedges them.
-    Never fails the list: a missing fact is simply left out."""
+    """G492: attach stored card-plan facts, never calculate progress on load.
+
+    A missing/stale snapshot keeps its readiness state. It must not become a
+    fabricated zero paid or a fresh offer projection. The store schedules the
+    worker; generic goal/reservation semantics above are unchanged.
+    """
     pairs = [(it, d) for it, d in zip(items, docs) if card_repayment_plans.is_card_plan(d)]
     if not pairs:
         return
-    plan = None
-    try:
-        plan = await get_debt_plan_cached(uid)
-    except Exception:
-        logger.warning("commitments: debt plan unavailable for card plans", exc_info=True)
-    cards = {str(c.get("account_id")): c for c in (plan or {}).get("cards", [])}
-    terms: dict[str, dict] = {}
-    try:
-        from app.db.collections import card_terms_col
-        ids = [str(d.get("card_account_id")) for _it, d in pairs]
-        terms = {
-            str(t.get("account_id")): t
-            for t in await card_terms_col.find({"user_id": uid, "account_id": {"$in": ids}}).to_list(None)
-        }
-    except Exception:
-        logger.warning("commitments: card terms unavailable for card plans", exc_info=True)
+    from app.services import card_plan_store
+    snapshot = await card_plan_store.read(uid)
     for item, doc in pairs:
-        cid = str(doc.get("card_account_id") or "")
-        card = cards.get(cid) or {}
-        fulfilment = item.get("fulfilment") or {}
-        this_period = (fulfilment.get("expected_pence") / 100) if fulfilment else item.get("this_period_amount")
-        facts: dict = {
-            "card_name": card.get("name"),
-            "balance_owed": card.get("debt"),
-            "this_period_planned": this_period,
-            "paid_this_period": round((fulfilment.get("matched_pence") or 0) / 100, 2) if fulfilment else 0.0,
-            "would_clear_by_month": card.get("payoff_month") if (card.get("debt") or 0) > 0 else None,
-            "would_clear_by": month_label_to_human(card["payoff_month"]) if card.get("payoff_month") and (card.get("debt") or 0) > 0 else None,
-            "promo": None,
+        facts = snapshot.get("plans", {}).get(str(doc["_id"])) if snapshot.get("status") == "ok" else None
+        item["card_plan"] = facts if facts is not None else {
+            "status": snapshot.get("status") if snapshot.get("status") != "ok" else "unavailable",
+            "as_of": snapshot.get("as_of"),
         }
-        sched = doc.get("schedule")
-        upcoming = []
-        for p in (terms.get(cid) or {}).get("promos") or []:
-            try:
-                until = date.fromisoformat(str(p.get("until") or "")[:10])
-            except ValueError:
-                continue
-            if until >= today:
-                upcoming.append((until, p))
-        if upcoming and goal_schedule.is_scheduled(sched):
-            until, p = min(upcoming, key=lambda x: x[0])
-            balance = p.get("balance")
-            basis = float(balance) if balance is not None else card.get("debt")
-            if basis is not None and float(basis) > 0:
-                by_then = sum(a for due, a in goal_schedule.events(sched, cfg) if today <= due <= until) / 100
-                facts["promo"] = {
-                    "until": until.isoformat(),
-                    "balance": round(float(basis), 2),
-                    "balance_is_offer": balance is not None,
-                    "planned_by_end": round(by_then, 2),
-                    "clears_before_end": by_then + 0.005 >= float(basis),
-                }
-        item["card_plan"] = facts
 
 
 async def _serialise_all(
@@ -1445,7 +1399,11 @@ async def list_commitments(user: dict = Depends(current_user)):
     # so this cache entry never outlives a
     # create/update/delete/cancel/complete/consent write) ─────────────────
     cached = await response_cache.aget("commitments", uid)
-    if cached is not None:
+    if cached is not None and all(
+        not card_repayment_plans.is_card_plan(item)
+        or (item.get("card_plan") or {}).get("status") == "ready"
+        for item in cached.get("items", [])
+    ):
         return cached
     v = await response_cache.snapshot(uid)
 
@@ -1469,7 +1427,10 @@ async def list_commitments(user: dict = Depends(current_user)):
     _apply_pace_notes(items, docs, pace_ctx)
     items.sort(key=lambda i: (0 if i["status"] == "active" else 1, i["target_date"] or ""))
     result = {"items": items}
-    await response_cache.aput("commitments", uid, result, version=v)
+    # Pending snapshots must not stick in a six-hour response cache while
+    # their worker result is being prepared at this same input version.
+    if all(not card_repayment_plans.is_card_plan(item) or (item.get("card_plan") or {}).get("status") == "ready" for item in items):
+        await response_cache.aput("commitments", uid, result, version=v)
     return result
 
 
