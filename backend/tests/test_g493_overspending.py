@@ -127,6 +127,11 @@ def test_no_gap_means_nothing_funds_it_and_savings_not_covered():
     assert doc["savings_covered"] is False
 
 
+def test_cards_are_capped_by_what_is_left_after_savings():
+    # gap 500, 300 from savings, cards grew 400: cards take only the remaining 200.
+    assert split_funded_by(500, 300, 400) == {"savings": 300.0, "cards": 200.0, "current_account": 0.0}
+
+
 def test_funded_by_always_sums_to_gap():
     for gap, sav, cards in [(500, 0, 0), (500, 120.5, 90.25), (500, 900, 900), (0.1, 0.05, 0.05)]:
         fb = split_funded_by(gap, sav, cards)
@@ -272,6 +277,9 @@ class FakeCol:
             doc = self.docs[_id] = {"_id": _id}
         doc.update(update["$set"])
 
+    async def replace_one(self, filt, doc, upsert=False):
+        self.docs[filt["_id"]] = dict(doc)
+
     async def delete_one(self, filt):
         self.docs.pop(filt["_id"], None)
 
@@ -280,6 +288,11 @@ class FakeCol:
 def cols(monkeypatch):
     cache, ack = FakeCol(), FakeCol()
     monkeypatch.setattr(ov, "overspending_cache_col", cache)
+    monkeypatch.setattr(ov, "preferences_col", FakeCol())  # no prefs: calendar months
+
+    async def _end(uid):
+        return END
+    monkeypatch.setattr(ov, "current_period_end", _end)
     monkeypatch.setattr(ov, "overspending_ack_col", ack)
     invalidated = []
     monkeypatch.setattr(response_cache, "invalidate", lambda uid, name=None: invalidated.append(uid))
@@ -376,3 +389,31 @@ def test_stored_doc_from_another_schema_version_reads_as_absent(cols):
     doc["schema_version"] = ov.SCHEMA_VERSION + 1
     cache.docs[USER["email"]] = doc
     assert asyncio.run(ov.read_stored_overspending(USER["email"])) is None
+
+
+def test_one_off_refuses_a_period_end_that_is_not_a_real_period_end(cols):
+    from fastapi import HTTPException
+    for bad in ("2026-10-15", "2026-11-30", "2020-02-10"):  # mid-period, a future period, mid-period
+        with pytest.raises(HTTPException) as e:
+            asyncio.run(spend_router.post_overspend_one_off({"period_end": bad}, USER))
+        assert e.value.status_code == 400
+    assert cols[1].docs == {}
+    # an earlier real period end is allowed
+    asyncio.run(spend_router.post_overspend_one_off({"period_end": "2026-09-30"}, USER))
+    assert f"{USER['email']}:2026-09-30" in cols[1].docs
+
+
+def test_stored_doc_is_replaced_not_merged(cols, monkeypatch):
+    cache, _a, _i = cols
+    cache.docs[USER["email"]] = {"_id": USER["email"], "old_schema_key": 1}
+
+    async def fake(uid):
+        return {"out": 1.0}
+    monkeypatch.setattr(ov, "compute_overspending", fake)
+
+    async def cur(uid, fresh=False):
+        return 4
+    monkeypatch.setattr(ov.data_version, "current", cur)
+    asyncio.run(ov.compute_and_cache_overspending(USER["email"]))
+    assert "old_schema_key" not in cache.docs[USER["email"]]
+    assert cache.docs[USER["email"]]["out"] == 1.0 and cache.docs[USER["email"]]["data_version"] == 4

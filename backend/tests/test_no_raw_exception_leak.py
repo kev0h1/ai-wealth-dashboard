@@ -52,8 +52,8 @@ ALLOWLIST: set[tuple[str, int]] = {
     # ValueError raised by app.services.spend_impact.compute_intent_preview /
     # app.services.checkpoints.delete_intent with an authored message
     # ("'<category>' is not currently over usual, nothing to preview", etc.)
-    ("app/routers/spend_verdict.py", 122),
-    ("app/routers/spend_verdict.py", 138),
+    ("app/routers/spend_verdict.py", 125),
+    ("app/routers/spend_verdict.py", 141),
     # ValueError raised by app.services.checkpoints.create_checkpoint /
     # record_intent / update_checkpoint (G242 PATCH) with an authored message
     # ("ref must be a non-empty category name", "aim_amount must be a

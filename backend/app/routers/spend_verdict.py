@@ -57,7 +57,10 @@ async def post_overspend_one_off(body: dict | None = None, user: dict = Depends(
     (YYYY-MM-DD) is optional and defaults to the current period's end."""
     uid = user["email"]
     period_end = _parse_period_end((body or {}).get("period_end"))
-    pe = await record_one_off(uid, period_end)
+    try:
+        pe = await record_one_off(uid, period_end)
+    except ValueError:
+        raise HTTPException(400, "period_end must be the end of the current or an earlier pay period")
     response_cache.invalidate(uid)
     return {"ok": True, "period_end": pe, "acknowledged": True}
 

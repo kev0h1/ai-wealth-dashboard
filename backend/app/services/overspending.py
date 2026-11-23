@@ -456,7 +456,8 @@ async def compute_and_cache_overspending(uid: str, *, background: bool = True) -
         data["computed_at"] = datetime.now(timezone.utc)  # naive-ok: audit stamp, aware instant
         data["schema_version"] = SCHEMA_VERSION
         if await data_version.current(uid, fresh=True) == version:
-            await overspending_cache_col.update_one({"_id": uid}, {"$set": data}, upsert=True)
+            # Full replace: keys from an older schema can never linger.
+            await overspending_cache_col.replace_one({"_id": uid}, {"_id": uid, **data}, upsert=True)
             if await data_version.current(uid, fresh=True) == version:
                 return data
         if background and attempt < attempts - 1:
@@ -492,6 +493,17 @@ async def current_period_end(uid: str) -> date:
     return get_pay_period_for_date(timeutil.user_today(), pay_cfg)[1]
 
 
+async def is_valid_period_end(uid: str, period_end: date) -> bool:
+    """True when `period_end` is the end of the current pay period or of an
+    earlier one, under the user's pay_period_config."""
+    from app.services.pay_period import get_pay_period_for_date
+    prefs = await preferences_col.find_one({"user_id": uid}) or {}
+    pay_cfg = prefs.get("pay_period_config", {"type": "calendar_month"})
+    if period_end > await current_period_end(uid):
+        return False
+    return get_pay_period_for_date(period_end, pay_cfg)[1] == period_end
+
+
 async def _restamp_stored(uid: str) -> None:
     """Patch `acknowledged` on the stored doc (no recompute, no number moves)."""
     doc = await overspending_cache_col.find_one({"_id": uid})
@@ -507,7 +519,11 @@ async def _restamp_stored(uid: str) -> None:
 async def record_one_off(uid: str, period_end: date | None = None) -> str:
     """Record the user's "it's a one-off" answer for a period (default: the
     current one). Idempotent. Returns the period end (ISO)."""
-    pe = (period_end or await current_period_end(uid)).isoformat()
+    if period_end is None:
+        period_end = await current_period_end(uid)
+    elif not await is_valid_period_end(uid, period_end):
+        raise ValueError("period_end is not the end of the current or an earlier pay period")
+    pe = period_end.isoformat()
     await overspending_ack_col.update_one(
         {"_id": f"{uid}:{pe}"},
         {"$set": {
