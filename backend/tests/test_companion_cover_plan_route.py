@@ -10,6 +10,8 @@ computation — just one more key on a response already being built.
 import asyncio
 import inspect
 
+import pytest
+
 import app.routers.companion as companion_router
 import app.services.response_cache as response_cache
 from app.core.auth import current_user
@@ -109,6 +111,17 @@ class _CacheSpy:
         self.aput_calls.append((name, uid, payload, version))
 
 
+@pytest.fixture(autouse=True)
+def _no_stored_overspending(monkeypatch):
+    """G493: GET /today adds the stored overspending doc on read (never
+    computed); none is stored in these route tests."""
+    async def _none(uid):
+        return None
+
+    import app.services.overspending as _ov
+    monkeypatch.setattr(_ov, "read_stored_overspending", _none)
+
+
 def test_today_route_now_returns_the_same_account_eligibility_snapshot(monkeypatch):
     """G110: Home's 'spend from' line reads this off plain GET /today —
     the same {account_id: {short, headroom}} shape /today/cover-plan
@@ -144,9 +157,13 @@ def test_today_route_now_returns_the_same_account_eligibility_snapshot(monkeypat
             "acc-1": {"short": True, "headroom": -2.5},
             "acc-2": {"short": False, "headroom": 40.0},
         },
+        # G493: added on read, outside the cache.
+        "overspending": None,
     }
-    # The enriched payload is what actually gets cached, not a stripped copy.
-    assert spy.aput_calls == [("today", "kevin", result, 7)]
+    # The enriched payload is what actually gets cached, not a stripped copy
+    # (the G493 overspending key is added after the cache write).
+    cached_payload = {k: v for k, v in result.items() if k != "overspending"}
+    assert spy.aput_calls == [("today", "kevin", cached_payload, 7)]
 
 
 def test_today_route_payday_preview_still_skips_the_response_cache(monkeypatch):
@@ -174,6 +191,7 @@ def test_today_route_payday_preview_still_skips_the_response_cache(monkeypatch):
         "status": "ok",
         "items": [],
         "account_eligibility": {"acc-1": {"short": False, "headroom": 12.0}},
+        "overspending": None,
     }
 
 
@@ -197,4 +215,6 @@ def test_today_route_returns_cached_payload_unchanged_when_warm(monkeypatch):
 
     result = asyncio.run(companion_router.get_today(payday_preview=0, user={"email": "kevin"}))
 
-    assert result is cached_payload
+    # G493: the stored overspending key is added to a copy; the cached entry is untouched.
+    assert result == {**cached_payload, "overspending": None}
+    assert "overspending" not in cached_payload
