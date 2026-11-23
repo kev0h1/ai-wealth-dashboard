@@ -127,7 +127,7 @@ async def _write_error(
         "as_of_day": day,
         "build_started_at": build_started_at,
         "build_started_ns": build_started_ns,
-        "computed_at": datetime.now(timezone.utc),
+        "computed_at": datetime.now(timezone.utc),  # naive-ok: aware UTC snapshot audit timestamp
         "error_type": type(exc).__name__,
     }
     if previous is not None:
@@ -151,7 +151,7 @@ async def refresh(uid: str) -> dict:
     if version is None:
         return {"status": "unavailable", "reason": "version_unavailable"}
     day = _day()
-    build_started_at = datetime.now(timezone.utc)
+    build_started_at = datetime.now(timezone.utc)  # naive-ok: aware UTC build audit timestamp
     build_started_ns = time.time_ns()
     try:
         previous_doc = await card_plan_progress_col.find_one({"_id": uid})
@@ -192,7 +192,7 @@ async def refresh(uid: str) -> dict:
         "as_of_day": day,
         "build_started_at": build_started_at,
         "build_started_ns": build_started_ns,
-        "computed_at": datetime.now(timezone.utc),
+        "computed_at": datetime.now(timezone.utc),  # naive-ok: aware UTC snapshot audit timestamp
         "payload": payload,
     }
     try:
