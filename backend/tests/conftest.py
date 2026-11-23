@@ -111,9 +111,15 @@ _IS_XDIST_WORKER = bool(
     _XDIST_WORKER_ID
     and os.environ.get("WEALTH_XDIST_CONTROLLER_PID") == str(os.getppid())
 )
+# Some tests import this file a second time as `tests.conftest` (pytest's own
+# copy is `conftest`), re-running this module-level code in the same worker;
+# the pid marker makes the derivation happen once per process, never
+# "<name>_gw1_gw1".
+_ALREADY_DERIVED = os.environ.get("WEALTH_XDIST_DERIVED_BY_PID") == str(os.getpid())
 _RUN_BASE_DB = os.environ["MONGO_DB"]
-if _IS_XDIST_WORKER:
+if _IS_XDIST_WORKER and not _ALREADY_DERIVED:
     os.environ["MONGO_DB"] = _worker_db_name(_RUN_BASE_DB, _XDIST_WORKER_ID)
+    os.environ["WEALTH_XDIST_DERIVED_BY_PID"] = str(os.getpid())
 elif not _XDIST_WORKER_ID:
     # Possibly the xdist controller: record who we are so workers (our
     # direct children) can recognise us. Harmless in a serial run.
