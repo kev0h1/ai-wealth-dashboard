@@ -55,8 +55,9 @@ function render(hidden) {
   return renderToStaticMarkup(h(BalancesHiddenContext.Provider, { value: hidden }, h(UpcomingAccountsCard, { accounts: [covered], periodLabel: "this pay period", onOpen() {}, plans, plansStatus: "ready" })));
 }
 const shown = render(false);
-assert.match(shown, /data-account-summary/);
-assert.match(shown.replace(/<[^>]+>/g, ""), /£270 to move in/);
+assert.doesNotMatch(shown, /data-account-summary/);
+assert.doesNotMatch(shown.replace(/<[^>]+>/g,""),/£270 to move in/,"G489 reserves suggested totals for the existing sheet");
+assert.match(shown,/aria-haspopup="dialog"/,"the detailed suggestion stays reachable");
 assert.doesNotMatch(shown, /data-move-rows|data-source-bank|data-source-name|data-savings-source|From savings, a suggestion/);
 assert.doesNotMatch(shown, /Your Barclays account|Your Barclays savings/);
 const masked = render(true);

@@ -114,5 +114,9 @@ const byAccount = renderToStaticMarkup(h(BalancesHiddenContext.Provider, { value
 assert.ok(!byAccount.includes("Available") && !byAccount.includes("Spend from"), "By account does not promote the conditional pooled allocation");
 assert.match(byAccount, /data-g417-variant="a"/);
 assert.match(byAccount.replace(/<[^>]+>/g, ""), /−£300Short/, "the combined payment-and-plan gap leads before the £200 move");
-assert.match(byAccount.replace(/<[^>]+>/g, ""), /£200 to move in by 20 Nov · £100 still uncovered/, "G430 keeps the aggregate recommendation and remaining plans-only gap explicit after payments are covered");
+assert.match(byAccount.replace(/<[^>]+>/g,""),/Plans need a look/,"G489 preserves the plans-only caution without a main-list move breakdown");
+assert.doesNotMatch(byAccount,/data-account-summary|£200 to move in/);
+const detail=renderToStaticMarkup(h(UpcomingAccountDetails,{account:row,periodLabel:"Payments through Wed 25 Nov",plans:[],plansStatus:"ready"})).replace(/<[^>]+>/g,"");
+assert.match(detail,/£200/,"the suggested amount stays in account detail");
+assert.match(detail,/−£100/,"the after-move plans gap stays signed in the existing detail");
 console.log("G410 earmark checks passed.");

@@ -23,6 +23,7 @@ const wrap = (view) => renderToStaticMarkup(h(BalancesHiddenContext.Provider, { 
 const rowOf = (markup, id) => { const a = markup.indexOf(`data-account-row="${id}"`); const b = markup.indexOf("data-account-row=", a + 1); return markup.slice(a, b < 0 ? undefined : b); };
 
 let compared = 0;
+let conditionalMoves = 0;
 for (const [kind, file] of Object.entries(SCENARIOS)) {
   const snap = JSON.parse(readFileSync(new URL(`${file}.json`, OUT), "utf8"));
   const positions = positionsFromToday(snap.account_eligibility, snap.accounts);
@@ -42,10 +43,21 @@ for (const [kind, file] of Object.entries(SCENARIOS)) {
     assert.equal(reading.available, Math.round(page.value * 100), `${kind}: ${summary.id} Upcoming reads the same stored figure`);
     assert.equal(reading.availableLabel, availabilityLabel(page), `${kind}: same label`);
     const row = text(rowOf(card, summary.id));
-    assert.ok(row.includes(accountSummaryMoney(reading.available)), `${kind}: row renders ${accountSummaryMoney(reading.available)}`);
-    assert.equal(accountSummaryMoney(reading.available), formatAvailabilityAmount(page.value), `${kind}: both surfaces format alike`);
+    const exact = `${reading.available < 0 ? "−" : ""}£${(Math.abs(reading.available) / 100).toLocaleString("en-GB", { minimumFractionDigits: reading.available % 100 ? 2 : 0, maximumFractionDigits: 2 })}`;
+    assert.ok(row.includes(exact), `${kind}: approved E preserves the stored figure with its meaningful pence: ${exact}`);
+    assert.equal(accountSummaryMoney(reading.available), formatAvailabilityAmount(page.value), `${kind}: shared whole-pound summary formatter remains unchanged`);
     assert.ok(row.includes(page.requiresMove ? "Available after suggested move" : "Available to spend"), `${kind}: row label`);
     assert.doesNotMatch(row, /Left after (payments|plans)/, `${kind}: no closing projection label on the row`);
+    if (page.requiresMove && reading.available >= 0) {
+      const fold = card.indexOf("data-fine-group");
+      assert.ok(fold < 0 || card.indexOf(`data-account-row="${summary.id}"`) < fold, `${kind}: a required incoming move stays visible before the fine fold`);
+      const button = text(rowOf(card, summary.id).split("</button>")[0]);
+      assert.match(button, /Move suggested/, `${kind}: conditional availability retains its action cue`);
+      assert.doesNotMatch(button, /Short/, `${kind}: a positive conditional figure is never called Short`);
+      conditionalMoves += 1;
+    } else if (reading.available >= 0) {
+      assert.ok(card.indexOf("data-fine-group") < card.indexOf(`data-account-row="${summary.id}"`), `${kind}: covered and funding-source accounts remain inside the fine fold`);
+    }
     // Tapped: the same working component and rows as the account page.
     const sheet = text(wrap(h(UpcomingAccountDetails, { account: summary, plans: [], plansStatus: "ready", periodLabel: "Payments through Fri 27 Nov" })));
     assert.ok(sheet.includes(availabilityLabel(page)), `${kind}: sheet carries the label`);
@@ -54,6 +66,7 @@ for (const [kind, file] of Object.entries(SCENARIOS)) {
   }
 }
 assert.ok(compared >= 5, "several accounts compared");
+assert.ok(conditionalMoves > 0, "real engine snapshots exercise positive conditional availability");
 // One source of truth for Short: the stored Available decides the caption, signal, grouping, fold count and all-clear.
 const load = (file) => JSON.parse(readFileSync(new URL(`${file}.json`, OUT), "utf8"));
 const build = (snap, tweak, status = "ready", legacyStatus = "covered") => {
@@ -77,7 +90,8 @@ const cardOf = (accounts, plansStatus = "ready") => wrap(h(UpcomingAccountsCard,
   const outside = markup.slice(0, markup.indexOf("data-fine-group") < 0 ? undefined : markup.indexOf("data-fine-group"));
   assert.ok(outside.includes('data-account-row="acc-hb"'), "a negative Available is never in fine");
   assert.doesNotMatch(markup, /data-fine-fold|data-all-clear/, "no fine count and no all-clear beside a negative Available");
-  assert.match(text(rowOf(markup, "acc-hb")), /−£10.*short/i);
+  assert.match(text(rowOf(markup,"acc-hb")),/−£10/);
+  assert.match(text(rowOf(markup,"acc-hb")),/short/i);
 }
 // Contradiction 2: the client walk says short, but the stored Available is positive.
 {
@@ -87,7 +101,7 @@ const cardOf = (accounts, plansStatus = "ready") => wrap(h(UpcomingAccountsCard,
   const reading = accountActionReading(accounts[0], [], "ready");
   assert.ok(reading.gap === 0 && reading.signal !== "risk" && !/short/i.test(reading.caption), "a positive Available never says short");
   const markup = cardOf(accounts);
-  assert.match(markup, /data-all-clear/, "all clear");
+  assert.match(markup,/1 account is fine/,"G489 conveys the fine account through the compact fold");
   assert.match(markup, /data-fine-fold/, "the account is counted fine");
   assert.doesNotMatch(text(rowOf(markup, "acc-hb")), /short/i);
 }
@@ -100,7 +114,7 @@ const cardOf = (accounts, plansStatus = "ready") => wrap(h(UpcomingAccountsCard,
   assert.ok(!/data-fine-fold[^>]*>.*for payments/s.test(markup));
 }
 // Readiness: while a sync runs or fails the account page shows checking or unavailable, so Upcoming shows no figure.
-for (const [status, word] of [["loading", /Checking availability/], ["failed", /Availability unavailable/]]) {
+for (const [status, word] of [["loading", /Checking.*Figure pending/], ["failed", /Availability unavailable/]]) {
   const snap = load(SCENARIOS.covered);
   const accounts = build(snap, () => {}, status);
   assert.ok(accounts.length > 0 && accounts[0].position.availabilityPending, `${status}: pending state recorded`);

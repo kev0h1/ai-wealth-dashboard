@@ -61,9 +61,9 @@ assert.equal(resultFor("overlap", "monzo").label, "Calculation needs checking");
 // G417 keeps statusFor's arithmetic as a compatibility contract, while the
 // card itself leads with the action reading before any suggested move.
 const mixed = renderCard(fixture);
-assert.match(mixed, /aria-label="Open NatWest, Bills account:/);
-assert.match(mixed, /aria-label="Open HSBC, Current account:/);
-assert.match(mixed, /aria-label="Open Monzo, Everyday account:/);
+assert.match(mixed.replace(/<[^>]+>/g,""), /NatWestBills account/, "native account name retains its identity");
+assert.match(mixed.replace(/<[^>]+>/g,""), /HSBCCurrent account/, "native account name retains its identity");
+assert.match(mixed.replace(/<[^>]+>/g,""), /MonzoEveryday account/, "native account name retains its identity");
 assert.equal((mixed.match(/lucide-triangle-alert/g) ?? []).length, 1, "Only payment risk uses the warning triangle");
 assert.equal((mixed.match(/lucide-info/g) ?? []).length, 1, "Optional plans use an information symbol");
 assert.match(mixed, /data-status-amount="true"[^>]*><span[^>]*>£42</);
@@ -76,7 +76,8 @@ assert.doesNotMatch(mixed, /Available|Spend from/);
 assert.match(renderCard(fixtureFor("unknown")), /Not yet known/);
 const overlapCard = renderCard(fixtureFor("overlap"));
 assert.match(overlapCard, /data-status-signal="unknown"/);
-assert.match(overlapCard, /Payments only\. Plans need checking\./);
+assert.match(overlapCard,/Payments only/);
+assert.match(overlapCard,/Plans need checking/);
 assert.doesNotMatch(overlapCard, /Left after plans/, "uncertain overlap never invents a combined total");
 
 // The approved preview and live Upcoming page must use one implementation.

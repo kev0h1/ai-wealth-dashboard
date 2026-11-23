@@ -145,7 +145,9 @@ assert.match(barclaysSheet, /data-flow-focus="plan-barclays-plan"/, "actual plan
 for (const status of ["loading", "error"]) {
   const pendingCard = wrap(false, h(UpcomingAccountsCard, { accounts: enriched, plans, plansStatus: status, periodLabel: "Payments through Sun 29 Nov", onOpen() {} }));
   const pendingSheet = sheet(enriched.find(account => account.id === "natwest"), false, status);
-  assert.match(text(row(pendingCard, "natwest")), /−£259Short/);
+  assert.match(text(row(pendingCard,"natwest")),/−£259/);
+  assert.match(text(row(pendingCard,"natwest")),/Short/);
+  assert.match(text(row(pendingCard,"natwest")),/Payments only/);
   assert.doesNotMatch(pendingCard, /data-suggested-bridge|data-suggested-move/);
   assert.doesNotMatch(pendingSheet, /data-suggested-bridge|data-suggested-move/);
   assert.match(text(pendingSheet), /After payments/);
@@ -164,6 +166,6 @@ const inferredFine = { ...accounts[1], position: { ...accounts[1].position, earm
 const inferredPlans = plans.map(plan => plan.sourceId === "barclays" ? { ...plan, evidence: "recent-transfers" } : plan);
 assert.equal(accountActionReading(inferredFine, inferredPlans, "ready").signal, null);
 const inferredCard = wrap(false, h(UpcomingAccountsCard, { accounts: [inferredFine], plans: inferredPlans, plansStatus: "ready", periodLabel: "This period", onOpen() {} }));
-assert.match(text(inferredCard.replace(/\saria-label="[^"]*"/g, "")), /Paying account based on recent transfers\./, "the fine-row estimate qualifier exists in rendered content, not only aria");
+assert.match(text(inferredCard.replace(/\saria-label="[^"]*"/g, "")), /Left after plans · estimated/, "the fine-row estimate qualifier stays beside its figure in rendered content, not only aria");
 
 console.log("G417: action-reading financial baselines, deadlines, uncertainty and paired moves passed");

@@ -123,7 +123,8 @@ assert.deepEqual(paired.statuses.map((status) => status.label), ["Covered", "sho
 const mixedCard = renderToStaticMarkup(React.createElement(UpcomingAccountsCard, { accounts: paired.walk.accounts, periodLabel: "This period", onOpen() {} }));
 const mixedRows = renderToStaticMarkup(React.createElement(UpcomingAttentionDay, { dayKeyIso: "2026-10-02", heading: "Fri 2 Oct", rows: paired.models, onOpen() {}, onDismiss() {} }));
 assert.match(mixedCard, /−£60/, "the actual payment gap is the signed account headline");
-assert.match(mixedCard, /short for payments/i, "a negative closing payment result is qualified as a payment shortfall");
+assert.match(mixedCard,/data-status-cue="true" data-tone="risk"/,"the proved payment gap retains a risk cue");
+assert.match(mixedCard.replace(/<[^>]+>/g,""),/Short/,"approved E retains the visible Short verdict");
 assert.match(mixedRows, /1 covered payment/);
 assert.ok(mixedRows.indexOf('data-bill-key="payment-1"') < mixedRows.indexOf("<details"), "The short account's payment stays visible");
 
@@ -184,8 +185,9 @@ for (const scenario of SCENARIOS) {
   assert.equal(result.reduce((sum, account) => sum + account.closing, 0), forecast.closing / 100);
   assert.equal(result.reduce((sum, account) => sum + account.shortfall, 0), forecast.shortfall / 100);
   const card = renderToStaticMarkup(React.createElement(UpcomingAccountsCard, { accounts: result, periodLabel: "Payments through Wed 30 Sept", onOpen() {} }));
-  assert.match(card, /By account/); assert.match(card, /Open Barclays/); assert.match(card, /Tap an account for its working/);
-  if (scenario.id === "moves") { assert.match(card, /short for payments/i); assert.match(card, /data-status-signal="risk"/); assert.doesNotMatch(card, /short for transfers|may stay put/i); }
+  assert.match(card, /By account/); assert.match(card, /<strong>Barclays<\/strong>/); assert.match(card, /aria-haspopup="dialog"/);
+  assert.doesNotMatch(card, /Tap an account for its working/, "approved E leaves explanatory working in the existing sheet");
+  if (scenario.id === "moves") { assert.match(card.replace(/<[^>]+>/g, ""), /Short/); assert.match(card, /data-status-signal="risk"/); assert.doesNotMatch(card, /short for transfers|may stay put/i); }
   if (scenario.id === "covered") assert.doesNotMatch(card, /data-status-signal="(?:risk|move|plan)"|lucide-triangle-alert|lucide-info/);
 }
 const empty = renderToStaticMarkup(React.createElement(UpcomingAccountsCard, { accounts: [], periodLabel: "This period", onOpen() {} }));
