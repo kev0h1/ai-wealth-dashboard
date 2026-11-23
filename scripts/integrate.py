@@ -770,6 +770,20 @@ def _fresh_test_db_name() -> str:
     return f"wealth_test_{int(time.time())}_{uuid.uuid4().hex[:8]}"
 
 
+def _xdist_available(venv_python: Path) -> bool:
+    """True if pytest-xdist imports in the suite's own venv (H159). Uses
+    subprocess directly, not `_sh`, so it is not part of the suite's own
+    command stream."""
+    try:
+        proc = subprocess.run(
+            [str(venv_python), "-c", "import xdist"],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=60,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return proc.returncode == 0
+
+
 def _run_backend_tests() -> None:
     """Runs the suite from the SHARED TREE's own backend, unlike
     `scripts/session.sh finish` (a worktree). That matters for H90: this
@@ -789,12 +803,10 @@ def _run_backend_tests() -> None:
     finish` (or another integrate pass) can never collide with it."""
     workers = _suite_workers()
     venv_python = REPO_ROOT / "backend" / ".venv" / "bin" / "python"
-    if workers >= 2:
-        probe_rc, _ = _sh([str(venv_python), "-c", "import xdist"], cwd=REPO_ROOT / "backend", timeout=60)
-        if probe_rc != 0:
-            print("[suite] pytest-xdist is not installed in backend/.venv; running the suite serially", flush=True)
-            workers = 0
     _require_memory(host_memory.suite_required_mb(workers), "the backend suite")
+    if workers >= 2 and not _xdist_available(venv_python):
+        print("[suite] pytest-xdist is not installed in backend/.venv; running the suite serially", flush=True)
+        workers = 0
     print(f"[suite] running with {workers if workers >= 2 else 1} worker(s)", flush=True)
     started = time.monotonic()
     rc, out = _sh(
