@@ -5,12 +5,15 @@ All computation lives in `app.services.spend_verdict`; this router is a thin
 HTTP wrapper with the same Mongo-backed per-user cache the sibling
 `/spend/category-signals` endpoint uses (`app.services.response_cache`).
 """
+from datetime import date
+
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.core.auth import current_user
 from app.db.collections import preferences_col
 from app.services import response_cache
 from app.services.checkpoints import delete_intent
+from app.services.overspending import delete_one_off, read_stored_overspending, record_one_off
 from app.services.spend_impact import compute_intent_preview
 from app.services.spend_verdict import compute_spend_verdict
 
@@ -30,11 +33,51 @@ async def get_spend_verdict(offset: int = 0, user: dict = Depends(current_user))
     cache_name = f"spend_verdict:{off}"
     cached = await response_cache.aget(cache_name, uid)
     if cached is not None:
-        return cached
+        return await _with_overspending(cached, uid, off)
     v = await response_cache.snapshot(uid)
     result = await compute_spend_verdict(uid, offset=off)
     await response_cache.aput(cache_name, uid, result, version=v)
-    return result
+    return await _with_overspending(result, uid, off)
+
+
+async def _with_overspending(payload: dict, uid: str, offset: int) -> dict:
+    """G493: the stored overspending result, current period only. Read from the
+    stored doc and never computed here (H145); null when none is stored. Added
+    to a copy, outside the response cache, so an acknowledgement shows at once
+    and the cached entry is never mutated."""
+    if offset != 0:
+        return payload
+    return {**payload, "overspending": await read_stored_overspending(uid)}
+
+
+@router.post("/spend/overspend/one-off")
+async def post_overspend_one_off(body: dict | None = None, user: dict = Depends(current_user)):
+    """The user's answer that this period's overspending is a one-off (asked,
+    never inferred). Silences the period; changes no number. `period_end`
+    (YYYY-MM-DD) is optional and defaults to the current period's end."""
+    uid = user["email"]
+    period_end = _parse_period_end((body or {}).get("period_end"))
+    pe = await record_one_off(uid, period_end)
+    response_cache.invalidate(uid)
+    return {"ok": True, "period_end": pe, "acknowledged": True}
+
+
+@router.delete("/spend/overspend/one-off")
+async def delete_overspend_one_off(period_end: str | None = None, user: dict = Depends(current_user)):
+    """Undo the one-off answer. Idempotent."""
+    uid = user["email"]
+    pe = await delete_one_off(uid, _parse_period_end(period_end))
+    response_cache.invalidate(uid)
+    return {"ok": True, "period_end": pe, "acknowledged": False}
+
+
+def _parse_period_end(raw) -> date | None:
+    if raw in (None, ""):
+        return None
+    try:
+        return date.fromisoformat(str(raw))
+    except ValueError:
+        raise HTTPException(400, "period_end must be YYYY-MM-DD")
 
 
 @router.post("/spend/verdict/dismiss-unresolved")

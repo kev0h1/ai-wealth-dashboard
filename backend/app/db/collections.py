@@ -167,6 +167,12 @@ cashflow_cache_col      = db["cashflow_cache"]
 # computed after sync, read at page load — see app/services/money_shape.py)
 money_shape_cache_col   = db["money_shape_cache"]
 
+# G493 overspending engine: stored per-user result (`_id` = uid, computed at sync,
+# app/services/overspending.py) and the user's asked "one-off" answers (one doc
+# per user and period end, `_id` = "{uid}:{period_end}").
+overspending_cache_col  = db["overspending_cache"]
+overspending_ack_col    = db["overspending_ack"]
+
 # Upcoming payment overrides (user-edits to forecast dates/amounts)
 upcoming_overrides_col  = db["upcoming_overrides"]
 
@@ -594,7 +600,8 @@ ERASURE_MANIFEST = frozenset({
     "subscription_usage_col", "penny_topups_col", "mcp_call_packs_col",
     "billing_customers_col", "billing_events_col", "apple_account_tokens_col", "play_purchases_col",
     "play_account_ids_col", "cashflow_cache_col",
-    "money_shape_cache_col", "upcoming_overrides_col", "upcoming_rules_col",
+    "money_shape_cache_col", "overspending_cache_col", "overspending_ack_col",
+    "upcoming_overrides_col", "upcoming_rules_col",
     "webhook_events_col", "excluded_accounts_col", "locks_col",
     "worker_runs_col", "finexer_consents_col", "finexer_customers_col",
     "finexer_providers_col", "provider_logos_col", "pending_transactions_col", "behaviour_portrait_col",

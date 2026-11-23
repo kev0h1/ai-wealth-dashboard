@@ -120,12 +120,22 @@ async def get_today(payday_preview: int = 0, user: dict = Depends(current_user))
     if not preview:
         cached = await response_cache.aget("today", uid)
         if cached is not None:
-            return cached
+            return await _with_overspending(cached, uid)
         v = await response_cache.snapshot(uid)
     payload = await build_today_payload(uid, payday_preview=preview)
     if not preview and payload.get("account_eligibility") is not None:
         await response_cache.aput("today", uid, payload, version=v)
-    return payload
+    return await _with_overspending(payload, uid)
+
+
+async def _with_overspending(payload, uid: str):
+    """G493: the stored overspending result for Home, read from the stored doc
+    only (never computed on load, H145; null when none). Added to a copy,
+    outside the response cache, so an acknowledgement shows at once."""
+    if not isinstance(payload, dict):
+        return payload
+    from app.services.overspending import read_stored_overspending
+    return {**payload, "overspending": await read_stored_overspending(uid)}
 
 
 COVER_PLAN_CACHE = "cover_plan"
