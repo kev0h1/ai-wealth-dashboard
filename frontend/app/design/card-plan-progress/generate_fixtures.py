@@ -80,6 +80,8 @@ def make(key, name, amount, start, count, target, balance, until, payments):
         ],
     }
     if starts_later:
+        row['targetQualifier'] = f'Target and outlook are provisional until the plan starts on {long_date(start)}.'
+        row['progressAria'] += ' ' + row['targetQualifier']
         row['detailIntro'] += ' The target is provisional before the plan starts and is not retained as a future starting balance.'
     return row, facts
 

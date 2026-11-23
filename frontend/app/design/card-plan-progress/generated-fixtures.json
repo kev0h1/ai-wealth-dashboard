@@ -136,7 +136,7 @@
       "progressFigure": "\u00a30 of \u00a33,024",
       "offerDeadline": "Offer ends 31 May 2027",
       "progressLine": "\u00a30 of \u00a33,024 \u00b7 offer ends 31 May 2027",
-      "progressAria": "\u00a30 in matched repayments towards the recorded single-offer target of \u00a33,024. Balance evidence as of 22 Nov 2026.",
+      "progressAria": "\u00a30 in matched repayments towards the recorded single-offer target of \u00a33,024. Balance evidence as of 22 Nov 2026. Target and outlook are provisional until the plan starts on 27 Nov 2026.",
       "progressPercent": 0,
       "progressWidth": "0%",
       "progressTone": "neutral",
@@ -191,7 +191,8 @@
           "label": "Projected balance left at offer end",
           "value": "\u00a32,809.03"
         }
-      ]
+      ],
+      "targetQualifier": "Target and outlook are provisional until the plan starts on 27 Nov 2026."
     },
     "futureSecond": {
       "id": "futureSecond",
@@ -200,7 +201,7 @@
       "progressFigure": "\u00a30 of \u00a37,402",
       "offerDeadline": "Offer ends 31 Aug 2027",
       "progressLine": "\u00a30 of \u00a37,402 \u00b7 offer ends 31 Aug 2027",
-      "progressAria": "\u00a30 in matched repayments towards the recorded single-offer target of \u00a37,402. Balance evidence as of 22 Nov 2026.",
+      "progressAria": "\u00a30 in matched repayments towards the recorded single-offer target of \u00a37,402. Balance evidence as of 22 Nov 2026. Target and outlook are provisional until the plan starts on 27 Nov 2026.",
       "progressPercent": 0,
       "progressWidth": "0%",
       "progressTone": "neutral",
@@ -255,7 +256,8 @@
           "label": "Projected balance left at offer end",
           "value": "\u00a36,775"
         }
-      ]
+      ],
+      "targetQualifier": "Target and outlook are provisional until the plan starts on 27 Nov 2026."
     },
     "paused": {
       "id": "paused",

@@ -8,6 +8,7 @@ export type PlanFixture = {
   scheduledLine: string;
   progressLine: string;
   progressFigure?: string;
+  targetQualifier?: string;
   offerDeadline?: string;
   caution?: boolean;
   progressAria: string;

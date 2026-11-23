@@ -53,10 +53,11 @@ function PlanRow({ plan, variant, hidden, onOpen }: { plan: PlanFixture; variant
         ? <span id={`progress-${plan.id}`} key="progress" className={styles.progressLine}>
             <span className={variant === "a" ? styles.leading : undefined}>{hidden ? "Progress hidden" : <MoneyText text={plan.progressFigure ?? plan.progressLine} unmasked />}</span>
             {plan.offerDeadline && <span className={styles.deadline}>{plan.offerDeadline}</span>}
+            {plan.targetQualifier && <span id={`target-qualifier-${plan.id}`} className={styles.targetQualifier}>{plan.targetQualifier}</span>}
           </span>
         : <span id={`schedule-${plan.id}`} key="schedule" className={`${styles.scheduled} ${variant === "b" ? styles.leading : ""}`}><MoneyText text={schedule} unmasked /></span>)}
       <ProgressRail plan={plan} hidden={hidden} />
-      <span id={`status-${plan.id}`} className={styles.status}>{plan.caution && !plan.unavailable && <span className={styles.watchDot} aria-hidden="true" />}{status}</span>
+      <span id={`status-${plan.id}`} className={styles.status} aria-describedby={plan.targetQualifier ? `target-qualifier-${plan.id}` : undefined}>{plan.caution && !plan.unavailable && <span className={styles.watchDot} aria-hidden="true" />}{status}</span>
       <span className={styles.viewDetail}>View details</span>
     </div>
   </article>;

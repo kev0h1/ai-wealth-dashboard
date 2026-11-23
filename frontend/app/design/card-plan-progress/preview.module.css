@@ -39,6 +39,8 @@
 .dark .scheduled { color:#cbd5e1; }
 .progressLine { display:flex; flex-wrap:wrap; align-items:baseline; justify-content:space-between; gap:3px 10px; color:#475569; font-weight:600; }
 .dark .progressLine { color:#e2e8f0; }
+.targetQualifier { flex-basis:100%; color:#64748b; font-size:12px; font-weight:400; line-height:1.5; }
+.dark .targetQualifier { color:#cbd5e1; }
 .deadline { color:#64748b; font-family:inherit; font-size:12px; font-weight:400; letter-spacing:0; }
 .dark .deadline { color:#cbd5e1; }
 .leading { color:#0f172a; font-size:16px; font-weight:700; }
