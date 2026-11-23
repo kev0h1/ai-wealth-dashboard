@@ -10,11 +10,13 @@ import PennyAppearanceIcon from "@/components/PennyAppearanceIcon";
 import { BalancesHiddenContext } from "@/lib/balancesHidden";
 import { BOTTOM_NAV_TABS } from "@/lib/navigation/bottomNav";
 import AccountsOverview from "./AccountsOverview";
+import AccountDetails from "./AccountDetails";
 import PaymentContext from "./PaymentContext";
 import PlansPanel from "./PlansPanel";
 import PreviewDetails, { type PreviewDetail } from "./PreviewDetails";
 import { planFixtures, planCaseOptions } from "./plan-fixtures";
 import type { PlanCaseId, PlanPreviewItem, PlanVariant } from "./PlanPreview.types";
+import type { PreviewAccount } from "./types";
 import { focusClass, quietClass } from "./ui";
 
 function PreviewControls({ variant, state, dark, hidden }: { variant: PlanVariant; state: PlanCaseId; dark: boolean; hidden: boolean }) {
@@ -47,10 +49,10 @@ function Preview({ variant, state, dark, hidden }: { variant: PlanVariant; state
   const [status, setStatus] = useState(fixture.status);
   const [drafts, setDrafts] = useState<PlanPreviewItem[]>([]);
   const [choices, setChoices] = useState<Record<string, string>>({});
-  const [view, setView] = useState<PreviewDetail | null>(null);
+  const [view, setView] = useState<PreviewDetail | { kind: "account"; item: PreviewAccount } | null>(null);
   const opener = useRef<HTMLElement | null>(null);
   const plans = [...fixture.plans, ...drafts];
-  const open = (next: PreviewDetail) => { opener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null; setView(next); };
+  const open = (next: Exclude<typeof view, null>) => { opener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null; setView(next); };
   const close = () => { setView(null); requestAnimationFrame(() => opener.current?.focus({ preventScroll: true })); };
   const atRiskCount = fixture.scenario.payments.filter(payment => payment.firstGapPence !== undefined).length;
   return <BalancesHiddenContext.Provider value={hidden}>
@@ -65,7 +67,7 @@ function Preview({ variant, state, dark, hidden }: { variant: PlanVariant; state
             <Link href="/upcoming/dismissed" aria-label="Review hidden predictions" className={`flex size-11 shrink-0 items-center justify-center rounded-xl text-slate-500 hover:bg-slate-200 dark:text-slate-400 dark:hover:bg-slate-800 ${focusClass}`}><EyeOff size={20} strokeWidth={1.75} aria-hidden="true" /></Link>
           </header>
           <div className="space-y-5">
-            <AccountsOverview scenario={fixture.scenario} planWorking={fixture.planWorking} />
+            <AccountsOverview scenario={fixture.scenario} onOpen={item => open({ kind: "account", item })} />
             <p className={`px-1 text-xs leading-5 ${quietClass}`}>Payments can take a day or two to appear, so a very recent one may not be counted yet.</p>
             <PlansPanel variant={variant} items={plans} accounts={fixture.scenario.accounts} status={status} onAdd={() => open({ kind: "add" })} onOpen={id => { const item = plans.find(plan => plan.id === id); if (item) open({ kind: "plan", item }); }} onRetry={() => setStatus("ready")} />
             <PaymentContext scenario={fixture.scenario} onOpen={item => open({ kind: "payment", item })} onDismiss={item => open({ kind: "payment", item })} />
@@ -74,7 +76,7 @@ function Preview({ variant, state, dark, hidden }: { variant: PlanVariant; state
       </div>
       <div className="lg:hidden"><BottomNavRail appearance="ink" resolved activeTab="upcoming" pennyActive={false} pennyOpen={false} pennyCurrent={false} paydayActive={false} atRiskCount={atRiskCount} onPennyClick={() => window.location.assign("/penny")} /></div>
     </div>
-    {view && <PreviewDetails view={view} accounts={fixture.scenario.accounts} dark={dark} choices={choices} onChoice={(planId, accountId) => setChoices(current => ({ ...current, [planId]: accountId }))} onAdd={item => setDrafts(current => [...current, item])} onClose={close} />}
+    {view && (view.kind === "account" ? <AccountDetails accountId={view.item.id} state={state} status={status} onClose={close} /> : <PreviewDetails view={view} accounts={fixture.scenario.accounts} dark={dark} choices={choices} onChoice={(planId, accountId) => setChoices(current => ({ ...current, [planId]: accountId }))} onAdd={item => setDrafts(current => [...current, item])} onClose={close} />)}
   </BalancesHiddenContext.Provider>;
 }
 

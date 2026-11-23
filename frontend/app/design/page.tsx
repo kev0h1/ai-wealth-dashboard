@@ -35,7 +35,7 @@ const ROUTES: PreviewRoute[] = [
     slug: "upcoming-flow",
     name: "Upcoming page flow · G489",
     description:
-      "Focused account formatting, set-asides and goals. E Together puts plans in one card; F Separate uses matching cards. Both keep the existing production dated payment components unchanged, with no prominent suggested-move section. Eight fictional cases cover empty and populated plans, multiple accounts, conditional figures, long names, loading and errors. Both themes and hidden balances.",
+      "Preferred E keeps set-asides and goals in one card with independent collapsible groups. Account rows open the existing details sheet. F retains matching separate plan cards for comparison. Both keep the production dated payment components unchanged. Eight fictional cases cover empty and populated plans, multiple accounts, conditional figures, long names, loading and errors. Both themes and hidden balances.",
     states: [
       { label: "Current example", value: "current" },
       { label: "Set-asides and goals", value: "populated" },
