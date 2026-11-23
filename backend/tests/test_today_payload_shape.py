@@ -133,10 +133,19 @@ def test_route_payload_builder_is_the_single_definition(monkeypatch):
     monkeypatch.setattr(response_cache, "aput", aput)
     monkeypatch.setattr(response_cache, "snapshot", snapshot)
 
+    # G493: the stored overspending doc is added on read, outside the cache
+    # and outside the builder; none is stored here.
+    import app.services.overspending as overspending
+
+    async def no_overspending(uid):
+        return None
+
+    monkeypatch.setattr(overspending, "read_stored_overspending", no_overspending)
+
     served = asyncio.run(companion_router.get_today(0, {"email": UID}))
     built = asyncio.run(companion_router.build_today_payload(UID))
 
-    assert served == built
+    assert served == {**built, "overspending": None}
     assert puts and puts[0][2] == built, (
         "the payload written to the response cache must be the same one the "
         "route returns, or the next reader gets a different shape"

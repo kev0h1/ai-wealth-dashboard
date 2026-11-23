@@ -1,5 +1,4 @@
-// G430: By account shows one honest aggregate move summary. Account details
-// remain the place for individual suggested sources and amounts.
+// G430 formatting stays authoritative; G489 keeps suggestion presentation in the sheet.
 import assert from "node:assert/strict";
 import { createElement as h } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -14,9 +13,9 @@ import { accounts, plans } from "./fixtures/g417-upcoming-shortfall.ts";
 const enriched = withCoverSuggestions(accounts.map(account => ({ ...account, position: { ...account.position } })), []);
 const byId = id => enriched.find(account => account.id === id);
 const read = (id, status = "ready") => accountActionReading(byId(id), plans, status);
-const render = (hidden, listed = enriched, status = "ready") => renderToStaticMarkup(
+const render = (hidden, listed = enriched, status = "ready", planList = plans) => renderToStaticMarkup(
   h(BalancesHiddenContext.Provider, { value: hidden }, h(UpcomingAccountsCard, {
-    accounts: listed, plans, plansStatus: status, periodLabel: "Payments through Sun 29 Nov", onOpen() {},
+    accounts: listed, plans: planList, plansStatus: status, periodLabel: "Payments through Sun 29 Nov", onOpen() {},
   })),
 );
 const row = (markup, id) => {
@@ -68,12 +67,12 @@ assert.match(groups.folded, /data-fine-region="true" inert="" class="grid[^\"]*g
 assert.equal(natwest.remainingGap, 0, "even a fully suggested cover keeps its actual pre-move shortfall visible");
 const natwestRow = row(card, "natwest");
 assert.match(natwestRow, /−£259/);
-assert.match(natwestRow, /data-account-summary/);
-assert.match(text(natwestRow), /£270 to move in by 6 Nov/);
+assert.doesNotMatch(natwestRow, /data-account-summary/);
+assert.doesNotMatch(text(natwestRow), /£270 to move in by 6 Nov/);
 assert.doesNotMatch(natwestRow, /Current account|data-move-rows|data-source-bank|data-source-name|data-savings-source/);
-const natwestLabel = natwestRow.match(/aria-label="([^"]*)"/)[1];
-assert.match(natwestLabel, /£270 to move in by 6 Nov/);
-assert.doesNotMatch(natwestLabel, /Current account|Move in:/, "the row's accessible name keeps the aggregate without source details");
+assert.match(natwestRow,/aria-haspopup="dialog"/);
+assert.doesNotMatch(natwestRow.slice(0,natwestRow.indexOf(">")),/aria-label=/,"native name exposes the row financial context");
+assert.match(text(natwestRow),/Move suggested/,"compact conditional cue has no duplicate move amount");
 
 // Meaningful pence survive in the single summary, and masking covers the
 // summary and its canonical accessible row label.
@@ -105,8 +104,8 @@ assert.doesNotMatch(row(card, "barclays"), /data-account-summary|set aside for|B
 const sourceOnly = render(false, [byId("barclays")]);
 assert.deepEqual(rowIds(splitGroups(sourceOnly).lead), [], "a source-only card has no short accounts to lead");
 assert.deepEqual(rowIds(splitGroups(sourceOnly).folded), ["barclays"]);
-assert.match(sourceOnly, /Every account covers its payments and linked plans\./);
-assert.match(sourceOnly, /Suggested moves are for you to make\. Nothing has been moved\./, "the reminder still applies when suggestions sit in the fold");
+assert.match(sourceOnly, /1 account is fine/);
+assert.doesNotMatch(sourceOnly,/Suggested moves are for you to make|data-account-summary/,"G489 leaves reminders and breakdowns in the sheet");
 
 // Unknown, payment-only and estimated readings retain their honest existing
 // qualifications. No plan or cover total is presented while plans are absent.
@@ -123,11 +122,14 @@ assert.equal(accountMoveSummary(uncertain, accountActionReading(uncertain, plans
 for (const status of ["loading", "error"]) {
   const pending = read("natwest", status);
   assert.equal(accountMoveSummary(byId("natwest"), pending), "Payments only. Plans are still to be checked.");
-  assert.match(text(row(render(false, enriched, status), "natwest")), /Payments only\. Plans are still to be checked\./);
+  assert.match(text(row(render(false,enriched,status),"natwest")),/Payments only/);
+  assert.match(text(render(false,enriched,status)),/Checking goals and set-asides|Goals and set-asides could not be checked/);
 }
 const estimatedPlans = plans.map(plan => plan.sourceId === "barclays" ? { ...plan, evidence: "recent-transfers" } : plan);
 const estimated = accountActionReading(byId("barclays"), estimatedPlans, "ready");
 assert.match(accountMoveSummary(byId("barclays"), estimated) ?? "", /Paying account based on recent transfers\./);
+
+assert.match(text(row(render(false,[byId("barclays")],"ready",estimatedPlans),"barclays")),/estimated/);
 
 const hidden = render(true);
 assert.doesNotMatch(hidden, /£\d/, "hidden balances cover summaries and row labels");

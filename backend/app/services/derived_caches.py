@@ -382,6 +382,11 @@ async def recompute_derived_caches(
         await compute_and_cache_money_shape(uid, background=True)
     except Exception:
         logger.exception("money_shape compute failed for %s", uid)
+    try:
+        from app.services.overspending import compute_and_cache_overspending
+        await compute_and_cache_overspending(uid, background=True)
+    except Exception:
+        logger.exception("overspending compute failed for %s", uid)
     logger.info("derived caches recomputed for %s (trigger=%s, reason=%s)", uid, trigger, reason)
     return {"recomputed": True, "reason": reason}
 
