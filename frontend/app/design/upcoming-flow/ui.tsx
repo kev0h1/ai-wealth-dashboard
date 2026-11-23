@@ -1,13 +1,13 @@
 "use client";
 
-import type { ReactNode } from "react";
-import { AlertTriangle, ArrowRight, Check, ChevronDown, CircleHelp, CircleMinus, Clock3 } from "lucide-react";
+import { AlertTriangle, ArrowRight, Check, CircleHelp, CircleMinus, Clock3 } from "lucide-react";
 import { BankIcon, BANK_META, bankKey } from "@/components/AccountMiniCard";
 import MoneyText from "@/components/MoneyText";
 import { displayAccountName } from "@/lib/accountName";
-import type { PreviewAccount, Scenario } from "./types";
+import type { PreviewAccount } from "./types";
 
 export const focusClass = "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-slate-900 scroll-mb-28";
+export const containedFocusClass = "touch-manipulation focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500 scroll-mb-28";
 export const quietClass = "text-slate-600 dark:text-slate-300";
 export const surfaceClass = "rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800 dark:shadow-none";
 
@@ -50,30 +50,4 @@ export function AccountAmount({ account }: { account: PreviewAccount }) {
   const value = account.availabilityPence ?? (account.purpose === "source" ? account.cashNowPence : account.afterPaymentsPence);
   const label = account.availabilityLabel ?? (account.purpose === "source" ? "Bank balance" : "After payments");
   return <span className="block"><Money value={value} className="text-[19px] font-bold leading-7" /><span className={`mt-0.5 block max-w-[11rem] text-xs font-normal leading-5 ${quietClass}`}>{label}</span></span>;
-}
-
-function Disclosure({ label, children, name, className = "" }: { label: ReactNode; children: ReactNode; name: string; className?: string }) {
-  return <details className={`group ${className}`}><summary data-balanced-row={name} className={`flex min-h-12 cursor-pointer list-none items-center border-t border-slate-200 px-4 py-3 text-sm font-semibold hover:bg-slate-50 active:opacity-70 dark:border-slate-700 dark:hover:bg-slate-700 ${focusClass} [&::-webkit-details-marker]:hidden`}><span data-row-content className="flex w-full items-center justify-between gap-3"><span className="min-w-0 flex-1">{label}</span><ChevronDown size={16} aria-hidden="true" className="shrink-0 group-open:rotate-180" /></span></summary><div className={`border-t border-slate-100 p-4 text-sm leading-6 dark:border-slate-700 ${quietClass}`}>{children}</div></details>;
-}
-
-export function AccountWorking({ account, scenario, label = "Account working", planPence }: { account: PreviewAccount; scenario: Scenario; label?: ReactNode; planPence?: number }) {
-  const payments = scenario.payments.filter(payment => payment.accountId === account.id && payment.kind !== "card-charge" && payment.kind !== "settling");
-  return <div data-working-account={account.id} id={`working-${account.id}`} className="scroll-mt-4"><Disclosure name={`working-${account.id}`} label={label}>
-    {account.status === "checking" ? <p>This account’s figures are still being checked. Its result is not yet known.</p> : <>
-      <dl className="space-y-3">
-        {account.availabilityPence !== null && <div className="flex justify-between gap-4"><dt>{account.availabilityLabel}</dt><dd className="shrink-0"><Money value={account.availabilityPence} className="font-semibold" /></dd></div>}
-        <div className="flex justify-between gap-4"><dt>Bank balance to start</dt><dd className="shrink-0"><Money value={account.cashNowPence} /></dd></div>
-        <div className="flex justify-between gap-4"><dt>After expected payments</dt><dd className="shrink-0"><Money value={account.afterPaymentsPence} /></dd></div>
-        {planPence !== undefined && <div className="flex justify-between gap-4"><dt>Still to reserve for linked plans</dt><dd className="shrink-0"><Money value={planPence} /></dd></div>}
-        <div className="flex justify-between gap-4"><dt>Lowest payment balance</dt><dd className="shrink-0"><Money value={account.paymentLowPence} /></dd></div>
-        {!!account.earmarkedPence && <div className="flex justify-between gap-4"><dt>Reserved for suggested moves</dt><dd className="shrink-0"><Money value={account.earmarkedPence} /></dd></div>}
-        {!!account.planGapPence && <div className="flex justify-between gap-4"><dt>Still to cover for plans</dt><dd className="shrink-0"><Money value={account.planGapPence} /></dd></div>}
-      </dl>
-      <p className="mt-4 text-xs leading-5">The payment balances below show this account before any suggested move. Availability is a separate account reading. A suggestion is not money received.</p>
-      {account.requiresMove && <p className="mt-2 text-xs leading-5">The available figure already allows for the suggested incoming move. It depends on you making it.</p>}
-      {!!account.earmarkedPence && <p className="mt-2 text-xs leading-5">The available figure already leaves out the money reserved for these suggestions. Do not deduct it again.</p>}
-      {payments.length > 0 && <dl className="mt-4 space-y-3 border-t border-slate-200 pt-4 dark:border-slate-700">{payments.map(payment => <div key={payment.id} className="flex items-start justify-between gap-4"><dt className="min-w-0 text-pretty">{payment.name}<span className="block text-xs">{dateLabel(payment.date)}{payment.credited === false ? " · expected, not counted" : ""}</span></dt><dd className="shrink-0"><Money value={payment.afterPence} /></dd></div>)}</dl>}
-    </>}
-    <p className="mt-4 text-xs leading-5">Payments can take a day or two to appear, so a very recent one may not be counted yet.</p>
-  </Disclosure></div>;
 }

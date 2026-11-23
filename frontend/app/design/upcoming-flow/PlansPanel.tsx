@@ -1,11 +1,12 @@
 "use client";
 
-import { ChevronRight } from "lucide-react";
+import { useId, useState } from "react";
+import { ChevronDown, ChevronRight } from "lucide-react";
 import { PlanIcon } from "@/components/upcoming/detailPrimitives";
 import { useBalancesHidden } from "@/lib/balancesHidden";
 import type { PreviewAccount } from "./types";
 import type { PlanPreviewItem, PlansPanelProps } from "./PlanPreview.types";
-import { Money, MoneyCopy, accountLabel, bankLabel, focusClass, moneyText, quietClass } from "./ui";
+import { Money, MoneyCopy, accountLabel, bankLabel, containedFocusClass, focusClass, moneyText, quietClass } from "./ui";
 import styles from "./plans-panel.module.css";
 
 function sourceCopy(item: PlanPreviewItem, account: PreviewAccount | undefined) {
@@ -47,7 +48,7 @@ function PlanRow({ item, accounts, onOpen }: { item: PlanPreviewItem; accounts: 
   return <li className={styles.rowItem}>
     <button
       type="button"
-      className={`${styles.row} ${focusClass}`}
+      className={`${styles.row} ${containedFocusClass}`}
       data-balanced-row={`plan-${item.id}`}
       aria-label={`${item.name}. ${ariaAmount}, ${figure.caption}. Open details.`}
       onClick={() => onOpen(item.id)}
@@ -81,6 +82,50 @@ function EmptyInline({ kind, headingId, heading }: { kind: PlanPreviewItem["kind
   return <div className={styles.emptySection} data-balanced-row={`empty-${kind}`}><div data-row-content className={styles.emptySectionContent}><h3 id={headingId}>{heading}</h3><p className={quietClass}>None yet</p></div></div>;
 }
 
+function disclosureCopy(kind: PlanPreviewItem["kind"], items: PlanPreviewItem[]) {
+  const noun = kind === "set-aside" ? "set-aside" : "goal";
+  const plans = `${items.length} ${noun}${items.length === 1 ? "" : "s"}`;
+  const withoutPayer = items.filter((item) => item.state === "active" && !item.sourceId).length;
+  return withoutPayer ? `${plans} · ${withoutPayer} ${withoutPayer === 1 ? "needs" : "need"} a paying account` : plans;
+}
+
+function DisclosureSection({ kind, items, accounts, onOpen, headingId, contentId, heading }: {
+  kind: PlanPreviewItem["kind"];
+  items: PlanPreviewItem[];
+  accounts: PreviewAccount[];
+  onOpen: (id: string) => void;
+  headingId: string;
+  contentId: string;
+  heading: string;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const copy = disclosureCopy(kind, items);
+
+  return <div className={styles.disclosure}>
+    <h3 id={headingId} className={styles.disclosureTitle}>
+      <button
+        type="button"
+        className={`${styles.disclosureButton} ${containedFocusClass}`}
+        data-balanced-row={`plans-${kind}-disclosure`}
+        aria-expanded={expanded}
+        aria-controls={contentId}
+        onClick={() => setExpanded((value) => !value)}
+      >
+        <span data-row-content className={styles.disclosureContent}>
+          <span className={styles.disclosureCopy}>
+            <span className={styles.oneTitle}>{heading}</span>
+            <span className={`${styles.disclosureMeta} ${quietClass}`}>{copy}</span>
+          </span>
+          <ChevronDown aria-hidden="true" size={18} className={`${styles.disclosureChevron} ${expanded ? styles.disclosureChevronExpanded : ""}`} />
+        </span>
+      </button>
+    </h3>
+    <div id={contentId} className={styles.disclosureChildren} hidden={!expanded}>
+      <PlanList kind={kind} items={items} accounts={accounts} onOpen={onOpen} />
+    </div>
+  </div>;
+}
+
 function Section({ kind, items, accounts, onOpen, headingId, heading, onAdd }: {
   kind: PlanPreviewItem["kind"];
   items: PlanPreviewItem[];
@@ -105,6 +150,7 @@ function StatusCard({ status, onRetry }: Pick<PlansPanelProps, "status" | "onRet
 }
 
 export default function PlansPanel({ variant, items, accounts, status, onOpen, onAdd, onRetry }: PlansPanelProps) {
+  const panelId = useId();
   const setAsides = items.filter((item) => item.kind === "set-aside");
   const goals = items.filter((item) => item.kind === "goal");
   const empty = items.length === 0;
@@ -120,11 +166,11 @@ export default function PlansPanel({ variant, items, accounts, status, onOpen, o
       <p>Start a set-aside or goal for this period.</p>
       <button type="button" onClick={onAdd} className={`${styles.emptyAdd} ${focusClass}`}>Add a plan</button>
     </div> : variant === "e" ? <div className={styles.oneCard}>
-      <section className={styles.oneSection} aria-labelledby="set-asides-heading">
-        {setAsides.length ? <><h3 id="set-asides-heading" className={styles.oneTitle}>Set-asides</h3><PlanList kind="set-aside" items={setAsides} accounts={accounts} onOpen={onOpen} /></> : <EmptyInline kind="set-aside" headingId="set-asides-heading" heading="Set-asides" />}
+      <section className={styles.oneSection} aria-labelledby={`${panelId}-set-asides-heading`}>
+        {setAsides.length ? <DisclosureSection kind="set-aside" items={setAsides} accounts={accounts} onOpen={onOpen} headingId={`${panelId}-set-asides-heading`} contentId={`${panelId}-set-asides-content`} heading="Set-asides" /> : <EmptyInline kind="set-aside" headingId={`${panelId}-set-asides-heading`} heading="Set-asides" />}
       </section>
-      <section className={styles.oneSection} aria-labelledby="goals-heading">
-        {goals.length ? <><h3 id="goals-heading" className={styles.oneTitle}>Goals</h3><PlanList kind="goal" items={goals} accounts={accounts} onOpen={onOpen} /></> : <EmptyInline kind="goal" headingId="goals-heading" heading="Goals" />}
+      <section className={styles.oneSection} aria-labelledby={`${panelId}-goals-heading`}>
+        {goals.length ? <DisclosureSection kind="goal" items={goals} accounts={accounts} onOpen={onOpen} headingId={`${panelId}-goals-heading`} contentId={`${panelId}-goals-content`} heading="Goals" /> : <EmptyInline kind="goal" headingId={`${panelId}-goals-heading`} heading="Goals" />}
       </section>
     </div> : <div className={styles.matchingCards}>
       <Section kind="set-aside" items={setAsides} accounts={accounts} onOpen={onOpen} headingId="set-asides-heading" heading="Set-asides" onAdd={onAdd} />
