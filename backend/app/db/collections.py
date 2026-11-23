@@ -70,6 +70,9 @@ savings_labels_col      = db["savings_insight_labels"]
 
 # Debt repayment plans
 debt_plans_col          = db["debt_plans"]
+# G492: one durable, worker-computed repayment-progress snapshot per user.
+# Unlike response_cache, readers never compute this result on a miss.
+card_plan_progress_col  = db["card_plan_progress"]
 
 # Card terms (per-user confirmed APR/promo facts) + shared product-rate cache
 card_terms_col          = db["card_terms"]
@@ -592,7 +595,7 @@ ERASURE_MANIFEST = frozenset({
     "transfer_review_store_col", "filed_transfer_store_col", "own_transfer_judgements_col",
     "statement_accounts_col", "statement_transactions_col", "statement_uploads_col",
     "yapily_consents_col", "yapily_accounts_col", "yapily_transactions_col",
-    "savings_insights_col", "savings_labels_col", "debt_plans_col",
+    "savings_insights_col", "savings_labels_col", "debt_plans_col", "card_plan_progress_col",
     "card_terms_col", "card_product_rates_col", "savings_goals_col",
     "manual_accounts_col", "manual_transactions_col", "manual_account_rules_col",
     "manual_account_mirrors_col", "investment_accounts_col", "investment_holdings_col",

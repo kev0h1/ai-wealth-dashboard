@@ -146,7 +146,9 @@ ALLOWLIST: set[tuple[str, int]] = {
     # app/services/goal_schedule.py ("The end date is before the start date."),
     # forwarded to the user as a 400 or a Penny tool error; the HTTPException
     # sites below carry commitments._validate_name's authored detail.
-    ("app/routers/commitments.py", 1328),
+    # G492 shortens stored card-plan attachment above this unchanged helper;
+    # same authored validation forward, verified against the base AST.
+    ("app/routers/commitments.py", 1282),
     ("app/services/penny_goal_schedule.py", 506),
     ("app/services/penny_goal_schedule.py", 1015),
     ("app/services/penny_goal_schedule.py", 1066),
