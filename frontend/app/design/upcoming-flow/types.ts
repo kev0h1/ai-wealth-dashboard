@@ -1,5 +1,4 @@
 export type ScenarioId = "single" | "several" | "shared" | "partial" | "clear" | "checking" | "many";
-export type Variant = "c" | "d";
 export type AccountState = "short" | "move" | "funding" | "covered" | "checking" | "plans";
 
 export interface PreviewAccount {
@@ -67,9 +66,4 @@ export interface Scenario {
   payments: PreviewPayment[];
   moves: PreviewMove[];
   plans: PreviewPlan[];
-}
-
-export interface VariantProps {
-  scenario: Scenario;
-  hidden: boolean;
 }
