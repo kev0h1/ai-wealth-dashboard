@@ -31,7 +31,7 @@ function DetailSheet({ plan, hidden, onClose }: { plan: PlanFixture | null; hidd
     <div className={styles.sheetBody}>
       <p>{plan.detailIntro}</p>
       <dl>
-        {plan.evidence.map((item) => <div key={item.label}><dt>{item.label}</dt><dd>{hiddenEvidenceValue(item.label, item.value, hidden)}</dd></div>)}
+        {plan.evidence.map((item) => <div key={item.label}><dt>{item.label}</dt><dd><MoneyText text={hiddenEvidenceValue(item.label, item.value, hidden)} unmasked /></dd></div>)}
       </dl>
       <p className={styles.sheetNote}>This preview does not edit a plan, move money, or open a product route.</p>
     </div>
@@ -83,14 +83,7 @@ function RepaidFigure({ plan }: { plan: PlanFixture }) {
   </span>;
 }
 
-function shortStatus(plan: PlanFixture) {
-  if (plan.status.startsWith("Would clear before ")) return "Would clear in time.";
-  if (plan.status.startsWith("Would not clear by ")) return "Would not clear in time.";
-  return plan.status;
-}
-
 function PlanRow({ plan, variant, hidden, onOpen }: { plan: PlanFixture; variant: Variant; hidden: boolean; onOpen: () => void }) {
-  const status = shortStatus(plan);
   const hasProgress = !hidden && !plan.unavailable;
   const facts = plan.offerDeadline ? <div className={styles.factsGrid}>
     <PaymentMetric plan={plan} hidden={hidden} />
@@ -113,7 +106,7 @@ function PlanRow({ plan, variant, hidden, onOpen }: { plan: PlanFixture; variant
       {hasProgress && variant === "b" && facts}
       {!hasProgress && <><ProgressUnavailable id={`progress-${plan.id}`} hidden={hidden} unavailable={plan.unavailable} />{facts}</>}
       <div className={styles.statusFooter}>
-        <span id={`status-${plan.id}`} className={styles.status} aria-describedby={plan.targetQualifier ? `target-qualifier-${plan.id}` : undefined}>{plan.caution && !plan.unavailable && <span className={styles.watchDot} aria-hidden="true" />}{status}</span>
+        <span id={`status-${plan.id}`} className={styles.status} data-g492-finish aria-describedby={plan.targetQualifier ? `target-qualifier-${plan.id}` : undefined}>{plan.caution && !plan.unavailable && <span className={styles.watchDot} aria-hidden="true" />}{plan.finishLine}</span>
         <span className={styles.viewDetail} aria-hidden="true">Details</span>
       </div>
       {plan.targetQualifier && <span id={`target-qualifier-${plan.id}`} className={styles.targetQualifier}>{plan.targetQualifier}</span>}
