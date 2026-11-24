@@ -4088,6 +4088,7 @@ Board: the private page /ops/go-live on UAT reads and edits these files. Session
   - note (2026-11-23, claude): Follows G495; frontend half is G497.
 - [ ] **G497. Show the backend's last-resort goal or set-aside review suggestion on the Home no-source cover card and the Upcoming account sheet, naming it with the amount and linking to its sheet (Kevin 2026-11-23)** [owner: codex] [priority: p2]
   - note (2026-11-23, claude): Front-end half of claude item G496 (structured last-resort suggestion); start only after G496 merges. Replace/augment the generic UNCOVERED_OPTIONS line (frontend/lib/coverNarrative.ts:5, rendered in UpcomingAccountDetails.tsx ~86) and the Home no-source card (HomeBrief.tsx ~397-405, ~1392). Copy and link inside existing cards, no design round; independent reviewer audits the diff against DESIGN.md. Copy rules: no em dashes, British English, keep the currency minus. Stabilisation phase: Kevin requested this.
+- [ ] **G498. Cover moves minimise money moves across all cards: find every account that needs money for payments or plans before choosing sources, never use one as a source for another card, and collapse pass-through or self-cancelling legs, backend only (Kevin 2026-11-24)** [owner: claude]
 
 ## H. Repo hygiene
 
