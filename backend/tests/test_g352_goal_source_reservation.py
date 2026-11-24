@@ -261,3 +261,28 @@ def test_spend_from_headroom_is_unchanged_by_goal_reservation(monkeypatch):
     with_goal = _headroom(monkeypatch, [_goal("Japan", 10025)])[SRC_ACCT]
     assert with_goal["headroom"] != base["headroom"]
     assert with_goal["spend_from_headroom"] == base["spend_from_headroom"]
+
+
+# ── G495: a goal with a source account but no funding pot ───────────────────
+
+def _potless(name, pence, **kw):
+    return {**_goal(name, pence, **kw), "funding_pots": []}
+
+
+def test_potless_goal_with_source_is_reserved_at_its_source(monkeypatch):
+    assert _reserved(monkeypatch, [_potless("Daily Challenge", 25056, source=OTHER)]) == {OTHER: 250.56}
+
+
+def test_potless_goal_without_a_source_reserves_nothing(monkeypatch):
+    unsourced = {**_potless("Loose", 10000), "source_account_id": None}
+    unset = _potless("Unset", 10000, unset=True, source=None)
+    assert _reserved(monkeypatch, [unsourced, unset], salary=SRC_ACCT) == {}
+
+
+def test_potless_goal_with_unusable_source_reserves_nothing(monkeypatch):
+    assert _reserved(monkeypatch, [_potless("Gone", 10000, source="acc-missing")]) == {}
+
+
+def test_goal_with_a_pot_is_reserved_once_alongside_a_potless_one(monkeypatch):
+    docs = [_goal("Japan", 10025, source=OTHER), _potless("Daily", 5000, source=OTHER)]
+    assert _reserved(monkeypatch, docs) == {OTHER: 150.25}

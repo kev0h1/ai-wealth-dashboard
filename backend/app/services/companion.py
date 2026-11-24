@@ -1351,8 +1351,12 @@ async def _goal_source_slices(
                     # paying account for the card, so it is a source need like any
                     # other plan and is never a payday-plan destination.
                     card_plan = card_repayment_plans.is_card_plan(c)
-                    if not dest_ids and not card_plan:
-                        continue  # an unlinked goal moves nothing through the plan
+                    # G495: a pot-less goal still earmarks money at its stored
+                    # source account (Upcoming counts it), so it is reserved
+                    # there; with no stored source there is nothing to reserve.
+                    potless = not dest_ids and not card_plan
+                    if potless and c.get("source_account_id") is None:
+                        continue  # an unlinked goal with no source moves nothing
                     try:
                         slice_info = await _pot_progress_and_slice(c, pay_cfg, ledger, today_d)
                     except Exception:
@@ -1362,7 +1366,7 @@ async def _goal_source_slices(
                     )
                     assumed = False
                     if source is None:
-                        if c.get("source_unset") is True or c.get("source_account_id") is not None:
+                        if potless or c.get("source_unset") is True or c.get("source_account_id") is not None:
                             continue  # "Not set", or a stored account that is no longer usable
                         source, assumed = (salary_acct or ""), True
                     out.append({
