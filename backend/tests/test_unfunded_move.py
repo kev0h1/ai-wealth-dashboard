@@ -1268,3 +1268,39 @@ def test_g428_unfunded_move_reaches_one_savings_account_and_says_so(monkeypatch)
     assert sum(l["amount"] for l in legs) == card["amount"] == 70
     assert card["cover_note"].startswith("Your other accounts can cover £50. A move of £20 from ")
     assert card["cover_note"].endswith("would cover the rest.")
+
+
+def test_g499_unfunded_move_destination_is_never_a_source(monkeypatch):
+    """G499: an account that itself gets an unfunded_move top-up is a cover
+    destination and so never a source, even when nothing else (no payment
+    shortfall, no plan gap) puts it in G498's exclusion set. Here the pot's
+    payment shortfall is suppressed (as when a payday plan funds it) and its
+    source walk is forced positive so the usability check would pass it."""
+    import dataclasses
+    real_walk = companion._source_low_walk
+    real_sf = companion._shortfall_for_destination
+
+    def _walk(sid, wi, start_balance):
+        walk = real_walk(sid, wi, start_balance)
+        return dataclasses.replace(walk, low_point=500.0) if sid == "pot" else walk
+
+    def _sf(dest_acct, *a, **k):
+        return None if dest_acct == "pot" else real_sf(dest_acct, *a, **k)
+
+    monkeypatch.setattr(companion, "_source_low_walk", _walk)
+    monkeypatch.setattr(companion, "_shortfall_for_destination", _sf)
+    accounts = [
+        _account("premier", 44.68, name="Premier Current Account"),
+        _account("pot", 44.68, name="Pot Savings", provider="halifax", subtype="SAVINGS"),
+    ]
+    bills = [
+        _mv_bill("AMERICAN EXPRESS", 100.0, "premier",
+                 pending=True, days_past_due=2, original_date="2026-09-09"),
+        _mv_bill("BARCLAYCARD", 100.0, "pot",
+                 pending=True, days_past_due=2, original_date="2026-09-09"),
+    ]
+    items, _ = _run(monkeypatch, bills, accounts=accounts, show_regular_card=False)
+    item = _find(items, "unfunded_move")
+    assert item is not None
+    by_src = {m["source_account_id"]: m for m in item["moves"]}
+    assert by_src["premier"]["suggested_from_name"] is None

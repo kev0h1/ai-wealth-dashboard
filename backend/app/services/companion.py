@@ -3513,6 +3513,17 @@ async def compute_today_items(
         str(_g["account_id"]) for _g in _ap_gaps
         if f"allocation_shortfall:{_g['account_id']}:{window_end.isoformat()}" not in dismissed
     )
+    # G499: an account that may get a section 5d unfunded_move top-up needs money
+    # too, so it is never a source either. Structural, not left to the bounced-
+    # movement usability check. Conservative (ignores the later payday-plan and
+    # regular-card suppression), which only ever excludes a needy account.
+    _cover_destinations.update(
+        str(_um_a) for _um_a, _um_bs in bounced_bills.items()
+        if any(
+            _b.get("kind") == MOVEMENT and _b.get("pending") and not _b.get("is_card_repayment")
+            for _b in _um_bs
+        )
+    )
 
     # Step 3: For every shortfall, find a source (split across multiple if needed)
     covered: list[dict] = []     # each entry = list of leg dicts
