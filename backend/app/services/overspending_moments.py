@@ -102,7 +102,7 @@ async def read_overspending_moment(uid: str) -> dict | None:
             and period.get("length_days") == (end - start).days + 1
             and instant is not None
             and timeutil.to_user_date(instant) == today
-            and instant <= datetime.now(timezone.utc) + timedelta(minutes=5)
+            and instant <= timeutil.user_now().astimezone(timezone.utc) + timedelta(minutes=5)
             and type(version) is int
             and type(raw.get("data_version")) is int
             and raw["data_version"] == version
