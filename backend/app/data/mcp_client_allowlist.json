@@ -1,0 +1,4 @@
+{
+  "_comment": "F24: MCP assistants Sorted has assessed. Empty means no assistant can register or sign in. Add an entry only after the review in DEPLOY.md (MCP client allowlist). Fields per client: id, name (shown on the consent screen), redirect_uris (exact https URIs the assistant publishes), review {reviewed_on, reviewed_by, terms_url, notes}.",
+  "clients": []
+}
