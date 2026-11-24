@@ -51,7 +51,7 @@ const ROUTES: PreviewRoute[] = [
     slug: "overspending-moments",
     name: "Overspending, without the nagging · G494",
     description:
-      "Two directions across Home before payday, Spend after Out passes In, and Home at period close. A clear card with visible funding, or a quieter canvas note with funding behind the status chip. Fictional proposed G493 readings, a local one-off acknowledgement, neutral savings history and incomplete-evidence states. Both themes and hidden figures. No product or notification changes.",
+      "Current and proposed comparison on the current Home and Spend layouts: Home adds one early heads-up, Spend adds status and funding, and period close adds a short reading. Fictional fixtures only, with no live data or actions.",
     states: [
       { label: "Cards and savings", value: "full" },
       { label: "Three funding sources", value: "mixed" },
