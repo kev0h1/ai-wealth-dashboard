@@ -11,7 +11,7 @@ to Sandbox transactions.
 """
 import subprocess
 import sys
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -25,7 +25,18 @@ from tests.test_apple_billing import (  # noqa: F401  (fixtures are used by name
     BUNDLE, NOW, OTHER, UID, Pki, _doc, _ms, _notification, _run, _send, _signed_tx, _token, _tx, _verify, env, pki,
 )
 
-SANDBOX_EXPIRY = NOW + timedelta(minutes=5)  # Apple's sandbox renews on a compressed clock
+# Apple's sandbox renews on a compressed clock. The app judges these expiries against the real
+# clock, so they are rebuilt per test (autouse fixture) rather than frozen at import (H161).
+SANDBOX_EXPIRY = NOW + timedelta(minutes=5)
+
+
+def _fresh_now():
+    return datetime.now(timezone.utc)
+
+
+@pytest.fixture(autouse=True)
+def _fresh_sandbox_expiry(monkeypatch):
+    monkeypatch.setattr(sys.modules[__name__], "SANDBOX_EXPIRY", _fresh_now() + timedelta(minutes=5))
 
 
 def _sandbox_verify(env_, **kw):
@@ -55,9 +66,9 @@ def test_sandbox_purchase_is_recorded_as_a_test_with_apples_expiry(env):
 
 
 def test_a_sandbox_entitlement_expires_on_its_own(env):
-    _sandbox_verify(env, expires=NOW + timedelta(minutes=5))
+    _sandbox_verify(env, expires=_fresh_now() + timedelta(minutes=5))
     d = _doc(env)
-    d["expires_at"] = NOW - timedelta(minutes=1)  # the sandbox period has run out
+    d["expires_at"] = _fresh_now() - timedelta(minutes=1)  # the sandbox period has run out
     sub = _run(get_subscription(UID))
     assert sub.status == "expired" and sub.tier == Tier.STATEMENTS
 
@@ -80,7 +91,7 @@ def test_production_purchase_is_unchanged_and_not_marked(env):
 
 def test_a_sandbox_free_trial_does_not_burn_trial_history_or_flag_a_double(env):
     _stripe_doc(env, tier="lite")
-    end = NOW + timedelta(minutes=3)
+    end = _fresh_now() + timedelta(minutes=3)
     _sandbox_verify(env, product="sorted.standard.annual", expires=end, offer=1, discount="FREE_TRIAL", price=0)
     d = _doc(env)
     assert d["is_test"] is True and d["double_subscription"] is False
@@ -232,7 +243,7 @@ def test_notifications_are_processed_for_both_environments(env):
 def test_sandbox_renewal_expiry_and_refund_follow_the_test_document(env):
     _send(env, "SUBSCRIBED", tx=_tx(env, original="s-1", environment="Sandbox", expires=SANDBOX_EXPIRY), environment="Sandbox")
     t1 = NOW + timedelta(seconds=5)
-    renew_to = NOW + timedelta(minutes=10)
+    renew_to = _fresh_now() + timedelta(minutes=10)
     _send(env, "DID_RENEW", tx=_tx(env, original="s-1", environment="Sandbox", expires=renew_to, signed=t1), environment="Sandbox", signed=t1)
     d = _doc(env)
     assert d["is_test"] is True and d["expires_at"].replace(microsecond=0) == renew_to.replace(microsecond=0)
@@ -339,13 +350,13 @@ def _select_free(env_, monkeypatch):
 
 
 def test_select_free_plan_is_not_blocked_by_a_test_purchase(env, monkeypatch):
-    _sandbox_verify(env, expires=NOW + timedelta(minutes=5))
+    _sandbox_verify(env, expires=_fresh_now() + timedelta(minutes=5))
     assert _select_free(env, monkeypatch) == {"ok": True, "tier": "statements"}
 
 
 def test_select_free_plan_is_not_blocked_by_a_lapsed_apple_document(env, monkeypatch):
     _verify(env, _signed_tx(env, expires=NOW + timedelta(days=1)))
-    _doc(env)["expires_at"] = NOW - timedelta(minutes=1)  # still marked active, period passed
+    _doc(env)["expires_at"] = _fresh_now() - timedelta(minutes=1)  # still marked active, period passed
     assert _select_free(env, monkeypatch)["ok"] is True
 
 
