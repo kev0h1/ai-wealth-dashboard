@@ -14,8 +14,15 @@ type DataState = Exclude<PreviewState, "hidden">;
 const states: readonly PreviewState[] = ["ready", "future", "paused", "loading", "stale", "unavailable", "empty", "hidden", "long"];
 const stateLabels: Record<PreviewState, string> = { ready: "Ready", future: "Future", loading: "Loading", unavailable: "Unavailable", hidden: "Hidden", long: "Long names", paused: "Paused", stale: "Updating", empty: "Empty" };
 
-function moneyMask(text: string, hidden: boolean) {
-  return hidden ? text.replace(/£[\d,.]+/g, "£••••") : text;
+function hiddenEvidenceValue(label: string, value: string, hidden: boolean) {
+  if (!hidden || !value.includes("£")) return value;
+  if (/planned|paid|repayments|reserved/i.test(label)) return "Payment hidden";
+  if (/expected by now/i.test(label)) return "Hidden";
+  return "Figures hidden";
+}
+
+function hiddenPayment(text: string, hidden: boolean) {
+  return hidden && text.includes("£") ? "Payment hidden" : text;
 }
 
 function DetailSheet({ plan, hidden, onClose }: { plan: PlanFixture | null; hidden: boolean; onClose: () => void }) {
@@ -24,7 +31,7 @@ function DetailSheet({ plan, hidden, onClose }: { plan: PlanFixture | null; hidd
     <div className={styles.sheetBody}>
       <p>{plan.detailIntro}</p>
       <dl>
-        {plan.evidence.map((item) => <div key={item.label}><dt>{item.label}</dt><dd>{moneyMask(item.value, hidden)}</dd></div>)}
+        {plan.evidence.map((item) => <div key={item.label}><dt>{item.label}</dt><dd>{hiddenEvidenceValue(item.label, item.value, hidden)}</dd></div>)}
       </dl>
       <p className={styles.sheetNote}>This preview does not edit a plan, move money, or open a product route.</p>
     </div>
@@ -34,31 +41,48 @@ function DetailSheet({ plan, hidden, onClose }: { plan: PlanFixture | null; hidd
 function ProgressRail({ plan, hidden }: { plan: PlanFixture; hidden: boolean }) {
   if (hidden) return null;
   if (plan.unavailable) return null;
-  return <div className={styles.trackWrap} role="progressbar" aria-label={plan.progressAria} aria-valuemin={0} aria-valuemax={100} aria-valuenow={plan.progressPercent}>
-    <span className={styles.markerLabel}><MoneyText text={plan.markerLabel} unmasked /></span>
-    <span className={styles.marker} style={{ left: plan.markerLeft }} aria-hidden="true" />
-    <span className={styles.track}><span className={`${styles.fill} ${styles[plan.progressTone ?? "neutral"]}`} style={{ width: plan.progressWidth }} /></span>
+  return <div className={styles.progressBlock} data-g492-rail>
+    <span className={styles.progressKey} aria-hidden="true"><span><i className={styles.fillKey} />Recorded</span><span><i className={styles.markerKey} />Expected pace</span></span>
+    <div className={styles.trackWrap} role="progressbar" aria-label={`${plan.progressAria} The fill is recorded repayments. The tick marks expected pace. Open details for the exact expected-by-now amount.`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={plan.progressPercent}>
+      <span className={styles.marker} data-g492-marker style={{ left: plan.markerLeft }} aria-hidden="true" />
+      <span className={styles.track}><span className={`${styles.fill} ${styles[plan.progressTone ?? "neutral"]}`} data-g492-fill style={{ width: plan.progressWidth }} /></span>
+    </div>
   </div>;
 }
 
+function shortStatus(plan: PlanFixture) {
+  if (plan.status.startsWith("Would clear before ")) return "Would clear in time.";
+  if (plan.status.startsWith("Would not clear by ")) return "Would not clear in time.";
+  return plan.status;
+}
+
 function PlanRow({ plan, variant, hidden, onOpen }: { plan: PlanFixture; variant: Variant; hidden: boolean; onOpen: () => void }) {
-  const schedule = moneyMask(plan.scheduledLine, hidden);
-  const status = moneyMask(plan.status, hidden);
-  const order = variant === "a" ? ["progress", "schedule"] : ["schedule", "progress"];
+  const schedule = hiddenPayment(plan.scheduledLine, hidden);
+  const status = shortStatus(plan);
+  const progress = <span id={`progress-${plan.id}`} className={styles.progressLine}>
+    <span className={variant === "a" ? styles.leading : undefined}>{hidden ? "Figures hidden" : <MoneyText text={plan.progressFigure ?? plan.progressLine} unmasked />}</span>
+    {plan.offerDeadline && <span className={styles.deadline}>{plan.offerDeadline}</span>}
+  </span>;
+  const scheduleLine = <span id={`schedule-${plan.id}`} className={styles.scheduled}><MoneyText text={schedule} unmasked /></span>;
   return <article className={styles.plan} data-g492-row>
     <button type="button" onClick={onOpen} className={styles.planOpen} aria-labelledby={`name-${plan.id}`} aria-describedby={`schedule-${plan.id} progress-${plan.id} status-${plan.id}`} />
     <div className={styles.rowContent} data-g492-row-content>
-      <span id={`name-${plan.id}`} className={styles.planName}>{plan.name}<span className="sr-only">. View plan details</span></span>
-      {order.map((item) => item === "progress"
-        ? <span id={`progress-${plan.id}`} key="progress" className={styles.progressLine}>
-            <span className={variant === "a" ? styles.leading : undefined}>{hidden ? "Progress hidden" : <MoneyText text={plan.progressFigure ?? plan.progressLine} unmasked />}</span>
-            {plan.offerDeadline && <span className={styles.deadline}>{plan.offerDeadline}</span>}
-            {plan.targetQualifier && <span id={`target-qualifier-${plan.id}`} className={styles.targetQualifier}>{plan.targetQualifier}</span>}
-          </span>
-        : <span id={`schedule-${plan.id}`} key="schedule" className={`${styles.scheduled} ${variant === "b" ? styles.leading : ""}`}><MoneyText text={schedule} unmasked /></span>)}
-      <ProgressRail plan={plan} hidden={hidden} />
-      <span id={`status-${plan.id}`} className={styles.status} aria-describedby={plan.targetQualifier ? `target-qualifier-${plan.id}` : undefined}>{plan.caution && !plan.unavailable && <span className={styles.watchDot} aria-hidden="true" />}{status}</span>
-      <span className={styles.viewDetail}>View details</span>
+      {variant === "a" ? <>
+        <span id={`name-${plan.id}`} className={styles.planName}>{plan.name}<span className="sr-only">. View plan details</span></span>
+        {progress}
+        <ProgressRail plan={plan} hidden={hidden} />
+        {scheduleLine}
+      </> : <div className={styles.paymentLead}>
+        <span id={`name-${plan.id}`} className={styles.planName}>{plan.name}<span className="sr-only">. View plan details</span></span>
+        <span className={styles.paymentRow}><span>Payment</span>{scheduleLine}</span>
+        {progress}
+      </div>}
+      {variant === "b" && <ProgressRail plan={plan} hidden={hidden} />}
+      <div className={styles.statusFooter}>
+        <span id={`status-${plan.id}`} className={styles.status} aria-describedby={plan.targetQualifier ? `target-qualifier-${plan.id}` : undefined}>{plan.caution && !plan.unavailable && <span className={styles.watchDot} aria-hidden="true" />}{status}</span>
+        <span className={styles.viewDetail} aria-hidden="true">Details</span>
+      </div>
+      {plan.targetQualifier && <span id={`target-qualifier-${plan.id}`} className={styles.targetQualifier}>{plan.targetQualifier}</span>}
     </div>
   </article>;
 }
@@ -101,7 +125,7 @@ export default function CardPlanProgressPreview() {
       <div className={styles.context}>
         <section aria-labelledby="debt-heading"><div className={styles.sectionHead}><h2 id="debt-heading">Debt</h2><span>Repayment plans</span></div>
           <div className={styles.debtCard}>
-            <div className={styles.debtSummary}><div><p>Across your credit cards</p><strong><MoneyText text={fixture.debtTotal === null ? "Figure unavailable" : hidden ? "£•••• owed" : `${fixture.debtTotal} owed`} unmasked /></strong></div></div>
+            <div className={styles.debtSummary}><div><p>Across your credit cards</p><strong><MoneyText text={fixture.debtTotal === null ? "Figure unavailable" : hidden ? "Figures hidden" : `${fixture.debtTotal} owed`} unmasked /></strong></div></div>
             {dataState === "loading" ? <div className={styles.loading} aria-label="Loading card repayment plans…"><span className={styles.skeleton} /><span className={styles.skeleton} /><span className={styles.skeleton} /></div>
               : dataState === "stale" ? <div className={styles.unavailable} role="status"><strong>Updating plan progress…</strong><p>The latest plan figures are being prepared.</p></div>
               : dataState === "empty" ? <div className={styles.unavailable}><strong>No card repayment plans yet</strong><p>A saved plan will show its schedule and offer progress here.</p></div>

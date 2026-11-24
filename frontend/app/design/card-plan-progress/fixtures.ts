@@ -50,7 +50,7 @@ const unavailablePlan: PlanFixture = {
   markerLeft: "0%",
   markerLabel: "",
   status: "Offer progress needs clearer balance evidence.",
-  detailIntro: "The plan remains saved. Progress is withheld instead of treating an unknown allocation as £0 or on track.",
+  detailIntro: "The plan remains saved. Progress is withheld until the balance evidence is clear enough to assess the offer.",
   evidence: [
     { label: "Plan", value: "£180 each pay period" },
     { label: "Card balance owed", value: generated.unavailableCardBalance },
