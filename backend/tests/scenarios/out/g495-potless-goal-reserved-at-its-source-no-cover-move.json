@@ -21,6 +21,23 @@
       "estimated": false,
       "headroom": -50.0,
       "is_current_account": true,
+      "last_resort": {
+        "covers_gap": true,
+        "gap": 40.0,
+        "options": [
+          {
+            "covers_gap": true,
+            "frees": 40.0,
+            "kind": "goal",
+            "name": "Daily Challenge",
+            "plan_id": "goal:goal-daily",
+            "record_id": "goal-daily",
+            "remaining": 340.0
+          }
+        ],
+        "sentence": "If you still need it, reviewing your Daily Challenge goal could free up to \u00a340.",
+        "total_frees": 40.0
+      },
       "low_point": 300.0,
       "low_point_and_plans": -40.0,
       "plans_reserved": 340.0,

@@ -2047,6 +2047,8 @@ export type CompanionItem = {
   /** G359: set on the ask that carries a hedged income prompt ("confirm_salary" or "payday_funds_moves"). */
   income_note_kind?: "confirm_salary" | "payday_funds_moves";
   plan_dest?: PlanDest;
+  /** G496: on the no-source cover item, the goals and set-asides a review could free. */
+  last_resort?: LastResort;
   /** G212: account row for a cover plan card with no transfer source (readable name, balance and payments in one line). */
   dest_row?: { title: string; detail: string };
   covered?: boolean;
@@ -2202,6 +2204,25 @@ export type AccountEligibility = {
   earmarked_total?: number;
   covered_by_move?: { amount: number; shortfall?: number; savings_amount?: number; current_amount?: number; from: { account_id: string; name: string; amount: number; display_label?: string | null; source_kind?: "savings" }[] };
   short_after_cover?: number;
+  /** G496: read-only last resort when no account can cover the gap; absent otherwise. */
+  last_resort?: LastResort;
+};
+
+/** G496: goals and set-asides paid from a still-short account, largest first. Recommendation only. */
+export type LastResort = {
+  gap: number;
+  total_frees: number;
+  covers_gap: boolean;
+  sentence: string;
+  options: {
+    plan_id: string;
+    record_id: string;
+    kind: "goal" | "set_aside";
+    name: string;
+    remaining: number;
+    frees: number;
+    covers_gap: boolean;
+  }[];
 };
 
 export type TodayResponse = {

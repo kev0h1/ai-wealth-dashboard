@@ -136,6 +136,7 @@ Step 2 (H142), numbers are the board's scenario numbers:
 - G465 `g465-daily-goal-counts-only-payments-from-its-start`: a daily rising goal (12.12, +4p a day) starting mid-period with matching payments before and after the start; only the later ones count, the reserve is planned less paid (136.84), and Left to spend deducts it.
 - G495 `g495-potless-goal-reserved-at-its-source-no-cover-move`: a goal with a stored source account but no funding pot is reserved at that source (cover finder, payday plan and Upcoming agree), so the finder never suggests moving money the goal has earmarked.
 - G498 `g498-plan-short-account-is-not-a-payment-source`: a payment-short account and a plan-short account on the same run; the plan-short account (highest spare, so the old payment pass picked it) is never a source, and no account is both a destination and a source, giving two moves instead of a pass-through.
+- G496 `g496-no-source-last-resort-names-goals-on-the-short-account`: when no account can cover a payment or plan gap, the short account carries a read-only `last_resort` naming the goals and set-asides it pays for (largest first, frees capped at the gap); no move or reserve changes.
 - 8 `set-aside-in-a-pot-reserved-at-its-source`: an allocation filling a savings pot, its source learned from a
   same-day paired transfer; the unfilled 150 is reserved at the source in Left to spend, headroom and positions,
   the pot is never spendable.
