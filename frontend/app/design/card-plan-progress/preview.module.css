@@ -44,35 +44,19 @@
 .planOpen:hover { background:#f8fafc; }
 .dark .planOpen:hover { background:rgb(255 255 255 / .035); }
 .planName { display:block; overflow-wrap:anywhere; font-size:15px; font-weight:700; line-height:1.35; }
-.scheduled { display:block; margin-top:8px; font-size:13px; line-height:1.45; }
-.scheduled { color:#475569; }
-.dark .scheduled { color:#cbd5e1; }
-.scheduled :global(.money), .amountLine :global(.money), .figure :global(.money) { color:#0f172a; }
-.dark .scheduled :global(.money), .dark .amountLine :global(.money), .dark .figure :global(.money) { color:#f1f5f9; }
 .targetQualifier { display:block; margin-top:6px; color:#64748b; font-size:12px; font-weight:400; line-height:1.5; }
 .dark .targetQualifier { color:#cbd5e1; }
-.deadline { color:#64748b; font-family:inherit; font-size:12px; font-weight:400; letter-spacing:0; }
-.dark .deadline { color:#cbd5e1; }
-.tracks { display:grid; gap:8px; margin-top:12px; }
-.trackRow { display:grid; grid-template-columns:104px minmax(0, 1fr); align-items:center; gap:10px; color:#64748b; font-size:11px; font-weight:700; line-height:1.3; }
-.dark .trackRow { color:#cbd5e1; }
-.track { display:block; height:7px; overflow:hidden; border-radius:999px; background:#e2e8f0; }
-.dark .track { background:#334155; }
-.fill { display:block; height:100%; min-width:0; border-radius:inherit; }
-.expectedFill { display:block; height:100%; min-width:0; border-radius:inherit; background:#64748b; }
-.dark .expectedFill { background:#94a3b8; }
-.onPace { background:#047857; }
-.behind { background:#b45309; }
-.neutral { background:#64748b; }
-.dark .onPace { background:#34d399; }
-.dark .behind { background:#fbbf24; }
-.dark .neutral { background:#94a3b8; }
-.hiddenProgress { margin:12px 0 0; color:#64748b; font-size:12px; }
+.hiddenProgress { display:block; margin:8px 0 0; color:#64748b; font-size:12px; }
 .dark .hiddenProgress { color:#94a3b8; }
-.hiddenProgress + .deadline { display:block; margin-top:4px; }
-.amountLine { display:block; margin-top:10px; color:#0f172a; font-size:16px; font-weight:700; line-height:1.35; }
-.dark .amountLine { color:#f8fafc; }
-.ringReading, .figureReading { display:flex; align-items:center; gap:12px; margin-top:12px; }
+.pairedAmounts { display:grid; grid-template-columns:46px minmax(0, 1.2fr) minmax(72px, .8fr); align-items:center; gap:12px; margin-top:12px; }
+.ringRight { display:flex; align-items:center; justify-content:space-between; gap:16px; margin-top:12px; }
+.repaidMetric, .paymentMetric, .deadlineMetric { min-width:0; }
+.paymentMetric, .deadlineMetric { display:grid; align-content:start; gap:2px; }
+.deadlineLine { margin-top:8px; }
+.deadlineLine .deadlineMetric { display:flex; flex-wrap:wrap; align-items:baseline; gap:4px; }
+.deadlineLine .metricLabel { font-size:12px; font-weight:400; letter-spacing:0; text-transform:none; }
+.factsGrid { display:grid; grid-template-columns:minmax(0, 1fr) minmax(0, 1fr); gap:12px; margin-top:12px; }
+.hiddenProgress + .factsGrid { margin-top:8px; }
 .ring { flex:0 0 auto; width:46px; height:46px; transform:rotate(-90deg); }
 .ringTrack, .ringFill { fill:none; stroke-width:6; }
 .ringTrack { stroke:#e2e8f0; }
@@ -86,8 +70,22 @@
 .dark .ringFill.neutral { stroke:#94a3b8; }
 .metricLabel { display:block; color:#64748b; font-size:11px; font-weight:700; letter-spacing:.05em; text-transform:uppercase; }
 .dark .metricLabel { color:#94a3b8; }
-.figure { display:block; margin-top:2px; color:#0f172a; font-size:16px; font-weight:700; line-height:1.35; }
-.dark .figure { color:#f8fafc; }
+.repaidFigure { display:block; color:#0f172a; font-size:16px; font-weight:700; line-height:1.35; }
+.paymentAmount { display:block; color:#0f172a; font-size:13px; font-weight:600; line-height:1.45; }
+.dark .repaidFigure, .dark .paymentAmount { color:#f8fafc; }
+.repaidFigure { margin-top:2px; white-space:normal; }
+.pairedAmounts .repaidTarget { display:block; margin-top:2px; font-size:12px; font-weight:400; line-height:1.5; }
+.pairedAmounts .of { margin:0 4px 0 0; }
+.repaidFigure :global(.money), .paymentAmount :global(.money) { white-space:nowrap; }
+.of { margin:0 4px; color:#64748b; font-family:var(--font-figtree), sans-serif; font-size:12px; font-weight:500; }
+.dark .of { color:#94a3b8; }
+.metricDetail, .deadlineDate, .paymentNote { color:#64748b; font-size:12px; font-weight:400; line-height:1.5; overflow-wrap:anywhere; }
+.deadlineDate { display:block; }
+.dark .metricDetail, .dark .deadlineDate, .dark .paymentNote { color:#cbd5e1; }
+.scheduleLine { display:block; margin-top:8px; color:#475569; font-size:13px; line-height:1.45; }
+.dark .scheduleLine { color:#cbd5e1; }
+.scheduleLine :global(.money) { color:#0f172a; }
+.dark .scheduleLine :global(.money) { color:#f1f5f9; }
 .statusFooter { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-top:8px; }
 .status { display:flex; gap:8px; align-items:flex-start; color:#475569; font-size:13px; line-height:1.5; }
 .dark .status { color:#cbd5e1; }
@@ -127,7 +125,7 @@
 .preview :focus-visible { outline:2px solid #4f46e5; outline-offset:2px; }
 .dark :focus-visible, .toolbar :focus-visible { outline-color:#a5b4fc; }
 .planOpen:focus-visible { outline-offset:-2px; }
-@media (max-width:620px) { .toolbarInner { flex-wrap:wrap; justify-content:center; padding:4px 6px; } .fixtureLabel { display:none; } .control, .reviewCases summary { padding:0 6px; font-size:11px; } .trackRow { grid-template-columns:96px minmax(0, 1fr); } }
+@media (max-width:620px) { .toolbarInner { flex-wrap:wrap; justify-content:center; padding:4px 6px; } .fixtureLabel { display:none; } .control, .reviewCases summary { padding:0 6px; font-size:11px; } }
 @media (hover:hover) { .planOpen { transition:background 150ms ease-out; } }
 @media (prefers-reduced-motion:reduce) { .planOpen { transition:none; } }
 @media (min-width:900px) { .context { grid-template-columns:minmax(0,1.35fr) minmax(280px,.85fr); align-items:start; gap:24px; } }

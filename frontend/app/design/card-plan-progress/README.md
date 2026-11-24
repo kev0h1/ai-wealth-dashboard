@@ -1,14 +1,13 @@
 # Card repayment-plan progress preview
 
-Temporary, fixture-only G492 design round. The route is registered as `/design/card-plan-progress` and supports `?variant=a|b|c&state=ready|future|paused|loading|stale|unavailable|empty|hidden|long&mode=light|dark&hide=0|1`. `state=hidden` aliases ready data with figures hidden; `hide=1` independently preserves privacy through every other state.
+Temporary, fixture-only G492 design round. The route is registered as `/design/card-plan-progress` and supports `?variant=a|b&state=ready|future|paused|loading|stale|unavailable|empty|hidden|long&mode=light|dark&hide=0|1`. `state=hidden` aliases ready data with figures hidden; `hide=1` independently preserves privacy through every other state. Any older or unknown variant URL falls back to A.
 
-## The three proposals
+## The two proposals
 
-- **A, Two tracks** puts separately labelled Repaid and Expected by now rails on the same supplied 0–100 scale. It has no floating marker or legend to decode. A paused plan retains only its neutral historical Repaid track.
-- **B, Compact ring** puts an actual recorded-repayment ratio beside the exact Repaid amount and target. The SVG uses the supplied precomputed percentage directly; expected pace remains in Details.
-- **C, Figures only** makes the exact Repaid amount and target the reading, with no chart, ring, marker or percentage.
+- **A, Paired amounts** puts the compact recorded-repayment ring, the exact repaid amount and the recurring payment in one reading. The target sits below the repaid amount, and the offer expiry is one quiet supporting line beneath the metrics.
+- **B, Ring right** leads with the exact repaid amount, places the same compact ring to its right, then pairs the recurring payment with the offer expiry below.
 
-All proposals keep names wrapping rather than truncating, show the offer deadline once, and retain the same payment and short-outlook row structure. The displayed repayment treatment follows the backend outlook: emerald on pace, amber when behind or projected short, and slate while paused or before the start. Financial figures stay ink. Active progress uses a dated, confirmed single-offer starting target whose matched repayments reconcile exactly to the bank balance. A future target is explicitly provisional and is not retained before the plan starts. A separate known-plan row stays neutral and unavailable when several active offers make allocation unsafe.
+Both proposals keep names wrapping rather than truncating, show the offer deadline once, and retain one short outlook plus Details. Payment is split only for presentation: the amount stays exact and its supplied qualifier remains intact, including future start dates and paused wording. The displayed repayment treatment follows the backend outlook: emerald on pace, amber when behind or projected short, and slate while paused or before the start. Financial figures stay ink. Active progress uses a dated, confirmed single-offer starting target whose matched repayments reconcile exactly to the bank balance. A future target is explicitly provisional and is not retained before the plan starts. A separate known-plan row stays neutral and unavailable when several active offers make allocation unsafe.
 
 Future rows visibly qualify both target and outlook as provisional until the plan starts. The qualifier is precomputed, appears beside the target, forms part of the row description and progressbar name, and also describes the projected status.
 
@@ -20,6 +19,6 @@ All monetary amounts, percentages, marker positions, projected residuals and sta
 
 ## Scope and interaction
 
-This preview does not call an API, edit plans, move money or navigate into product routes. Each plan's native button opens local synthetic evidence in the existing SheetFrame, with no second sheet system. The query controls are normal links so state is deep-linkable and browser Back restores the previous preview URL. All variants include light and dark modes, visible keyboard focus, 44px controls, reduced-motion handling, and `data-g492-row` / `data-g492-row-content` plus `data-g492-rail`, `data-g492-fill` and `data-g492-marker` hooks for the required spacing and geometry measurement.
+This preview does not call an API, edit plans, move money or navigate into product routes. Each plan's native button opens local synthetic evidence in the existing SheetFrame, with no second sheet system. The query controls are normal links so state is deep-linkable and browser Back restores the previous preview URL. Both layouts include light and dark modes, visible keyboard focus, 44px controls, reduced-motion handling, and `data-g492-row` / `data-g492-row-content` plus `data-g492-actual`, `data-g492-payment` and `data-g492-deadline` hooks for the required spacing and geometry measurement.
 
 Retire this entire directory and its design-index entry when the chosen variant is folded into production under H113. The generator and generated figures are temporary preview evidence.
