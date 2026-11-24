@@ -171,7 +171,7 @@ def test_warm_user_warms_the_list_alongside_the_count(monkeypatch):
     original_list = warmup._compute_miscategorised_list
     monkeypatch.setattr(warmup, "_compute_card_plan_progress", progress_ok)
     for n in ("_compute_today", "_compute_safe_to_spend", "_compute_spend_verdict",
-              "_compute_miscategorised_count", "_compute_grow", "_compute_commitments"):
+              "_compute_miscategorised_count", "_compute_grow", "_compute_commitments", "_compute_overspending"):
         monkeypatch.setattr(warmup, n, noop)
     monkeypatch.setattr(warmup, "_compute_miscategorised_list", record_list)
 

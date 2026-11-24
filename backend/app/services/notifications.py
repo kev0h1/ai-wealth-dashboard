@@ -172,6 +172,18 @@ async def release_push_claim(user_id: str, key: str) -> None:
     )
 
 
+async def push_claimed(user_id: str, key: str) -> bool:
+    """Whether a G473 claim is already held, without taking it.
+
+    This is deliberately a read-only check for the crossed-period fallback:
+    an early heads-up already claimed for this pay period must stop category
+    notices arriving later, but a fallback must never create a claim of its
+    own.
+    """
+    doc = await notification_state_col.find_one({"_id": user_id}, {"claims": 1}) or {}
+    return _claim_field(key).split(".", 1)[1] in (doc.get("claims") or {})
+
+
 def _hard_failure(result) -> bool:
     """True when a send was attempted at one or more devices and none got it."""
     if not isinstance(result, dict):
@@ -217,7 +229,7 @@ async def _maybe_settle_planned(user_id: str) -> None:
     await settle_planned_expenses(user_id)
 
 
-async def notify_after_sync(user_id: str, new_txns: list) -> None:
+async def notify_after_sync(user_id: str, new_txns: list, *, include_spending_pace: bool = True) -> None:
     """Run every preference-gated check after a sync brought new transactions."""
     if not user_id or user_id == "unknown":
         return
@@ -231,14 +243,16 @@ async def notify_after_sync(user_id: str, new_txns: list) -> None:
     except Exception as e:  # one failing check must not block the others
         log.warning("notify_after_sync money_movement failed for %s: %s", user_id, e)
 
-    for label, coro in (
+    checks = [
         ("planned_settlement", _maybe_settle_planned(user_id)),
         ("transactions", _maybe_transactions(user_id, new_txns)),
         ("goal_milestones", _maybe_goal_funded(user_id)),
         ("insights", _maybe_new_insights(user_id)),
-        ("category_pace", _maybe_category_pace(user_id)),
         ("classification_attention", _maybe_classification_attention(user_id)),
-    ):
+    ]
+    if include_spending_pace:
+        checks.insert(4, ("spending_pace", _maybe_spending_pace(user_id)))
+    for label, coro in checks:
         try:
             await coro
         except Exception as e:  # one failing check must not block the others
@@ -885,6 +899,98 @@ async def _maybe_category_pace(user_id: str) -> None:
         {"$set": {f"category_pace.{period_key}": already + newly}},
         upsert=True,
     )
+
+
+async def _maybe_spending_pace(user_id: str) -> None:
+    """Choose at most one spending-pace push for a sync.
+
+    The overall early reading is preferred when G493 has stored and validated
+    it. It shares the existing category-pace preference and its atomic claim
+    is per pay-period, so it never joins the category notices as an extra nag.
+    Only a fresh, readable stored result may fall back to the established
+    per-category behaviour. Missing or stale financial evidence stays quiet.
+    """
+    if not await notif_pref(user_id, "category_pace"):
+        return
+
+    # No spending judgement is safe until the first sync has established its
+    # figures. Hold every first-sync state, including failed or idle recovery.
+    try:
+        fs = await first_sync_state(user_id)
+        if fs.get("first_sync"):
+            return
+    except Exception:
+        log.warning("first_sync_state failed in spending pace for %s", user_id)
+        return
+
+    try:
+        from app.services.overspending_moments import (
+            current_period_acknowledged,
+            early_heads_up_eligible,
+            read_overspending_moment,
+        )
+        moment = await read_overspending_moment(user_id)
+    except Exception:
+        # A stale/failed financial read is not evidence for a category nudge.
+        # Warm-up retries the durable reading before considering delivery.
+        log.warning("overspending moment read failed for %s", user_id, exc_info=True)
+        return
+
+    if not moment:
+        try:
+            if await current_period_acknowledged(user_id):
+                return
+        except Exception:
+            # The one-off answer is consent to silence this prompt. If we
+            # cannot establish whether it exists, do not risk sending the
+            # category fallback as a substitute nag.
+            log.warning("overspending acknowledgement read failed for %s", user_id, exc_info=True)
+            return
+        # There is no fresh financial snapshot to coordinate with, so do not
+        # send an earlier category notice that could sit beside the later
+        # overall heads-up once warm-up completes.
+        return
+
+    if moment.get("acknowledged"):
+        # The user chose a one-off answer for this period. Do not follow it
+        # with an overall or category nudge on the same spending condition.
+        return
+
+    period_end = ((moment.get("period") or {}).get("end"))
+    claim = f"overspend:{period_end}" if period_end else None
+
+    if early_heads_up_eligible(moment):
+        if claim and await claim_push(user_id, claim):
+            try:
+                await send_claimed(
+                    user_id,
+                    [claim],
+                    "Spending may pass income",
+                    "At this pace, spending may pass income before the end of this pay period. Open Spend to see what is contributing.",
+                    "/spend?overspending=1",
+                )
+            except Exception as e:
+                log.warning("overspending pace push failed for %s: %s", user_id, e)
+        # An eligible overall reading consumes this sync even when another
+        # concurrent sync owns the claim or delivery needs retrying.
+        return
+
+    # Once an early heads-up has been claimed, a later crossed reading in the
+    # same pay period must not restart the category-notice sequence.
+    if moment.get("crossed") and claim and await push_claimed(user_id, claim):
+        return
+
+    # The cached moment can become stale immediately after the one-off write.
+    # Check the asked answer again before the legacy category fallback.
+    try:
+        if await current_period_acknowledged(user_id):
+            return
+    except Exception:
+        log.warning("overspending acknowledgement read failed for %s", user_id, exc_info=True)
+        return
+    if moment.get("display_ready") is not True:
+        return
+    await _maybe_category_pace(user_id)
 
 
 def _classification_body(new_unplaced: set, new_miscategorised: set, new_pairs: set | None = None) -> str:

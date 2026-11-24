@@ -2284,6 +2284,11 @@ export function BriefBody({ items: rawItems, reconnectNames, safeToSpend, router
             <p className="text-[15px] font-semibold text-slate-700 dark:text-slate-300 leading-snug mb-2">
               {maskAmounts(needleItem.headline)}
             </p>
+            {needleItem.body && (
+              <p className="mb-2 text-[14px] leading-relaxed text-slate-600 dark:text-slate-400">
+                <MoneyText text={maskAmounts(needleItem.body)} />
+              </p>
+            )}
             {needleItem.action && (
               <button
                 onClick={() => router.push(actionHref(needleItem.action!.route))}

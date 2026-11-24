@@ -286,6 +286,7 @@ class FakeCol:
 
 @pytest.fixture
 def cols(monkeypatch):
+    from app.services import overspending_moments
     cache, ack = FakeCol(), FakeCol()
     monkeypatch.setattr(ov, "overspending_cache_col", cache)
     monkeypatch.setattr(ov, "preferences_col", FakeCol())  # no prefs: calendar months
@@ -294,6 +295,16 @@ def cols(monkeypatch):
         return END
     monkeypatch.setattr(ov, "current_period_end", _end)
     monkeypatch.setattr(ov, "overspending_ack_col", ack)
+    # G494 decorates stored reads with presentation readiness. Keep this
+    # pre-existing engine/route test fully isolated from Motor event loops.
+    monkeypatch.setattr(overspending_moments, "preferences_col", FakeCol())
+    monkeypatch.setattr(overspending_moments, "notification_state_col", FakeCol())
+    async def _version(uid, **kwargs):
+        return 3
+    async def _ready(uid):
+        return {"first_sync": False, "state": "ready"}
+    monkeypatch.setattr(overspending_moments.data_version, "current_strict", _version)
+    monkeypatch.setattr(overspending_moments, "first_sync_state", _ready)
     invalidated = []
     monkeypatch.setattr(response_cache, "invalidate", lambda uid, name=None: invalidated.append(uid))
     return cache, ack, invalidated

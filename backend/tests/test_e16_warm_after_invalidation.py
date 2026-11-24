@@ -115,7 +115,7 @@ def test_g492_input_write_builds_progress_before_any_screen_read(monkeypatch):
     monkeypatch.setattr(response_cache, "aput", put)
     for name in ("_compute_today", "_compute_cover_plan", "_compute_safe_to_spend",
                  "_compute_spend_verdict", "_compute_miscategorised_count",
-                 "_compute_miscategorised_list", "_compute_grow", "_compute_commitments"):
+                 "_compute_miscategorised_list", "_compute_grow", "_compute_commitments", "_compute_overspending"):
         monkeypatch.setattr(warmup, name, response)
 
     # Use the real input invalidation and worker warm entry points. No GET or
@@ -144,7 +144,7 @@ def test_warm_does_not_enqueue_another_warm(monkeypatch):
     monkeypatch.setattr(warmup, "_compute_card_plan_progress", progress)
     for n in ("_compute_today", "_compute_cover_plan", "_compute_safe_to_spend",
               "_compute_spend_verdict", "_compute_miscategorised_count",
-              "_compute_miscategorised_list", "_compute_grow", "_compute_commitments"):
+              "_compute_miscategorised_list", "_compute_grow", "_compute_commitments", "_compute_overspending"):
         monkeypatch.setattr(warmup, n, fake)
     out = _run(warmup.warm_user(UID))
     assert not out["failed"]

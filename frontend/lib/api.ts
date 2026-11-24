@@ -807,9 +807,16 @@ export type Overspending = {
   trend: OverspendingTrend;
   /** The user answered "one-off" for this period (asked, never inferred). */
   acknowledged: boolean;
+  /** Server-validated current, fresh result that may be presented to the user. */
+  display_ready?: boolean;
+  /** A Home heads-up has already been granted for this pay period. */
+  heads_up_seen?: boolean;
   computed_at?: string;
   schema_version?: number;
 };
+
+export type OverspendingOneOffResponse = { ok: boolean; period_end: string; acknowledged: boolean };
+export type OverspendingHeadsUpResponse = { shown: boolean; period_end: string };
 
 export type SpendVerdict = {
   state: SpendVerdictState;
@@ -3764,6 +3771,12 @@ export const api = {
   paceDetail: (offset = 0) => get<PaceDetail>(`/pace/detail?offset=${offset}`),
   categorySignals: (offset = 0) => get<CategorySignals>(`/spend/category-signals?offset=${offset}`),
   spendVerdict: (offset = 0) => get<SpendVerdict>(`/spend/verdict?offset=${offset}`),
+  recordOverspendingOneOff: (periodEnd: string) =>
+    post<OverspendingOneOffResponse>("/spend/overspend/one-off", { period_end: periodEnd }),
+  deleteOverspendingOneOff: (periodEnd: string) =>
+    del<OverspendingOneOffResponse>(`/spend/overspend/one-off?period_end=${encodeURIComponent(periodEnd)}`),
+  claimOverspendingHeadsUp: (periodEnd: string) =>
+    post<OverspendingHeadsUpResponse>("/spend/overspend/heads-up", { period_end: periodEnd }),
   dismissUnresolvedAsk: (txnId: string) =>
     post<{ ok: boolean }>("/spend/verdict/dismiss-unresolved", { txn_id: txnId }),
   cashflow: () => get<CashflowData>("/cashflow"),

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, useMemo, useRef } from "react";
+import { useEffect, useState, useCallback, useMemo, useRef, useId } from "react";
 import dynamic from "next/dynamic";
 import { useSearchParams, useRouter } from "next/navigation";
 import { BarChart3, Check, WalletCards, Undo2 } from "lucide-react";
@@ -39,6 +39,7 @@ import Spinner from "@/components/Spinner";
 import SpendVerdictView from "@/components/SpendVerdictView";
 import { SpendPeriodBar, type RecentPeriodOption, SpendHeroSkeleton } from "@/components/SpendHeader";
 import SpendPaceHero from "@/components/SpendPaceHero";
+import { hasProjectedOverspending, OverspendingDetailsSheet, OverspendingStatusPill, overspendingMatchesVerdict } from "@/components/OverspendingMoments";
 import { unresolvedWorthAsking } from "@/lib/spendUnresolved";
 import SpendJourneyNav, { type SpendJourneyDestination } from "@/components/SpendJourneyNav";
 import PayPeriodSettingsSheet, { formatPeriodLocal } from "@/components/PayPeriodSettingsSheet";
@@ -354,6 +355,9 @@ export default function SpendPage() {
     api.oldestTransaction().then(r => { if (r.date) setOldestTxDate(new Date(r.date)); }).catch(() => {});
   }, []);
   const [selectedTx, setSelectedTx] = useState<Transaction | null>(null);
+  const [overspendingDetailsOpen, setOverspendingDetailsOpen] = useState(false);
+  const overspendingQueryHandled = useRef(false);
+  const overspendingDetailsId = useId();
   // Set only by the ask card's "Tell me what this was" — see onAskCorrect
   // below. Tracks the id rather than a plain boolean so it can't stick
   // after a later, unrelated setSelectedTx call reuses "truthy state".
@@ -518,6 +522,22 @@ export default function SpendPage() {
       fetchVerdict(periodOffset);
     }
   }, [periodOffset, fetchVerdict, payPeriodConfig, firstSync.pending, firstSync.active]);
+
+  // Home's "Show me where" only ever targets the current default period.
+  // Do not open a sheet from the URL until the visible server verdict proves
+  // the stored reading and its Out/In figures belong to that exact period.
+  useEffect(() => {
+    if (overspendingQueryHandled.current || periodOffset !== 0 || firstSync.pending || firstSync.active || verdictLoading || searchParams.get("overspending") !== "1") return;
+    if (!overspendingMatchesVerdict(verdict?.overspending, verdict)) return;
+    overspendingQueryHandled.current = true;
+    queueMicrotask(() => {
+      setOverspendingDetailsOpen(true);
+      router.replace("/spend");
+    });
+  }, [firstSync.active, firstSync.pending, periodOffset, router, searchParams, verdict, verdictLoading]);
+  const displayedOverspending = verdict?.overspending;
+  const hasDisplayedOverspending = !firstSync.pending && !firstSync.active && !verdictLoading
+    && periodOffset === 0 && overspendingMatchesVerdict(displayedOverspending, verdict);
 
   // The closing SpendShapeCard's own GET /money-shape — independent of the
   // period fetch above (the shape is the user's own recent-period pattern,
@@ -1254,6 +1274,16 @@ export default function SpendPage() {
             onTransactionClick={(tx) => { setAskHandoffTxId(null); setSelectedTx(tx); }}
             onOutTap={handleOutTap}
             onMovedTap={handleMovedTap}
+            renderStatus={hasDisplayedOverspending ? ({ status }) => {
+              const projected = hasProjectedOverspending(displayedOverspending);
+              return <OverspendingStatusPill
+                label={displayedOverspending.crossed ? "More out than in" : projected ? "May pass income" : status}
+                caution={displayedOverspending.crossed || projected}
+                controls={overspendingDetailsId}
+                expanded={overspendingDetailsOpen}
+                onOpen={() => setOverspendingDetailsOpen(true)}
+              />;
+            } : undefined}
           />
           {verdict && <div className="mt-5 hidden lg:block"><SpendJourneyNav destinations={journeyDestinations} desktop /></div>}
         </section>
@@ -1391,6 +1421,22 @@ export default function SpendPage() {
           )}
         </main>
       </div>
+      {overspendingDetailsOpen && hasDisplayedOverspending && (
+        <OverspendingDetailsSheet
+          overspending={displayedOverspending}
+          verdict={verdict!}
+          id={overspendingDetailsId}
+          onClose={() => setOverspendingDetailsOpen(false)}
+          onOpenCategory={(category) => {
+            const params = new URLSearchParams();
+            params.set("category", category);
+            params.set("from", displayedOverspending.period.start);
+            params.set("to", displayedOverspending.period.end);
+            setOverspendingDetailsOpen(false);
+            router.push(`/transactions?${params.toString()}`);
+          }}
+        />
+      )}
 
       {/* Category sheet — survives ONLY for the synthetic "Payments over
           £250" list (Spend Trends' onReviewLarge, below): an amount-

@@ -332,8 +332,8 @@ async def sync_all(user: dict = Depends(current_user)):
         # to, not a bump still in flight.
         await response_cache.ainvalidate(u)
         try:
-            from app.services.warmup import warm_user
-            await warm_user(u)
+            from app.services.warmup import warm_after_sync
+            await warm_after_sync(u)
         except Exception:
             logger.exception("post-sync warm_user failed for %s", u)
     _fire_and_forget(_post_sync(uid, total_new_txns))
@@ -401,8 +401,8 @@ async def sync_history(user: dict = Depends(current_user)):
         # against the version this sync just bumped to.
         await response_cache.ainvalidate(u)
         try:
-            from app.services.warmup import warm_user
-            await warm_user(u)
+            from app.services.warmup import warm_after_sync
+            await warm_after_sync(u)
         except Exception:
             logger.exception("post-sync warm_user failed for %s", u)
     _fire_and_forget(_post_sync(uid, total_new_txns))

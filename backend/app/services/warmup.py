@@ -96,6 +96,18 @@ async def _compute_card_plan_progress(uid: str) -> dict:
     return await card_plan_store.refresh(uid)
 
 
+async def _compute_overspending(uid: str) -> dict | None:
+    """Refresh G493's durable result after every other warm step is finished."""
+    from app.services.overspending import compute_and_cache_overspending
+    return await compute_and_cache_overspending(uid, background=True)
+
+
+async def _maybe_spending_pace(uid: str) -> None:
+    """Deliver the stored, final-version pace reading after a successful warm."""
+    from app.services.notifications import _maybe_spending_pace as notify
+    await notify(uid)
+
+
 # Per-uid in-flight tasks for warm_user's single-flight guard (see warm_user's
 # own docstring) — a plain module-level dict is safe here with no lock: every
 # access below is a synchronous dict get/set with no `await` in between, and
@@ -138,6 +150,41 @@ async def warm_user(uid: str, include_cover_plan: bool = True) -> dict:
     finally:
         if _inflight.get(uid) is task:
             _inflight.pop(uid, None)
+
+
+async def warm_after_sync(uid: str, include_cover_plan: bool = True) -> dict:
+    """Warm after new bank data, then consider the one sync-triggered push.
+
+    Ordinary cache warms also follow preferences and one-off actions, so they
+    deliberately call ``warm_user`` directly and never notify.
+    """
+    # A generic warm can have started before this bank pull. Invalidate its
+    # generation now, wait for it to finish, then require a post-boundary
+    # computation. Merely joining it would mistake its old figures for this
+    # sync's completed snapshot. Suppress a redundant deferred warm enqueue.
+    var = getattr(data_version, "warm_enqueue_suppressed", None)
+    token = var.set(True) if var is not None else None
+    try:
+        await data_version.bump(uid)
+    finally:
+        if var is not None:
+            var.reset(token)
+    existing = _inflight.get(uid)
+    if existing is not None and not existing.done():
+        try:
+            await existing
+        except Exception:
+            logger.warning("warm_after_sync(%s): prior warm failed; rebuilding", uid)
+    result = await warm_user(uid, include_cover_plan)
+    if "overspending" not in result["warmed"]:
+        return result
+    try:
+        await _maybe_spending_pace(uid)
+    except Exception:
+        # A durable financial refresh remains valid when push delivery cannot
+        # run. Notification retry/dedupe belongs to the notifier itself.
+        logger.exception("warm_after_sync(%s): spending pace notification failed", uid)
+    return result
 
 
 async def _warm_user_impl(uid: str, include_cover_plan: bool = True) -> dict:
@@ -241,6 +288,20 @@ async def _warm_user_body(uid: str, include_cover_plan: bool, t0: float) -> dict
     await _step("miscategorised_count:0", _compute_miscategorised_count, self_caching=True)
     await _step("grow", _compute_grow, self_caching=True)
     await _step("commitments", _compute_commitments, self_caching=True)
+
+    # G493 writes a durable document keyed to the data version. It MUST run
+    # last: several warm steps can legitimately invalidate their own inputs,
+    # and a document built before their final version bump is unavailable to
+    # Home and Spend by design. It has no response-cache representation.
+    try:
+        overspending = await _compute_overspending(uid)
+        if overspending is None:
+            failed.append("overspending")
+        else:
+            warmed.append("overspending")
+    except Exception:
+        logger.exception("warm_user(%s): overspending failed to warm", uid)
+        failed.append("overspending")
 
     elapsed_ms = round((time.monotonic() - t0) * 1000, 1)
     logger.info(
