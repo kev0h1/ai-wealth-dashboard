@@ -32,14 +32,6 @@ type PreviewRoute = {
 
 const ROUTES: PreviewRoute[] = [
   {
-    slug: "mcp-consent-journey",
-    name: "MCP consent journey · F23",
-    description: "Two Operate-mode consent directions for a fictional assistant: A Decision ledger keeps trust and scope choice in one calm reading sequence; B Permission editor separates identity, provider warning and selection. Per-scope controls use local fixtures only, with no connector, persistence or redirect. F22 currently supports an optional granted-scopes subset; assistant verification awaits F24. ?variant=a|b&state=ready|none|all|long|submitting|denied|error&mode=light|dark",
-    states: [{ label: "Subset", value: "ready" }, { label: "No scopes", value: "none" }, { label: "All scopes", value: "all" }, { label: "Long identity", value: "long" }, { label: "Submitting", value: "submitting" }, { label: "Denied", value: "denied" }, { label: "Error", value: "error" }],
-    variants: [{ label: "A · Decision ledger", value: "a" }, { label: "B · Permission editor", value: "b" }],
-    group: "current",
-  },
-  {
     slug: "card-plan-progress",
     name: "Debt repayment plan rows · G492",
     description: "Two tighter layouts for the compact repayment ring: A Paired amounts brings the payment beside the repayment figure; B Ring right pairs payment and offer deadline below the reading. Identical fictional figures, one expiry and the same short outlook. Future, paused, hidden and unavailable evidence stay distinct; no live data or bank actions.",

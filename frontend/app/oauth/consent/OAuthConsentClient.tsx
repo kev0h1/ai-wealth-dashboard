@@ -67,11 +67,11 @@ export default function OAuthConsentClient() {
     };
   }, [reqId]);
 
-  async function decide(approve: boolean) {
+  async function decide(approve: boolean, grantedScopes?: string[]) {
     setBusy(true);
     setError(null);
     try {
-      const { redirect } = await api.decideOAuthRequest(reqId, approve);
+      const { redirect } = await api.decideOAuthRequest(reqId, approve, grantedScopes);
       setStage("done");
       window.location.assign(redirect);
     } catch {
@@ -125,7 +125,7 @@ export default function OAuthConsentClient() {
       clientName={details.client_name}
       redirectHost={details.redirect_host}
       scopes={details.scopes}
-      onApprove={() => decide(true)}
+      onApprove={(granted) => decide(true, granted)}
       onDeny={() => decide(false)}
       busy={busy}
       error={error}
