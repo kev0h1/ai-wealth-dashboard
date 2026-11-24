@@ -1,7 +1,7 @@
 // F28: production consent screen (F23 variant A) sends exactly the user's scope selection.
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { createElement as h } from "react";
+import React, { createElement as h } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import OAuthConsentCard from "../app/oauth/consent/OAuthConsentCard.tsx";
 import { buildDecisionBody, grantedScopesFor, toggleScope, scopeDisclosure } from "../lib/oauthScopes.ts";
@@ -67,6 +67,64 @@ assert.match(html.slice(html.indexOf("data-mcp-warning") - 40, html.indexOf("dat
 // Busy state disables everything.
 const busy = renderToStaticMarkup(h(OAuthConsentCard, { clientName: "Claude", redirectHost: "claude.ai", scopes, onApprove() {}, onDeny() {}, busy: true }));
 assert.equal((busy.match(/disabled=""/g) || []).length, 5);
+
+// Interaction: shallow-render the card with a stub hook dispatcher, walk the element tree,
+// and drive the real onChange/onClick handlers (no DOM library is installed).
+function shallow(props, state) {
+  const internals = React.__CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE;
+  const prev = internals.H;
+  let current = state;
+  internals.H = { useState: (init) => {
+    if (current === undefined) current = typeof init === "function" ? init() : init;
+    return [current, (v) => { current = typeof v === "function" ? v(current) : v; }];
+  } };
+  try {
+    const tree = OAuthConsentCard(props);
+    return { tree, get state() { return current; } };
+  } finally { internals.H = prev; }
+}
+function walk(node, visit) {
+  if (Array.isArray(node)) return node.forEach((n) => walk(n, visit));
+  if (!node || typeof node !== "object" || !node.props) return;
+  visit(node);
+  walk(node.props.children, visit);
+}
+function drive(selectionToggles) {
+  const approved = [];
+  const props = { clientName: "Claude", redirectHost: "claude.ai", scopes, onApprove: (g) => approved.push(g), onDeny() { approved.push("DENY"); } };
+  let state;
+  for (const scope of selectionToggles) {
+    const r = shallow(props, state);
+    walk(r.tree, (n) => { if (n.type === "input" && n.props.id === `scope-${scope}`) n.props.onChange(); });
+    state = r.state;
+  }
+  const r = shallow(props, state);
+  const buttons = {};
+  walk(r.tree, (n) => { if (n.type === "button") buttons[n.props.children === "Deny" ? "deny" : "approve"] = n.props; });
+  return { buttons, approved };
+}
+{
+  // untick plans:read -> Approve passes exactly the other two, in request order
+  const { buttons, approved } = drive(["plans:read"]);
+  assert.equal(buttons.approve.disabled, false);
+  buttons.approve.onClick();
+  assert.deepEqual(approved, [["accounts:read", "insights:read"]]);
+  // untick all three -> Approve disabled
+  const none = drive(["accounts:read", "plans:read", "insights:read"]);
+  assert.equal(none.buttons.approve.disabled, true);
+  // untick two then re-tick one -> only that one
+  const one = drive(["accounts:read", "plans:read", "insights:read", "plans:read"]);
+  assert.equal(one.buttons.approve.disabled, false);
+  one.buttons.approve.onClick();
+  assert.deepEqual(one.approved, [["plans:read"]]);
+  // Deny works and passes no grant
+  one.buttons.deny.onClick();
+  assert.equal(one.approved[1], "DENY");
+  // untouched: all requested
+  const all = drive([]);
+  all.buttons.approve.onClick();
+  assert.deepEqual(all.approved, [requested]);
+}
 
 // Client wires the card's selection into the decision, and the preview is gone.
 const client = readFileSync(new URL("../app/oauth/consent/OAuthConsentClient.tsx", import.meta.url), "utf8");

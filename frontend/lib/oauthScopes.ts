@@ -5,10 +5,6 @@
 // GET /oauth/request/{id}) and Settings' "Connected assistants" card
 // (components/ConnectedAssistantsCard.tsx), which only gets bare scope
 // strings back from GET /oauth/connections and has to label them itself.
-//
-// Also used by the /design/oauth-consent and /design/connected-assistants
-// fixtures, so a wording change here can't quietly drift between the two
-// surfaces or their previews.
 export const OAUTH_SCOPE_LABELS: Record<string, string> = {
   "accounts:read": "Balances and account names",
   "plans:read": "Bills, plans, goals and your tax position figures",
