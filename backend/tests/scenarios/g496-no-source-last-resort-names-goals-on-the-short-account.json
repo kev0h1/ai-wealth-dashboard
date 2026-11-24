@@ -1,0 +1,139 @@
+{
+  "name": "Nothing can cover a payment, so the account that is short names the goals it pays for as a last resort, read only (G496)",
+  "today": "2026-11-16",
+  "pay_period_config": {
+    "type": "last_friday"
+  },
+  "accounts": [
+    {
+      "_id": "acc-mz",
+      "name": "Monzo Current",
+      "provider": "monzo",
+      "type": "BANK",
+      "subtype": "TRANSACTION",
+      "balance": 300.0,
+      "currency": "GBP",
+      "status": "connected",
+      "include_in_safe_to_spend": true
+    },
+    {
+      "_id": "acc-hs",
+      "name": "HSBC Current",
+      "provider": "hsbc",
+      "type": "BANK",
+      "subtype": "TRANSACTION",
+      "balance": 40.0,
+      "currency": "GBP",
+      "status": "connected",
+      "include_in_safe_to_spend": true
+    }
+  ],
+  "cashflow_cache": {
+    "recurring_spend": [
+      {
+        "key": "BROADBAND",
+        "avg_amount": 120.0,
+        "avg_interval": 30,
+        "next_date": "2026-11-20",
+        "account_id": "acc-hs",
+        "account_name": "HSBC Current",
+        "account_bank": "hsbc",
+        "account_balance": 40.0,
+        "is_credit_card": false,
+        "category": "Bills"
+      }
+    ],
+    "recurring_income": [],
+    "bnpl_commitments": [],
+    "avg_daily_spend": 0
+  },
+  "transactions": [],
+  "commitments": [
+    {
+      "_id": "goal-daily",
+      "name": "Daily Challenge",
+      "amount": 340.0,
+      "target_date": "2026-11-26",
+      "status": "active",
+      "source": "manual",
+      "contributed": 0.0,
+      "created_at": "2026-11-01",
+      "funding_pots": [],
+      "source_account_id": "acc-mz"
+    },
+    {
+      "_id": "goal-holiday",
+      "name": "Holiday Fund",
+      "amount": 60.0,
+      "target_date": "2026-11-26",
+      "status": "active",
+      "source": "manual",
+      "contributed": 0.0,
+      "created_at": "2026-11-01",
+      "funding_pots": [],
+      "source_account_id": "acc-hs"
+    },
+    {
+      "_id": "goal-car",
+      "name": "Car Fund",
+      "amount": 25.0,
+      "target_date": "2026-11-26",
+      "status": "active",
+      "source": "manual",
+      "contributed": 0.0,
+      "created_at": "2026-11-01",
+      "funding_pots": [],
+      "source_account_id": "acc-hs"
+    }
+  ],
+  "expected": {
+    "left_to_spend": -205.0,
+    "plans_reserved": 425.0,
+    "accounts": {
+      "acc-mz": {
+        "spend_from": -40.0,
+        "after_payments": 300.0,
+        "low_point": 300.0,
+        "plans_reserved": 340.0,
+        "verdict": "covered",
+        "last_resort": [
+          [
+            "goal:goal-daily",
+            "goal",
+            40.0
+          ]
+        ]
+      },
+      "acc-hs": {
+        "spend_from": -165.0,
+        "after_payments": -80.0,
+        "low_point": -80.0,
+        "plans_reserved": 85.0,
+        "verdict": "short",
+        "last_resort": [
+          [
+            "goal:goal-holiday",
+            "goal",
+            60.0
+          ],
+          [
+            "goal:goal-car",
+            "goal",
+            25.0
+          ]
+        ]
+      }
+    },
+    "cover_plan": {
+      "moves_total": 0,
+      "moves": []
+    },
+    "payday_plan": null,
+    "at_risk_count": 1,
+    "notes": "G496 (Kevin 2026-11-23, invented figures in his shape, built on G495's scenario). Today Mon 16 Nov 2026, payday Fri 27 Nov. Monzo holds 300 and its Daily Challenge goal reserves 340, so Monzo is not a source and is itself 40 short after plans. HSBC holds 40 with a 120 broadband bill on 20 Nov (gap 80) and pays two pot-less goals, Holiday Fund 60 and Car Fund 25 (85 reserved, spend from -165). No account can cover either gap, so no move is suggested and each short account carries a read-only last_resort: HSBC names Holiday Fund (frees 60) then Car Fund (frees 25), total 80 capped at the gap; Monzo names Daily Challenge (frees 40, the whole gap). Largest remaining first. Nothing is reserved or moved differently: left to spend -40 + -165 = -205."
+  },
+  "manual_accounts": [],
+  "confirmed_income_streams": [],
+  "allocations": [],
+  "card_terms": []
+}

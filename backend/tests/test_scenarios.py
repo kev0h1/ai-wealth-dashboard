@@ -294,7 +294,7 @@ async def _compute(spec: dict, uid: str) -> dict:
         "account_eligibility": elig,
         "account_plans": plans,
         "items": [
-            {k: i.get(k) for k in ("id", "type", "amount", "total", "moves", "dests", "salary", "covered", "income_note", "habitual_note", "plan_dest", "plan_shortfall", "cover_note", "cover_split")
+            {k: i.get(k) for k in ("id", "type", "amount", "total", "moves", "dests", "salary", "covered", "income_note", "habitual_note", "plan_dest", "plan_shortfall", "cover_note", "cover_split", "last_resort")
              if k in i}
             for i in items
         ],
@@ -448,6 +448,14 @@ def _check_expected(snap: dict, spec: dict) -> None:
                 f"{acct_id} covered_by_move from",
                 sorted((e["account_id"], _r2(e["amount"]), e.get("source_kind") or "") for e in cov.get("from") or []),
                 sorted((e["account_id"], _r2(e["amount"]), e.get("source_kind") or "") for e in want["covered_by_move"]["from"]),
+            )
+        if "last_resort" in want:
+            # G496: the read-only last-resort suggestion (None = the field is absent).
+            lr = got.get("last_resort")
+            chk.check(
+                f"{acct_id} last_resort",
+                None if lr is None else [(o["plan_id"], o["kind"], _r2(o["frees"])) for o in lr["options"]],
+                None if want["last_resort"] is None else [(o[0], o[1], _r2(o[2])) for o in want["last_resort"]],
             )
         if "short_after_cover" in want:
             chk.check(f"{acct_id} short_after_cover", _r2(got.get("short_after_cover")), _r2(want["short_after_cover"]))
