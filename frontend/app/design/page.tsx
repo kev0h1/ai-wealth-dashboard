@@ -42,8 +42,8 @@ const ROUTES: PreviewRoute[] = [
   {
     slug: "card-plan-progress",
     name: "Debt repayment plan rows · G492",
-    description: "A Progress first and B Payment row compare compact plans with full names, scheduled payments, recorded offer targets and an expected-by-now marker. Fictional reconciled fixtures include future starts, long names, unavailable progress and hidden figures. Financial results are precomputed; no live data or bank actions.",
-    variants: [{ label: "A · Progress first", value: "a" }, { label: "B · Payment row", value: "b" }],
+    description: "Three progress treatments on the same compact repayment-plan card: A Two tracks separates repaid and expected progress, B Compact ring shows repayments beside the figures, and C Figures only removes the chart. Identical fictional amounts, one offer deadline and the same short outlook. Future, paused, hidden and unavailable evidence stay distinct; no live data or bank actions.",
+    variants: [{ label: "A · Two tracks", value: "a" }, { label: "B · Compact ring", value: "b" }, { label: "C · Figures only", value: "c" }],
     states: [{ label: "Ready", value: "ready" }, { label: "Future start", value: "future" }, { label: "Paused", value: "paused" }, { label: "Loading", value: "loading" }, { label: "Updating", value: "stale" }, { label: "Unavailable", value: "unavailable" }, { label: "No plans", value: "empty" }, { label: "Hidden", value: "hidden" }, { label: "Long names", value: "long" }],
     group: "current",
   },
