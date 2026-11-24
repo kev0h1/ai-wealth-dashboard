@@ -262,6 +262,12 @@ def _fake_tombstones(monkeypatch):
     monkeypatch.setattr(mcp_router, "oauth_tokens_col", tokens)
     monkeypatch.setattr(oauth_router, "oauth_tokens_col", tokens)
     monkeypatch.setattr(oauth_router, "oauth_codes_col", codes)
+
+    async def _listed(_client_id):  # F24: these tests are about revocation, not the allowlist
+        from app.core.mcp_client_allowlist import VerifiedClient
+        return VerifiedClient("test", "Claude")
+    monkeypatch.setattr(mcp_router, "verified_client_for_id", _listed)
+    monkeypatch.setattr(oauth_router, "verified_client_for_id", _listed)
     # stamp_activity (called at the end of current_user) writes to
     # user_profiles_col — stub it out so these tests don't need a fake for
     # that collection too; it already swallows its own errors, but a bare

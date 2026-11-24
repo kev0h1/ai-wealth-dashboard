@@ -304,9 +304,14 @@ async def get_oauth_request_details(req_id: str, user: dict = Depends(current_us
     data = await get_oauth_request(req_id)
     if not data:
         raise HTTPException(404, "This request has expired. Please try connecting again.")
+    # F24: the name is re-derived from the allowlist, never read from the
+    # stored request (which may predate F24 and carry a self-reported name).
+    verified = await verified_client_for_id(data["client_id"])
+    if not verified:
+        raise HTTPException(404, "This request has expired. Please try connecting again.")
     host = urllib.parse.urlparse(data["redirect_uri"]).hostname or data["redirect_uri"]
     return {
-        "client_name": data["client_name"],
+        "client_name": verified.name,
         "redirect_host": host,
         "scopes": [
             {"scope": s, "description": SCOPE_DESCRIPTIONS.get(s, s)}

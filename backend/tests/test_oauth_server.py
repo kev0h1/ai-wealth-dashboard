@@ -1537,3 +1537,13 @@ def test_f24_code_exchange_and_refresh_and_mcp_stop_when_client_dropped(monkeypa
     })))
     assert resp.status_code == 400 and _json(resp)["error"] == "invalid_client"
     assert len(tokens.docs) == before
+
+
+def test_f24_consent_details_rederive_name_from_allowlist_for_legacy_pending_request(monkeypatch):
+    _, _, _, store = _install_fakes(monkeypatch)
+    store["old"] = {
+        "client_id": "c1", "client_name": "Totally Official Bank App",
+        "redirect_uri": "https://claude.ai/cb", "scopes": ["accounts:read"], "state": "s", "code_challenge": "c",
+    }
+    details = _run(oauth.get_oauth_request_details("old", user={"email": "u@e.com"}))
+    assert details["client_name"] == "Claude"
