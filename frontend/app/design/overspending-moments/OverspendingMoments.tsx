@@ -3,8 +3,9 @@
 // TEMPORARY PREVIEW — G494. Every figure is fictional. The page composes
 // presentational production surfaces but never reads or writes customer data.
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
+import { ChevronDown } from "lucide-react";
 import MoneyText from "@/components/MoneyText";
 import HomeBrief from "@/components/HomeBrief";
 import SafeToSpendCard from "@/components/SafeToSpendCard";
@@ -16,6 +17,7 @@ import BottomNavRail from "@/components/navigation/BottomNavRail";
 import { SpendHeroSkeleton, SpendPeriodBar } from "@/components/SpendHeader";
 import SpendPaceHero from "@/components/SpendPaceHero";
 import SpendVerdictView from "@/components/SpendVerdictView";
+import { SheetFrame } from "@/components/SheetFrame";
 import { BalancesHiddenContext } from "@/lib/balancesHidden";
 import {
   cachedEndpoint,
@@ -353,10 +355,10 @@ function Controls({
           Design rounds
         </a>
         <p className="mt-2 text-sm font-bold text-slate-950 dark:text-white">
-          G494 · Existing pages, proposed additions
+          G494 · Current pages, proposed changes
         </p>
         <p className="mt-1 text-xs leading-5 text-slate-600 dark:text-slate-300">
-          Home adds one heads-up. Spend adds the status and funding detail. The
+          Home adds one heads-up. Spend opens details from the top pill. Period
           close gets a short reading.
         </p>
         <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
@@ -515,69 +517,109 @@ function Warning({
   );
 }
 
-function Funding({ data, folded }: { data: Fixture; folded: boolean }) {
-  const gap = Math.max(0, data.out - data.income);
-  const detail = (
-    <>
-      <p className="mt-1 text-sm leading-5 text-slate-600 dark:text-slate-300">
-        <MoneyText text={fundingSentence(data)} />
-      </p>
-      {data.funding.unknown > 0 && (
-        <p className="mt-1 text-xs leading-5 text-slate-500 dark:text-slate-400">
-          <MoneyText
-            text={`Your accounts do not show what covered the remaining ${money(data.funding.unknown)}.`}
-          />
-        </p>
-      )}
-      <details
-        data-g494-funding-summary
-        className="mt-3 border-y border-slate-200 dark:border-slate-700"
-      >
-        <summary
-          data-balanced-row="g494-funding-disclosure"
-          className="flex min-h-11 cursor-pointer items-center justify-between gap-3 text-[13px] font-semibold text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-slate-200"
-        >
-          <span data-row-content>How this adds up</span>
-          <span aria-hidden="true">Details</span>
-        </summary>
-        <p className="border-t border-slate-200 pb-3 pt-3 text-[13px] dark:border-slate-700">
-          <MoneyText
-            text={`Out ${money(data.out)} · In ${money(data.income)} · Gap ${money(gap)}`}
-          />
-        </p>
-      </details>
-    </>
-  );
-  return folded ? (
-    <details
-      data-g494-addition="funding-evidence"
-      className="mt-4 border-y border-slate-200 py-4 dark:border-slate-700"
+function SpendStatusDetails({
+  id,
+  data,
+  snapshot,
+  status,
+  direction,
+  onClose,
+}: {
+  id: string;
+  data: Fixture;
+  snapshot: Snapshot;
+  status: string;
+  direction: string;
+  onClose: () => void;
+}) {
+  const crossed = snapshot !== "early" && data.out > data.income;
+  const early = snapshot === "early" && data.signal && data.projectedGap > 0;
+  const gap = data.out - data.income;
+  const usualPace =
+    direction === "above"
+      ? "Spending is above your usual pace."
+      : direction === "below"
+        ? "Spending is below your usual pace."
+        : direction === "level"
+          ? "Spending is in line with your usual pace."
+          : snapshot === "early"
+            ? "A reliable pace comparison appears later in the pay period."
+            : "We need more spending history before showing your usual pace.";
+  const title = crossed
+    ? "More out than in"
+    : early
+      ? "May pass income"
+      : "Spending details";
+
+  return (
+    <SheetFrame
+      title={title}
+      description="This compares money in and out separately from your usual spending pace."
+      onClose={onClose}
     >
-      <summary
-        data-balanced-row="g494-funding-disclosure"
-        className="flex min-h-11 cursor-pointer items-center justify-between gap-3 text-sm font-semibold text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-white"
-      >
-        <span data-row-content>
-          <span
-            className="mr-2 inline-block size-1.5 rounded-full bg-amber-500"
-            aria-hidden="true"
-          />
-          More out than in
-        </span>
-        <span aria-hidden="true">Details</span>
-      </summary>
-      <div className="pb-4">{detail}</div>
-    </details>
-  ) : (
-    <section
-      data-g494-addition="funding-evidence"
-      className="mt-4 glass-card rounded-2xl p-4"
-    >
-      <h2 className="text-[15px] font-bold text-slate-950 dark:text-white">
-        What covered the gap
-      </h2>
-      {detail}
-    </section>
+      <div id={id} data-g494-spend-details className="space-y-4">
+        {crossed ? (
+          <>
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                {snapshot === "closed" ? "Completed pay period" : "This pay period"}
+              </p>
+              <p className="mt-1 text-[19px] font-bold leading-snug text-slate-950 dark:text-white">
+                <MoneyText
+                  text={`${money(gap)} more out than in`}
+                />
+              </p>
+              <dl className="mt-4 space-y-2 text-[13px] text-slate-600 dark:text-slate-300">
+                {[{ label: "Out", amount: data.out }, { label: "In", amount: data.income }].map((row) => (
+                  <div key={row.label} className="flex items-baseline justify-between gap-4">
+                    <dt>{row.label}</dt>
+                    <dd className="font-semibold text-slate-950 dark:text-white"><MoneyText text={money(row.amount)} /></dd>
+                  </div>
+                ))}
+              </dl>
+            </div>
+            <p className="text-sm leading-5 text-slate-600 dark:text-slate-300">
+              <MoneyText text={fundingSentence(data)} />
+            </p>
+            {data.funding.unknown > 0 && (
+              <p className="text-sm leading-5 text-slate-600 dark:text-slate-300">
+                <MoneyText
+                  text={`Your accounts do not show what covered the remaining ${money(data.funding.unknown)}.`}
+                />
+              </p>
+            )}
+            {data.trend && (
+              <p className="border-t border-slate-200 pt-4 text-sm leading-5 text-slate-600 dark:border-slate-700 dark:text-slate-300">
+                <span className="block" data-g494-divider-content>Savings covered part of the gap in {data.trend.covered} of the last {data.trend.periods} completed pay periods.</span>
+              </p>
+            )}
+          </>
+        ) : early ? (
+          <>
+            <p className="text-sm leading-5 text-slate-600 dark:text-slate-300">
+              <MoneyText
+                text={`At this pace, Out may be ${money(data.projectedGap)} more than In by 27 Nov · estimated.`}
+              />
+            </p>
+            <p className="text-sm leading-5 text-slate-600 dark:text-slate-300">
+              The main drivers are {data.drivers.map((item) => item.name).join(" and ")}.
+            </p>
+          </>
+        ) : (
+          <p className="text-sm leading-5 text-slate-600 dark:text-slate-300">
+            Out remains within income for this pay period.
+          </p>
+        )}
+        <div className="border-t border-slate-200 pt-4 dark:border-slate-700">
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+            Usual pace
+          </p>
+          <p className="mt-1 text-sm leading-5 text-slate-600 dark:text-slate-300">
+            {status}. {usualPace}
+          </p>
+        </div>
+      </div>
+    </SheetFrame>
   );
 }
 
@@ -755,8 +797,11 @@ function SpendSurface({
     [data, config.snapshot],
   );
   const withhold = ["stale", "loading", "error"].includes(config.state);
-  const crossed =
-    config.snapshot !== "early" && verdict.pills.spent > verdict.pills.income;
+  const [details, setDetails] = useState<{
+    status: string;
+    direction: string;
+  } | null>(null);
+  const detailsId = useId();
   const income = incomeTransactions(data);
   useEffect(() => {
     if (config.drivers) {
@@ -825,6 +870,40 @@ function SpendSurface({
             onTransactionClick={() => {}}
             onOutTap={() => {}}
             onMovedTap={() => {}}
+            renderStatus={
+              proposed && !withhold
+                ? ({ status, direction }) => {
+                    const crossed =
+                      config.snapshot !== "early" &&
+                      verdict.pills.spent > verdict.pills.income;
+                    const early =
+                      config.snapshot === "early" &&
+                      data.signal &&
+                      data.projectedGap > 0;
+                    const label = crossed
+                      ? "More out than in"
+                      : early
+                        ? "May pass income"
+                        : status;
+                    return (
+                      <button
+                        type="button"
+                        data-g494-status-entry
+                        aria-haspopup="dialog"
+                        aria-expanded={details !== null}
+                        aria-controls={detailsId}
+                        aria-label={`${label}. Open spending details.`}
+                        onClick={() => setDetails({ status, direction })}
+                        className={`inline-flex min-h-11 touch-manipulation items-center gap-0.5 rounded-full px-1 py-1 text-[11px] font-semibold transition-colors active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:focus-visible:ring-indigo-300 min-[360px]:gap-1 min-[360px]:px-2 motion-reduce:transition-none motion-reduce:active:scale-100 ${crossed || early ? "bg-amber-50 text-slate-700 hover:bg-amber-100 dark:bg-amber-400/10 dark:text-slate-100 dark:hover:bg-amber-400/20" : "bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-slate-700 dark:text-slate-200 dark:hover:bg-slate-600"}`}
+                      >
+                        {(crossed || early) && <span className="size-1.5 shrink-0 rounded-full bg-amber-500" aria-hidden="true" />}
+                        <span data-row-content>{label}</span>
+                        <ChevronDown size={13} aria-hidden="true" />
+                      </button>
+                    );
+                  }
+                : undefined
+            }
             renderIncomeTransaction={(transaction) => (
               <TransactionRowContent
                 transaction={transaction}
@@ -833,68 +912,15 @@ function SpendSurface({
               />
             )}
           />
-          {proposed &&
-            !withhold &&
-            data.signal &&
-            data.projectedGap > 0 &&
-            config.snapshot === "early" && (
-              <section
-                data-g494-addition="early-spend-reading"
-                className="mt-4 border-y border-slate-200 py-4 dark:border-slate-700"
-              >
-                <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                  <span
-                    className="mr-2 inline-block size-1.5 rounded-full bg-amber-500"
-                    aria-hidden="true"
-                  />
-                  Ahead of payday
-                </p>
-                <h2 className="mt-1 text-[15px] font-bold text-slate-950 dark:text-white">
-                  At this pace, spending may pass income
-                </h2>
-                <p className="mt-1 text-sm leading-5 text-slate-600 dark:text-slate-300">
-                  <MoneyText
-                    text={`${money(data.projectedGap)} more out than in by 27 Nov. The main drivers are ${data.drivers.map((item) => item.name).join(" and ")}.`}
-                  />
-                </p>
-              </section>
-            )}
-          {proposed && !withhold && crossed && (
-            <>
-              {config.variant === "a" && (
-                <span
-                  data-g494-addition="spend-chip"
-                  className="mt-4 inline-flex min-h-11 items-center gap-2 rounded-full border border-amber-200 px-3 text-[13px] font-semibold text-slate-800 dark:border-amber-300/20 dark:text-slate-100"
-                >
-                  <span
-                    className="size-1.5 rounded-full bg-amber-500"
-                    aria-hidden="true"
-                  />
-                  More out than in
-                </span>
-              )}
-              {config.variant === "b" && (
-                <span data-g494-addition="spend-chip" className="sr-only">
-                  More out than in
-                </span>
-              )}
-              <Funding data={data} folded={config.variant === "b"} />
-              {data.trend && (
-                <section
-                  data-g494-addition="savings-observation"
-                  className="mt-4 border-b border-slate-200 pb-4 dark:border-slate-700"
-                >
-                  <h2 className="text-[15px] font-bold text-slate-950 dark:text-white">
-                    A pattern across pay periods
-                  </h2>
-                  <p className="mt-1 text-sm leading-5 text-slate-600 dark:text-slate-300">
-                    Savings covered part of the gap in {data.trend.covered} of
-                    the last {data.trend.periods} completed pay periods. This
-                    describes a pattern. It does not set a target.
-                  </p>
-                </section>
-              )}
-            </>
+          {details && proposed && !withhold && (
+            <SpendStatusDetails
+              id={detailsId}
+              data={data}
+              snapshot={config.snapshot}
+              status={details.status}
+              direction={details.direction}
+              onClose={() => setDetails(null)}
+            />
           )}
         </section>
         <section
