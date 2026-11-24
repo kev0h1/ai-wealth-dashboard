@@ -3331,6 +3331,12 @@ async def compute_today_items(
         if _src and _dst:
             _transfer_dests_of.setdefault(_src, set()).add(_dst)
 
+    # G498: every account that needs money this window, for a payment OR a plan,
+    # decided before any source is chosen. An account that needs money is never
+    # a source for another card, so no money passes through it (A to B to C) and
+    # no two cards pull on each other's accounts. Filled by the pre-pass below.
+    _cover_destinations: set[str] = set()
+
     def _find_legs_for_destination(dest_acct: str, amount_needed: float, build_move_map, existing_sources: frozenset = frozenset(), exclude_sources: frozenset = frozenset()) -> list[dict]:
         # `exclude_sources` (G422): accounts that may never fund this cover,
         # e.g. the savings account a standing order pays into, since moving
@@ -3360,6 +3366,8 @@ async def compute_today_items(
                 sid = acc["_str_id"]
                 if sid == dest_acct or sid in excluded_sources or sid in used_sources or sid in exclude_sources:
                     continue
+                if sid in _cover_destinations:
+                    continue  # G498: it needs money itself, so it is never anyone's source
                 if sid in _transfer_dests_of.get(dest_acct, ()):
                     continue  # G479: never lend back to the source of the transfer that credits you
                 if _same_bank_account(acc, _dest_doc):
@@ -3463,6 +3471,46 @@ async def compute_today_items(
             if covers:
                 break
         return legs
+
+    # G498 pre-pass: collect every account that needs money before any card
+    # picks a source. Payment shortfalls are known (Step 1); plan gaps use the
+    # same end-of-window walk and eligibility as section 6b (it reuses
+    # `_ap_plans` / `_ap_ctx` below, so the figures cannot drift).
+    _ap_plans: list[dict] = []
+    _ap_ctx: tuple | None = None
+    _ap_gaps: list[dict] = []
+    if not payday_preview:
+        try:
+            _ap_plans = await _load_account_plans(uid, goals=True)
+            if _ap_plans:
+                from app.services.allocation_shortfall import compute_allocation_gaps
+                _ap_closing = {
+                    sid: min(
+                        float(running.get(sid, live_balances.get(sid, float(acc.get("balance") or 0)))),
+                        float(source_walks[sid].low_point) if sid in source_walks else float(min_running.get(sid, live_balances.get(sid, 0.0))),
+                    )
+                    for acc in all_uk_accounts + offline_accounts
+                    for sid in [acc["_str_id"]]
+                }
+                _ap_movement: dict[str, list] = {}
+                for _b in assessable_bills:
+                    if _b.get("kind") == MOVEMENT and not _b.get("is_credit_card") and not _b.get("pending"):
+                        _ap_movement.setdefault(str(_b.get("account_id") or ""), []).append(
+                            _b.get("dest_account_id") or None
+                        )
+                _ap_accts = {a["_str_id"]: a for a in all_uk_accounts + offline_accounts}
+                _ap_ctx = (_ap_closing, _ap_movement, _ap_accts)
+                _ap_gaps = compute_allocation_gaps(
+                    _ap_plans, _ap_closing, movement_out=_ap_movement, require_allocation=None, floor_pence=1
+                )
+        except Exception:
+            log.warning("allocation shortfall failed for %s", uid, exc_info=True)
+            _ap_plans, _ap_ctx, _ap_gaps = [], None, []
+    _cover_destinations.update(str(_sf[2]) for _sf in shortfalls)
+    _cover_destinations.update(
+        str(_g["account_id"]) for _g in _ap_gaps
+        if f"allocation_shortfall:{_g['account_id']}:{window_end.isoformat()}" not in dismissed
+    )
 
     # Step 3: For every shortfall, find a source (split across multiple if needed)
     covered: list[dict] = []     # each entry = list of leg dicts
@@ -5534,33 +5582,12 @@ async def compute_today_items(
     # G422: own-savings standing orders the source cannot fund. They ride the
     # same combined cover move as a plan gap on the same account (below), or
     # get their own card in 6b2 when the account has no plan gap.
-    _ap_plans: list[dict] = []
-    _ap_ctx: tuple | None = None
     _plan_gap_seen = False
     if not payday_preview:
         try:
-            _ap_plans = await _load_account_plans(uid, goals=True)
             if _ap_plans:
-                from app.services.allocation_shortfall import compute_allocation_gaps
-                _ap_closing = {
-                    sid: min(
-                        float(running.get(sid, live_balances.get(sid, float(acc.get("balance") or 0)))),
-                        float(source_walks[sid].low_point) if sid in source_walks else float(min_running.get(sid, live_balances.get(sid, 0.0))),
-                    )
-                    for acc in all_uk_accounts + offline_accounts
-                    for sid in [acc["_str_id"]]
-                }
-                _ap_movement: dict[str, list] = {}
-                for _b in assessable_bills:
-                    if _b.get("kind") == MOVEMENT and not _b.get("is_credit_card") and not _b.get("pending"):
-                        _ap_movement.setdefault(str(_b.get("account_id") or ""), []).append(
-                            _b.get("dest_account_id") or None
-                        )
-                _ap_accts = {a["_str_id"]: a for a in all_uk_accounts + offline_accounts}
-                _ap_ctx = (_ap_closing, _ap_movement, _ap_accts)
-                for _g in compute_allocation_gaps(
-                    _ap_plans, _ap_closing, movement_out=_ap_movement, require_allocation=None, floor_pence=1
-                ):
+                _ap_accts = _ap_ctx[2]
+                for _g in _ap_gaps:
                     _plan_gap_seen = True
                     _pay_id = _g["account_id"]
                     _pay_acc = _ap_accts.get(_pay_id)

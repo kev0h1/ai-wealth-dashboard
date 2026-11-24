@@ -1,0 +1,223 @@
+{
+  "name": "One card's source is never another card's destination: payment and plan cover pick sources among accounts that need nothing (G498)",
+  "today": "2026-11-02",
+  "pay_period_config": {
+    "type": "last_friday"
+  },
+  "confirmed_income_streams": [],
+  "accounts": [
+    {
+      "_id": "acc-premier",
+      "name": "Barclays Premier",
+      "provider": "barclays",
+      "type": "BANK",
+      "subtype": "TRANSACTION",
+      "balance": 20.0,
+      "currency": "GBP",
+      "status": "connected",
+      "include_in_safe_to_spend": true
+    },
+    {
+      "_id": "acc-monzo",
+      "name": "Monzo Current",
+      "provider": "monzo",
+      "type": "BANK",
+      "subtype": "TRANSACTION",
+      "balance": 300.0,
+      "currency": "GBP",
+      "status": "connected",
+      "include_in_safe_to_spend": true
+    },
+    {
+      "_id": "acc-personal",
+      "name": "Barclays Personal",
+      "provider": "barclays",
+      "type": "BANK",
+      "subtype": "TRANSACTION",
+      "balance": 160.0,
+      "currency": "GBP",
+      "status": "connected",
+      "include_in_safe_to_spend": true
+    },
+    {
+      "_id": "acc-starling",
+      "name": "Starling Current",
+      "provider": "starling",
+      "type": "BANK",
+      "subtype": "TRANSACTION",
+      "balance": 130.0,
+      "currency": "GBP",
+      "status": "connected",
+      "include_in_safe_to_spend": true
+    },
+    {
+      "_id": "acc-hsbc",
+      "name": "HSBC Current",
+      "provider": "hsbc",
+      "type": "BANK",
+      "subtype": "TRANSACTION",
+      "balance": 60.0,
+      "currency": "GBP",
+      "status": "connected",
+      "include_in_safe_to_spend": true
+    },
+    {
+      "_id": "acc-monzo-pot",
+      "name": "Monzo Travel Pot",
+      "provider": "monzo",
+      "type": "BANK",
+      "subtype": "SAVINGS",
+      "balance": 100.0,
+      "currency": "GBP",
+      "status": "connected",
+      "include_in_safe_to_spend": true
+    }
+  ],
+  "manual_accounts": [],
+  "cashflow_cache": {
+    "recurring_spend": [
+      {
+        "key": "PREMIER INSURANCE",
+        "avg_amount": 150.0,
+        "avg_interval": 30,
+        "next_date": "2026-11-05",
+        "account_id": "acc-premier",
+        "account_name": "Barclays Premier",
+        "account_bank": "barclays",
+        "account_balance": 20.0,
+        "is_credit_card": false,
+        "category": "Bills"
+      }
+    ],
+    "recurring_income": [],
+    "bnpl_commitments": [],
+    "avg_daily_spend": 0
+  },
+  "transactions": [],
+  "commitments": [],
+  "allocations": [
+    {
+      "_id": "alloc-monzo-travel",
+      "name": "Monzo travel set-aside",
+      "amount_per_period": 400.0,
+      "fill_account_id": "acc-monzo-pot",
+      "fill_display_name": "Monzo Travel Pot",
+      "source_account_id": "acc-monzo",
+      "match_type": "description_contains",
+      "match_value": "MONZO TRAVEL",
+      "effective_from": "2026-10-30",
+      "recurrence": "every_period",
+      "active": true,
+      "created_at": "2026-10-01"
+    }
+  ],
+  "card_terms": [],
+  "expected": {
+    "left_to_spend": 120.0,
+    "spend_from_total": 120.0,
+    "spendable_balance": 670.0,
+    "allocations_reserved": 400.0,
+    "not_spendable": [
+      "acc-monzo-pot"
+    ],
+    "accounts": {
+      "acc-premier": {
+        "spend_from": 10.0,
+        "after_payments": -130.0,
+        "low_point": -130.0,
+        "plans_reserved": 0.0,
+        "after_payments_and_plans": -130.0,
+        "verdict": "short",
+        "covered_by_move": {
+          "amount": 140.0,
+          "from": [
+            {
+              "account_id": "acc-personal",
+              "amount": 140.0
+            }
+          ]
+        },
+        "short_after_cover": 0.0,
+        "spend_from_requires_move": true
+      },
+      "acc-monzo": {
+        "spend_from": 10.0,
+        "after_payments": 300.0,
+        "low_point": 300.0,
+        "plans_reserved": 400.0,
+        "after_payments_and_plans": -100.0,
+        "verdict": "covered",
+        "covered_by_move": {
+          "amount": 110.0,
+          "from": [
+            {
+              "account_id": "acc-starling",
+              "amount": 110.0
+            }
+          ]
+        },
+        "short_after_cover": 0.0,
+        "spend_from_requires_move": true
+      },
+      "acc-personal": {
+        "spend_from": 20.0,
+        "after_payments": 160.0,
+        "low_point": 160.0,
+        "plans_reserved": 0.0,
+        "after_payments_and_plans": 160.0,
+        "verdict": "covered",
+        "earmarked_total": 140.0,
+        "earmarks_out": [
+          {
+            "to": "acc-premier",
+            "amount": 140.0
+          }
+        ]
+      },
+      "acc-starling": {
+        "spend_from": 20.0,
+        "after_payments": 130.0,
+        "low_point": 130.0,
+        "plans_reserved": 0.0,
+        "after_payments_and_plans": 130.0,
+        "verdict": "covered",
+        "earmarked_total": 110.0,
+        "earmarks_out": [
+          {
+            "to": "acc-monzo",
+            "amount": 110.0
+          }
+        ]
+      },
+      "acc-hsbc": {
+        "spend_from": 60.0,
+        "after_payments": 60.0,
+        "low_point": 60.0,
+        "plans_reserved": 0.0,
+        "after_payments_and_plans": 60.0,
+        "verdict": "covered"
+      }
+    },
+    "cover_plan": {
+      "moves_total": 250.0,
+      "moves": [
+        {
+          "from": "acc-personal",
+          "to": "acc-premier",
+          "amount": 140.0
+        },
+        {
+          "from": "acc-starling",
+          "to": "acc-monzo",
+          "amount": 110.0,
+          "plan_ids": [
+            "alloc-monzo-travel"
+          ]
+        }
+      ]
+    },
+    "payday_plan": null,
+    "at_risk_count": 1,
+    "notes": "Synthetic G498 case, Mon 2 Nov 2026 (last-Friday payday, so Fri 27 Nov is the next payday). Current balances: Premier 20, Monzo 300, Personal 160, Starling 130, HSBC 60 = 670; the Monzo Travel Pot is savings and outside the pool. One payment: Premier insurance 150 on 5 Nov, so Premier after payments and low point = 20 - 150 = -130 and its cover target is ceil5(130) + 10 = 140. One chosen-source set-aside of 400 from Monzo with no learned funding transfer, so no source reservation exists but the plan counts: Monzo after payments 300, after payments and plans 300 - 400 = -100, plan gap 100, cover target ceil5(100) + 10 = 110. Left to spend = 670 - 150 - 400 = 120. Source headroom is balance less the 10 buffer: Monzo 290 (highest), Personal 150, Starling 120, HSBC 50. Before G498 Premier picked Monzo (the highest) for 140 and the Monzo plan then drew 110 from Personal: money passing through an account that itself needed cover. G498 collects every account that needs money first (Premier for payments, Monzo for its plan) and never uses them as sources. Payment cards size first: Premier takes the highest remaining headroom that covers 140 alone, Personal (150), leaving 10. The Monzo plan then takes Starling (120 >= 110), the highest remaining, for 110, leaving 10. HSBC stays untouched, so two moves, no account both pays and receives. Spend from: Premier 20 + 140 - 150 = 10 (the cushion); Monzo 300 + 110 - 400 = 10; Personal 160 - 140 = 20; Starling 130 - 110 = 20; HSBC 60; total 120 = Left to spend."
+  }
+}
