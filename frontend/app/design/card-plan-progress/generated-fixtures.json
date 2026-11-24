@@ -16,8 +16,9 @@
       "markerLeft": "20.5883%",
       "markerLabel": "Expected by now \u00a31,171.68",
       "status": "Would clear before 31 May 2027.",
+      "finishLine": "Estimated finish Feb 2027",
       "caution": false,
-      "detailIntro": "These repayments reconcile to the balance on one confirmed 0% offer. Progress is an estimate based on the bank data available.",
+      "detailIntro": "These repayments reconcile to the balance on one confirmed 0% offer. Progress is an estimate based on the bank data available. This is the debt forecast's estimated clearing month, based on the current balance, saved payments and recorded 0% rate. It is not an exact final payment day. New spending, interest or payment changes can change the estimate.",
       "evidence": [
         {
           "label": "Recorded offer balance date",
@@ -62,6 +63,14 @@
         {
           "label": "Projected balance left at offer end",
           "value": "\u00a30"
+        },
+        {
+          "label": "Offer ends",
+          "value": "31 May 2027"
+        },
+        {
+          "label": "Estimated finish",
+          "value": "Feb 2027"
         }
       ]
     },
@@ -80,8 +89,9 @@
       "markerLeft": "14.8484%",
       "markerLabel": "Expected by now \u00a31,099.08",
       "status": "Would not clear by 31 Aug 2027.",
+      "finishLine": "No finish date on this plan",
       "caution": true,
-      "detailIntro": "These repayments reconcile to the balance on one confirmed 0% offer. Progress is an estimate based on the bank data available.",
+      "detailIntro": "These repayments reconcile to the balance on one confirmed 0% offer. Progress is an estimate based on the bank data available. The saved payments stop before the balance is cleared, even at 0% interest. We do not assume extra payments after the plan ends or an unknown post-offer rate.",
       "evidence": [
         {
           "label": "Recorded offer balance date",
@@ -126,6 +136,14 @@
         {
           "label": "Projected balance left at offer end",
           "value": "\u00a36,085.30"
+        },
+        {
+          "label": "Offer ends",
+          "value": "31 Aug 2027"
+        },
+        {
+          "label": "Estimated finish",
+          "value": "Unavailable"
         }
       ]
     },
@@ -144,8 +162,9 @@
       "markerLeft": "0%",
       "markerLabel": "Expected by now \u00a30",
       "status": "Would not clear by 31 May 2027.",
+      "finishLine": "Finish date not available yet",
       "caution": true,
-      "detailIntro": "These repayments reconcile to the balance on one confirmed 0% offer. Progress is an estimate based on the bank data available. The target is provisional before the plan starts and is not retained as a future starting balance.",
+      "detailIntro": "These repayments reconcile to the balance on one confirmed 0% offer. Progress is an estimate based on the bank data available. The plan has not started. Its finish estimate is not available yet. The target is provisional before the plan starts and is not retained as a future starting balance.",
       "evidence": [
         {
           "label": "Recorded offer balance date",
@@ -190,6 +209,14 @@
         {
           "label": "Projected balance left at offer end",
           "value": "\u00a32,809.03"
+        },
+        {
+          "label": "Offer ends",
+          "value": "31 May 2027"
+        },
+        {
+          "label": "Estimated finish",
+          "value": "Unavailable"
         }
       ],
       "targetQualifier": "Target and outlook are provisional until the plan starts on 27 Nov 2026."
@@ -209,8 +236,9 @@
       "markerLeft": "0%",
       "markerLabel": "Expected by now \u00a30",
       "status": "Would not clear by 31 Aug 2027.",
+      "finishLine": "Finish date not available yet",
       "caution": true,
-      "detailIntro": "These repayments reconcile to the balance on one confirmed 0% offer. Progress is an estimate based on the bank data available. The target is provisional before the plan starts and is not retained as a future starting balance.",
+      "detailIntro": "These repayments reconcile to the balance on one confirmed 0% offer. Progress is an estimate based on the bank data available. The plan has not started. Its finish estimate is not available yet. The target is provisional before the plan starts and is not retained as a future starting balance.",
       "evidence": [
         {
           "label": "Recorded offer balance date",
@@ -255,6 +283,14 @@
         {
           "label": "Projected balance left at offer end",
           "value": "\u00a36,775"
+        },
+        {
+          "label": "Offer ends",
+          "value": "31 Aug 2027"
+        },
+        {
+          "label": "Estimated finish",
+          "value": "Unavailable"
         }
       ],
       "targetQualifier": "Target and outlook are provisional until the plan starts on 27 Nov 2026."
@@ -274,8 +310,9 @@
       "markerLeft": "20.5883%",
       "markerLabel": "Expected by now \u00a31,171.68",
       "status": "Plan paused.",
+      "finishLine": "Plan paused.",
       "caution": false,
-      "detailIntro": "These repayments reconcile to the balance on one confirmed 0% offer. Progress is an estimate based on the bank data available.",
+      "detailIntro": "These repayments reconcile to the balance on one confirmed 0% offer. Progress is an estimate based on the bank data available. A finish cannot be estimated while contributions are paused.",
       "evidence": [
         {
           "label": "Recorded offer balance date",
@@ -320,6 +357,14 @@
         {
           "label": "Projected balance left at offer end",
           "value": "\u00a34,491"
+        },
+        {
+          "label": "Offer ends",
+          "value": "31 May 2027"
+        },
+        {
+          "label": "Estimated finish",
+          "value": "Unavailable"
         }
       ]
     }
@@ -344,8 +389,8 @@
       "next_payment": 780.0,
       "next_payment_date": "2026-11-23",
       "starts_on": "2026-10-05",
-      "would_clear_by_month": null,
-      "would_clear_by": null,
+      "would_clear_by_month": "2027-02",
+      "would_clear_by": "Feb 2027",
       "promo": {
         "id": "onTrack-offer",
         "until": "2027-05-31",
@@ -655,6 +700,65 @@
         }
       ]
     }
+  },
+  "forecasts": {
+    "onTrack": {
+      "payoff_month": "2027-02",
+      "months_to_payoff": 3,
+      "remaining_balance_at_horizon": 0.0,
+      "payments_by_month": {
+        "1": 3180.0,
+        "2": 1200.0,
+        "3": 1200.0
+      },
+      "flags": {
+        "terms_missing": false,
+        "standard_rate_missing": true,
+        "thin_history": false,
+        "promo_whole_balance_assumed": true,
+        "assumptions": [
+          "the whole balance is treated as riding the balance_transfer promo rate",
+          "no standard rate on file, interest after Jun 2027 isn't counted"
+        ]
+      }
+    },
+    "shortfall": {
+      "payoff_month": null,
+      "months_to_payoff": null,
+      "remaining_balance_at_horizon": 5583.7,
+      "payments_by_month": {
+        "1": 188.1,
+        "2": 62.7,
+        "3": 62.7,
+        "4": 62.7,
+        "5": 62.7,
+        "6": 62.7,
+        "7": 62.7,
+        "8": 62.7,
+        "9": 62.7,
+        "10": 62.7,
+        "11": 62.7,
+        "12": 62.7,
+        "13": 62.7,
+        "14": 62.7,
+        "15": 62.7,
+        "16": 62.7,
+        "17": 62.7
+      },
+      "flags": {
+        "terms_missing": false,
+        "standard_rate_missing": true,
+        "thin_history": false,
+        "promo_whole_balance_assumed": true,
+        "assumptions": [
+          "the whole balance is treated as riding the balance_transfer promo rate",
+          "no standard rate on file, interest after Sep 2027 isn't counted"
+        ]
+      }
+    },
+    "futureFirst": null,
+    "futureSecond": null,
+    "paused": null
   },
   "debtTotals": {
     "ready": "\u00a312,466",

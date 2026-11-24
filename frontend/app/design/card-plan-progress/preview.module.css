@@ -118,7 +118,7 @@
 .sheetBody dl { display:grid; gap:12px; margin:20px 0 0; padding-top:16px; border-top:1px solid #e2e8f0; }
 :global(.dark) .sheetBody dl { border-color:#334155; }
 .sheetBody dl div { display:flex; justify-content:space-between; gap:16px; }
-.sheetBody dd { margin:0; color:#0f172a; font-family:var(--font-jbmono), ui-monospace, monospace; font-weight:700; text-align:right; }
+.sheetBody dd { margin:0; color:#0f172a; font-weight:700; text-align:right; }
 :global(.dark) .sheetBody dd { color:#f1f5f9; }
 .sheetNote { margin-top:16px !important; padding-top:16px; border-top:1px solid #e2e8f0; color:#64748b; font-size:12px; }
 :global(.dark) .sheetNote { border-color:#334155; color:#94a3b8; }
