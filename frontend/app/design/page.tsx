@@ -48,6 +48,28 @@ const ROUTES: PreviewRoute[] = [
     group: "current",
   },
   {
+    slug: "overspending-moments",
+    name: "Overspending, without the nagging · G494",
+    description:
+      "Two directions across Home before payday, Spend after Out passes In, and Home at period close. A clear card with visible funding, or a quieter canvas note with funding behind the status chip. Fictional proposed G493 readings, a local one-off acknowledgement, neutral savings history and incomplete-evidence states. Both themes and hidden figures. No product or notification changes.",
+    states: [
+      { label: "Cards and savings", value: "full" },
+      { label: "Three funding sources", value: "mixed" },
+      { label: "Incomplete funding", value: "partial" },
+      { label: "No trend yet", value: "no-history" },
+      { label: "No overspending", value: "quiet" },
+      { label: "Older bank data", value: "stale" },
+      { label: "Checking", value: "loading" },
+      { label: "Check failed", value: "error" },
+      { label: "Long names and figures", value: "large" },
+    ],
+    variants: [
+      { label: "A · A clear moment", value: "a" },
+      { label: "B · A quieter note", value: "b" },
+    ],
+    group: "current",
+  },
+  {
     slug: "left-to-spend-money-in",
     name: "Left to spend with money still to come in · G480",
     description:
