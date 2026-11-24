@@ -139,7 +139,7 @@ function AssistantIdentity({ long }: { long: boolean }) {
 
 function WarningBlock({ variant }: { variant: Variant }) {
   return (
-    <section data-mcp-warning className={variant === "a" ? "border-t border-slate-200 pt-4 dark:border-slate-700" : "rounded-xl bg-slate-100 px-4 py-4 dark:bg-slate-800"} aria-labelledby="provider-warning-title">
+    <section data-mcp-warning className={variant === "a" ? "" : "rounded-xl bg-slate-100 px-4 py-4 dark:bg-slate-800"} aria-labelledby="provider-warning-title">
       <h2 id="provider-warning-title" className="text-sm font-bold text-slate-900 dark:text-slate-100">Before you share</h2>
       <p className="mt-1.5 text-sm leading-5 text-slate-700 dark:text-slate-200">
         This assistant provider has not been assessed by Sorted or Finexer. Its retention, training and international processing rules are its own. Data shared with it cannot be recalled.
@@ -207,7 +207,7 @@ export default function McpConsentJourneyClient() {
                   <p aria-live="polite" className="text-sm text-slate-600 dark:text-slate-300">{grants}</p>
                 </div>
                 <p className="mt-1.5 text-sm leading-5 text-slate-600 dark:text-slate-300">This can include bank data received through Finexer, information Sorted derives and details you add. Select only what you are comfortable sharing. You can deny the request instead.</p>
-                <div className={variant === "a" ? "mt-4 border-y border-slate-200 dark:border-slate-700" : "mt-4 space-y-3"}>
+                <div className={variant === "a" ? "mt-4 border-t border-slate-200 dark:border-slate-700" : "mt-4 space-y-3"}>
                   {SCOPES.map((scope) => <ScopeRow key={scope.id} scope={scope} checked={selected.includes(scope.id)} disabled={disabled} onChange={toggle} variant={variant} />)}
                 </div>
               </div>
