@@ -324,6 +324,8 @@ DEMO_ALLOWED = {
     ("PATCH", "/savings/manual-account/{acc_id}"): _R7,
     ("POST", "/spend/intent-preview"): _R9,
     ("DELETE", "/spend/intent/{category}"): _R9,
+    # Own display/dismissal state only; no account, transaction or bank write.
+    ("POST", "/spend/overspend/heads-up"): _R9,
     ("POST", "/spend/overspend/one-off"): _R9,
     ("DELETE", "/spend/overspend/one-off"): _R9,
     ("POST", "/spend/verdict/dismiss-unresolved"): _R9,

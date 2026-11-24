@@ -118,8 +118,8 @@ async def _warm_after_sync(user_id: str) -> None:
     syncs inline — it only ENQUEUES task_sync_truelayer/task_sync_finexer
     jobs — so it's covered transitively through them, not directly."""
     try:
-        from app.services.warmup import warm_user
-        await warm_user(user_id)
+        from app.services.warmup import warm_after_sync
+        await warm_after_sync(user_id)
     except Exception:
         logging.getLogger(__name__).exception("warm_user failed after sync for %s", user_id)
 
@@ -181,7 +181,8 @@ async def task_sync_finexer(ctx, consent_id: str, user_id: str, event_id: str | 
         event_id=event_id, event_account_id=event_account_id,
     )
     await _enqueue_weekly_insight_refresh(ctx, user_id)
-    await _warm_after_sync(user_id)
+    # The Finexer pipeline owns the final-version warm and spending notice;
+    # doing it again here would bump/recompute the same snapshot twice.
     return result
 
 

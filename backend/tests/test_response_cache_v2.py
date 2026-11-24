@@ -341,13 +341,19 @@ def test_warm_user_writes_every_entry_under_new_version(monkeypatch):
     monkeypatch.setattr(warmup, "_compute_miscategorised_list", _mock("miscategorised_list", {"items": [], "separate_items": []}, self_caching=True))
     monkeypatch.setattr(warmup, "_compute_grow", _mock("grow", {"verdict": "ok"}, self_caching=True))
     monkeypatch.setattr(warmup, "_compute_commitments", _mock("commitments", {"items": []}, self_caching=True))
+    async def _stored_overspending(uid):
+        calls.append("overspending")
+        assert uid == UID
+        return {"stored": True}
+
+    monkeypatch.setattr(warmup, "_compute_overspending", _stored_overspending)
 
     async def go():
         before = await data_version.current(UID)
         result = await warmup.warm_user(UID)
         assert result["failed"] == []
         assert sorted(result["warmed"]) == sorted(
-            ["card_plan_progress", "today", "cover_plan", "safe_to_spend", "spend_verdict:0", "miscategorised_list", "miscategorised_count:0", "grow", "commitments"]
+            ["card_plan_progress", "today", "cover_plan", "safe_to_spend", "spend_verdict:0", "miscategorised_list", "miscategorised_count:0", "grow", "commitments", "overspending"]
         )
         after = await data_version.current(UID)
         assert after == before + 1  # warm_user's own bump, nothing else touched it
@@ -359,7 +365,7 @@ def test_warm_user_writes_every_entry_under_new_version(monkeypatch):
 
     asyncio.run(go())
     assert set(calls) == {
-        "card_plan_progress", "today", "cover_plan", "safe_to_spend", "spend_verdict:0", "miscategorised_list", "miscategorised_count:0", "grow", "commitments",
+        "card_plan_progress", "today", "cover_plan", "safe_to_spend", "spend_verdict:0", "miscategorised_list", "miscategorised_count:0", "grow", "commitments", "overspending",
     }
 
 
@@ -386,6 +392,7 @@ def test_warm_user_tolerates_one_step_failing(monkeypatch):
     monkeypatch.setattr(warmup, "_compute_miscategorised_list", _ok)
     monkeypatch.setattr(warmup, "_compute_grow", _boom)
     monkeypatch.setattr(warmup, "_compute_commitments", _ok)
+    monkeypatch.setattr(warmup, "_compute_overspending", _ok)
 
     async def go():
         result = await warmup.warm_user(UID)
@@ -429,6 +436,7 @@ def test_warm_user_single_flight_shares_one_run(monkeypatch):
     monkeypatch.setattr(warmup, "_compute_miscategorised_list", _ok)
     monkeypatch.setattr(warmup, "_compute_grow", _ok)
     monkeypatch.setattr(warmup, "_compute_commitments", _ok)
+    monkeypatch.setattr(warmup, "_compute_overspending", _ok)
 
     async def go():
         before = await data_version.current(UID)

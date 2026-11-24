@@ -128,6 +128,70 @@ function fakeVerdict(offset, tag) {
   check("invalidateVerdictCache forces the next call back to the network", calls, 2);
 }
 
+{
+  invalidateVerdictCache();
+  let calls = 0;
+  api.spendVerdict = async (offset = 0) => { calls += 1; return fakeVerdict(offset, `force${calls}`); };
+  await fetchVerdictData(0);
+  await fetchVerdictData(0, true);
+  check("forceFresh bypasses a still-warm 90-second verdict cache", calls, 2);
+  check("forceFresh replaces the warm cached verdict", cachedVerdict(0)?.tag, "force2");
+}
+
+{
+  invalidateVerdictCache();
+  api.spendVerdict = async (offset = 0) => fakeVerdict(offset, "warm-before-force");
+  await fetchVerdictData(0);
+  let resolveFresh;
+  api.spendVerdict = (offset = 0) => new Promise(resolve => { resolveFresh = () => resolve(fakeVerdict(offset, "fresh-after-force")); });
+  const forced = fetchVerdictData(0, true);
+  const normal = fetchVerdictData(0);
+  check("a normal reader joins the fresh request instead of returning the old warm cache", normal === forced, true);
+  resolveFresh();
+  await normal;
+  check("the refreshed entry replaces the previous warm value", cachedVerdict(0)?.tag, "fresh-after-force");
+}
+
+{
+  invalidateVerdictCache();
+  const resolvers = [];
+  api.spendVerdict = (offset = 0) => { const tag = `race${resolvers.length + 1}`; return new Promise((resolve) => { resolvers.push(() => resolve(fakeVerdict(offset, tag))); }); };
+  const older = fetchVerdictData(0);
+  const newer = fetchVerdictData(0, true);
+  resolvers[1]();
+  await newer;
+  resolvers[0]();
+  await older;
+  check("a late superseded response cannot replace a force-fresh cache entry", cachedVerdict(0)?.tag, "race2");
+}
+
+{
+  invalidateVerdictCache();
+  const resolvers = [];
+  let calls = 0;
+  api.spendVerdict = (offset = 0) => { calls += 1; const tag = `slot${calls}`; return new Promise((resolve) => { resolvers.push(() => resolve(fakeVerdict(offset, tag))); }); };
+  const older = fetchVerdictData(0);
+  const newer = fetchVerdictData(0, true);
+  resolvers[0]();
+  await older;
+  const joined = fetchVerdictData(0);
+  check("a late old completion does not clear the newer in-flight dedup slot", joined === newer, true);
+  resolvers[1]();
+  await joined;
+  check("joining a newer in-flight request makes no third network call", calls, 2);
+}
+
+{
+  invalidateVerdictCache();
+  let resolveOld;
+  api.spendVerdict = (offset = 0) => new Promise((resolve) => { resolveOld = () => resolve(fakeVerdict(offset, "invalidated")); });
+  const pending = fetchVerdictData(0);
+  invalidateVerdictCache();
+  resolveOld();
+  await pending;
+  check("invalidation during a pending request prevents its later cache write", cachedVerdict(0), null);
+}
+
 // ── moneyShape.ts ────────────────────────────────────────────────────────
 
 function fakeShape(tag) {

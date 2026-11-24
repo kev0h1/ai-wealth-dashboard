@@ -2429,8 +2429,17 @@ async def finexer_sync_pipeline(
         logger.exception("finexer post-sync calculation failed for consent %s user %s", consent_id, user_id)
         await fail_first_sync(finexer_consents_col, consent_id, first_sync_run)
         return {"ok": False, "error": "sync_failed", "first_sync_run": first_sync_run}
+    if recompute:
+        # Manual all-bank refreshes set recompute=False and own their shared
+        # warm. Standalone callbacks and worker syncs finish the ordered
+        # stored-reading refresh here, after first figures are complete.
+        try:
+            from app.services.warmup import warm_after_sync
+            await warm_after_sync(user_id)
+        except Exception:
+            logger.exception("finexer post-sync warm failed for %s", user_id)
     if new_count > 0:
-        asyncio.create_task(notify_after_sync(user_id, []))
+        asyncio.create_task(notify_after_sync(user_id, [], include_spending_pace=False))
 
     return {
         "ok": True, "accounts": len(fetched_ids), "new_transactions": new_count,

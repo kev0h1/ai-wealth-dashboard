@@ -48,28 +48,6 @@ const ROUTES: PreviewRoute[] = [
     group: "current",
   },
   {
-    slug: "overspending-moments",
-    name: "Overspending, without the nagging · G494",
-    description:
-      "Current and proposed comparison on the current Home and Spend layouts: Home adds one early heads-up, Spend uses the existing hero pill to open spending and funding details, and period close adds a short reading. Two Home directions share one Spend entry, with fictional fixtures only and no live data or actions.",
-    states: [
-      { label: "Cards and savings", value: "full" },
-      { label: "Three funding sources", value: "mixed" },
-      { label: "Incomplete funding", value: "partial" },
-      { label: "No trend yet", value: "no-history" },
-      { label: "No overspending", value: "quiet" },
-      { label: "Older bank data", value: "stale" },
-      { label: "Checking", value: "loading" },
-      { label: "Check failed", value: "error" },
-      { label: "Long names and figures", value: "large" },
-    ],
-    variants: [
-      { label: "A · A clear moment", value: "a" },
-      { label: "B · A quieter note", value: "b" },
-    ],
-    group: "current",
-  },
-  {
     slug: "left-to-spend-money-in",
     name: "Left to spend with money still to come in · G480",
     description:
