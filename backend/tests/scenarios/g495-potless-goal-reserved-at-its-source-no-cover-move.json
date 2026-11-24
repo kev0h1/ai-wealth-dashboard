@@ -1,0 +1,95 @@
+{
+  "name": "A goal with a source account but no funding pot is still reserved at that source, so the cover finder never suggests moving earmarked money (G495)",
+  "today": "2026-11-16",
+  "pay_period_config": {
+    "type": "last_friday"
+  },
+  "accounts": [
+    {
+      "_id": "acc-mz",
+      "name": "Monzo Current",
+      "provider": "monzo",
+      "type": "BANK",
+      "subtype": "TRANSACTION",
+      "balance": 300.0,
+      "currency": "GBP",
+      "status": "connected",
+      "include_in_safe_to_spend": true
+    },
+    {
+      "_id": "acc-hs",
+      "name": "HSBC Current",
+      "provider": "hsbc",
+      "type": "BANK",
+      "subtype": "TRANSACTION",
+      "balance": 40.0,
+      "currency": "GBP",
+      "status": "connected",
+      "include_in_safe_to_spend": true
+    }
+  ],
+  "cashflow_cache": {
+    "recurring_spend": [
+      {
+        "key": "BROADBAND",
+        "avg_amount": 120.0,
+        "avg_interval": 30,
+        "next_date": "2026-11-20",
+        "account_id": "acc-hs",
+        "account_name": "HSBC Current",
+        "account_bank": "hsbc",
+        "account_balance": 40.0,
+        "is_credit_card": false,
+        "category": "Bills"
+      }
+    ],
+    "recurring_income": [],
+    "bnpl_commitments": [],
+    "avg_daily_spend": 0
+  },
+  "transactions": [],
+  "commitments": [
+    {
+      "_id": "goal-daily",
+      "name": "Daily Challenge",
+      "amount": 340.0,
+      "target_date": "2026-11-26",
+      "status": "active",
+      "source": "manual",
+      "contributed": 0.0,
+      "created_at": "2026-11-01",
+      "funding_pots": [],
+      "source_account_id": "acc-mz"
+    }
+  ],
+  "expected": {
+    "left_to_spend": -120.0,
+    "plans_reserved": 340.0,
+    "accounts": {
+      "acc-mz": {
+        "spend_from": -40.0,
+        "after_payments": 300.0,
+        "low_point": 300.0,
+        "plans_reserved": 340.0,
+        "verdict": "covered"
+      },
+      "acc-hs": {
+        "spend_from": -80.0,
+        "after_payments": -80.0,
+        "low_point": -80.0,
+        "verdict": "short"
+      }
+    },
+    "cover_plan": {
+      "moves_total": 0,
+      "moves": []
+    },
+    "payday_plan": null,
+    "at_risk_count": 1,
+    "notes": "G495 (Kevin 2026-11-23, invented figures in his Daily Challenge shape). Today Mon 16 Nov 2026, pay period last Friday, so the period ends Thu 26 Nov and payday is Fri 27 Nov. Monzo Current holds 300 with nothing due. HSBC Current holds 40 with one broadband bill of 120 on Fri 20 Nov, no income. One goal, Daily Challenge, target 340 by 26 Nov, no funding pot (funding_pots empty), source account Monzo. With one pay period left and nothing saved the slice is the whole 340. G495: a pot-less goal with a stored source is reserved at that source exactly as Upcoming counts it, so Monzo plans reserved 340. Monzo: after payments and low point 300, Spend from 300 - 340 = -40. HSBC: 40 - 120 = -80 after payments and at the low point, short. Left to spend is the two counted accounts added up, -40 + -80 = -120, no buffer. Cover finder: HSBC needs ceil5(80) + 10 = 90, but Monzo headroom is 300 - 340 reserved - 10 kept = -50, so Monzo is not a source and no move is suggested (before G495 the goal was not reserved, Monzo headroom read 290 and a 90 move was suggested out of the money the goal had set aside). At risk 1 (the broadband bill at HSBC). Payday plan not due and null."
+  },
+  "manual_accounts": [],
+  "confirmed_income_streams": [],
+  "allocations": [],
+  "card_terms": []
+}
