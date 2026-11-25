@@ -3,8 +3,9 @@
 
 import Link from "next/link";
 import dynamic from "next/dynamic";
-import { useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
+import { usePreferences } from "@/components/PreferencesContext";
 import { ASSET_BASE, FORMATS, FORMAT_IDS, imageName, isFormat, isStory, packName, STORIES, STORY_IDS, VARIANTS, type PhoneFormat, type PhoneTheme, type PhoneVariant, type StoryId } from "./catalog";
 import styles from "./phones.module.css";
 
@@ -21,8 +22,29 @@ export default function PhoneGallery() {
   const theme = themeValue(search.get("mode"));
   const variant = variantValue(search.get("variant"));
   const exportOnly = search.get("export") === "1";
+  const { darkMode: savedDarkMode } = usePreferences();
+  const savedDarkRef = useRef(savedDarkMode);
+  const originalSchemeRef = useRef<string | null>(null);
   const previewRef = useRef<HTMLDivElement>(null);
   const [previewWidth, setPreviewWidth] = useState(0);
+  useLayoutEffect(() => { savedDarkRef.current = savedDarkMode; }, [savedDarkMode]);
+  useEffect(() => {
+    const root = document.documentElement;
+    if (originalSchemeRef.current === null) originalSchemeRef.current = root.style.colorScheme;
+    const apply = () => {
+      root.classList.toggle("dark", theme === "dark");
+      root.style.colorScheme = theme;
+    };
+    apply();
+    // The app preference provider also applies its initial theme after mount.
+    // Finish the isolated preview's choice after that pass, without saving it.
+    const frame = requestAnimationFrame(apply);
+    return () => {
+      cancelAnimationFrame(frame);
+      root.classList.toggle("dark", savedDarkRef.current);
+      root.style.colorScheme = originalSchemeRef.current ?? "";
+    };
+  }, [theme, savedDarkMode]);
   useLayoutEffect(() => {
     const element = previewRef.current;
     if (!element) return;

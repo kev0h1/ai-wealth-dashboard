@@ -93,6 +93,7 @@ Run from the worktree root with a local preview on port 3158:
 ```sh
 python3 marketing/c22-phones/export_assets.py
 python3 marketing/c22-phones/validate_assets.py
+python3 marketing/c22-phones/verify_gallery.py
 ```
 
 The exporter captures the final CSS artboard at device scale factor 3. There is
@@ -106,6 +107,8 @@ Browser review covers phone and desktop galleries, both themes, all handset
 formats, controls, downloads, readable content, model cutouts and balanced
 divider clearance. The independent review and export measurements are recorded
 beside this brief. A preview capture proves the marketing composition only.
+The gallery verifier writes its captures to the ignored
+`frontend/.screens/c22-phones/` directory.
 
 The earlier social images and films remain at `/design/marketing-kit`. C41's
 separate App Store Header and Search Results artwork remains at
