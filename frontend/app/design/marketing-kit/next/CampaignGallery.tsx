@@ -2,6 +2,7 @@
 /* eslint-disable @next/next/no-img-element -- Review and download exact exported artwork without re-encoding. */
 
 import { useSearchParams } from "next/navigation";
+import Link from "next/link";
 import MoneyText from "@/components/MoneyText";
 import PosterCanvas, { type PosterFormat, type PosterTheme, type PosterVariant } from "./PosterCanvas";
 import FeaturePoster from "../features/FeaturePoster";
@@ -53,6 +54,7 @@ export default function CampaignGallery() {
         <fieldset><legend>Format</legend>{(["feed", "story"] as const).map(value => <button type="button" key={value} aria-pressed={format === value} onClick={() => update("format", value)}>{value === "feed" ? "Feed" : "Story"}</button>)}</fieldset>
       </div>
     </div>
+    <p className={styles.draft}><Link href="/design/marketing-phones">Open the current C22 illustrative iPhone and Android phone artwork</Link>. The store set below is earlier artwork, retained for reference.</p>
     <nav className={styles.jump} aria-label="Media sections"><a href="#stores">Store screenshots</a><a href="#images">Instagram images</a><a href="#videos">Watch the videos</a><a href="/design-media/c22/listing-copy.json" download>Store listing copy</a></nav>
     <StoreShelf theme={theme} />
     <fieldset className={styles.topics}><legend>Explore a campaign feature</legend>{[{ id: "all", title: "All" }, { id: "original", title: "First round" }, ...FEATURE_IDS.map(id => ({ id, title: FEATURES[id].title }))].map(item => <button type="button" key={item.id} aria-pressed={topic === item.id} onClick={() => update("topic", item.id)}>{item.title}</button>)}</fieldset>

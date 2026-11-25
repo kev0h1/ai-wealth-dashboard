@@ -24,10 +24,10 @@ export default function StoreShelf({ theme }: { theme: StoreTheme }) {
     window.history.replaceState(null, "", `?${next.toString()}${window.location.hash}`);
   }
   return <section id="stores" aria-labelledby="stores-title" tabIndex={-1}>
-    <div className={styles.sectionHead}><h2 id="stores-title">Store screenshots</h2></div>
+    <div className={styles.sectionHead}><h2 id="stores-title">Earlier store artwork</h2></div>
     <div className={styles.storeHead}>
-      <p>Eight screens, in order. Choose a size, then download the set or individual images.</p>
-      <a href={`${base}/sorted-${platform}-${theme}-upload.zip`} download>Download this set · ZIP</a>
+      <p>This is the earlier image pack. <a href={`/design/marketing-phones?mode=${theme}`}>Open the revised iPhone and Android kit</a></p>
+      <a href={`${base}/sorted-${platform}-${theme}-upload.zip`} download>Download earlier set · ZIP</a>
     </div>
     <fieldset className={styles.topics}><legend>Store format</legend>{platforms.map(item => <button key={item.id} type="button" aria-pressed={platform === item.id} onClick={() => update(item.id)}>{item.label}</button>)}</fieldset>
     <p className={styles.draft}>{size.width} × {size.height} PNG · {theme === "dark" ? "Dark" : "Light"} · Fictional examples</p>

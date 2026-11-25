@@ -32,6 +32,15 @@ type PreviewRoute = {
 
 const ROUTES: PreviewRoute[] = [
   {
+    slug: "marketing-phones",
+    name: "Marketing kit with iPhone and Android frames · C22",
+    description:
+      "Revised store artwork: A Full phone and B Close view, with model iPhone and Pixel frames. Seven ordered stories use production components directly at 3x, one fictional Alex and one November pay period. Separate light and dark PNG and ZIP sets, with no Penny chart. Review before publication.",
+    states: [{ label: "Left to spend", value: "amount" }, { label: "Upcoming", value: "upcoming" }, { label: "Cover the gap", value: "cover" }],
+    variants: [{ label: "A · Full phone", value: "a" }, { label: "B · Close view", value: "b" }],
+    group: "current",
+  },
+  {
     slug: "left-to-spend-money-in",
     name: "Left to spend with money still to come in · G480",
     description:
@@ -114,8 +123,8 @@ const ROUTES: PreviewRoute[] = [
   },
   {
     slug: "marketing-kit",
-    name: "Sorted marketing kit · C22",
-    description: "Final-UI refresh: eight ordered App Store and Google Play screenshots in both themes, three iPhone sizes, Play feature graphics and download packs. Plus 36 Instagram images and 16 edited films, using current production components with fictional data, sound and captions. Review before publication.",
+    name: "Marketing social films and earlier store artwork · C22",
+    description: "Existing Instagram images, captioned films and earlier store artwork. The revised iPhone and Android store round is at marketing-phones. These earlier store images use frozen product captures and have been superseded for review.",
     states: [{ label: "Light", value: "light" }, { label: "Dark", value: "dark" }],
     variants: [
       { label: "Movement", value: "movement" },
