@@ -1,4 +1,4 @@
-export const STORY_IDS = ["amount", "upcoming", "cover", "spend", "aside", "goal", "schedule"] as const;
+export const STORY_IDS = ["amount", "upcoming", "upcoming-accounts", "cover", "spend", "aside", "goal", "schedule"] as const;
 export type StoryId = (typeof STORY_IDS)[number];
 export type PhoneTheme = "light" | "dark";
 export type PhoneVariant = "a" | "b";
@@ -37,9 +37,10 @@ export const STORIES: Record<StoryId, {
 }> = {
   amount: { title: "Left to spend", headline: "Know what is yours to spend.", caption: "An estimate after upcoming bills, plans and your buffer.", screenTitle: "Good morning, Alex", tab: "Home" },
   upcoming: { title: "Upcoming payments", headline: "See what is coming up.", caption: "Your bills and one-off payments, in one view.", screenTitle: "Upcoming", tab: "Upcoming" },
+  "upcoming-accounts": { title: "Upcoming by account", headline: "Know which account needs attention.", caption: "See each account's available amount and suggested cover.", screenTitle: "Upcoming", tab: "Upcoming" },
   cover: { title: "Cover the gap", headline: "Know what needs moving.", caption: "A suggested move. You make the transfer in your bank.", screenTitle: "Good morning, Alex", tab: "Home" },
   spend: { title: "Spending changes", headline: "See where spending changed.", caption: "Compare the same point in your usual pay period.", screenTitle: "Spend", tab: "Spend" },
-  aside: { title: "Set money aside", headline: "Give your money a purpose.", caption: "Keep a plan for groceries alongside the bills.", screenTitle: "Upcoming", tab: "Upcoming" },
+  aside: { title: "Plan a one-off", headline: "Give your money a purpose.", caption: "Choose an amount, date and account. Review before you confirm.", screenTitle: "Ask Penny", tab: "Penny" },
   goal: { title: "Plan with Penny", headline: "Turn a goal into a plan.", caption: "Review the plan before you confirm. No money moves.", screenTitle: "Ask Penny", tab: "Penny" },
   schedule: { title: "Change a planned payment", headline: "Plans change. Update yours.", caption: "Review a new amount and date with Penny.", screenTitle: "Ask Penny", tab: "Penny" },
 };

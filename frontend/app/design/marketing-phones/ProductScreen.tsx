@@ -5,12 +5,12 @@ import BottomNavRail from "@/components/navigation/BottomNavRail";
 import MoneyText from "@/components/MoneyText";
 import SafeToSpendCard from "@/components/SafeToSpendCard";
 import { MoveCard } from "@/components/HomeBrief";
-import SetAsideList from "@/components/upcoming/SetAsideList";
-import UpcomingAttentionDay from "@/components/upcoming/UpcomingAttentionDay";
 import { ProposalConfirmCard, UserBubble, VerdictBubble } from "@/components/PennyConversation";
 import { SCENARIO, STORIES, type PhoneTheme, type StoryId } from "./catalog";
-import { C22_ASIDE, C22_COVER, C22_EVERYDAY_ACCOUNT, C22_GOAL_PROPOSAL, C22_GOAL_REPLY, C22_SAFE_TO_SPEND, C22_SCHEDULE_PROPOSAL, C22_SCHEDULE_REPLY, C22_UPCOMING } from "./fixtures";
+import { C22_COVER, C22_EVERYDAY_ACCOUNT, C22_GOAL_PROPOSAL, C22_GOAL_REPLY, C22_PLANS, C22_SAFE_TO_SPEND, C22_SCHEDULE_PROPOSAL, C22_SCHEDULE_REPLY, C22_SPEND_FROM, C22_UPCOMING, C22_UPCOMING_ACCOUNTS } from "./fixtures";
 import SpendScreen from "./SpendScreen";
+import UpcomingScreen from "./UpcomingScreen";
+import PurposeScreen from "./PurposeScreen";
 import styles from "./product.module.css";
 
 const noOp = () => {};
@@ -31,15 +31,15 @@ function PennyPlan({ schedule = false }: { schedule?: boolean }) {
 
 export default function ProductScreen({ story, theme }: { story: StoryId; theme: PhoneTheme }) {
   const meta = STORIES[story];
-  const content = story === "amount" ? <SafeToSpendCard data={C22_SAFE_TO_SPEND} previewBalancesVisible spendFrom={{ kind: "account", best: { accountId: "c22-everyday", name: "Everyday account", provider: "Monzo", headroom: 312, account: C22_EVERYDAY_ACCOUNT }, alternative: null }} />
-    : story === "upcoming" ? <div className={styles.stack}><p className={styles.context}><MoneyText text="£321 due before payday · £312 left after your plan and buffer" /></p>{C22_UPCOMING.map((row) => <UpcomingAttentionDay key={row.rowKey} dayKeyIso={row.expectedDate} heading={new Date(`${row.expectedDate}T12:00:00Z`).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" })} rows={[row]} onOpen={noOp} onDismiss={noOp} />)}</div>
+  const content = story === "amount" ? <SafeToSpendCard data={C22_SAFE_TO_SPEND} previewBalancesVisible spendFrom={C22_SPEND_FROM} />
+    : story === "upcoming" || story === "upcoming-accounts" ? <div className={styles.stack}><p className={styles.context}><MoneyText text="£321 due before payday · £312 left after your plan and buffer" /></p><UpcomingScreen view={story === "upcoming" ? "payments" : "accounts"} rows={C22_UPCOMING} accounts={C22_UPCOMING_ACCOUNTS} plans={C22_PLANS} periodLabel="Payments through Sun 29 Nov" todayIso={SCENARIO.asOf} /></div>
     : story === "cover" ? <MoveCard item={C22_COVER} hideNetWorth={false} maskAmounts={(value) => value} previewMode dismissible onHomeDismiss={noOp} />
     : story === "spend" ? <SpendScreen />
-    : story === "aside" ? <div className={styles.stack}><p className={styles.context}>Reserved from Everyday this pay period</p><div className={styles.asideAllocation}><SetAsideList items={[C22_ASIDE]} onEdit={noOp} /></div><section className={styles.byDate} aria-labelledby="c22-by-date"><h2 id="c22-by-date">By date</h2>{C22_UPCOMING.map((row) => <UpcomingAttentionDay key={row.rowKey} dayKeyIso={row.expectedDate} heading={new Date(`${row.expectedDate}T12:00:00Z`).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" })} rows={[row]} onOpen={noOp} onDismiss={noOp} />)}</section></div>
+    : story === "aside" ? <PurposeScreen />
     : <PennyPlan schedule={story === "schedule"} />;
 
   return <section data-c22-product={story} data-c22-story={story} className={`${styles.screen} ${theme === "dark" ? `${styles.dark} dark` : ""}`}>
-    {story !== "spend" && <header className={styles.header} data-c22-product-header><div><h1>{meta.screenTitle}</h1><p>{story === "amount" ? "17 November · 13 days to payday" : story === "upcoming" || story === "aside" ? SCENARIO.periodLabel : "Your money, in view"}</p></div></header>}
+    {story !== "spend" && <header className={styles.header} data-c22-product-header><div><h1>{meta.screenTitle}</h1><p>{story === "amount" ? "17 November · 13 days to payday" : story === "upcoming" || story === "upcoming-accounts" ? SCENARIO.periodLabel : "Your money, in view"}</p></div></header>}
     <main className={styles.content} data-c22-content={story}>{content}</main>
     <ProductNav active={meta.tab} />
   </section>;

@@ -70,7 +70,7 @@ export default function PhoneGallery() {
     <header className={styles.header}>
       <Link href="/design">Design previews</Link>
       <h1>Sorted on your phone.</h1>
-      <p>Seven real product stories, framed for iPhone and Android review.</p>
+      <p>Eight real product stories, framed for iPhone and Android review.</p>
     </header>
 
     <section className={styles.controls} aria-label="Artwork controls">
@@ -85,8 +85,8 @@ export default function PhoneGallery() {
     </section>
 
     <section id="downloads" className={styles.downloads} aria-labelledby="downloads-title">
-      <div><h2 id="downloads-title">Ready-to-review exports</h2><p>One ordered seven-image set for the selected format, direction and theme.</p></div>
-      <a className={styles.packLink} href={selectedPack} download>Download seven PNGs · ZIP</a>
+      <div><h2 id="downloads-title">Ready-to-review exports</h2><p>One ordered eight-image set for the selected format, direction and theme.</p></div>
+      <a className={styles.packLink} href={selectedPack} download>Download eight PNGs · ZIP</a>
       <ol className={styles.thumbGrid}>{STORY_IDS.map((id, index) => {
         const image = `${ASSET_BASE}/${imageName(variant, format, theme, id)}`;
         return <li key={id}><a href={image}><img src={image} width={model.width} height={model.height} alt={`${STORIES[id].title} in an illustrative ${model.modelLabel} frame`} loading={index < 2 ? "eager" : "lazy"} /></a><div><strong>{index + 1}. {STORIES[id].title}</strong><a href={image} download>PNG</a><a href={image}>Full size</a></div></li>;

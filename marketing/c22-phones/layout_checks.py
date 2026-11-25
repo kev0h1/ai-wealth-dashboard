@@ -56,12 +56,31 @@ MEASURE = r"""node => {
   const railRect = rect(rail), railStyle = rail ? getComputedStyle(rail,'::before') : null;
   const arrival = node.querySelector('[data-c22-pay-arrived]');
   const summary = node.querySelector('[data-c22-spend-nav]');
+  const accountRows = [...node.querySelectorAll('[data-spend-from-account]')];
+  const ledger = [...node.querySelectorAll('summary')].find(el => el.innerText.includes('How we got'));
+  const scope = node.querySelector('#safe-to-spend-scope');
+  const upcomingAccounts = [...node.querySelectorAll('[data-c22-upcoming-accounts] [data-account-row]')];
+  const purpose = node.querySelector('[data-c22-purpose-screen]');
+  const purposeCard = purpose?.querySelector(':scope > .glass-card');
+  const purposeActions = purposeCard ? [...purposeCard.querySelectorAll('button')].map(el => {
+    const r=rect(el),range=document.createRange();range.selectNodeContents(el);
+    const t=rect({getBoundingClientRect:()=>range.getBoundingClientRect()});
+    return {label:el.innerText,fullyVisible:visible(r),textVisible:visible(t),
+      textInsideButton:t.left>=r.left-.5&&t.right<=r.right+.5&&t.top>=r.top-.5&&t.bottom<=r.bottom+.5,
+      height:r.height/scale,width:r.width/scale,clearance:(nav.top-r.bottom)/scale};
+  }) : [];
   return {
     bodyRatio:phone.width/phone.height,displayRatio:screen.width/screen.height,
     screenInsidePhone:screen.left>=phone.left-.5&&screen.right<=phone.right+.5&&screen.top>=phone.top-.5&&screen.bottom<=phone.bottom+.5,
     uniformScale:Math.abs(matrix.a-matrix.d)<.0001&&Math.abs(matrix.b)<.0001&&Math.abs(matrix.c)<.0001,
     logicalWidth:product.clientWidth,contentScrollTop:content.scrollTop,clip,nav,
     goal:goal ? {completeCardVisible:visible(rect(goal)),buttons:goalButtons,text:goal.innerText} : null,
+    home:scope ? {scopeVisible:visible(rect(scope)),scope:scope.innerText,
+      accounts:accountRows.map(el=>({id:el.getAttribute('data-spend-from-account'),text:el.innerText,visible:visible(rect(el))})),
+      ledgerVisible:visible(rect(ledger)),ledger:ledger?.innerText??''} : null,
+    upcomingAccounts:upcomingAccounts.map(el=>({id:el.getAttribute('data-account-row'),text:el.innerText,visible:visible(rect(el)),height:rect(el).height/scale})),
+    upcomingPayments:node.querySelector('[data-c22-upcoming-payments]')?.innerText??null,
+    purpose:purpose ? {completeCardVisible:visible(rect(purposeCard)),text:purpose.innerText,buttons:purposeActions} : null,
     spend:hero ? {heroVisible:visible(rect(hero)),periodBar:!!node.querySelector('[data-g285-period-bar="b"]'),
       summaryPresent:!!summary,summaryText:summary?.innerText??'',
       arrivalVisible:visible(rect(arrival)),arrivalText:arrival?.innerText??'',
@@ -80,6 +99,26 @@ def check_layout(target, format_id: str, story: str) -> dict:
     assert result["uniformScale"] and result["screenInsidePhone"], (context, result)
     assert result["logicalWidth"] == LOGICAL_WIDTHS[format_id], (context, "Changed product viewport", result)
     assert result["contentScrollTop"] == 0, (context, "Unexpected initial scroll", result)
+    if story == "amount":
+        home = result["home"]
+        assert home and home["scopeVisible"] and "buffer" in home["scope"], (context, home)
+        assert len(home["accounts"]) == 2 and all(row["visible"] for row in home["accounts"]), (context, "Missing two visible account figures", home)
+        assert "£272" in home["accounts"][0]["text"] and "£150" in home["accounts"][1]["text"], (context, home)
+        assert home["ledgerVisible"] and "£312" in home["ledger"], (context, "No visible reconciliation entry", home)
+    if story == "upcoming":
+        payments = result["upcomingPayments"]
+        assert payments and all(label in payments for label in ["Energy", "£188", "£38", "£95"]), (context, payments)
+    if story == "upcoming-accounts":
+        accounts = result["upcomingAccounts"]
+        assert len(accounts) == 3 and all(row["visible"] and row["height"] >= 43.9 for row in accounts), (context, "Account readings folded or clipped", accounts)
+        assert all(amount in " ".join(row["text"] for row in accounts) for amount in ["£272", "£150", "£0"]), (context, accounts)
+        assert "Move suggested" in " ".join(row["text"] for row in accounts), (context, accounts)
+    if story == "aside":
+        purpose = result["purpose"]
+        assert purpose and purpose["completeCardVisible"], (context, "One-off confirmation clipped", purpose)
+        assert all(label in purpose["text"] for label in ["Car service", "£120", "12 Dec", "Everyday", "No bank payment"]), (context, purpose)
+        assert {button["label"] for button in purpose["buttons"]} == {"Confirm", "Cancel"}, (context, purpose)
+        assert all(button["fullyVisible"] and button["textVisible"] and button["textInsideButton"] and button["height"] >= 43.9 and button["width"] >= 43.9 and button["clearance"] >= 7.9 for button in purpose["buttons"]), (context, "One-off action obscured", purpose)
     if story == "goal":
         goal = result["goal"]
         assert goal and goal["completeCardVisible"], (context, "Goal card is clipped", result)

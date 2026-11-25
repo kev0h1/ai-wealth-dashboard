@@ -1,117 +1,39 @@
 {
   "item": "C22",
-  "status": "ready for required repository finish and owner design review",
-  "checked_at": "2026-11-25T12:31:46.088601+00:00",
-  "render_source_commit": "9575a2377583c332112ca4e2c085693da42dd101",
-  "source_fingerprint": "3dc89ad7e4b529cd36ab9a70800b589c8ce3952e8afc6831819a9c106bb9b7e6",
+  "status": "local-design-review-passed",
+  "checkedAt": "2026-11-25T14:41:45.580440+00:00",
+  "sourceFingerprint": "681465cfb685a64bc138b46ee9a9bc29e53e43438c064adc72538d8566eeb1d2",
   "skills": [
     "impeccable",
     "frontend-design",
     "web-design-guidelines"
   ],
-  "scope": [
-    "faithful Spend period controls, hero, tiles, pay-arrived event and continuous rail",
-    "complete goal card and action text above in-flow navigation",
-    "fixed physical body/display proportions and uniform canonical product scaling",
-    "1080x2400 Android exports and readable single-column phone downloads"
-  ],
-  "scenario": {
-    "person": "Alex Taylor",
-    "asOf": "2026-11-17",
-    "periodStart": "2026-10-30",
-    "periodEnd": "2026-11-29",
-    "periodLabel": "30 Oct to 29 Nov",
-    "elapsedDays": 19,
-    "daysLeft": 12,
-    "nextPayday": "2026-11-30",
-    "daysUntilPayday": 13
-  },
-  "formats": {
-    "iphone-63": {
-      "label": "iPhone 6.3 inch",
-      "model": "iphone16",
-      "modelLabel": "iPhone 16 Pro",
-      "width": 1206,
-      "height": 2622,
-      "cssWidth": 402,
-      "cssHeight": 874,
-      "viewportWidth": 402,
-      "displayAspectRatio": 0.459954233409611,
-      "bodyAspectRatio": 0.47794117647058826
-    },
-    "iphone-69": {
-      "label": "iPhone 6.9 inch",
-      "model": "iphone16",
-      "modelLabel": "iPhone 16 Pro Max",
-      "width": 1320,
-      "height": 2868,
-      "cssWidth": 440,
-      "cssHeight": 956,
-      "viewportWidth": 440,
-      "displayAspectRatio": 0.4602510460251046,
-      "bodyAspectRatio": 0.4760736196319018
-    },
-    "iphone-65": {
-      "label": "iPhone 6.5 inch",
-      "model": "iphone11",
-      "modelLabel": "iPhone 11 Pro Max",
-      "width": 1242,
-      "height": 2688,
-      "cssWidth": 414,
-      "cssHeight": 896,
-      "viewportWidth": 414,
-      "displayAspectRatio": 0.46205357142857145,
-      "bodyAspectRatio": 0.4924050632911392
-    },
-    "android": {
-      "label": "Android phone (20:9)",
-      "model": "pixel9",
-      "modelLabel": "Pixel 9 Pro XL",
-      "width": 1080,
-      "height": 2400,
-      "cssWidth": 360,
-      "cssHeight": 800,
-      "viewportWidth": 412,
-      "displayAspectRatio": 0.44919786096256686,
-      "bodyAspectRatio": 0.47051597051597044
-    }
-  },
-  "order": [
-    "amount",
-    "upcoming",
-    "cover",
-    "spend",
-    "aside",
-    "goal",
-    "schedule"
-  ],
-  "assets": {
-    "rgb_pngs": 112,
-    "ordered_zips": 16,
-    "integrity": "passed",
-    "provenance": "passed",
-    "unexpected_requests": []
-  },
-  "fidelity": {
-    "native_cases": 112,
-    "goal_cases": 16,
-    "all_goal_cards_visible": true,
-    "goal_action_texts_checked": 48,
-    "minimum_goal_action_to_nav_css_px": 71.22,
-    "spend_cases": 16,
-    "minimum_visible_rail_css_px": 198.52,
-    "uniform_scaling_all_cases": true,
-    "visible_screen_percent": [
-      84.57,
-      89.42
+  "scope": "Eight marketing stories using real product renderers and fictional data. No production component or backend changes.",
+  "financialChecks": "Production account Available values \u00a3272/\u00a3150/\u00a30, one global \u00a3110 buffer and pooled \u00a3312; all payments, plans and suggested cover reconcile. Future \u00a3120 Car service proposal remains unsaved.",
+  "nativeMetrics": {
+    "nativeCases": 128,
+    "errors": [],
+    "sourceFingerprint": "681465cfb685a64bc138b46ee9a9bc29e53e43438c064adc72538d8566eeb1d2",
+    "purposeCards": 16,
+    "purposeActionTextRanges": 32,
+    "minimumPurposeClearanceCssPx": 289.7187333217887,
+    "goalCards": 16,
+    "minimumGoalClearanceCssPx": 71.21876454907795,
+    "balancedRows": 64,
+    "maximumBalancedRowAsymmetryCssPx": 1.0000701821142712,
+    "closedDisclosures": 112,
+    "maximumDisclosureAsymmetryCssPx": 1.0000243454836717,
+    "accountGapPairs": [
+      [
+        13.0,
+        12.0
+      ],
+      [
+        15.5,
+        15.5
+      ]
     ],
-    "minimum_copy_clearance_css_px": 12
-  },
-  "divider_spacing": {
-    "native_disclosures": 144,
-    "native_max_asymmetry_css_px": 1.0,
-    "gallery_disclosures": 40,
-    "gallery_gap_pairs_css_px": [
+    "disclosureGapPairs": [
       [
         11.5,
         11.5
@@ -129,48 +51,145 @@
         16.0
       ]
     ],
-    "identity_rows": 28,
-    "identity_gap_pairs_css_px": [
-      [
-        10.0,
-        10.0
-      ],
-      [
-        12.0,
-        12.0
-      ]
+    "homeTwoAccounts": 16,
+    "byAccountVisible": 16,
+    "packs": 16,
+    "stories": [
+      "amount",
+      "upcoming",
+      "upcoming-accounts",
+      "cover",
+      "spend",
+      "aside",
+      "goal",
+      "schedule"
     ]
   },
-  "confirmation": {
-    "initial_native_captures_read": 28,
-    "root_initial_reads": 16,
-    "independent_initial_reads": 12,
-    "unchanged_goal_and_android_home_pixels": 20,
-    "unexpected_changes": [],
-    "changed_final_spend_captures_read": 8,
-    "root_final_spend_reads": 4,
-    "independent_final_spend_reads": 4,
-    "gallery_captures_read_by_root": 12
+  "rootNativeVisualsRead": [
+    "a-iphone-63-light-01-amount.png",
+    "a-iphone-63-light-02-upcoming.png",
+    "a-iphone-63-light-03-upcoming-accounts.png",
+    "a-iphone-63-light-06-aside.png",
+    "a-android-light-01-amount.png",
+    "a-android-light-02-upcoming.png",
+    "a-android-light-03-upcoming-accounts.png",
+    "a-android-light-06-aside.png",
+    "b-iphone-69-dark-01-amount.png",
+    "b-iphone-69-dark-02-upcoming.png",
+    "b-iphone-69-dark-03-upcoming-accounts.png",
+    "b-iphone-69-dark-06-aside.png",
+    "b-iphone-65-dark-01-amount.png",
+    "b-iphone-65-dark-02-upcoming.png",
+    "b-iphone-65-dark-03-upcoming-accounts.png",
+    "b-iphone-65-dark-06-aside.png",
+    "a-iphone-63-dark-06-aside.png",
+    "a-android-light-04-cover.png"
+  ],
+  "independentNativeVisualsRead": [
+    "a-iphone-69-light-01-amount.png",
+    "a-iphone-69-light-02-upcoming.png",
+    "a-iphone-69-light-03-upcoming-accounts.png",
+    "a-iphone-69-light-06-aside.png",
+    "a-iphone-65-light-01-amount.png",
+    "a-iphone-65-light-02-upcoming.png",
+    "a-iphone-65-light-03-upcoming-accounts.png",
+    "a-iphone-65-light-06-aside.png",
+    "b-iphone-63-dark-01-amount.png",
+    "b-iphone-63-dark-02-upcoming.png",
+    "b-iphone-63-dark-03-upcoming-accounts.png",
+    "b-iphone-63-dark-06-aside.png",
+    "b-android-dark-01-amount.png",
+    "b-android-dark-02-upcoming.png",
+    "b-android-dark-03-upcoming-accounts.png",
+    "b-android-dark-06-aside.png"
+  ],
+  "independentSourceAudit": "passed",
+  "independentVisualAndMetricsAudit": "passed",
+  "visualCorrectionsNeeded": false,
+  "gallery": {
+    "cases": 30,
+    "screenshotsRead": [
+      "/root/worktrees/feature-C22-multi-account-and-purpose/frontend/.screens/c22-phones/gallery-light-320-top.png",
+      "/root/worktrees/feature-C22-multi-account-and-purpose/frontend/.screens/c22-phones/gallery-light-390-top.png",
+      "/root/worktrees/feature-C22-multi-account-and-purpose/frontend/.screens/c22-phones/gallery-light-390-preview.png",
+      "/root/worktrees/feature-C22-multi-account-and-purpose/frontend/.screens/c22-phones/gallery-light-390-download-item.png",
+      "/root/worktrees/feature-C22-multi-account-and-purpose/frontend/.screens/c22-phones/gallery-light-1440-top.png",
+      "/root/worktrees/feature-C22-multi-account-and-purpose/frontend/.screens/c22-phones/gallery-light-1440-preview.png",
+      "/root/worktrees/feature-C22-multi-account-and-purpose/frontend/.screens/c22-phones/gallery-dark-320-top.png",
+      "/root/worktrees/feature-C22-multi-account-and-purpose/frontend/.screens/c22-phones/gallery-dark-390-top.png",
+      "/root/worktrees/feature-C22-multi-account-and-purpose/frontend/.screens/c22-phones/gallery-dark-390-preview.png",
+      "/root/worktrees/feature-C22-multi-account-and-purpose/frontend/.screens/c22-phones/gallery-dark-390-download-item.png",
+      "/root/worktrees/feature-C22-multi-account-and-purpose/frontend/.screens/c22-phones/gallery-dark-1440-top.png",
+      "/root/worktrees/feature-C22-multi-account-and-purpose/frontend/.screens/c22-phones/gallery-dark-1440-preview.png"
+    ],
+    "downloadResponses200": 144,
+    "errors": [],
+    "keyboardStops": 9,
+    "themeSwitches": [
+      {
+        "saved": "0",
+        "states": [
+          {
+            "theme": "light",
+            "htmlDark": false,
+            "card": "rgb(255, 255, 255)",
+            "saved": "0"
+          },
+          {
+            "theme": "dark",
+            "htmlDark": true,
+            "card": "rgb(28, 37, 55)",
+            "saved": "0"
+          },
+          {
+            "theme": "light",
+            "htmlDark": false,
+            "card": "rgb(255, 255, 255)",
+            "saved": "0"
+          }
+        ],
+        "restored": true,
+        "restoredInlineScheme": ""
+      },
+      {
+        "saved": "1",
+        "states": [
+          {
+            "theme": "light",
+            "htmlDark": false,
+            "card": "rgb(255, 255, 255)",
+            "saved": "1"
+          },
+          {
+            "theme": "dark",
+            "htmlDark": true,
+            "card": "rgb(28, 37, 55)",
+            "saved": "1"
+          },
+          {
+            "theme": "light",
+            "htmlDark": false,
+            "card": "rgb(255, 255, 255)",
+            "saved": "1"
+          }
+        ],
+        "restored": true,
+        "restoredInlineScheme": ""
+      }
+    ]
   },
-  "browser": {
-    "cases": 26,
-    "download_responses_200": 128,
-    "page_errors": [],
-    "keyboard_steps": 9,
-    "saved_theme_profiles_restored": 2,
-    "single_column_phone_downloads": true,
-    "natural_thumbnail_aspect_ratios": true
+  "otherChecks": {
+    "fixtureVerification": "passed",
+    "TypeScript": "passed",
+    "scopedESLint": "passed",
+    "designIndex": "passed,65",
+    "strictDesignStale": "passed,65",
+    "diffWhitespace": "passed"
   },
-  "verification": {
-    "typescript": "passed",
-    "scoped_eslint": "passed",
-    "design_index": "passed:65",
-    "strict_design_stale": "passed:65",
-    "diff_check": "passed",
-    "independent_source_audit": "passed",
-    "independent_native_artifact_audit": "passed",
-    "mandatory_full_session_finish": "pending",
-    "supported_uat_integration": "pending"
+  "deliveryAtCaptureTime": {
+    "mandatorySessionFinish": "pending",
+    "supportedIntegration": "pending",
+    "liveUatVerification": "pending"
   },
-  "evidence_limits": "Chromium emulated viewports and coded illustrative handset frames, not physical-device or native simulator captures."
+  "reviewedInputImagesRemoved": 3
 }

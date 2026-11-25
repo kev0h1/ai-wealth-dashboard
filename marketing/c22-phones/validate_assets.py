@@ -1,11 +1,12 @@
 """Check the final C22 phone assets, source provenance and download packs."""
 import json
 from pathlib import Path
+import subprocess
 import zipfile
 
 from PIL import Image
 
-from export_assets import OUT, catalog, digest, source_hashes
+from export_assets import ROOT, OUT, catalog, digest, source_hashes
 
 
 def main():
@@ -19,7 +20,7 @@ def main():
         for variant in ("a", "b") for format_id in data["formatIds"]
         for theme in ("light", "dark") for index, story in enumerate(data["storyIds"], 1)
     }
-    assert len(manifest["assets"]) == len(expected) == 112
+    assert len(manifest["assets"]) == len(expected) == 16 * len(data["storyIds"])
     assert {record["file"] for record in manifest["assets"]} == expected
     for record in manifest["assets"]:
         path = OUT / record["file"]
@@ -38,7 +39,7 @@ def main():
     for pack in manifest["packs"]:
         path = OUT / pack["file"]
         assert pack["sha256"] == digest(path) and pack["bytes"] == path.stat().st_size
-        assert len(pack["members"]) == 7
+        assert len(pack["members"]) == len(data["storyIds"])
         with zipfile.ZipFile(path) as archive:
             assert archive.testzip() is None
             assert archive.namelist() == pack["members"] + ["order-and-provenance.json"]
@@ -50,7 +51,8 @@ def main():
                 assert archive.read(item["file"]) == (OUT / item["file"]).read_bytes()
     assert set(path.name for path in OUT.glob("*.png")) == expected
     assert manifest["unexpectedRequests"] == []
-    print("C22 phones: 112 RGB PNGs, 16 ordered ZIPs, exact sizes and current source provenance passed.")
+    subprocess.run(["node", "--no-warnings", "--experimental-loader", "../marketing/c22-phones/fixture-loader.mjs", "../marketing/c22-phones/verify_fixture.mjs"], cwd=ROOT / "frontend", check=True)
+    print(f"C22 phones: {len(expected)} RGB PNGs, 16 ordered ZIPs, exact sizes and current source provenance passed.")
 
 
 if __name__ == "__main__":

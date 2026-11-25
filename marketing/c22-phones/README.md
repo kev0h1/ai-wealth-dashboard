@@ -4,6 +4,13 @@ Revised store artwork for Kevin's 24 and 25 November feedback. Review at
 `/design/marketing-phones`. This is a design round for choosing a composition,
 with downloadable assets, not permission to publish to either store.
 
+The latest content revision shows two genuine current-account Available figures
+under Home's Spend from. It gives Upcoming's payment and account groupings their
+own images, rather than inventing a new product tab control. Give your money a
+purpose now shows Penny reviewing a new one-off, with its amount, date, source
+account and confirmation actions. All three changes use existing product
+renderers and one reconciled fictional household.
+
 The 25 November fidelity correction restores Spend's production period controls,
 pace hero, Changes/Spending/Charts navigation, pay-arrived event and continuous
 journey rail. Its example shows one real pace chart, using the same authoritative
@@ -31,11 +38,12 @@ own production borders and dividers.
 - B, Close view: a smaller heading and a closer view of the complete handset.
 
 Each direction has one ordered set per format and theme. Themes never alternate
-within a set. The seven stories are Left to spend, Upcoming payments, Cover the
-gap, Spending changes, Set money aside, Plan with Penny and Change a planned
-payment. The Penny chart story is omitted.
+within a set. The eight stories are Left to spend, Upcoming payments, Upcoming
+by account, Cover the gap, Spending changes, Plan a one-off, Plan with Penny and
+Change a planned payment. The Penny chart story is omitted. The stable `aside`
+story URL now opens the one-off creation story.
 
-The pack contains 112 RGB PNGs and 16 ZIPs, with seven ordered images in each
+The pack contains 128 RGB PNGs and 16 ZIPs, with eight ordered images in each
 ZIP. Individual files and the selected ZIP are linked from the gallery.
 The manifest and assets live at `/design-media/c22/phones/`.
 
@@ -75,17 +83,20 @@ local to the preview.
 
 | Figure | Reconciliation |
 | --- | --- |
-| Current accounts | Everyday £705 + Bills £68 = £773 |
+| Current accounts | Everyday £555 + Starling Spending £150 + Bills £68 = £773 |
 | Upcoming payments | Energy £188 on 20 Nov + Broadband £38 on 23 Nov + Boiler service £95 on 26 Nov = £321 |
 | Accounts after those payments | £773 − £321 = £452 |
 | Groceries still reserved | £250 period target − £220 already matched = £30 |
 | Left to spend, estimated | £452 − £30 reserved − £110 buffer = £312 |
 | Suggested cover move | £120 from Everyday to Bills; £68 + £120 − £188 = £0 on Bills |
-| Everyday before that move | £705 − £133 own bills − £30 reserve − £110 buffer = £432 |
-| Everyday after that move | £432 − £120 = £312 |
+| Everyday Available before that move | £555 − £133 own bills − £30 reserve = £392 |
+| Everyday Available after that suggested move | £392 − £120 = £272 |
+| Starling Available | £150, with no payments or plans leaving it this period |
+| Bills Available after that suggested move | £68 − £188 + £120 = £0 |
+| Global buffer stays global | £272 + £150 + £0 − £110 = £312 pooled Left to spend |
 | Spend this period | £860 Out, including £240 Eating Out and £620 in the other categories |
 | Usual by day 19 | £740, including £120 Eating Out; the £120 difference is entirely Eating Out |
-| Cash history | Everyday opening £165 + £1,800 income − £860 Out − £400 moved to savings = £705 |
+| Cash history | Everyday opening £15 + £1,800 income − £860 Out − £400 moved to savings = £555; Starling stays at its opening £150 |
 | Savings, excluded from Left to spend | Opening £100 + £400 moved in = £500 |
 
 Only the unfilled grocery remainder is reserved from current cash. An earlier
@@ -93,12 +104,28 @@ draft wrongly treated a completed £250 set-aside as another £250 reservation;
 that draft was corrected before export. This follows the production allocation
 contract, which reserves `max(0, amount_per_period - filled_this_period)`.
 
+Spend from and By account use the same production Available reading. An account
+figure is its own balance after payments, plans and suggested moves. The £110
+buffer is deducted once from the pooled headline, never allocated across the
+account rows. Home keeps its existing scope sentence and visible How we got
+£312 disclosure. Opening that disclosure shows £452 after payments, less £30
+set-aside and £110 buffer. Its meaning is not changed for a neater screenshot.
+Suggested cover is a recommendation: November's Energy payment still needs
+£120 moved in, and the account row explicitly says Move suggested.
+
 The car-insurance goal is a prospective plan: three £200 contributions on
 30 November, 30 December and 30 January, with nothing reserved in this current
 period. Its schedule preview uses the existing pure-engine fixture. The Boiler
 service conversation demonstrates reviewing a change from £90 on 24 November
 to £95 on 26 November. The Upcoming story shows the resulting £95 plan. Neither
 confirmation nor the cover suggestion moves money in a bank.
+
+Give your money a purpose shows a pending, unsaved Car service one-off for £120
+on 12 December 2026, paid from Everyday. This uses Penny's existing `add_planned`
+contract and real confirmation card. It does not show a manual set-aside feature
+that Penny cannot currently create. The future payment is absent from November's
+£321 due and £30 reserve, so the current £312 estimate is unchanged. Its real
+Confirm and Cancel actions remain wholly above the navigation.
 
 ## Rendering and validation
 

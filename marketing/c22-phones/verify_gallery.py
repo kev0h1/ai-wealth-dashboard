@@ -1,6 +1,7 @@
 """Reproduce the C22 gallery, keyboard, download and divider checks locally."""
 import importlib.util
 import json
+import re
 from pathlib import Path
 from urllib.parse import urlparse
 from playwright.sync_api import sync_playwright
@@ -10,6 +11,7 @@ ROOT=Path(__file__).resolve().parents[2]
 spec=importlib.util.spec_from_file_location('c22_export',ROOT/'marketing/c22-phones/export_assets.py')
 export=importlib.util.module_from_spec(spec);spec.loader.exec_module(export)
 data=export.catalog()
+FINE_KEY=re.search(r'export const FINE_FOLD_KEY = "([^"]+)"', (ROOT/'frontend/lib/upcomingAccountStatus.ts').read_text()).group(1)
 OUT=ROOT/'frontend/.screens/c22-phones'
 OUT.mkdir(parents=True,exist_ok=True)
 results=[];captures=[];errors=[];requests=[]
@@ -70,13 +72,15 @@ with sync_playwright() as pw:
     page.locator('[class*=previewShell]').scroll_into_view_if_needed();name=f'gallery-{theme}-{width}-preview.png';page.screenshot(path=str(OUT/name));captures.append(str(OUT/name))
     if width==390:
      name=f'gallery-{theme}-390-download-item.png';page.locator('ol[class*="thumbGrid"] > li').first.screenshot(path=str(OUT/name),animations='disabled');captures.append(str(OUT/name))
-    for story in ['upcoming','cover','aside','goal','spend']:
+    for story in ['upcoming','upcoming-accounts','cover','aside','goal','spend']:
+     fold_before=page.evaluate('(key)=>sessionStorage.getItem(key)',FINE_KEY)
      page.goto(f'http://127.0.0.1:3158/design/marketing-phones?mode={theme}&story={story}',wait_until='networkidle')
      page.wait_for_selector('[data-c22-viewport-ready="true"]');page.evaluate('document.fonts.ready')
      m=page.evaluate(MEASURE);results.append({'theme':theme,'width':width,'story':story,**m})
      assert all(abs(row['top']-row['bottom'])<=1.01 for row in m['disclosures']),m['disclosures']
      assert all(abs(row['top']-row['bottom'])<=1.01 for row in m['identityRows']),m['identityRows']
      check_layout(page.locator('[data-c22-artboard]'),'iphone-63',story)
+     assert page.evaluate('(key)=>sessionStorage.getItem(key)',FINE_KEY)==fold_before, 'Artwork changed account-fold preference'
   context.close()
  context=browser.new_context(viewport={'width':390,'height':900},reduced_motion='reduce')
  context.route('**/api/**',lambda route:route.abort())
