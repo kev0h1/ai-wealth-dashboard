@@ -61,6 +61,8 @@ MEASURE = r"""node => {
   const scope = node.querySelector('#safe-to-spend-scope');
   const upcomingAccounts = [...node.querySelectorAll('[data-c22-upcoming-accounts] [data-account-row]')];
   const purpose = node.querySelector('[data-c22-purpose-screen]');
+  const split = node.querySelector('[data-c22-pay-split-comparison]');
+  const comparison = split?.querySelector('[aria-label="Reference comparison"]');
   const purposeCard = purpose?.querySelector(':scope > .glass-card');
   const purposeActions = purposeCard ? [...purposeCard.querySelectorAll('button')].map(el => {
     const r=rect(el),range=document.createRange();range.selectNodeContents(el);
@@ -74,6 +76,10 @@ MEASURE = r"""node => {
     screenInsidePhone:screen.left>=phone.left-.5&&screen.right<=phone.right+.5&&screen.top>=phone.top-.5&&screen.bottom<=phone.bottom+.5,
     uniformScale:Math.abs(matrix.a-matrix.d)<.0001&&Math.abs(matrix.b)<.0001&&Math.abs(matrix.c)<.0001,
     logicalWidth:product.clientWidth,contentScrollTop:content.scrollTop,clip,nav,
+    mockSystemIcons:node.querySelectorAll('[class*="statusMarks"], [class*="statusBar"] :is(i,b,em,svg,img)').length,
+    split:split ? {completeVisible:visible(rect(split)),comparisonVisible:visible(rect(comparison)),text:split.innerText,
+      period:node.querySelector('[data-c22-product-header]')?.innerText??'',
+      clearance:(nav.top-rect(split).bottom)/scale} : null,
     goal:goal ? {completeCardVisible:visible(rect(goal)),buttons:goalButtons,text:goal.innerText} : null,
     home:scope ? {scopeVisible:visible(rect(scope)),scope:scope.innerText,
       accounts:accountRows.map(el=>({id:el.getAttribute('data-spend-from-account'),text:el.innerText,visible:visible(rect(el))})),
@@ -99,6 +105,7 @@ def check_layout(target, format_id: str, story: str) -> dict:
     assert result["uniformScale"] and result["screenInsidePhone"], (context, result)
     assert result["logicalWidth"] == LOGICAL_WIDTHS[format_id], (context, "Changed product viewport", result)
     assert result["contentScrollTop"] == 0, (context, "Unexpected initial scroll", result)
+    assert result["mockSystemIcons"] == 0, (context, "Mock handset system icons remain", result)
     if story == "amount":
         home = result["home"]
         assert home and home["scopeVisible"] and "buffer" in home["scope"], (context, home)
@@ -116,7 +123,7 @@ def check_layout(target, format_id: str, story: str) -> dict:
     if story == "aside":
         purpose = result["purpose"]
         assert purpose and purpose["completeCardVisible"], (context, "One-off confirmation clipped", purpose)
-        assert all(label in purpose["text"] for label in ["Car service", "£120", "12 Dec", "Everyday", "No bank payment"]), (context, purpose)
+        assert all(label in purpose["text"] for label in ["Car service", "£120", "12 Dec", "Monzo current account", "No bank payment"]), (context, purpose)
         assert {button["label"] for button in purpose["buttons"]} == {"Confirm", "Cancel"}, (context, purpose)
         assert all(button["fullyVisible"] and button["textVisible"] and button["textInsideButton"] and button["height"] >= 43.9 and button["width"] >= 43.9 and button["clearance"] >= 7.9 for button in purpose["buttons"]), (context, "One-off action obscured", purpose)
     if story == "goal":
@@ -131,4 +138,10 @@ def check_layout(target, format_id: str, story: str) -> dict:
         assert spend["arrivalVisible"] and spend["railPresent"] and spend["railVisibleHeight"] >= 32, (context, "Missing visible journey", result)
         assert spend["railWidth"] == "1px" and spend["railColour"] not in ["transparent", "rgba(0, 0, 0, 0)"], (context, spend)
         assert "£860" in spend["heroText"] and "£1,800" in spend["heroText"] and "£400" in spend["heroText"] and "£1,800" in spend["arrivalText"], (context, "Spend fixture does not reconcile", spend)
+    if story == "split":
+        split = result["split"]
+        assert split and split["completeVisible"] and split["comparisonVisible"] and split["clearance"] >= 7.9, (context, "50/30/20 comparison clipped", split)
+        assert "Completed pay period" in split["period"] and "30 Sep to 29 Oct 2026" in split["period"], (context, "Comparison period unclear", split)
+        assert all(label in split["text"] for label in ["50/30/20 example", "£1,800", "Fixed", "Moved", "Free", "£0", "−£60", "−£90", "50% example", "20% example", "30% example"]), (context, split)
+        assert "£312" not in split["text"], (context, "Current forecast mixed with completed-period comparison", split)
     return result

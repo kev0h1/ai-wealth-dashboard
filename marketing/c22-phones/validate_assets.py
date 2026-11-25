@@ -14,6 +14,8 @@ def main():
     manifest = json.loads((OUT / "manifest.json").read_text())
     assert manifest["item"] == "C22" and manifest["status"] == "design-review-only"
     assert manifest["renderScale"] == 3
+    assert manifest["packOrder"] == data["packStoryIds"] and len(data["packStoryIds"]) == 8
+    assert manifest["extraOrder"] == data["extraStoryIds"] == ["split"]
     assert manifest["dependencies"] == source_hashes(), "Export source has changed"
     expected = {
         f"{variant}-{format_id}-{theme}-{index:02}-{story}.png"
@@ -28,7 +30,8 @@ def main():
         assert record["sha256"] == digest(path) and record["bytes"] == path.stat().st_size
         assert record["sourceFingerprint"] == manifest["sourceFingerprint"]
         assert record["data"] == "fictional" and record["asOf"] == "2026-11-17"
-        assert record["period"] == [data["scenario"]["periodStart"], data["scenario"]["periodEnd"]]
+        assert record["period"] == ([data["scenario"]["completedPeriodStart"], data["scenario"]["completedPeriodEnd"]] if record["story"] == "split" else [data["scenario"]["periodStart"], data["scenario"]["periodEnd"]])
+        assert record["pack"] == ("additional" if record["story"] in data["extraStoryIds"] else "core")
         assert record["size"] == [size["width"], size["height"]]
         with Image.open(path) as image:
             image.load()
@@ -39,12 +42,12 @@ def main():
     for pack in manifest["packs"]:
         path = OUT / pack["file"]
         assert pack["sha256"] == digest(path) and pack["bytes"] == path.stat().st_size
-        assert len(pack["members"]) == len(data["storyIds"])
+        assert len(pack["members"]) == len(data["packStoryIds"])
         with zipfile.ZipFile(path) as archive:
             assert archive.testzip() is None
             assert archive.namelist() == pack["members"] + ["order-and-provenance.json"]
             order = json.loads(archive.read("order-and-provenance.json"))
-            assert [item["story"] for item in order] == data["storyIds"]
+            assert [item["story"] for item in order] == data["packStoryIds"]
             assert [item["file"] for item in order] == pack["members"]
             assert all(item["theme"] == pack["theme"] and item["format"] == pack["format"] and item["variant"] == pack["variant"] for item in order)
             for item in order:

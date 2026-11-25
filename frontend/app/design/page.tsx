@@ -35,8 +35,8 @@ const ROUTES: PreviewRoute[] = [
     slug: "marketing-phones",
     name: "Marketing kit with iPhone and Android frames · C22",
     description:
-      "Revised store artwork: A Full phone and B Close view, with model iPhone and Pixel frames. Eight ordered stories show two accounts to spend from, both Upcoming views and creating a one-off with Penny. Production components at 3x, one fictional Alex and consistent November figures. Separate light and dark PNG and ZIP sets. Review before publication.",
-    states: [{ label: "Left to spend", value: "amount" }, { label: "By payment", value: "upcoming" }, { label: "By account", value: "upcoming-accounts" }, { label: "Plan a one-off", value: "aside" }],
+      "Revised store artwork: A Full phone and B Close view, with model iPhone and Pixel frames. Eight ordered stories show two accounts to spend from, both Upcoming views and creating a one-off with Penny. An additional 50/30/20 image compares a completed pay period. Production components at 3x with fictional figures, separate light and dark PNGs and eight-image ZIP sets. Review before publication.",
+    states: [{ label: "Left to spend", value: "amount" }, { label: "By payment", value: "upcoming" }, { label: "By account", value: "upcoming-accounts" }, { label: "Plan a one-off", value: "aside" }, { label: "50/30/20", value: "split" }],
     variants: [{ label: "A · Full phone", value: "a" }, { label: "B · Close view", value: "b" }],
     group: "current",
   },
