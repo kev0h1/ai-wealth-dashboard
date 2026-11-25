@@ -32,6 +32,8 @@ MEASURE=r'''() => {
  const grid=document.querySelector('ol[class*="thumbGrid"]'),image=grid.querySelector('img'),imageRect=image.getBoundingClientRect();
  return{disclosures,identityRows,productWidth:p.clientWidth,artboard:{left:art.left,right:art.right,top:art.top,width:art.width,height:art.height},scrollWidth:document.documentElement.scrollWidth,viewport:innerWidth,controls,
   downloadColumns:getComputedStyle(grid).gridTemplateColumns.split(' ').length,
+  coreDownloadCount:grid.children.length,
+  extraDownloadCount:document.querySelectorAll('[data-c22-extra-downloads] li').length,
   thumbnailRatio:imageRect.width/imageRect.height,thumbnailNaturalRatio:image.naturalWidth/image.naturalHeight,
   navDisplayed:getComputedStyle(p.querySelector('nav[data-penny-navigation]')).display,
   allProductControlsInert:[...p.querySelectorAll('button,a,summary,input,select')].every(el=>!!el.closest('[inert]')),
@@ -63,6 +65,8 @@ with sync_playwright() as pw:
    assert measure['scrollWidth']<=width+1 and measure['allProductControlsInert']
    assert measure['navDisplayed']=='flex' and measure['productWidth']>=320
    assert measure['downloadColumns']==(1 if width<500 else 4),measure
+   assert measure['coreDownloadCount']==8 and measure['extraDownloadCount']==1,measure
+   assert page.locator('[data-c22-extra-downloads] a[download]').get_attribute('href').endswith('-09-split.png')
    assert abs(measure['thumbnailRatio']-measure['thumbnailNaturalRatio'])<.001,measure
    assert all(el['height']>=43.9 for el in measure['controls'])
    assert all(abs(row['top']-row['bottom'])<=1.01 for row in measure['disclosures'])
@@ -72,7 +76,12 @@ with sync_playwright() as pw:
     page.locator('[class*=previewShell]').scroll_into_view_if_needed();name=f'gallery-{theme}-{width}-preview.png';page.screenshot(path=str(OUT/name));captures.append(str(OUT/name))
     if width==390:
      name=f'gallery-{theme}-390-download-item.png';page.locator('ol[class*="thumbGrid"] > li').first.screenshot(path=str(OUT/name),animations='disabled');captures.append(str(OUT/name))
-    for story in ['upcoming','upcoming-accounts','cover','aside','goal','spend']:
+     extra=page.locator('[data-c22-extra-downloads] li')
+     extra.locator('img').scroll_into_view_if_needed()
+     extra.locator('img').evaluate('(image)=>image.decode()')
+     page.evaluate('()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))')
+     name=f'gallery-{theme}-390-extra-item.png';extra.screenshot(path=str(OUT/name),animations='disabled');captures.append(str(OUT/name))
+    for story in ['upcoming','upcoming-accounts','cover','aside','goal','spend','split']:
      fold_before=page.evaluate('(key)=>sessionStorage.getItem(key)',FINE_KEY)
      page.goto(f'http://127.0.0.1:3158/design/marketing-phones?mode={theme}&story={story}',wait_until='networkidle')
      page.wait_for_selector('[data-c22-viewport-ready="true"]');page.evaluate('document.fonts.ready')
@@ -94,6 +103,7 @@ with sync_playwright() as pw:
  assert all(not f['inProduct'] for f in focused)
  page.get_by_label('Device export',exact=True).select_option('android');page.wait_for_url('**format=android**');page.wait_for_selector('[data-c22-viewport-ready="true"]')
  page.get_by_label('Story',exact=True).select_option('cover');page.wait_for_url('**story=cover**');page.wait_for_selector('[data-c22-product="cover"]')
+ page.get_by_label('Story',exact=True).select_option('split');page.wait_for_url('**story=split**');page.wait_for_selector('[data-c22-product="split"]')
  page.get_by_role('link',name='B · Close view',exact=True).click();page.wait_for_selector('[data-c22-variant="b"]')
  page.get_by_role('link',name='Dark',exact=True).click();page.wait_for_selector('[data-c22-theme="dark"]')
  page.wait_for_selector('[data-c22-viewport-ready="true"]');assert page.locator('[data-c22-product]').evaluate('(el)=>getComputedStyle(el).backgroundColor')=='rgb(15, 23, 42)'

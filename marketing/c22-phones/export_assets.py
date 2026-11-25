@@ -34,9 +34,9 @@ def digest(path: Path) -> str:
 
 def catalog() -> dict:
     code = (
-        'import { FORMATS, FORMAT_IDS, STORY_IDS, STORIES, SCENARIO } from '
+        'import { FORMATS, FORMAT_IDS, STORY_IDS, PACK_STORY_IDS, EXTRA_STORY_IDS, STORIES, SCENARIO } from '
         '"./frontend/app/design/marketing-phones/catalog.ts";'
-        'process.stdout.write(JSON.stringify({formats:FORMATS,formatIds:FORMAT_IDS,stories:STORIES,storyIds:STORY_IDS,scenario:SCENARIO}));'
+        'process.stdout.write(JSON.stringify({formats:FORMATS,formatIds:FORMAT_IDS,stories:STORIES,storyIds:STORY_IDS,packStoryIds:PACK_STORY_IDS,extraStoryIds:EXTRA_STORY_IDS,scenario:SCENARIO}));'
     )
     return json.loads(subprocess.check_output(
         ["node", "--no-warnings", "--experimental-strip-types", "--input-type=module", "-e", code],
@@ -55,6 +55,7 @@ def source_hashes() -> dict[str, str]:
     for directory in (ROOT / "frontend/components", ROOT / "frontend/lib", ROOT / "shared"):
         paths.extend(p for p in directory.rglob("*") if p.is_file() and p.suffix in {".ts", ".tsx", ".css", ".json"} and "node_modules" not in p.parts)
     paths.extend([ROOT / "frontend/app/globals.css", ROOT / "frontend/package-lock.json", ROOT / "frontend/app/components/SpendPage.tsx"])
+    paths.append(ROOT / "frontend/app/spend/shape/MoneyShapeHero.tsx")
     # Imported frozen pure-engine goal data is a fixture input, not an image.
     fixture_directory = ROOT / "frontend/app/design/marketing-kit/capabilities"
     paths.extend(p for p in fixture_directory.iterdir() if p.suffix in {".ts", ".json"})
@@ -205,7 +206,8 @@ def main() -> None:
                             "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
                             "sourceFingerprint": source_fingerprint,
                             "persona": data["scenario"]["person"], "asOf": data["scenario"]["asOf"],
-                            "period": [data["scenario"]["periodStart"], data["scenario"]["periodEnd"]],
+                            "period": [data["scenario"]["completedPeriodStart"], data["scenario"]["completedPeriodEnd"]] if story == "split" else [data["scenario"]["periodStart"], data["scenario"]["periodEnd"]],
+                            "pack": "additional" if story in data["extraStoryIds"] else "core",
                             "alt": f"{data['stories'][story]['title']}. {data['stories'][story]['caption']}",
                         }
                         records.append(save_rgb(target.screenshot(scale="device", animations="disabled"), OUT / filename, provenance))
@@ -219,8 +221,8 @@ def main() -> None:
     for variant in args.variants:
         for format_id in data["formatIds"]:
             for theme in ("light", "dark"):
-                selected = [r for r in records if r["variant"] == variant and r["format"] == format_id and r["theme"] == theme]
-                assert [r["story"] for r in selected] == data["storyIds"]
+                selected = [r for r in records if r["variant"] == variant and r["format"] == format_id and r["theme"] == theme and r["story"] in data["packStoryIds"]]
+                assert [r["story"] for r in selected] == data["packStoryIds"]
                 path = OUT / f"sorted-{variant}-{format_id}-{theme}.zip"
                 with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
                     for record in selected:
@@ -230,7 +232,7 @@ def main() -> None:
     manifest = {
         "item": "C22", "status": "design-review-only", "renderScale": 3,
         "sourceFingerprint": source_fingerprint, "dependencies": dependencies,
-        "formats": data["formats"], "scenario": data["scenario"], "order": data["storyIds"], "assets": records, "packs": packs,
+        "formats": data["formats"], "scenario": data["scenario"], "order": data["storyIds"], "packOrder": data["packStoryIds"], "extraOrder": data["extraStoryIds"], "assets": records, "packs": packs,
         "shellGetStubs": sorted(set(shell_requests)), "unexpectedRequests": [],
     }
     (OUT / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")

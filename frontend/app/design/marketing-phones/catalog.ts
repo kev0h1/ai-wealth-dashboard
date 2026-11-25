@@ -1,4 +1,6 @@
-export const STORY_IDS = ["amount", "upcoming", "upcoming-accounts", "cover", "spend", "aside", "goal", "schedule"] as const;
+export const PACK_STORY_IDS = ["amount", "upcoming", "upcoming-accounts", "cover", "spend", "aside", "goal", "schedule"] as const;
+export const EXTRA_STORY_IDS = ["split"] as const;
+export const STORY_IDS = [...PACK_STORY_IDS, ...EXTRA_STORY_IDS] as const;
 export type StoryId = (typeof STORY_IDS)[number];
 export type PhoneTheme = "light" | "dark";
 export type PhoneVariant = "a" | "b";
@@ -9,6 +11,7 @@ export const SCENARIO = {
   person: "Alex Taylor", asOf: "2026-11-17", periodStart: "2026-10-30", periodEnd: "2026-11-29",
   periodLabel: "30 Oct to 29 Nov", elapsedDays: 19, daysLeft: 12,
   nextPayday: "2026-11-30", daysUntilPayday: 13,
+  completedPeriodStart: "2026-09-30", completedPeriodEnd: "2026-10-29", completedPeriodLabel: "30 Sep to 29 Oct",
 } as const;
 
 export const FORMAT_IDS = ["iphone-63", "iphone-69", "iphone-65", "android"] as const;
@@ -36,13 +39,14 @@ export const STORIES: Record<StoryId, {
   tab: "Home" | "Spend" | "Upcoming" | "Planning" | "Penny";
 }> = {
   amount: { title: "Left to spend", headline: "Know what is yours to spend.", caption: "An estimate after upcoming bills, plans and your buffer.", screenTitle: "Good morning, Alex", tab: "Home" },
-  upcoming: { title: "Upcoming payments", headline: "See what is coming up.", caption: "Your bills and one-off payments, in one view.", screenTitle: "Upcoming", tab: "Upcoming" },
+  upcoming: { title: "Upcoming payments", headline: "See what’s coming up and what needs attention.", caption: "Your bills and one-off payments, in one view.", screenTitle: "Upcoming", tab: "Upcoming" },
   "upcoming-accounts": { title: "Upcoming by account", headline: "Know which account needs attention.", caption: "See each account's available amount and suggested cover.", screenTitle: "Upcoming", tab: "Upcoming" },
   cover: { title: "Cover the gap", headline: "Know what needs moving.", caption: "A suggested move. You make the transfer in your bank.", screenTitle: "Good morning, Alex", tab: "Home" },
   spend: { title: "Spending changes", headline: "See where spending changed.", caption: "Compare the same point in your usual pay period.", screenTitle: "Spend", tab: "Spend" },
   aside: { title: "Plan a one-off", headline: "Give your money a purpose.", caption: "Choose an amount, date and account. Review before you confirm.", screenTitle: "Ask Penny", tab: "Penny" },
   goal: { title: "Plan with Penny", headline: "Turn a goal into a plan.", caption: "Review the plan before you confirm. No money moves.", screenTitle: "Ask Penny", tab: "Penny" },
   schedule: { title: "Change a planned payment", headline: "Plans change. Update yours.", caption: "Review a new amount and date with Penny.", screenTitle: "Ask Penny", tab: "Penny" },
+  split: { title: "Explore 50/30/20", headline: "See how your pay was split.", caption: "Compare a completed pay period with the 50/30/20 example.", screenTitle: "Spend", tab: "Spend" },
 };
 
 export const VARIANTS: Record<PhoneVariant, { label: string; description: string }> = {

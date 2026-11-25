@@ -24,8 +24,8 @@ export const C22_SAFE_TO_SPEND: SafeToSpend = {
 
 export const C22_UPCOMING: UpcomingRowModel[] = [
   { rowKey: "c22-energy", type: "bill", name: "Energy", amount: 188, expectedDate: "2026-11-20", accountLabel: "Bills account", accountBalance: 68, accountShort: true, coverage: { shortfall: 120, before: 68, after: -120 }, after: { kind: "balance", value: -120 }, category: "Bills", categoryColour: billsAppearance.colour, CategoryIcon: billsAppearance.Icon },
-  { rowKey: "c22-broadband", type: "bill", name: "Broadband", amount: 38, expectedDate: "2026-11-23", accountLabel: "Everyday account", accountBalance: 555, coverage: { shortfall: 0, before: 555, after: 517 }, after: { kind: "balance", value: 517 }, category: "Bills", categoryColour: billsAppearance.colour, CategoryIcon: billsAppearance.Icon },
-  { rowKey: "c22-boiler", type: "bill", name: "Boiler service", amount: 95, expectedDate: "2026-11-26", accountLabel: "Everyday account", accountBalance: 517, edited: true, isPlanned: true, coverage: { shortfall: 0, before: 517, after: 422 }, after: { kind: "balance", value: 422 }, category: "Bills", categoryColour: billsAppearance.colour, CategoryIcon: billsAppearance.Icon },
+  { rowKey: "c22-broadband", type: "bill", name: "Broadband", amount: 38, expectedDate: "2026-11-23", accountLabel: "Monzo current account", accountBalance: 555, coverage: { shortfall: 0, before: 555, after: 517 }, after: { kind: "balance", value: 517 }, category: "Bills", categoryColour: billsAppearance.colour, CategoryIcon: billsAppearance.Icon },
+  { rowKey: "c22-boiler", type: "bill", name: "Boiler service", amount: 95, expectedDate: "2026-11-26", accountLabel: "Monzo current account", accountBalance: 517, edited: true, isPlanned: true, coverage: { shortfall: 0, before: 517, after: 422 }, after: { kind: "balance", value: 422 }, category: "Bills", categoryColour: billsAppearance.colour, CategoryIcon: billsAppearance.Icon },
 ];
 
 export const C22_COVER: CompanionItem = {
@@ -33,7 +33,7 @@ export const C22_COVER: CompanionItem = {
   body: "Your Bills account needs £120 for Energy on 20 November.", amount: 120, covered: true, sources_safe: true, estimated: false,
   action: { label: "Review the move", route: "/upcoming" },
   move_map: {
-    from: { account_id: "c22-everyday", name: "Everyday account", provider: "Monzo", balance: 555, safe_note: "Leaves £272 after your own bills and set-aside" },
+    from: { account_id: "c22-everyday", name: "Monzo current account", provider: "Monzo", balance: 555, safe_note: "Leaves £272 after your own bills and set-aside" },
     to: { account_id: "c22-bills", name: "Bills account", provider: "Barclays", balance: 68, incoming: "£120 suggested" },
   },
   plan_dest: { account_id: "c22-bills", name: "Bills account", provider: "Barclays", balance: 68, needs_total: 188, needs_by: "20 Nov", needs_by_date: "2026-11-20", bills: [{ label: "Energy", amount: 188, expected_date: "2026-11-20" }] },
@@ -50,7 +50,7 @@ export const C22_SPEND: SpendVerdict = {
 };
 
 export const C22_ASIDE: SetAsideItem = { id: "c22-groceries", name: "Groceries", feedLabel: "Groceries", amountPerPeriod: 250, filledThisPeriod: 220, remaining: 30, recurrence: "every_period", pending: false, completed: false };
-export const C22_EVERYDAY_ACCOUNT: Account = { id: "c22-everyday", name: "Everyday account", provider: "Monzo", type: "bank", subtype: "CURRENT", balance: 555, currency: "GBP", status: "connected" };
+export const C22_EVERYDAY_ACCOUNT: Account = { id: "c22-everyday", name: "Monzo current account", provider: "Monzo", type: "bank", subtype: "CURRENT", balance: 555, currency: "GBP", status: "connected" };
 export const C22_SECOND_ACCOUNT: Account = { id: "c22-spending", name: "Spending account", provider: "Starling", type: "bank", subtype: "CURRENT", balance: 150, currency: "GBP", status: "connected" };
 export const C22_BILLS_ACCOUNT: Account = { id: "c22-bills", name: "Bills account", provider: "Barclays", type: "bank", subtype: "CURRENT", balance: 68, currency: "GBP", status: "connected" };
 export const C22_CURRENT_ACCOUNTS = [C22_EVERYDAY_ACCOUNT, C22_SECOND_ACCOUNT, C22_BILLS_ACCOUNT];
@@ -75,13 +75,13 @@ export const C22_ACCOUNT_ELIGIBILITY: Record<string, AccountEligibility> = {
     after_payments: -120, low_point: -120, after_payments_and_money_in: -120,
     plans_reserved: 0, after_payments_and_plans: -120, low_point_and_plans: -120,
     spend_from_headroom: 0, moves_in_total: 120, short_after_cover: 0,
-    covered_by_move: { amount: 120, shortfall: 120, current_amount: 120, from: [{ account_id: "c22-everyday", name: "Everyday account", amount: 120 }] },
+    covered_by_move: { amount: 120, shortfall: 120, current_amount: 120, from: [{ account_id: "c22-everyday", name: "Monzo current account", amount: 120 }] },
   },
 };
 
 export const C22_SPEND_FROM = bestSpendAccount(C22_ACCOUNT_ELIGIBILITY, C22_CURRENT_ACCOUNTS);
 export const C22_PLANS: Plan[] = [{
-  id: C22_ASIDE.id, kind: "allocation", name: C22_ASIDE.name, destination: "Everyday account", sourceId: C22_EVERYDAY_ACCOUNT.id,
+  id: C22_ASIDE.id, kind: "allocation", name: C22_ASIDE.name, destination: "Monzo current account", sourceId: C22_EVERYDAY_ACCOUNT.id,
   evidence: "chosen", periodPence: 25000, filledPence: 22000, remainingPence: 3000, active: true,
 }];
 
@@ -120,7 +120,7 @@ export const C22_UPCOMING_ACCOUNTS: UpcomingAccountSummary[] = C22_CURRENT_ACCOU
 });
 
 export const C22_GOAL_REPLY: VerdictMsg = { id: 2201, role: "assistant", kind: "verdict", headline: "£200 on each of three paydays reaches £600.", reply: "That is £200 on 30 Nov, 30 Dec and 30 Jan. It is a plan, not a bank transfer.", degraded: false };
-export const C22_GOAL_PROPOSAL: ProposalMsg = { id: 2202, role: "assistant", kind: "proposal", status: "pending", proposal: { proposal_id: "c22-goal", kind: "create_commitment", summary: "Start the 'Car insurance' goal: £200, £200, £200, one a pay period from 30 Nov 2026, total £600.00", consequence: "Creates the goal and reserves this period's £0.00. Nothing moves until you move it.", before: "No goal", after: "Total £600.00, from Everyday account", entity: "Car insurance", params: { name: "Car insurance", schedule: { ...CAR_INSURANCE_GOAL_PREVIEW.schedule }, schedule_preview: CAR_INSURANCE_GOAL_PREVIEW, funding_pots: [], source_account_id: "c22-everyday", source_account_name: "Everyday account", destination_names: [] } } };
+export const C22_GOAL_PROPOSAL: ProposalMsg = { id: 2202, role: "assistant", kind: "proposal", status: "pending", proposal: { proposal_id: "c22-goal", kind: "create_commitment", summary: "Start the 'Car insurance' goal: £200, £200, £200, one a pay period from 30 Nov 2026, total £600.00", consequence: "Creates the goal and reserves this period's £0.00. Nothing moves until you move it.", before: "No goal", after: "Total £600.00, from Monzo current account", entity: "Car insurance", params: { name: "Car insurance", schedule: { ...CAR_INSURANCE_GOAL_PREVIEW.schedule }, schedule_preview: CAR_INSURANCE_GOAL_PREVIEW, funding_pots: [], source_account_id: "c22-everyday", source_account_name: "Monzo current account", destination_names: [] } } };
 export const C22_SCHEDULE_REPLY: VerdictMsg = { id: 2203, role: "assistant", kind: "verdict", headline: "I can update this planned payment.", reply: "The Boiler service changes from £90 on 24 Nov to £95 on 26 Nov. It updates your plan only, not your bank payment.", degraded: false };
 export const C22_SCHEDULE_PROPOSAL: ProposalMsg = { id: 2204, role: "assistant", kind: "proposal", status: "pending", proposal: { proposal_id: "c22-boiler", kind: "update_planned", summary: "Change the Boiler service one-off from £90 to £95 on 26 Nov", consequence: "Adjusts what's shown as spendable around that date, nothing else changes.", before: "£90 due 24 Nov", after: "£95 due 26 Nov", entity: "Boiler service", params: { planned_id: "c22-boiler", amount: 95, date: "2026-11-26" } } };
 
@@ -130,13 +130,13 @@ export const C22_PURPOSE_PROPOSAL: ProposalMsg = {
   id: 2210, role: "assistant", kind: "proposal", status: "pending",
   proposal: {
     proposal_id: "c22-car-service-one-off", kind: "add_planned", entity: "Car service",
-    summary: "Plan 'Car service' for £120 on 2026-12-12",
+    summary: "Plan a £120 one-off payment for Car service on 12 December",
     consequence: "Reduces what's shown as spendable from that date onward.",
-    before: "This pay period unchanged", after: "£120 on 12 Dec from Everyday account",
+    before: "No Car service payment planned", after: "£120 due 12 Dec · Monzo current account",
     params: { name: "Car service", amount: 120, date: "2026-12-12", account_id: "c22-everyday" },
   },
 };
 export const C22_PURPOSE_REPLY: VerdictMsg = {
-  id: 2209, role: "assistant", kind: "verdict", headline: "I can add the Car service to your plan.",
-  reply: "It is for your next pay period. No bank payment is made, and this pay period stays unchanged.", degraded: false,
+  id: 2209, role: "assistant", kind: "verdict", headline: "I can add your Car service payment to the plan.",
+  reply: "It is due on 12 December in your next pay period, from your Monzo current account. No bank payment is made, and this pay period stays unchanged.", degraded: false,
 };

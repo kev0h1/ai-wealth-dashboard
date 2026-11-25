@@ -1,27 +1,29 @@
 {
   "item": "C22",
   "status": "local-design-review-passed",
-  "checkedAt": "2026-11-25T14:41:45.580440+00:00",
-  "sourceFingerprint": "681465cfb685a64bc138b46ee9a9bc29e53e43438c064adc72538d8566eeb1d2",
+  "checkedAt": "2026-11-25T20:46:39.124181+00:00",
+  "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
   "skills": [
     "impeccable",
     "frontend-design",
     "web-design-guidelines"
   ],
-  "scope": "Eight marketing stories using real product renderers and fictional data. No production component or backend changes.",
-  "financialChecks": "Production account Available values \u00a3272/\u00a3150/\u00a30, one global \u00a3110 buffer and pooled \u00a3312; all payments, plans and suggested cover reconcile. Future \u00a3120 Car service proposal remains unsaved.",
+  "scope": "Eight core marketing stories and one optional 50/30/20 story, using actual product renderers and fictional data. No production component or backend changes.",
+  "financialChecks": "Current account Available values £272/£150/£0, one global £110 buffer and pooled £312 reconcile. The unsaved future £120 Car service proposal uses add_planned and names Monzo current account. The separate completed 30 Sep to 29 Oct 2026 split reconciles £1,800 income, Fixed £900, Moved £300, Free £450 and Left £150; exact reference differences are £0, −£60 and −£90.",
   "nativeMetrics": {
-    "nativeCases": 128,
+    "nativeCases": 144,
     "errors": [],
-    "sourceFingerprint": "681465cfb685a64bc138b46ee9a9bc29e53e43438c064adc72538d8566eeb1d2",
+    "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
     "purposeCards": 16,
     "purposeActionTextRanges": 32,
-    "minimumPurposeClearanceCssPx": 289.7187333217887,
+    "minimumPurposeClearanceCssPx": 180.96874396745548,
     "goalCards": 16,
     "minimumGoalClearanceCssPx": 71.21876454907795,
+    "splitCards": 16,
+    "minimumSplitClearanceCssPx": 83.73433206247729,
     "balancedRows": 64,
     "maximumBalancedRowAsymmetryCssPx": 1.0000701821142712,
-    "closedDisclosures": 112,
+    "closedDisclosures": 128,
     "maximumDisclosureAsymmetryCssPx": 1.0000243454836717,
     "accountGapPairs": [
       [
@@ -53,7 +55,11 @@
     ],
     "homeTwoAccounts": 16,
     "byAccountVisible": 16,
+    "mockSystemIconCases": 0,
+    "fullPhoneContained": 144,
     "packs": 16,
+    "packImages": 8,
+    "additionalImages": 1,
     "stories": [
       "amount",
       "upcoming",
@@ -62,134 +68,73 @@
       "spend",
       "aside",
       "goal",
-      "schedule"
+      "schedule",
+      "split"
     ]
   },
-  "rootNativeVisualsRead": [
+  "rootNativeVisuals": [
     "a-iphone-63-light-01-amount.png",
     "a-iphone-63-light-02-upcoming.png",
     "a-iphone-63-light-03-upcoming-accounts.png",
+    "a-iphone-63-light-04-cover.png",
     "a-iphone-63-light-06-aside.png",
+    "a-iphone-63-light-07-goal.png",
+    "a-iphone-63-light-09-split.png",
     "a-android-light-01-amount.png",
     "a-android-light-02-upcoming.png",
     "a-android-light-03-upcoming-accounts.png",
+    "a-android-light-04-cover.png",
     "a-android-light-06-aside.png",
-    "b-iphone-69-dark-01-amount.png",
-    "b-iphone-69-dark-02-upcoming.png",
-    "b-iphone-69-dark-03-upcoming-accounts.png",
-    "b-iphone-69-dark-06-aside.png",
-    "b-iphone-65-dark-01-amount.png",
-    "b-iphone-65-dark-02-upcoming.png",
-    "b-iphone-65-dark-03-upcoming-accounts.png",
-    "b-iphone-65-dark-06-aside.png",
+    "a-android-light-07-goal.png",
+    "a-android-light-09-split.png",
+    "a-iphone-63-dark-02-upcoming.png",
     "a-iphone-63-dark-06-aside.png",
-    "a-android-light-04-cover.png"
+    "a-iphone-63-dark-07-goal.png",
+    "a-iphone-63-dark-09-split.png",
+    "b-android-dark-05-spend.png",
+    "b-android-dark-09-split.png"
   ],
-  "independentNativeVisualsRead": [
-    "a-iphone-69-light-01-amount.png",
-    "a-iphone-69-light-02-upcoming.png",
-    "a-iphone-69-light-03-upcoming-accounts.png",
-    "a-iphone-69-light-06-aside.png",
-    "a-iphone-65-light-01-amount.png",
-    "a-iphone-65-light-02-upcoming.png",
-    "a-iphone-65-light-03-upcoming-accounts.png",
-    "a-iphone-65-light-06-aside.png",
-    "b-iphone-63-dark-01-amount.png",
-    "b-iphone-63-dark-02-upcoming.png",
-    "b-iphone-63-dark-03-upcoming-accounts.png",
-    "b-iphone-63-dark-06-aside.png",
-    "b-android-dark-01-amount.png",
-    "b-android-dark-02-upcoming.png",
-    "b-android-dark-03-upcoming-accounts.png",
-    "b-android-dark-06-aside.png"
-  ],
-  "independentSourceAudit": "passed",
-  "independentVisualAndMetricsAudit": "passed",
-  "visualCorrectionsNeeded": false,
-  "gallery": {
-    "cases": 30,
-    "screenshotsRead": [
-      "/root/worktrees/feature-C22-multi-account-and-purpose/frontend/.screens/c22-phones/gallery-light-320-top.png",
-      "/root/worktrees/feature-C22-multi-account-and-purpose/frontend/.screens/c22-phones/gallery-light-390-top.png",
-      "/root/worktrees/feature-C22-multi-account-and-purpose/frontend/.screens/c22-phones/gallery-light-390-preview.png",
-      "/root/worktrees/feature-C22-multi-account-and-purpose/frontend/.screens/c22-phones/gallery-light-390-download-item.png",
-      "/root/worktrees/feature-C22-multi-account-and-purpose/frontend/.screens/c22-phones/gallery-light-1440-top.png",
-      "/root/worktrees/feature-C22-multi-account-and-purpose/frontend/.screens/c22-phones/gallery-light-1440-preview.png",
-      "/root/worktrees/feature-C22-multi-account-and-purpose/frontend/.screens/c22-phones/gallery-dark-320-top.png",
-      "/root/worktrees/feature-C22-multi-account-and-purpose/frontend/.screens/c22-phones/gallery-dark-390-top.png",
-      "/root/worktrees/feature-C22-multi-account-and-purpose/frontend/.screens/c22-phones/gallery-dark-390-preview.png",
-      "/root/worktrees/feature-C22-multi-account-and-purpose/frontend/.screens/c22-phones/gallery-dark-390-download-item.png",
-      "/root/worktrees/feature-C22-multi-account-and-purpose/frontend/.screens/c22-phones/gallery-dark-1440-top.png",
-      "/root/worktrees/feature-C22-multi-account-and-purpose/frontend/.screens/c22-phones/gallery-dark-1440-preview.png"
+  "independentReview": {
+    "status": "passed",
+    "agent": "c22_phone_independent_audit",
+    "nativeVisuals": [
+      "a-iphone-69-light-02-upcoming.png",
+      "a-iphone-69-light-06-aside.png",
+      "a-iphone-69-light-07-goal.png",
+      "a-iphone-69-light-09-split.png",
+      "a-iphone-65-light-02-upcoming.png",
+      "a-iphone-65-light-06-aside.png",
+      "a-iphone-65-light-07-goal.png",
+      "a-iphone-65-light-09-split.png",
+      "b-iphone-69-dark-02-upcoming.png",
+      "b-iphone-69-dark-06-aside.png",
+      "b-iphone-69-dark-07-goal.png",
+      "b-iphone-69-dark-09-split.png",
+      "b-iphone-65-dark-02-upcoming.png",
+      "b-iphone-65-dark-06-aside.png",
+      "b-iphone-65-dark-07-goal.png",
+      "b-iphone-65-dark-09-split.png"
     ],
-    "downloadResponses200": 144,
-    "errors": [],
-    "keyboardStops": 9,
-    "themeSwitches": [
-      {
-        "saved": "0",
-        "states": [
-          {
-            "theme": "light",
-            "htmlDark": false,
-            "card": "rgb(255, 255, 255)",
-            "saved": "0"
-          },
-          {
-            "theme": "dark",
-            "htmlDark": true,
-            "card": "rgb(28, 37, 55)",
-            "saved": "0"
-          },
-          {
-            "theme": "light",
-            "htmlDark": false,
-            "card": "rgb(255, 255, 255)",
-            "saved": "0"
-          }
-        ],
-        "restored": true,
-        "restoredInlineScheme": ""
-      },
-      {
-        "saved": "1",
-        "states": [
-          {
-            "theme": "light",
-            "htmlDark": false,
-            "card": "rgb(255, 255, 255)",
-            "saved": "1"
-          },
-          {
-            "theme": "dark",
-            "htmlDark": true,
-            "card": "rgb(28, 37, 55)",
-            "saved": "1"
-          },
-          {
-            "theme": "light",
-            "htmlDark": false,
-            "card": "rgb(255, 255, 255)",
-            "saved": "1"
-          }
-        ],
-        "restored": true,
-        "restoredInlineScheme": ""
-      }
-    ]
+    "scope": "Source, financial semantics, G474 spacing and native visual audit."
   },
-  "otherChecks": {
-    "fixtureVerification": "passed",
+  "galleryReview": {
+    "status": "passed",
+    "cases": 34,
+    "capturesRead": 14,
+    "downloadsHttp200": 160,
+    "pageErrors": [],
+    "keyboardStops": 9,
+    "savedThemeCases": 2,
+    "proofCaptureCorrection": "Await the additional lazy image decode before its evidence screenshot. Both corrected theme captures were read; rendering source and assets are unchanged."
+  },
+  "localChecks": {
     "TypeScript": "passed",
     "scopedESLint": "passed",
-    "designIndex": "passed,65",
-    "strictDesignStale": "passed,65",
-    "diffWhitespace": "passed"
+    "financialFixtureVerifier": "passed",
+    "assetProvenanceSizesRgbZipContents": "passed"
   },
-  "deliveryAtCaptureTime": {
-    "mandatorySessionFinish": "pending",
-    "supportedIntegration": "pending",
-    "liveUatVerification": "pending"
-  },
-  "reviewedInputImagesRemoved": 3
+  "delivery": {
+    "status": "pending at this source snapshot",
+    "next": "Mandatory session finish, exact-pin coordinator integration and public UAT verification. Final delivery evidence belongs on C22."
+  }
 }

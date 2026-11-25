@@ -6,7 +6,7 @@ import dynamic from "next/dynamic";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { usePreferences } from "@/components/PreferencesContext";
-import { ASSET_BASE, FORMATS, FORMAT_IDS, imageName, isFormat, isStory, packName, STORIES, STORY_IDS, VARIANTS, type PhoneFormat, type PhoneTheme, type PhoneVariant, type StoryId } from "./catalog";
+import { ASSET_BASE, EXTRA_STORY_IDS, FORMATS, FORMAT_IDS, imageName, isFormat, isStory, packName, PACK_STORY_IDS, STORIES, STORY_IDS, VARIANTS, type PhoneFormat, type PhoneTheme, type PhoneVariant, type StoryId } from "./catalog";
 import styles from "./phones.module.css";
 
 const PhoneArtboard = dynamic(() => import("./PhoneArtboard"), { ssr: false, loading: () => <div className={styles.artboardLoading} /> });
@@ -70,7 +70,7 @@ export default function PhoneGallery() {
     <header className={styles.header}>
       <Link href="/design">Design previews</Link>
       <h1>Sorted on your phone.</h1>
-      <p>Eight real product stories, framed for iPhone and Android review.</p>
+      <p>Eight product stories and an additional 50/30/20 image, framed for iPhone and Android review.</p>
     </header>
 
     <section className={styles.controls} aria-label="Artwork controls">
@@ -87,10 +87,18 @@ export default function PhoneGallery() {
     <section id="downloads" className={styles.downloads} aria-labelledby="downloads-title">
       <div><h2 id="downloads-title">Ready-to-review exports</h2><p>One ordered eight-image set for the selected format, direction and theme.</p></div>
       <a className={styles.packLink} href={selectedPack} download>Download eight PNGs · ZIP</a>
-      <ol className={styles.thumbGrid}>{STORY_IDS.map((id, index) => {
+      <ol className={styles.thumbGrid}>{PACK_STORY_IDS.map((id, index) => {
         const image = `${ASSET_BASE}/${imageName(variant, format, theme, id)}`;
         return <li key={id}><a href={image}><img src={image} width={model.width} height={model.height} alt={`${STORIES[id].title} in an illustrative ${model.modelLabel} frame`} loading={index < 2 ? "eager" : "lazy"} /></a><div><strong>{index + 1}. {STORIES[id].title}</strong><a href={image} download>PNG</a><a href={image}>Full size</a></div></li>;
       })}</ol>
+    </section>
+
+    <section className={styles.downloads} aria-labelledby="additional-title" data-c22-extra-downloads>
+      <div><h2 id="additional-title">Additional image</h2><p>A completed pay period compared with the 50/30/20 example. Download separately from the eight-image ZIP.</p></div>
+      <ul className={styles.thumbGrid}>{EXTRA_STORY_IDS.map(id => {
+        const image = `${ASSET_BASE}/${imageName(variant, format, theme, id)}`;
+        return <li key={id}><a href={image}><img src={image} width={model.width} height={model.height} alt={`${STORIES[id].title} in an illustrative ${model.modelLabel} frame`} loading="lazy" /></a><div><strong>{STORIES[id].title}</strong><a href={image} download>PNG</a><a href={image}>Full size</a></div></li>;
+      })}</ul>
     </section>
 
     <footer className={styles.footer}><p>Each handset is an illustrative frame around live coded product components. It is not a screenshot from an iOS or Android simulator.</p><Link href="/design/marketing-kit">Open the earlier social and video library</Link></footer>

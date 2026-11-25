@@ -18,6 +18,11 @@ pace series as the hero. Optional transfer reviews remain absent because this
 fictional example has none. The app's own financial typography and components
 are retained.
 
+Mock signal and battery glyphs have been removed from the handset status area;
+the clock, physical camera cutout and app navigation remain. Upcoming now leads
+with “See what’s coming up and what needs attention.” The named Monzo current
+account makes the source of the planned car-service payment explicit.
+
 The handset now has an in-flow navigation footer, so the complete goal proposal,
 Create goal, Cancel and Edit schedule remain visible at the initial position.
 The model body and its display have separate fixed proportions; the app is laid
@@ -43,8 +48,11 @@ by account, Cover the gap, Spending changes, Plan a one-off, Plan with Penny and
 Change a planned payment. The Penny chart story is omitted. The stable `aside`
 story URL now opens the one-off creation story.
 
-The pack contains 128 RGB PNGs and 16 ZIPs, with eight ordered images in each
-ZIP. Individual files and the selected ZIP are linked from the gallery.
+The gallery contains 144 RGB PNGs: 128 core images and 16 additional 50/30/20
+images. The 16 ZIPs still contain the eight ordered core images each. The
+additional comparison is downloaded separately and can replace another image
+when selecting a final eight-image store set. Individual files and the selected
+ZIP are linked from the gallery.
 The manifest and assets live at `/design-media/c22/phones/`.
 
 | Format | Pixels | Illustrative model |
@@ -83,20 +91,20 @@ local to the preview.
 
 | Figure | Reconciliation |
 | --- | --- |
-| Current accounts | Everyday £555 + Starling Spending £150 + Bills £68 = £773 |
+| Current accounts | Monzo current account £555 + Starling Spending £150 + Bills £68 = £773 |
 | Upcoming payments | Energy £188 on 20 Nov + Broadband £38 on 23 Nov + Boiler service £95 on 26 Nov = £321 |
 | Accounts after those payments | £773 − £321 = £452 |
 | Groceries still reserved | £250 period target − £220 already matched = £30 |
 | Left to spend, estimated | £452 − £30 reserved − £110 buffer = £312 |
-| Suggested cover move | £120 from Everyday to Bills; £68 + £120 − £188 = £0 on Bills |
-| Everyday Available before that move | £555 − £133 own bills − £30 reserve = £392 |
-| Everyday Available after that suggested move | £392 − £120 = £272 |
+| Suggested cover move | £120 from Monzo current account to Bills; £68 + £120 − £188 = £0 on Bills |
+| Monzo Available before that move | £555 − £133 own bills − £30 reserve = £392 |
+| Monzo Available after that suggested move | £392 − £120 = £272 |
 | Starling Available | £150, with no payments or plans leaving it this period |
 | Bills Available after that suggested move | £68 − £188 + £120 = £0 |
 | Global buffer stays global | £272 + £150 + £0 − £110 = £312 pooled Left to spend |
 | Spend this period | £860 Out, including £240 Eating Out and £620 in the other categories |
 | Usual by day 19 | £740, including £120 Eating Out; the £120 difference is entirely Eating Out |
-| Cash history | Everyday opening £15 + £1,800 income − £860 Out − £400 moved to savings = £555; Starling stays at its opening £150 |
+| Cash history | Monzo opening £15 + £1,800 income − £860 Out − £400 moved to savings = £555; Starling stays at its opening £150 |
 | Savings, excluded from Left to spend | Opening £100 + £400 moved in = £500 |
 
 Only the unfilled grocery remainder is reserved from current cash. An earlier
@@ -121,11 +129,19 @@ to £95 on 26 November. The Upcoming story shows the resulting £95 plan. Neithe
 confirmation nor the cover suggestion moves money in a bank.
 
 Give your money a purpose shows a pending, unsaved Car service one-off for £120
-on 12 December 2026, paid from Everyday. This uses Penny's existing `add_planned`
+on 12 December 2026, paid from Monzo current account. This uses Penny's existing `add_planned`
 contract and real confirmation card. It does not show a manual set-aside feature
 that Penny cannot currently create. The future payment is absent from November's
 £321 due and £30 reserve, so the current £312 estimate is unchanged. Its real
 Confirm and Cancel actions remain wholly above the navigation.
+
+The additional 50/30/20 image uses the production SpendShapeCard and its compact comparison with
+a separate, completed pay period, 30 September to 29 October 2026. Its £1,800
+income funded Fixed £900, Moved £300 and Free £450, leaving £150. The example
+amounts are £900, £360 and £540 respectively, so the signed differences are
+£0, −£60 and −£90. This neutral reference is not a target or the current £312
+left-to-spend forecast. There is one completed period and no invented average
+or trend. Each image records its own period in the provenance manifest.
 
 ## Rendering and validation
 
