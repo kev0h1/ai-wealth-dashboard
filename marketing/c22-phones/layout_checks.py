@@ -24,6 +24,20 @@ MEASURE = r"""node => {
   const article = rect(node);
   const phone = rect(node.querySelector('[data-c22-phone]'));
   const screen = rect(node.querySelector('[data-c22-screen]'));
+  const screenContent = node.querySelector('[data-c22-screen-content]');
+  const contentFrame = rect(screenContent);
+  const frameScale = contentFrame.width / screenContent.clientWidth;
+  const frameStyle = getComputedStyle(screenContent);
+  const camera = rect(node.querySelector('[data-c22-camera]'));
+  const cameraRing = node.querySelector('[data-c22-model="pixel9"]') ? 2 : 0;
+  const screenRadius = parseFloat(getComputedStyle(node.querySelector('[data-c22-screen]')).borderTopLeftRadius)*frameScale;
+  const insideScreen = (x,y) => {
+    if(x<screen.left||x>screen.right||y<screen.top||y>screen.bottom)return false;
+    const cx=Math.max(screen.left+screenRadius,Math.min(x,screen.right-screenRadius));
+    const cy=Math.max(screen.top+screenRadius,Math.min(y,screen.bottom-screenRadius));
+    return Math.hypot(x-cx,y-cy)<=screenRadius+.5;
+  };
+  const paintedRing = cameraRing*frameScale;
   const stage = rect(node.querySelector('[data-c22-phone]').parentElement);
   const viewport = node.querySelector('[data-c22-product-viewport]');
   const product = node.querySelector('[data-c22-product]');
@@ -76,6 +90,15 @@ MEASURE = r"""node => {
     screenInsidePhone:screen.left>=phone.left-.5&&screen.right<=phone.right+.5&&screen.top>=phone.top-.5&&screen.bottom<=phone.bottom+.5,
     uniformScale:Math.abs(matrix.a-matrix.d)<.0001&&Math.abs(matrix.b)<.0001&&Math.abs(matrix.c)<.0001,
     logicalWidth:product.clientWidth,contentScrollTop:content.scrollTop,clip,nav,
+    safeArea:{paddingTop:parseFloat(frameStyle.paddingTop),paddingBottom:parseFloat(frameStyle.paddingBottom),
+      productTop:(rect(viewport).top-contentFrame.top)/frameScale,
+      cameraPaintedBottom:(camera.bottom-contentFrame.top)/frameScale+cameraRing,
+      cameraClearance:(rect(viewport).top-camera.bottom)/frameScale-cameraRing,
+      cameraInsideScreen:[[camera.left-paintedRing,camera.top-paintedRing],[camera.right+paintedRing,camera.top-paintedRing],
+        [camera.left-paintedRing,camera.bottom+paintedRing],[camera.right+paintedRing,camera.bottom+paintedRing]].every(([x,y])=>insideScreen(x,y)),
+      background:getComputedStyle(node.querySelector('[data-c22-screen]')).backgroundColor,
+      theme:node.getAttribute('data-c22-theme')},
+    clockAbsent:!node.querySelector('[class*="statusBar"]')&&!/\b\d{1,2}:\d{2}\b/.test(node.innerText),
     mockSystemIcons:node.querySelectorAll('[class*="statusMarks"], [class*="statusBar"] :is(i,b,em,svg,img)').length,
     split:split ? {completeVisible:visible(rect(split)),comparisonVisible:visible(rect(comparison)),text:split.innerText,
       period:node.querySelector('[data-c22-product-header]')?.innerText??'',
@@ -106,6 +129,13 @@ def check_layout(target, format_id: str, story: str) -> dict:
     assert result["logicalWidth"] == LOGICAL_WIDTHS[format_id], (context, "Changed product viewport", result)
     assert result["contentScrollTop"] == 0, (context, "Unexpected initial scroll", result)
     assert result["mockSystemIcons"] == 0, (context, "Mock handset system icons remain", result)
+    assert result["clockAbsent"], (context, "Handset clock remains", result)
+    safe = result["safeArea"]
+    assert safe["paddingTop"] == (36 if format_id == "android" else 48), (context, "Wrong camera safe inset", safe)
+    assert safe["paddingBottom"] == 18, (context, "Changed bottom safe inset", safe)
+    assert safe["cameraInsideScreen"], (context, "Camera clipped by rounded screen", safe)
+    assert abs(safe["productTop"]-safe["paddingTop"]) <= .5 and safe["cameraClearance"] >= 11.5, (context, "App starts before safe area clears camera", safe)
+    assert safe["background"] == ("rgb(15, 23, 42)" if safe["theme"] == "dark" else "rgb(248, 250, 252)"), (context, "Changed themed safe strip", safe)
     if story == "amount":
         home = result["home"]
         assert home and home["scopeVisible"] and "buffer" in home["scope"], (context, home)

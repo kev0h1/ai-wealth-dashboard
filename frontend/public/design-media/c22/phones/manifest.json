@@ -2,7 +2,7 @@
   "item": "C22",
   "status": "design-review-only",
   "renderScale": 3,
-  "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+  "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
   "dependencies": {
     "frontend/app/components/SpendPage.tsx": "cb4a91ef7eab7df64bbfffccac70adf251362c89c0959828ecad3b2f7bd276c0",
     "frontend/app/design/marketing-kit/capabilities/goal-preview.json": "b9900641843dc75a90e9365ba87c99a7969380408a2cab13e3c040e577678d8d",
@@ -11,7 +11,7 @@
     "frontend/app/design/marketing-kit/capabilities/spend-fixtures.ts": "df0a137a9be75bbabe5e2d65bdf475adb5c1435962568471480c936ed41b589d",
     "frontend/app/design/marketing-phones/PaySplitScreen.tsx": "eba12bf225458563109132075b3984da43e16db955dc7dd3a1ac135d6b39e2ce",
     "frontend/app/design/marketing-phones/PhoneArtboard.tsx": "236d79983e14db31adc91bc9789d4b1112138cc3a1e75d70b420b61ec6de36b4",
-    "frontend/app/design/marketing-phones/PhoneFrame.tsx": "9084770af366467fb7e65185027ac9a1c56a5da25978f291a9729dc06bcf1dd8",
+    "frontend/app/design/marketing-phones/PhoneFrame.tsx": "e866d48a8d946afa8321f1de6c37e42717b40d6d6a22337dab2b50fee7312e77",
     "frontend/app/design/marketing-phones/PhoneGallery.tsx": "0e751d29f65776a92c73ea7fcf4ec61bc7430a43166375641ba7b5ddd8174338",
     "frontend/app/design/marketing-phones/ProductScreen.tsx": "e0745ad41fa0b497bd90fbd5f6c5a216317f39b9484324f9c6210b5d8bbea49e",
     "frontend/app/design/marketing-phones/PurposeScreen.tsx": "229d03a036ac3143d6f540742831ab502e28838fbc1be087811f5c9304a2ee9f",
@@ -20,7 +20,7 @@
     "frontend/app/design/marketing-phones/catalog.ts": "5e6b292190efc0fd281b7b9415ee22b3a38f45becaece2f2680d58671d0ad795",
     "frontend/app/design/marketing-phones/fixtures.ts": "99cd0938c69d64a275d8510e060ab5c300cab2853a5f141317064a1a859fbfc1",
     "frontend/app/design/marketing-phones/page.tsx": "db32d019a02153df6708ba9532732c9619a25b6a54631d4f76ff6d428fa3547b",
-    "frontend/app/design/marketing-phones/phones.module.css": "3c2b4743bde44fc275601c4d6fb119df07c5b0cbbb40c4606ed6b2b6d49cddd2",
+    "frontend/app/design/marketing-phones/phones.module.css": "ffa7b131cdc884044cafb879a339a881c3d005899c0bcd2eadb2325fc1e58285",
     "frontend/app/design/marketing-phones/product.module.css": "3786a98e2153a653238d118b435973db11fb4141969f89af1c2af84af47c3cfd",
     "frontend/app/design/marketing-phones/shape-fixture.ts": "7aa384c3ba88ce0c9be0a128e5216463491964dc26ca9e0cc2a78211b3666b64",
     "frontend/app/globals.css": "0f6fce7cae5c9c3228b90432a17c03c13df7eeeba1ba0ffe9273bd4c538a965b",
@@ -489,9 +489,9 @@
     "frontend/lib/verdictCache.ts": "e4734e578669c35cc95fdb4c74a91ccfadb816a486ec99bf870cc11a88b81047",
     "frontend/lib/webProduct.ts": "79b06441aa181edeac5bdcdba69bafdc0b8002b7e5245222e3cfc078dea3c8fd",
     "frontend/package-lock.json": "172b8299163e2ddbc7bc7d691d6183e4aad94019ba997a0230f52522623d4dff",
-    "marketing/c22-phones/export_assets.py": "ffe6f6a5740dd27822e044d92f9959a49bfe215f80143053b704159bd77cecc7",
+    "marketing/c22-phones/export_assets.py": "4851482860c557d1fd43028f27c048a2b2c18d46c3cbac71559a2a32ed1404ac",
     "marketing/c22-phones/fixture-loader.mjs": "33f1c9ca0e0cdc0deda7f6af9af046132639255b81401f3cb00a0bb44314d175",
-    "marketing/c22-phones/layout_checks.py": "fab7205713421bf146c8b2b8861532b3e15989ae59b694d0a61c39ec1fee61d3",
+    "marketing/c22-phones/layout_checks.py": "700f0d1642c38c8daf2033191af5a701f0fd8bb1427c776c80843131c5c8a590",
     "marketing/c22-phones/validate_assets.py": "39c3441d21a3064ef67d86ffe9c163d930282586904c1f2da01ac991307019ff",
     "marketing/c22-phones/verify_fixture.mjs": "73442aae18f5d45740cb1a80baf63c7a09eb96dc1667eb4313abc3cc0a2676ab",
     "shared/account-name-cases.json": "9f03bc00b30d9e31fbb8ae30712ae10dbfb9e5dab8cebc43e4d8e53115df9651",
@@ -610,7 +610,7 @@
       "model": "iPhone 16 Pro",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -620,8 +620,8 @@
       "pack": "core",
       "alt": "Left to spend. An estimate after upcoming bills, plans and your buffer.",
       "file": "a-iphone-63-light-01-amount.png",
-      "bytes": 292657,
-      "sha256": "36796ac47371005cdd73f67888512d39d1b86c1e8e006d8def8c9a622c0b9d5a"
+      "bytes": 290827,
+      "sha256": "04f94023fa329011f26ddc90b746bcabcd5202c414a4182b3d142fac45428deb"
     },
     {
       "item": "C22",
@@ -639,7 +639,7 @@
       "model": "iPhone 16 Pro",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -649,8 +649,8 @@
       "pack": "core",
       "alt": "Upcoming payments. Your bills and one-off payments, in one view.",
       "file": "a-iphone-63-light-02-upcoming.png",
-      "bytes": 276125,
-      "sha256": "af953159d869fcd5e4095c000e5fcc00c784e169c50cfe27d98025690ddda6a5"
+      "bytes": 274638,
+      "sha256": "c093cea883e4ac19376a3cfeb40608a44eb1e46f5e56da652e00224b2fd4cfe0"
     },
     {
       "item": "C22",
@@ -668,7 +668,7 @@
       "model": "iPhone 16 Pro",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -678,8 +678,8 @@
       "pack": "core",
       "alt": "Upcoming by account. See each account's available amount and suggested cover.",
       "file": "a-iphone-63-light-03-upcoming-accounts.png",
-      "bytes": 308761,
-      "sha256": "3e1745103c94b0dd40836190b6eff6004e48d3e2bb95068b28e6bc3e5b869c3c"
+      "bytes": 306766,
+      "sha256": "3d1504cbe01c2d99689525f8321abcccbcf92f50ec308f97c2d8cc877a911691"
     },
     {
       "item": "C22",
@@ -697,7 +697,7 @@
       "model": "iPhone 16 Pro",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -707,8 +707,8 @@
       "pack": "core",
       "alt": "Cover the gap. A suggested move. You make the transfer in your bank.",
       "file": "a-iphone-63-light-04-cover.png",
-      "bytes": 277752,
-      "sha256": "8f0204f2f4c61e5ba055977ac350ddccc5eb2b36f48e1ea88c6e19156a156048"
+      "bytes": 276082,
+      "sha256": "3d9214349b32fefb229d5aaf5437b3bbb46a557a16c192698f1ac71fb1a8d707"
     },
     {
       "item": "C22",
@@ -726,7 +726,7 @@
       "model": "iPhone 16 Pro",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -736,8 +736,8 @@
       "pack": "core",
       "alt": "Spending changes. Compare the same point in your usual pay period.",
       "file": "a-iphone-63-light-05-spend.png",
-      "bytes": 317792,
-      "sha256": "72fdd5f757fb0f65930f2dd833b5312a68e019a390e9c4cfaa0cf4d155e7adfc"
+      "bytes": 302324,
+      "sha256": "e3dff7504b2242efb72e9411cf9da2de0f5511b0d310526a80811e9e7c498723"
     },
     {
       "item": "C22",
@@ -755,7 +755,7 @@
       "model": "iPhone 16 Pro",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -765,8 +765,8 @@
       "pack": "core",
       "alt": "Plan a one-off. Choose an amount, date and account. Review before you confirm.",
       "file": "a-iphone-63-light-06-aside.png",
-      "bytes": 333932,
-      "sha256": "4fdd0c7d00602833d155bf91e3c92235c205e8829c50dec8a5068aa420e83603"
+      "bytes": 331802,
+      "sha256": "96ffa036afa6f31a38ec57b502b2e7437a098ee6c4bc906c4650340170fcb987"
     },
     {
       "item": "C22",
@@ -784,7 +784,7 @@
       "model": "iPhone 16 Pro",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -794,8 +794,8 @@
       "pack": "core",
       "alt": "Plan with Penny. Review the plan before you confirm. No money moves.",
       "file": "a-iphone-63-light-07-goal.png",
-      "bytes": 301874,
-      "sha256": "208dd094c070ec231829c2d5c28e0cab7e615d8d091a86b9ab614e1606435644"
+      "bytes": 299918,
+      "sha256": "105c77a2ef407e5eb45c795f744469ef96a2b62866d6e01dd136f358d8a3928b"
     },
     {
       "item": "C22",
@@ -813,7 +813,7 @@
       "model": "iPhone 16 Pro",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -823,8 +823,8 @@
       "pack": "core",
       "alt": "Change a planned payment. Review a new amount and date with Penny.",
       "file": "a-iphone-63-light-08-schedule.png",
-      "bytes": 311816,
-      "sha256": "b7fcb1bfc9b6234e619eceecdd178e1d8e01ab76b1b29f70e8cbfb758d927f5a"
+      "bytes": 310479,
+      "sha256": "805cda408b99b8c0c13475856f7ff3f7c084eccc30e89d4da83792bc553f1b4b"
     },
     {
       "item": "C22",
@@ -842,7 +842,7 @@
       "model": "iPhone 16 Pro",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -852,8 +852,8 @@
       "pack": "additional",
       "alt": "Explore 50/30/20. Compare a completed pay period with the 50/30/20 example.",
       "file": "a-iphone-63-light-09-split.png",
-      "bytes": 320352,
-      "sha256": "155d0a252468d3df04ea7555808b5d45b26b4d4aa27848bb9977da346c9bcf2d"
+      "bytes": 317858,
+      "sha256": "a05e27452247d106ba960a174f98a49cf67aea6f904adb9a30884078f7a3fcb9"
     },
     {
       "item": "C22",
@@ -871,7 +871,7 @@
       "model": "iPhone 16 Pro Max",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -881,8 +881,8 @@
       "pack": "core",
       "alt": "Left to spend. An estimate after upcoming bills, plans and your buffer.",
       "file": "a-iphone-69-light-01-amount.png",
-      "bytes": 305349,
-      "sha256": "558a87876ac98572ee2cf874d31ee89215999c68d9d2bdfbc4443e8870452c20"
+      "bytes": 303604,
+      "sha256": "c385f01383da60d2e763b4b3a6e20fbc28932989a31d3125e176a18e2904ceca"
     },
     {
       "item": "C22",
@@ -900,7 +900,7 @@
       "model": "iPhone 16 Pro Max",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -910,8 +910,8 @@
       "pack": "core",
       "alt": "Upcoming payments. Your bills and one-off payments, in one view.",
       "file": "a-iphone-69-light-02-upcoming.png",
-      "bytes": 284092,
-      "sha256": "ac371b33c95138653e7a4927508a540f1f447fc8a33a4adba6a3448d6b43b54c"
+      "bytes": 281349,
+      "sha256": "7615dad7915d756a9a4169df0b886aff5058dfe1ba4810bac503c89f28e01adc"
     },
     {
       "item": "C22",
@@ -929,7 +929,7 @@
       "model": "iPhone 16 Pro Max",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -939,8 +939,8 @@
       "pack": "core",
       "alt": "Upcoming by account. See each account's available amount and suggested cover.",
       "file": "a-iphone-69-light-03-upcoming-accounts.png",
-      "bytes": 317496,
-      "sha256": "21962774c59d878da4dd16e4b1f062949a1f63b87676f6796120a65ec54c2bca"
+      "bytes": 315640,
+      "sha256": "247ced0e7ee0372c092720c77afcffb80c3978c14f53972055ae09b361632c1d"
     },
     {
       "item": "C22",
@@ -958,7 +958,7 @@
       "model": "iPhone 16 Pro Max",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -968,8 +968,8 @@
       "pack": "core",
       "alt": "Cover the gap. A suggested move. You make the transfer in your bank.",
       "file": "a-iphone-69-light-04-cover.png",
-      "bytes": 290523,
-      "sha256": "b18158a9fc50f0ef4ade81e852784f149cbfc410aad2427f890d53c452c86106"
+      "bytes": 288685,
+      "sha256": "1d43d0db6bf8fd01bffa227edf4d7f587e62eee3af17dfe0cd882f3e9e8cd2bd"
     },
     {
       "item": "C22",
@@ -987,7 +987,7 @@
       "model": "iPhone 16 Pro Max",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -997,8 +997,8 @@
       "pack": "core",
       "alt": "Spending changes. Compare the same point in your usual pay period.",
       "file": "a-iphone-69-light-05-spend.png",
-      "bytes": 352094,
-      "sha256": "034d46def88e3fabbde1b4ee09f518ce617b6f306a83021f582224d0ed1c7e43"
+      "bytes": 349663,
+      "sha256": "b6a0a2cd4432c3531add3c0e0dc375f79a79bf2be727654011e5c54650c879d6"
     },
     {
       "item": "C22",
@@ -1016,7 +1016,7 @@
       "model": "iPhone 16 Pro Max",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -1026,8 +1026,8 @@
       "pack": "core",
       "alt": "Plan a one-off. Choose an amount, date and account. Review before you confirm.",
       "file": "a-iphone-69-light-06-aside.png",
-      "bytes": 344167,
-      "sha256": "b935b446e43e17d7e3f11de9485e01cf80b699cc8b7655d94c96ee85048a084b"
+      "bytes": 342605,
+      "sha256": "f87dcaed365da42f1b3bcaf6cd3cae577cf216795b8e18b14456a51f607e26fa"
     },
     {
       "item": "C22",
@@ -1045,7 +1045,7 @@
       "model": "iPhone 16 Pro Max",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -1055,8 +1055,8 @@
       "pack": "core",
       "alt": "Plan with Penny. Review the plan before you confirm. No money moves.",
       "file": "a-iphone-69-light-07-goal.png",
-      "bytes": 316701,
-      "sha256": "782f58f25f6829b33e2c792b5925ca1e9fc2e713a69d2ff76e20b055a0407152"
+      "bytes": 314616,
+      "sha256": "be47acb4809a875d4acf6f3dbae65668c5c942e32e6e226eaae243d87b7f4f15"
     },
     {
       "item": "C22",
@@ -1074,7 +1074,7 @@
       "model": "iPhone 16 Pro Max",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -1084,8 +1084,8 @@
       "pack": "core",
       "alt": "Change a planned payment. Review a new amount and date with Penny.",
       "file": "a-iphone-69-light-08-schedule.png",
-      "bytes": 325113,
-      "sha256": "17f963478f5bc818c0c5b04314cbdcc1f9c9ccd703ba5c039e26dbd265096776"
+      "bytes": 322869,
+      "sha256": "c44ebb3736d7a058027b7fd88c7c4b6abe7a05e19be0f30cd94a97a8fc09799f"
     },
     {
       "item": "C22",
@@ -1103,7 +1103,7 @@
       "model": "iPhone 16 Pro Max",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -1113,8 +1113,8 @@
       "pack": "additional",
       "alt": "Explore 50/30/20. Compare a completed pay period with the 50/30/20 example.",
       "file": "a-iphone-69-light-09-split.png",
-      "bytes": 333778,
-      "sha256": "d80a6652772b8ab0b3709df25b07e746d5ece732f7f704f45b8191229d5a7b76"
+      "bytes": 331713,
+      "sha256": "6304c79dbeecfdba47464cb5ec071d40b8ac5e92dad6ea96837b675fd40ada16"
     },
     {
       "item": "C22",
@@ -1132,7 +1132,7 @@
       "model": "iPhone 11 Pro Max",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -1142,8 +1142,8 @@
       "pack": "core",
       "alt": "Left to spend. An estimate after upcoming bills, plans and your buffer.",
       "file": "a-iphone-65-light-01-amount.png",
-      "bytes": 309809,
-      "sha256": "6fd5620ab272afba70a2f8833a149e9368513108d46caf083336d82f7c927ed6"
+      "bytes": 307949,
+      "sha256": "9e3e928f454f2339f20085f4c4523ee7a9866b4611fe87b0617e882b1ca37037"
     },
     {
       "item": "C22",
@@ -1161,7 +1161,7 @@
       "model": "iPhone 11 Pro Max",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -1171,8 +1171,8 @@
       "pack": "core",
       "alt": "Upcoming payments. Your bills and one-off payments, in one view.",
       "file": "a-iphone-65-light-02-upcoming.png",
-      "bytes": 287303,
-      "sha256": "bf2b8875e7fc418242aec4030967ee6a3ec3bf50937a4564d48338c198b23619"
+      "bytes": 285527,
+      "sha256": "b5fc8278f97e63a32af87c64124330f8bffa955c2c1e2b7524b830daaf84ac05"
     },
     {
       "item": "C22",
@@ -1190,7 +1190,7 @@
       "model": "iPhone 11 Pro Max",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -1200,8 +1200,8 @@
       "pack": "core",
       "alt": "Upcoming by account. See each account's available amount and suggested cover.",
       "file": "a-iphone-65-light-03-upcoming-accounts.png",
-      "bytes": 322850,
-      "sha256": "cfd73c0ffffc7d2b95af2245f16ae168552bd3f0019a91b92fec72c2262a855a"
+      "bytes": 321183,
+      "sha256": "5fa7c93ae23ce7ec62e40e0891b5a262b66dafd8222dcf55669dc2897b61e068"
     },
     {
       "item": "C22",
@@ -1219,7 +1219,7 @@
       "model": "iPhone 11 Pro Max",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -1229,8 +1229,8 @@
       "pack": "core",
       "alt": "Cover the gap. A suggested move. You make the transfer in your bank.",
       "file": "a-iphone-65-light-04-cover.png",
-      "bytes": 294560,
-      "sha256": "6b16f94a7f5a70ad6476c58f0b43d2b6672892cf288f18e59eb7acd43fdf2872"
+      "bytes": 292364,
+      "sha256": "29e28161f846002c5bb53a3d611d8b1cc02362acd057a2825c83413816ecf856"
     },
     {
       "item": "C22",
@@ -1248,7 +1248,7 @@
       "model": "iPhone 11 Pro Max",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -1258,8 +1258,8 @@
       "pack": "core",
       "alt": "Spending changes. Compare the same point in your usual pay period.",
       "file": "a-iphone-65-light-05-spend.png",
-      "bytes": 341986,
-      "sha256": "9cd009e615bfd7a0addd00c86f1dcde0eaf5be7094513d60317cba08c3dfebe3"
+      "bytes": 335821,
+      "sha256": "36b1fcc5367c438f319bb5da5a819f30f34ee4b703b967bc23e8e9cf1c6e199f"
     },
     {
       "item": "C22",
@@ -1277,7 +1277,7 @@
       "model": "iPhone 11 Pro Max",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -1287,8 +1287,8 @@
       "pack": "core",
       "alt": "Plan a one-off. Choose an amount, date and account. Review before you confirm.",
       "file": "a-iphone-65-light-06-aside.png",
-      "bytes": 349606,
-      "sha256": "4dc86f5ad1f5609449c83ac9eab190ae3f62cdffdcb3dfe6a28e247de758636f"
+      "bytes": 347977,
+      "sha256": "4ead5d9a02587ddc9b89d148e0764d7eccef41597ccb349b840482926e152428"
     },
     {
       "item": "C22",
@@ -1306,7 +1306,7 @@
       "model": "iPhone 11 Pro Max",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -1316,8 +1316,8 @@
       "pack": "core",
       "alt": "Plan with Penny. Review the plan before you confirm. No money moves.",
       "file": "a-iphone-65-light-07-goal.png",
-      "bytes": 317926,
-      "sha256": "e0b20b99b442a0afa45bfec7251ce5624153df9019b0e43038d8f3fb94c776e8"
+      "bytes": 316655,
+      "sha256": "daa993d115be6b4f07b4d268a5c06d96bf6532f457587fe03d45b99aeb86e507"
     },
     {
       "item": "C22",
@@ -1335,7 +1335,7 @@
       "model": "iPhone 11 Pro Max",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -1345,8 +1345,8 @@
       "pack": "core",
       "alt": "Change a planned payment. Review a new amount and date with Penny.",
       "file": "a-iphone-65-light-08-schedule.png",
-      "bytes": 330333,
-      "sha256": "19adda1f7f749f15ed4a5932d2119f450719a75579f8b01eb095b4632611ea24"
+      "bytes": 328326,
+      "sha256": "756d3354d718b0f35797aa0c7210ca0d58ae94517b92d23d6dfbc34e72d5f37c"
     },
     {
       "item": "C22",
@@ -1364,7 +1364,7 @@
       "model": "iPhone 11 Pro Max",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -1374,8 +1374,8 @@
       "pack": "additional",
       "alt": "Explore 50/30/20. Compare a completed pay period with the 50/30/20 example.",
       "file": "a-iphone-65-light-09-split.png",
-      "bytes": 333403,
-      "sha256": "63dd7403188e1727d53f936aab71efd6e278d700a8ac152fc5b45da5ce157de2"
+      "bytes": 330878,
+      "sha256": "0f40a3858dd4e3158ae46f4eaa23c8b61c9e509e9f4dc0e691d05755a4855bd2"
     },
     {
       "item": "C22",
@@ -1393,7 +1393,7 @@
       "model": "Pixel 9 Pro XL",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -1403,8 +1403,8 @@
       "pack": "core",
       "alt": "Left to spend. An estimate after upcoming bills, plans and your buffer.",
       "file": "a-android-light-01-amount.png",
-      "bytes": 265721,
-      "sha256": "4cbe2da99a976909cea943478b303b99978ac914362174f61416034ecd48af52"
+      "bytes": 263624,
+      "sha256": "dbb2ce6305980fb4e5bcc1cc7e44b0d60e29ad8a6e2f62265d9e38c48eef810f"
     },
     {
       "item": "C22",
@@ -1422,7 +1422,7 @@
       "model": "Pixel 9 Pro XL",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -1432,8 +1432,8 @@
       "pack": "core",
       "alt": "Upcoming payments. Your bills and one-off payments, in one view.",
       "file": "a-android-light-02-upcoming.png",
-      "bytes": 242818,
-      "sha256": "7773eaf1713dd66d6433f340b01ab844c3b25d9d17072cd5698ce156dbb755a3"
+      "bytes": 240714,
+      "sha256": "648c7f152dc062cf6957b583660de2405b3f1931823da8eeb307aa51fb22a305"
     },
     {
       "item": "C22",
@@ -1451,7 +1451,7 @@
       "model": "Pixel 9 Pro XL",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -1461,8 +1461,8 @@
       "pack": "core",
       "alt": "Upcoming by account. See each account's available amount and suggested cover.",
       "file": "a-android-light-03-upcoming-accounts.png",
-      "bytes": 273775,
-      "sha256": "ecc91def89570eeefb8a903106c340374a59818819f6b2c22266acd55a3c4442"
+      "bytes": 271795,
+      "sha256": "8a625a84b97259970b21d5d48e4821f5b6e0b5ab60a6ec1dccd1d8c8556e95b3"
     },
     {
       "item": "C22",
@@ -1480,7 +1480,7 @@
       "model": "Pixel 9 Pro XL",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -1490,8 +1490,8 @@
       "pack": "core",
       "alt": "Cover the gap. A suggested move. You make the transfer in your bank.",
       "file": "a-android-light-04-cover.png",
-      "bytes": 252420,
-      "sha256": "82d17a82907d5a6210b343609993b9b6af12ce707cf2b98508103949368cc674"
+      "bytes": 250310,
+      "sha256": "87919af5730edcdcaacab9f757092eb87d36b7e494557b21f1b506d59fee3f23"
     },
     {
       "item": "C22",
@@ -1509,7 +1509,7 @@
       "model": "Pixel 9 Pro XL",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -1519,8 +1519,8 @@
       "pack": "core",
       "alt": "Spending changes. Compare the same point in your usual pay period.",
       "file": "a-android-light-05-spend.png",
-      "bytes": 293092,
-      "sha256": "f021e5d0186f784cd8c59e6f179d94b92b6d33b292523206f12c671491b4ddcd"
+      "bytes": 291253,
+      "sha256": "0d59676eec365c9731d74effde3b1893d4df53dda0317af0499e5a5d7158f89c"
     },
     {
       "item": "C22",
@@ -1538,7 +1538,7 @@
       "model": "Pixel 9 Pro XL",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -1548,8 +1548,8 @@
       "pack": "core",
       "alt": "Plan a one-off. Choose an amount, date and account. Review before you confirm.",
       "file": "a-android-light-06-aside.png",
-      "bytes": 296357,
-      "sha256": "907220efb12c6ee784f2fcf692d5543bee0d990eaa71c0210fa8a88e158b9b42"
+      "bytes": 294350,
+      "sha256": "d1d62732c4fd81a4fb144c18b341573ee4f43c1d97b18ea855dc592913d340d2"
     },
     {
       "item": "C22",
@@ -1567,7 +1567,7 @@
       "model": "Pixel 9 Pro XL",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -1577,8 +1577,8 @@
       "pack": "core",
       "alt": "Plan with Penny. Review the plan before you confirm. No money moves.",
       "file": "a-android-light-07-goal.png",
-      "bytes": 271351,
-      "sha256": "f3f54836a4c082ac1c66bac1e7bd53d1a2b20acb0d1b1a019d3c5776fac23c84"
+      "bytes": 269337,
+      "sha256": "b91bb0bbe9ecbc0d73e016f99bd58d4d3eeabd8ada636aed233a40cd957e8bd3"
     },
     {
       "item": "C22",
@@ -1596,7 +1596,7 @@
       "model": "Pixel 9 Pro XL",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -1606,8 +1606,8 @@
       "pack": "core",
       "alt": "Change a planned payment. Review a new amount and date with Penny.",
       "file": "a-android-light-08-schedule.png",
-      "bytes": 278664,
-      "sha256": "cda29d3367200dfa48db77e6a580c49b62b7751057a0e8a3e252c32a98492375"
+      "bytes": 276630,
+      "sha256": "387cb87471225144079317e39fecf1e9834f458192c142a8fa335a37fc369d13"
     },
     {
       "item": "C22",
@@ -1625,7 +1625,7 @@
       "model": "Pixel 9 Pro XL",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -1635,8 +1635,8 @@
       "pack": "additional",
       "alt": "Explore 50/30/20. Compare a completed pay period with the 50/30/20 example.",
       "file": "a-android-light-09-split.png",
-      "bytes": 281715,
-      "sha256": "297072fe941cfb564570c79a49a267803ec51d73cca2ca6d1aad56b674365fb3"
+      "bytes": 279607,
+      "sha256": "38d94a38793038bab4d0ac59dbe790715b2ab2f07b852d6474d91234cc473070"
     },
     {
       "item": "C22",
@@ -1654,7 +1654,7 @@
       "model": "iPhone 16 Pro",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -1664,8 +1664,8 @@
       "pack": "core",
       "alt": "Left to spend. An estimate after upcoming bills, plans and your buffer.",
       "file": "b-iphone-63-light-01-amount.png",
-      "bytes": 295050,
-      "sha256": "2622a70b6d4a05bf6f36d5a40ac70323e41f4edce63604c6622b931fe7c4d5f6"
+      "bytes": 293031,
+      "sha256": "9a136613f0b3f10bd06191c6cc95f7ec66f59159df686892d4186073d684dd8c"
     },
     {
       "item": "C22",
@@ -1683,7 +1683,7 @@
       "model": "iPhone 16 Pro",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -1693,8 +1693,8 @@
       "pack": "core",
       "alt": "Upcoming payments. Your bills and one-off payments, in one view.",
       "file": "b-iphone-63-light-02-upcoming.png",
-      "bytes": 275683,
-      "sha256": "4e0a0453770f7230b4963e036e8f0a73fec21e2d95b8d0b52799db23e4726645"
+      "bytes": 274247,
+      "sha256": "af3aafc4341db7e313c49d6fbebd129e24459a0c646f61c3c4b5679273e9c1a0"
     },
     {
       "item": "C22",
@@ -1712,7 +1712,7 @@
       "model": "iPhone 16 Pro",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -1722,8 +1722,8 @@
       "pack": "core",
       "alt": "Upcoming by account. See each account's available amount and suggested cover.",
       "file": "b-iphone-63-light-03-upcoming-accounts.png",
-      "bytes": 306301,
-      "sha256": "0e30717e906046a5c8cf76fdaf2b1bd4e33780bc77e779d9d8e8dae1c63a91a7"
+      "bytes": 304672,
+      "sha256": "aabcb974119621f5c4816e702ad95002f7b916a79ea0bc51e25973aa008f397a"
     },
     {
       "item": "C22",
@@ -1741,7 +1741,7 @@
       "model": "iPhone 16 Pro",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -1751,8 +1751,8 @@
       "pack": "core",
       "alt": "Cover the gap. A suggested move. You make the transfer in your bank.",
       "file": "b-iphone-63-light-04-cover.png",
-      "bytes": 277162,
-      "sha256": "f913213b4f210df938a15a76fad32a2f97958001a8bf9d5cb03c2651137f1a9d"
+      "bytes": 275426,
+      "sha256": "acab21ede6d6a2b537b62a0b4e6923aa7912ec2092b05c580cf85854514393d8"
     },
     {
       "item": "C22",
@@ -1770,7 +1770,7 @@
       "model": "iPhone 16 Pro",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -1780,8 +1780,8 @@
       "pack": "core",
       "alt": "Spending changes. Compare the same point in your usual pay period.",
       "file": "b-iphone-63-light-05-spend.png",
-      "bytes": 328039,
-      "sha256": "a785e73072b411359104ad74d47471ac3b6de33bf88ff3c3e529fc5f0da04580"
+      "bytes": 316365,
+      "sha256": "0d0dc243969de9e9aea4b655802d235ceb7d153d528b08ecda85820495e63e0d"
     },
     {
       "item": "C22",
@@ -1799,7 +1799,7 @@
       "model": "iPhone 16 Pro",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -1809,8 +1809,8 @@
       "pack": "core",
       "alt": "Plan a one-off. Choose an amount, date and account. Review before you confirm.",
       "file": "b-iphone-63-light-06-aside.png",
-      "bytes": 337391,
-      "sha256": "35b856522bdc0515c64edd12799d3434f6271e63a402838e156350fdcb963de8"
+      "bytes": 335672,
+      "sha256": "20a24e4836e699383ab5d14008ebb796cf98be29b96d24ff4fc7001a346c7d47"
     },
     {
       "item": "C22",
@@ -1828,7 +1828,7 @@
       "model": "iPhone 16 Pro",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -1838,8 +1838,8 @@
       "pack": "core",
       "alt": "Plan with Penny. Review the plan before you confirm. No money moves.",
       "file": "b-iphone-63-light-07-goal.png",
-      "bytes": 303791,
-      "sha256": "a8b9a24f04ce9de5ae5700b37b4be72fe65a0d546d2670f823bb1c77fd74e00b"
+      "bytes": 301779,
+      "sha256": "585bd0af64e80232880e4ad58a932c3e5d7985f1b89bb42ea2ea7aabfe99edcc"
     },
     {
       "item": "C22",
@@ -1857,7 +1857,7 @@
       "model": "iPhone 16 Pro",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -1867,8 +1867,8 @@
       "pack": "core",
       "alt": "Change a planned payment. Review a new amount and date with Penny.",
       "file": "b-iphone-63-light-08-schedule.png",
-      "bytes": 312259,
-      "sha256": "53348e5fc8b9c414bd664de2650095355b092acb91e31e01c80374947c84e114"
+      "bytes": 310302,
+      "sha256": "28dedb4001faf346d79e93b1603cc1401eea0868435b8e871f6f38faf4c5be8c"
     },
     {
       "item": "C22",
@@ -1886,7 +1886,7 @@
       "model": "iPhone 16 Pro",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -1896,8 +1896,8 @@
       "pack": "additional",
       "alt": "Explore 50/30/20. Compare a completed pay period with the 50/30/20 example.",
       "file": "b-iphone-63-light-09-split.png",
-      "bytes": 315677,
-      "sha256": "31eb064696855d487e00bfad0624e438a5953fb8c9bc50fc1f47298ebff22fa0"
+      "bytes": 313629,
+      "sha256": "11053f7f1c2d46fe3703b57f95e77bd5307031f03bba735c054b74c212be1eb4"
     },
     {
       "item": "C22",
@@ -1915,7 +1915,7 @@
       "model": "iPhone 16 Pro Max",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -1925,8 +1925,8 @@
       "pack": "core",
       "alt": "Left to spend. An estimate after upcoming bills, plans and your buffer.",
       "file": "b-iphone-69-light-01-amount.png",
-      "bytes": 304433,
-      "sha256": "425534b6a0f1285247b0865e4d266c376aa55ec8f45901179a2e002a07d768d9"
+      "bytes": 303097,
+      "sha256": "1ba8609443450e34a6cbd54df960cc1e1a963f80d1814050b4bdd74365501484"
     },
     {
       "item": "C22",
@@ -1944,7 +1944,7 @@
       "model": "iPhone 16 Pro Max",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -1954,8 +1954,8 @@
       "pack": "core",
       "alt": "Upcoming payments. Your bills and one-off payments, in one view.",
       "file": "b-iphone-69-light-02-upcoming.png",
-      "bytes": 288238,
-      "sha256": "1304fd06badac7dd6a180e60f67b0bca5f73b8d7a61ae757e88cf62ec07ec04b"
+      "bytes": 286191,
+      "sha256": "904f9ad2f92c3ff1ca61637220b2db8e0ee7a0e2ce9c5ac4790ccc7e5c5ee154"
     },
     {
       "item": "C22",
@@ -1973,7 +1973,7 @@
       "model": "iPhone 16 Pro Max",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -1983,8 +1983,8 @@
       "pack": "core",
       "alt": "Upcoming by account. See each account's available amount and suggested cover.",
       "file": "b-iphone-69-light-03-upcoming-accounts.png",
-      "bytes": 315432,
-      "sha256": "f41917de041eae5cddca1b12c028473508fb78663cbd236fa61de5d1cb33e272"
+      "bytes": 314320,
+      "sha256": "f59b4e9ea6e7ee01f93251b40d5302385e47a8931ec7b5ed9043140ef0e6a2d6"
     },
     {
       "item": "C22",
@@ -2002,7 +2002,7 @@
       "model": "iPhone 16 Pro Max",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -2012,8 +2012,8 @@
       "pack": "core",
       "alt": "Cover the gap. A suggested move. You make the transfer in your bank.",
       "file": "b-iphone-69-light-04-cover.png",
-      "bytes": 289084,
-      "sha256": "427052aae3b3857a1e549541744e1188c8362ed94698cc03231d232ca3e60550"
+      "bytes": 287412,
+      "sha256": "0e27a201cdbeeb56421945767b54a07767208532754d0ca72cef98387065a586"
     },
     {
       "item": "C22",
@@ -2031,7 +2031,7 @@
       "model": "iPhone 16 Pro Max",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -2041,8 +2041,8 @@
       "pack": "core",
       "alt": "Spending changes. Compare the same point in your usual pay period.",
       "file": "b-iphone-69-light-05-spend.png",
-      "bytes": 353390,
-      "sha256": "26ea859eda38b4e403a4d38b3a69ed4f6ad45a9249a3ef73c39cd8efc0e36fbf"
+      "bytes": 351326,
+      "sha256": "281edc18b2c52b275df6b6d5166290d039e5451359d13438f685ac2401a7bace"
     },
     {
       "item": "C22",
@@ -2060,7 +2060,7 @@
       "model": "iPhone 16 Pro Max",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -2070,8 +2070,8 @@
       "pack": "core",
       "alt": "Plan a one-off. Choose an amount, date and account. Review before you confirm.",
       "file": "b-iphone-69-light-06-aside.png",
-      "bytes": 340488,
-      "sha256": "58b05c68d45d788d1aadcf86042dc0cc9c498c76e5b54154939458d35e14f4f3"
+      "bytes": 338949,
+      "sha256": "7c39fccdaceb118f2e874b8d045d3e0d84d7603731ac1a6bdec1188edc8b856e"
     },
     {
       "item": "C22",
@@ -2089,7 +2089,7 @@
       "model": "iPhone 16 Pro Max",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -2099,8 +2099,8 @@
       "pack": "core",
       "alt": "Plan with Penny. Review the plan before you confirm. No money moves.",
       "file": "b-iphone-69-light-07-goal.png",
-      "bytes": 313002,
-      "sha256": "cc0c5d59599c7abf34654e6addbd99c74c6cfa5e533df221d287a753446bb3bd"
+      "bytes": 311388,
+      "sha256": "0f6366543bd376bfeb29932411b5abd3ade2a8e2e939ee5f7240109628685c38"
     },
     {
       "item": "C22",
@@ -2118,7 +2118,7 @@
       "model": "iPhone 16 Pro Max",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -2128,8 +2128,8 @@
       "pack": "core",
       "alt": "Change a planned payment. Review a new amount and date with Penny.",
       "file": "b-iphone-69-light-08-schedule.png",
-      "bytes": 319010,
-      "sha256": "549b5b9ad461aef2d2eea75a9cae27d3cf651048bdea61722b2b0b496a462121"
+      "bytes": 318374,
+      "sha256": "91fec612962563bba622725f9e275cf6c390c082ab755af39bfc2e72277d9841"
     },
     {
       "item": "C22",
@@ -2147,7 +2147,7 @@
       "model": "iPhone 16 Pro Max",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -2157,8 +2157,8 @@
       "pack": "additional",
       "alt": "Explore 50/30/20. Compare a completed pay period with the 50/30/20 example.",
       "file": "b-iphone-69-light-09-split.png",
-      "bytes": 328241,
-      "sha256": "dada3b4b2a8a36edca93dbdc3e8a6eb84a3c8cee4e94eec6681b94ff827bd37a"
+      "bytes": 326739,
+      "sha256": "6e592ff0ae2f171624a1eac41c1a73258490eb985a60210dabafa43566b4b347"
     },
     {
       "item": "C22",
@@ -2176,7 +2176,7 @@
       "model": "iPhone 11 Pro Max",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -2186,8 +2186,8 @@
       "pack": "core",
       "alt": "Left to spend. An estimate after upcoming bills, plans and your buffer.",
       "file": "b-iphone-65-light-01-amount.png",
-      "bytes": 309507,
-      "sha256": "09ffc821626e99993fd5046d2a8786d0d0f5aaace618e3c88c6dba08c83659ed"
+      "bytes": 307316,
+      "sha256": "f2d67a4bf594b48fe2d674f95d770dcc6651f90aa9eb173dbf54adf09e95331e"
     },
     {
       "item": "C22",
@@ -2205,7 +2205,7 @@
       "model": "iPhone 11 Pro Max",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -2215,8 +2215,8 @@
       "pack": "core",
       "alt": "Upcoming payments. Your bills and one-off payments, in one view.",
       "file": "b-iphone-65-light-02-upcoming.png",
-      "bytes": 286140,
-      "sha256": "28ceab7ccb460dfdfc3c8a59aaa95250078b677d2e567f395573e61ef7ee8bc8"
+      "bytes": 284278,
+      "sha256": "a09a490f14017ce50730879820c412ded9c0d17471087b83c365a1b79d3b1bb0"
     },
     {
       "item": "C22",
@@ -2234,7 +2234,7 @@
       "model": "iPhone 11 Pro Max",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -2244,8 +2244,8 @@
       "pack": "core",
       "alt": "Upcoming by account. See each account's available amount and suggested cover.",
       "file": "b-iphone-65-light-03-upcoming-accounts.png",
-      "bytes": 320825,
-      "sha256": "c2a3747a04be1a3682da3dc262cf49d866856196474b6037dd3d44f055624773"
+      "bytes": 318935,
+      "sha256": "3a54078bf3f44ab89b2b694ae8ca5853ec4237c1938e7918d8d0622449976152"
     },
     {
       "item": "C22",
@@ -2263,7 +2263,7 @@
       "model": "iPhone 11 Pro Max",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -2273,8 +2273,8 @@
       "pack": "core",
       "alt": "Cover the gap. A suggested move. You make the transfer in your bank.",
       "file": "b-iphone-65-light-04-cover.png",
-      "bytes": 294882,
-      "sha256": "f823af9de350839dd6967e69462a6ed933df2957775f655e2bedff0d8c176306"
+      "bytes": 292869,
+      "sha256": "2a692a59d022131b9c01c38c2e18ad70024ed7fac4a50e26d583e9534805979e"
     },
     {
       "item": "C22",
@@ -2292,7 +2292,7 @@
       "model": "iPhone 11 Pro Max",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -2302,8 +2302,8 @@
       "pack": "core",
       "alt": "Spending changes. Compare the same point in your usual pay period.",
       "file": "b-iphone-65-light-05-spend.png",
-      "bytes": 347993,
-      "sha256": "0b2e1c06f72187379fbf614e98723e79b30084970e42010a236554213e0713c3"
+      "bytes": 343654,
+      "sha256": "381722da48735d52e0676ce74875bc1cc47ece483d499d9b25ffddf6e9f5035b"
     },
     {
       "item": "C22",
@@ -2321,7 +2321,7 @@
       "model": "iPhone 11 Pro Max",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -2331,8 +2331,8 @@
       "pack": "core",
       "alt": "Plan a one-off. Choose an amount, date and account. Review before you confirm.",
       "file": "b-iphone-65-light-06-aside.png",
-      "bytes": 350199,
-      "sha256": "b0498842e0a955a04d0340f449a8bc034c72304a1bfbd129bd11b4500f964eed"
+      "bytes": 348088,
+      "sha256": "ed158f5829b75565ca3121bb612b616e57814ccb1350495c2e90f78aefc4f006"
     },
     {
       "item": "C22",
@@ -2350,7 +2350,7 @@
       "model": "iPhone 11 Pro Max",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -2360,8 +2360,8 @@
       "pack": "core",
       "alt": "Plan with Penny. Review the plan before you confirm. No money moves.",
       "file": "b-iphone-65-light-07-goal.png",
-      "bytes": 318012,
-      "sha256": "97efca3c176a33c2703ec232b418653b252814b00dc1ba0a030573e49881f05a"
+      "bytes": 316191,
+      "sha256": "612fe49c516eb87582e6d649a2238f0ffeaa4a4481a15208c5ecbf25a2cfccb2"
     },
     {
       "item": "C22",
@@ -2379,7 +2379,7 @@
       "model": "iPhone 11 Pro Max",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -2389,8 +2389,8 @@
       "pack": "core",
       "alt": "Change a planned payment. Review a new amount and date with Penny.",
       "file": "b-iphone-65-light-08-schedule.png",
-      "bytes": 328033,
-      "sha256": "041ddb9434ee8d2d7562f632257a994e607ca147d58f496e499510f16866a605"
+      "bytes": 325752,
+      "sha256": "a6c9a726131c607540ba7623cc33219d15836a33ce8c3e9ab4a2b288b530b240"
     },
     {
       "item": "C22",
@@ -2408,7 +2408,7 @@
       "model": "iPhone 11 Pro Max",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -2418,8 +2418,8 @@
       "pack": "additional",
       "alt": "Explore 50/30/20. Compare a completed pay period with the 50/30/20 example.",
       "file": "b-iphone-65-light-09-split.png",
-      "bytes": 330733,
-      "sha256": "b3bb4e09cde7a7c69580a9d8c0d446cb23a8be480e7096d111b80a88b661e2c2"
+      "bytes": 328100,
+      "sha256": "28ef1ddab04e198da57b4e68052c74fea5e0bfbdae6b31f16e4a3006eefc837d"
     },
     {
       "item": "C22",
@@ -2437,7 +2437,7 @@
       "model": "Pixel 9 Pro XL",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -2447,8 +2447,8 @@
       "pack": "core",
       "alt": "Left to spend. An estimate after upcoming bills, plans and your buffer.",
       "file": "b-android-light-01-amount.png",
-      "bytes": 261935,
-      "sha256": "da02ef0ad236b59ede8f9684051687aaae7494dfd1281657b47fcad7c5762e99"
+      "bytes": 260125,
+      "sha256": "f4fd1cc4b3fdae464b35036715e58c9c6bfb9396b6da7f87d9bcd4a05b64c128"
     },
     {
       "item": "C22",
@@ -2466,7 +2466,7 @@
       "model": "Pixel 9 Pro XL",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -2476,8 +2476,8 @@
       "pack": "core",
       "alt": "Upcoming payments. Your bills and one-off payments, in one view.",
       "file": "b-android-light-02-upcoming.png",
-      "bytes": 247887,
-      "sha256": "55248508d4a963724361970eb878a87a564c969da3e36bb24c9202e5cc194659"
+      "bytes": 246117,
+      "sha256": "adfa344fe8221131b45234c04cbc868642ccda219d5b0a2cfae4ae911c1a6eb4"
     },
     {
       "item": "C22",
@@ -2495,7 +2495,7 @@
       "model": "Pixel 9 Pro XL",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -2505,8 +2505,8 @@
       "pack": "core",
       "alt": "Upcoming by account. See each account's available amount and suggested cover.",
       "file": "b-android-light-03-upcoming-accounts.png",
-      "bytes": 271276,
-      "sha256": "8763971d5f966c8b6ae9bccc40d2af50560dd46f8b19ae487ec6b07ef479ded4"
+      "bytes": 269214,
+      "sha256": "c38bcad385a547bc4e855d01db673b1db0be97b8750465ea3869eb810c834f7d"
     },
     {
       "item": "C22",
@@ -2524,7 +2524,7 @@
       "model": "Pixel 9 Pro XL",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -2534,8 +2534,8 @@
       "pack": "core",
       "alt": "Cover the gap. A suggested move. You make the transfer in your bank.",
       "file": "b-android-light-04-cover.png",
-      "bytes": 246699,
-      "sha256": "08a985c5a7c729ecaa2ec8ffd635018b4670f6cb132f6fda6bb1ee0b79443585"
+      "bytes": 244711,
+      "sha256": "2c60d7735f4133eeef7cc306f50aed23e3024bcb47eed52b0438d50620e6a0ac"
     },
     {
       "item": "C22",
@@ -2553,7 +2553,7 @@
       "model": "Pixel 9 Pro XL",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -2563,8 +2563,8 @@
       "pack": "core",
       "alt": "Spending changes. Compare the same point in your usual pay period.",
       "file": "b-android-light-05-spend.png",
-      "bytes": 291702,
-      "sha256": "7c01037f201d5b02bc18577ad764e59c64b059627d070f231d264365339d569f"
+      "bytes": 289678,
+      "sha256": "dc40518deb203a438caad718556f695cdfb2eb2e98fcfe988c76cbae0cece525"
     },
     {
       "item": "C22",
@@ -2582,7 +2582,7 @@
       "model": "Pixel 9 Pro XL",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -2592,8 +2592,8 @@
       "pack": "core",
       "alt": "Plan a one-off. Choose an amount, date and account. Review before you confirm.",
       "file": "b-android-light-06-aside.png",
-      "bytes": 292507,
-      "sha256": "cf259ad0b69937f608f4d1acbd4b73ddd544e44967d7e9f348fdaf811b23a2fd"
+      "bytes": 290638,
+      "sha256": "b47ab703c08997e86470c0713403eb1ea1bcff316051dae03ac5c2224ce5e4e7"
     },
     {
       "item": "C22",
@@ -2611,7 +2611,7 @@
       "model": "Pixel 9 Pro XL",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -2621,8 +2621,8 @@
       "pack": "core",
       "alt": "Plan with Penny. Review the plan before you confirm. No money moves.",
       "file": "b-android-light-07-goal.png",
-      "bytes": 270977,
-      "sha256": "e68ff2951cb59d7befcb390346e009c72c9084d5059341393e3f1ce25c06c7c6"
+      "bytes": 269255,
+      "sha256": "10e4b0ba095dbaac5dd60358b50278760f05e9846ebe969c9af15ae84e488f70"
     },
     {
       "item": "C22",
@@ -2640,7 +2640,7 @@
       "model": "Pixel 9 Pro XL",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -2650,8 +2650,8 @@
       "pack": "core",
       "alt": "Change a planned payment. Review a new amount and date with Penny.",
       "file": "b-android-light-08-schedule.png",
-      "bytes": 276430,
-      "sha256": "ebc04280227031028f3b5e5bb53cd83aef0644c2d1644c944ccef4ea8ac41e7c"
+      "bytes": 274531,
+      "sha256": "921abf7a7f5280606e4388ae05f0ac1efc9bfb1bcb371bb0454d0b27cba70859"
     },
     {
       "item": "C22",
@@ -2669,7 +2669,7 @@
       "model": "Pixel 9 Pro XL",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -2679,8 +2679,8 @@
       "pack": "additional",
       "alt": "Explore 50/30/20. Compare a completed pay period with the 50/30/20 example.",
       "file": "b-android-light-09-split.png",
-      "bytes": 275472,
-      "sha256": "19f72bdcee8245a0ba3e58edd73e4241d28eda6daa186cbb800382fa629dd0b3"
+      "bytes": 273509,
+      "sha256": "89edccad24dc2511205954261a63c0e88367a237cc17d1b1dcb42273d40e6806"
     },
     {
       "item": "C22",
@@ -2698,7 +2698,7 @@
       "model": "iPhone 16 Pro",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -2708,8 +2708,8 @@
       "pack": "core",
       "alt": "Left to spend. An estimate after upcoming bills, plans and your buffer.",
       "file": "a-iphone-63-dark-01-amount.png",
-      "bytes": 265983,
-      "sha256": "ad5086134bd908870bdcbf614876c0cb0d6de3f9e100c16224280a21db8071e7"
+      "bytes": 264519,
+      "sha256": "e2a2b1dc40be2ba8ef938459818a5a3bb7bca6bdb1c5f3567820e15ff7a623cb"
     },
     {
       "item": "C22",
@@ -2727,7 +2727,7 @@
       "model": "iPhone 16 Pro",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -2737,8 +2737,8 @@
       "pack": "core",
       "alt": "Upcoming payments. Your bills and one-off payments, in one view.",
       "file": "a-iphone-63-dark-02-upcoming.png",
-      "bytes": 245053,
-      "sha256": "d51fe8d1a7a25909444f970f1fe270744f9a12862935d7662701feced55e7365"
+      "bytes": 244009,
+      "sha256": "42481240a51858f595c575da57f85d97b39de3a93de7d384beaaa95706a42436"
     },
     {
       "item": "C22",
@@ -2756,7 +2756,7 @@
       "model": "iPhone 16 Pro",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -2766,8 +2766,8 @@
       "pack": "core",
       "alt": "Upcoming by account. See each account's available amount and suggested cover.",
       "file": "a-iphone-63-dark-03-upcoming-accounts.png",
-      "bytes": 278310,
-      "sha256": "727b85a493d8fd2d824e77cc38e613f02ab670a6bccf1d9bec24380038c7cebb"
+      "bytes": 276557,
+      "sha256": "206f81f4330ae26e3a2d6adcf51cfbf888c9d659872dab1b7262bc668a235594"
     },
     {
       "item": "C22",
@@ -2785,7 +2785,7 @@
       "model": "iPhone 16 Pro",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -2795,8 +2795,8 @@
       "pack": "core",
       "alt": "Cover the gap. A suggested move. You make the transfer in your bank.",
       "file": "a-iphone-63-dark-04-cover.png",
-      "bytes": 248280,
-      "sha256": "a39449ecf48e3a6bed6e6f3d7f6a20e57dd62748495ab77738a4487a018a0ba5"
+      "bytes": 246354,
+      "sha256": "d7f4cc82f497a4698bd027ec951638fb6ec43e2b36ddc6bd3bc95602ac17c4eb"
     },
     {
       "item": "C22",
@@ -2814,7 +2814,7 @@
       "model": "iPhone 16 Pro",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -2824,8 +2824,8 @@
       "pack": "core",
       "alt": "Spending changes. Compare the same point in your usual pay period.",
       "file": "a-iphone-63-dark-05-spend.png",
-      "bytes": 292474,
-      "sha256": "72e086570ca1bc95006548c043f8ec88befe5dac2c925719922bdd3b7a5166d4"
+      "bytes": 276701,
+      "sha256": "30054e381d2b2cfe1766ba964ca49ebfebd2dbd3c88964871346f53ff38b61bc"
     },
     {
       "item": "C22",
@@ -2843,7 +2843,7 @@
       "model": "iPhone 16 Pro",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -2853,8 +2853,8 @@
       "pack": "core",
       "alt": "Plan a one-off. Choose an amount, date and account. Review before you confirm.",
       "file": "a-iphone-63-dark-06-aside.png",
-      "bytes": 304002,
-      "sha256": "7590c46069e26787488facb98afe5ce69c0fc5b5da3422f5c22b234cfbf7551a"
+      "bytes": 302184,
+      "sha256": "3fdbc975a7ca3918a0d5ef493c896ca16bc4ad4660323721371f54a057eeaee3"
     },
     {
       "item": "C22",
@@ -2872,7 +2872,7 @@
       "model": "iPhone 16 Pro",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -2882,8 +2882,8 @@
       "pack": "core",
       "alt": "Plan with Penny. Review the plan before you confirm. No money moves.",
       "file": "a-iphone-63-dark-07-goal.png",
-      "bytes": 268167,
-      "sha256": "bd915a27fc22e4f235aff8e1a1b4302512f9bf6a9b9ca433bf600ea02e5e8c58"
+      "bytes": 266024,
+      "sha256": "4edbfbea355a52af62fd185a741216a86b5d5c64325037d95b1d28767e7dc9e3"
     },
     {
       "item": "C22",
@@ -2901,7 +2901,7 @@
       "model": "iPhone 16 Pro",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -2911,8 +2911,8 @@
       "pack": "core",
       "alt": "Change a planned payment. Review a new amount and date with Penny.",
       "file": "a-iphone-63-dark-08-schedule.png",
-      "bytes": 282574,
-      "sha256": "7861b84bc220578e906bd6a6caf7e6cb6d5373b08fba3ab766f5d189418af6ce"
+      "bytes": 280473,
+      "sha256": "7e21145d92154ecbf72185057bb4ce60978a32ab8b4d8884dd4635e89db01bb6"
     },
     {
       "item": "C22",
@@ -2930,7 +2930,7 @@
       "model": "iPhone 16 Pro",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -2940,8 +2940,8 @@
       "pack": "additional",
       "alt": "Explore 50/30/20. Compare a completed pay period with the 50/30/20 example.",
       "file": "a-iphone-63-dark-09-split.png",
-      "bytes": 291380,
-      "sha256": "1ebcf2cb1e4a474c3e629103556774cff8c72e379e391c7423dc0dbc866d409b"
+      "bytes": 289177,
+      "sha256": "d3c892f4528a17352ae08dc56e54ea981eca2f981d5ee8511225074159b63607"
     },
     {
       "item": "C22",
@@ -2959,7 +2959,7 @@
       "model": "iPhone 16 Pro Max",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -2969,8 +2969,8 @@
       "pack": "core",
       "alt": "Left to spend. An estimate after upcoming bills, plans and your buffer.",
       "file": "a-iphone-69-dark-01-amount.png",
-      "bytes": 274622,
-      "sha256": "327676d07fadaed50d63c2ef87fcc1e698b75cf706431aa631b95f3737572480"
+      "bytes": 273064,
+      "sha256": "586ff95b2bc75d366d0975b319050ee3398d32378cbe1c7f5efcf98f9ed83bed"
     },
     {
       "item": "C22",
@@ -2988,7 +2988,7 @@
       "model": "iPhone 16 Pro Max",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -2998,8 +2998,8 @@
       "pack": "core",
       "alt": "Upcoming payments. Your bills and one-off payments, in one view.",
       "file": "a-iphone-69-dark-02-upcoming.png",
-      "bytes": 252547,
-      "sha256": "19d8259933c8091b8ac0613345becc71759cf3382f81e0a95208e8d7414c4db8"
+      "bytes": 250694,
+      "sha256": "5aa1f6ce65b76637b1a45d46f30f19256921623a2eefe205247b50e6f74c6125"
     },
     {
       "item": "C22",
@@ -3017,7 +3017,7 @@
       "model": "iPhone 16 Pro Max",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -3027,8 +3027,8 @@
       "pack": "core",
       "alt": "Upcoming by account. See each account's available amount and suggested cover.",
       "file": "a-iphone-69-dark-03-upcoming-accounts.png",
-      "bytes": 283405,
-      "sha256": "ea557103e01c5ebea649ca87a8983bea865a63500a6134366e8285aa496aca9c"
+      "bytes": 281845,
+      "sha256": "6268e8d7b046030505b003d131326e977f5aeaca2ab0613822419e49e41b5f0f"
     },
     {
       "item": "C22",
@@ -3046,7 +3046,7 @@
       "model": "iPhone 16 Pro Max",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -3056,8 +3056,8 @@
       "pack": "core",
       "alt": "Cover the gap. A suggested move. You make the transfer in your bank.",
       "file": "a-iphone-69-dark-04-cover.png",
-      "bytes": 255265,
-      "sha256": "0fc3d729aa79f56f0113fe97f04ea4579851070a1e7d6bdbd4feda4871a49477"
+      "bytes": 253863,
+      "sha256": "159a8149098836d0d2b970bd42ea0c1e1ab669b10b0e1fd1e4a6ac875c179646"
     },
     {
       "item": "C22",
@@ -3075,7 +3075,7 @@
       "model": "iPhone 16 Pro Max",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -3085,8 +3085,8 @@
       "pack": "core",
       "alt": "Spending changes. Compare the same point in your usual pay period.",
       "file": "a-iphone-69-dark-05-spend.png",
-      "bytes": 322767,
-      "sha256": "b94748e6b70e89749013462144b7af06e7d797480ae79d29e274ec1ac1a6132d"
+      "bytes": 320835,
+      "sha256": "26888fd98e682fecfd5213f174bc7481ed637d4ade8d48576766373915a5371e"
     },
     {
       "item": "C22",
@@ -3104,7 +3104,7 @@
       "model": "iPhone 16 Pro Max",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -3114,8 +3114,8 @@
       "pack": "core",
       "alt": "Plan a one-off. Choose an amount, date and account. Review before you confirm.",
       "file": "a-iphone-69-dark-06-aside.png",
-      "bytes": 309750,
-      "sha256": "0127468ec46b5f35cd51af864d22d320a30bce139ceaf5b28b6427a3aec86df3"
+      "bytes": 308303,
+      "sha256": "e659344462e2c85564dc3a331119ae743cd6e7992421dd8384d2f543898d9758"
     },
     {
       "item": "C22",
@@ -3133,7 +3133,7 @@
       "model": "iPhone 16 Pro Max",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -3143,8 +3143,8 @@
       "pack": "core",
       "alt": "Plan with Penny. Review the plan before you confirm. No money moves.",
       "file": "a-iphone-69-dark-07-goal.png",
-      "bytes": 279461,
-      "sha256": "567ec401edb051cc1ab694fb5deb13ef9f0ad43ecd878d672d19c075709c134c"
+      "bytes": 277920,
+      "sha256": "a65151e20513dea04a2fd1963fe344ef1531e7c3609edcfa7cde96fe5f0ad66a"
     },
     {
       "item": "C22",
@@ -3162,7 +3162,7 @@
       "model": "iPhone 16 Pro Max",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -3172,8 +3172,8 @@
       "pack": "core",
       "alt": "Change a planned payment. Review a new amount and date with Penny.",
       "file": "a-iphone-69-dark-08-schedule.png",
-      "bytes": 291659,
-      "sha256": "a1190ab028732b44ad75aa8e5316458cf38886f48f77b224e3d72b5d3d8218e3"
+      "bytes": 290278,
+      "sha256": "f2d11ceb5f66eff25d80e5acce3e369d02fd740ecfd60c73a50746946b554731"
     },
     {
       "item": "C22",
@@ -3191,7 +3191,7 @@
       "model": "iPhone 16 Pro Max",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -3201,8 +3201,8 @@
       "pack": "additional",
       "alt": "Explore 50/30/20. Compare a completed pay period with the 50/30/20 example.",
       "file": "a-iphone-69-dark-09-split.png",
-      "bytes": 300814,
-      "sha256": "1456b1ce888bb392fbbe977f426f896dd9f9af9f054957137d34f444c2f7501a"
+      "bytes": 299222,
+      "sha256": "460e5a8579cc7522435a41b8226640804e4d750a27a517ba606b7a02dfcc7005"
     },
     {
       "item": "C22",
@@ -3220,7 +3220,7 @@
       "model": "iPhone 11 Pro Max",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -3230,8 +3230,8 @@
       "pack": "core",
       "alt": "Left to spend. An estimate after upcoming bills, plans and your buffer.",
       "file": "a-iphone-65-dark-01-amount.png",
-      "bytes": 278642,
-      "sha256": "0617c79f4ce89783a367200524001ac3f8001d9bc576b80271731a75d5d1bf5d"
+      "bytes": 276819,
+      "sha256": "5b2dcfa1628d0591e5e94bc7b3dc936d8029205938041b0b1baae59f17ac4f9c"
     },
     {
       "item": "C22",
@@ -3249,7 +3249,7 @@
       "model": "iPhone 11 Pro Max",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -3259,8 +3259,8 @@
       "pack": "core",
       "alt": "Upcoming payments. Your bills and one-off payments, in one view.",
       "file": "a-iphone-65-dark-02-upcoming.png",
-      "bytes": 250955,
-      "sha256": "0888b05852d0c48e62eed4f6806b47d14e99ceda72011d5df3ad0fa65fa879fd"
+      "bytes": 249686,
+      "sha256": "5d1fc3d978a692570426f5780e09b354be8ce6543cc9e55defe0e4b6d2f21acb"
     },
     {
       "item": "C22",
@@ -3278,7 +3278,7 @@
       "model": "iPhone 11 Pro Max",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -3288,8 +3288,8 @@
       "pack": "core",
       "alt": "Upcoming by account. See each account's available amount and suggested cover.",
       "file": "a-iphone-65-dark-03-upcoming-accounts.png",
-      "bytes": 288203,
-      "sha256": "9d3c71701dd1a8c58946926545c42dc2e1f0cdc62663120f19f4e5c276daee6a"
+      "bytes": 286696,
+      "sha256": "066df06649a9fbca495658b126e5ed94f0ff136f142ff996e2eb557d36646ee9"
     },
     {
       "item": "C22",
@@ -3307,7 +3307,7 @@
       "model": "iPhone 11 Pro Max",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -3317,8 +3317,8 @@
       "pack": "core",
       "alt": "Cover the gap. A suggested move. You make the transfer in your bank.",
       "file": "a-iphone-65-dark-04-cover.png",
-      "bytes": 259102,
-      "sha256": "e0607ff5dd173ef1e6f84fbfd88bbf49df00420c82f282fd4683ea2171697d74"
+      "bytes": 257620,
+      "sha256": "2c8bac2088acba3eda9b8b0bec1ac982940e4a8e8427f84c9adb4a5369468572"
     },
     {
       "item": "C22",
@@ -3336,7 +3336,7 @@
       "model": "iPhone 11 Pro Max",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -3346,8 +3346,8 @@
       "pack": "core",
       "alt": "Spending changes. Compare the same point in your usual pay period.",
       "file": "a-iphone-65-dark-05-spend.png",
-      "bytes": 312078,
-      "sha256": "603de9a9af6f92cfed3f415def289950dd65b766d7b98c7e8b707cdd046dd537"
+      "bytes": 306501,
+      "sha256": "661198e8edb325387d5d4652d5ea4bb0e66f1ff45f1b415e2302e3d1ef2ca08c"
     },
     {
       "item": "C22",
@@ -3365,7 +3365,7 @@
       "model": "iPhone 11 Pro Max",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -3375,8 +3375,8 @@
       "pack": "core",
       "alt": "Plan a one-off. Choose an amount, date and account. Review before you confirm.",
       "file": "a-iphone-65-dark-06-aside.png",
-      "bytes": 315323,
-      "sha256": "312b7b546364d08bf69faec8546a0ee84bb55eb890a20515c99b0f3ca42a46ea"
+      "bytes": 313990,
+      "sha256": "b65ce378f2a36c52afa8770a792b9b1bed5a90226f5dc8aae38fe17b4dd43266"
     },
     {
       "item": "C22",
@@ -3394,7 +3394,7 @@
       "model": "iPhone 11 Pro Max",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -3404,8 +3404,8 @@
       "pack": "core",
       "alt": "Plan with Penny. Review the plan before you confirm. No money moves.",
       "file": "a-iphone-65-dark-07-goal.png",
-      "bytes": 280618,
-      "sha256": "9edfc15af2f6ad0a336912efaaf8c0475230a4de4344f76a2e2030ccdb2014b4"
+      "bytes": 279396,
+      "sha256": "4aaacc0361b7b3d2308bb2e5c5d2f742bc880b6cf0380be195690b298a39bfed"
     },
     {
       "item": "C22",
@@ -3423,7 +3423,7 @@
       "model": "iPhone 11 Pro Max",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -3433,8 +3433,8 @@
       "pack": "core",
       "alt": "Change a planned payment. Review a new amount and date with Penny.",
       "file": "a-iphone-65-dark-08-schedule.png",
-      "bytes": 295772,
-      "sha256": "37f7a41bcf946b8779f635daea1dcc14f0afcc4509247d0b214b32fceed8a088"
+      "bytes": 294080,
+      "sha256": "0409a9af332651299453c050405375374c5af203675954b0873dc3de18e432a1"
     },
     {
       "item": "C22",
@@ -3452,7 +3452,7 @@
       "model": "iPhone 11 Pro Max",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -3462,8 +3462,8 @@
       "pack": "additional",
       "alt": "Explore 50/30/20. Compare a completed pay period with the 50/30/20 example.",
       "file": "a-iphone-65-dark-09-split.png",
-      "bytes": 298519,
-      "sha256": "6f87eb3fe82d583b06a23d6889f4d85643e60309f579a82c1fcd89eb6d362475"
+      "bytes": 297068,
+      "sha256": "31ac531c0c525d752c26dd940bed18b493c08f6be7d24e647ff0517fc4919a98"
     },
     {
       "item": "C22",
@@ -3481,7 +3481,7 @@
       "model": "Pixel 9 Pro XL",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -3491,8 +3491,8 @@
       "pack": "core",
       "alt": "Left to spend. An estimate after upcoming bills, plans and your buffer.",
       "file": "a-android-dark-01-amount.png",
-      "bytes": 239479,
-      "sha256": "35edf1e41353147e5a9b1f3c80f7dcbc9166bbd39ce2a605094f53f1d05e65e0"
+      "bytes": 237780,
+      "sha256": "1a35e85498c420a4e34eabb45bb0f8ccfa097686df964a093a078a292747e7e1"
     },
     {
       "item": "C22",
@@ -3510,7 +3510,7 @@
       "model": "Pixel 9 Pro XL",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -3520,8 +3520,8 @@
       "pack": "core",
       "alt": "Upcoming payments. Your bills and one-off payments, in one view.",
       "file": "a-android-dark-02-upcoming.png",
-      "bytes": 214292,
-      "sha256": "d2bed08bf0cf2bd588f967114d5265cb39bec58fcc63a11bb6056cbd15dd1e06"
+      "bytes": 212210,
+      "sha256": "67a1badc84d2c5ef371db48324f920bf8e398d56c9a72f140930673d8119238d"
     },
     {
       "item": "C22",
@@ -3539,7 +3539,7 @@
       "model": "Pixel 9 Pro XL",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -3549,8 +3549,8 @@
       "pack": "core",
       "alt": "Upcoming by account. See each account's available amount and suggested cover.",
       "file": "a-android-dark-03-upcoming-accounts.png",
-      "bytes": 243022,
-      "sha256": "7f750a4f712f80ecac8e701147f375da79a746f815e364d33cc0752f3f4f63f4"
+      "bytes": 241299,
+      "sha256": "e9213091801424095302944ae5853277ebdfc0fe57b41c5d83c6d11f15ab9d84"
     },
     {
       "item": "C22",
@@ -3568,7 +3568,7 @@
       "model": "Pixel 9 Pro XL",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -3578,8 +3578,8 @@
       "pack": "core",
       "alt": "Cover the gap. A suggested move. You make the transfer in your bank.",
       "file": "a-android-dark-04-cover.png",
-      "bytes": 222447,
-      "sha256": "d216e658f711607bf802cdadbd899645d51bc33ad4c9a40821d39bf316478924"
+      "bytes": 220798,
+      "sha256": "62a122f4d0e96d447f63f3b6f0cf4640d16a220fb76314f52b621f3a3ddc1b9f"
     },
     {
       "item": "C22",
@@ -3597,7 +3597,7 @@
       "model": "Pixel 9 Pro XL",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -3607,8 +3607,8 @@
       "pack": "core",
       "alt": "Spending changes. Compare the same point in your usual pay period.",
       "file": "a-android-dark-05-spend.png",
-      "bytes": 268005,
-      "sha256": "71a3b34fee1d703d6d11044ebe8ac5b992d2241a25d40f04bd77e4d2adca2967"
+      "bytes": 266348,
+      "sha256": "829f7cd84999a7c90ae125835913318b24c2d4e7d81fb5c0a1b61e3dc3bdb6d2"
     },
     {
       "item": "C22",
@@ -3626,7 +3626,7 @@
       "model": "Pixel 9 Pro XL",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -3636,8 +3636,8 @@
       "pack": "core",
       "alt": "Plan a one-off. Choose an amount, date and account. Review before you confirm.",
       "file": "a-android-dark-06-aside.png",
-      "bytes": 266329,
-      "sha256": "1d9e586e52f8641ab874f6eecdc9ef25f8a113e9df4b77668ef9c7b7a10e5d2b"
+      "bytes": 264575,
+      "sha256": "9ca493a465a6c604bd22c59f536c955a17f5dd96a9828d3898e256e608062442"
     },
     {
       "item": "C22",
@@ -3655,7 +3655,7 @@
       "model": "Pixel 9 Pro XL",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -3665,8 +3665,8 @@
       "pack": "core",
       "alt": "Plan with Penny. Review the plan before you confirm. No money moves.",
       "file": "a-android-dark-07-goal.png",
-      "bytes": 239119,
-      "sha256": "43429c8345e43bb2ba905da1ebd754108cf01fe614fb651dc872aa232d694229"
+      "bytes": 237141,
+      "sha256": "8a8c89e90c57b1dc3e3c308f318e22a5d6b0b84fbb29795395bd1f2f83601020"
     },
     {
       "item": "C22",
@@ -3684,7 +3684,7 @@
       "model": "Pixel 9 Pro XL",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -3694,8 +3694,8 @@
       "pack": "core",
       "alt": "Change a planned payment. Review a new amount and date with Penny.",
       "file": "a-android-dark-08-schedule.png",
-      "bytes": 250301,
-      "sha256": "7142a84d3664e78539a66e73d261c0856a171633da6e9d7a57e9c4d7c9b9fb3f"
+      "bytes": 247948,
+      "sha256": "041b7eb2cac94e37b56735fbe74a16e5657db1b4668a10474cbca5214a0ada86"
     },
     {
       "item": "C22",
@@ -3713,7 +3713,7 @@
       "model": "Pixel 9 Pro XL",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -3723,8 +3723,8 @@
       "pack": "additional",
       "alt": "Explore 50/30/20. Compare a completed pay period with the 50/30/20 example.",
       "file": "a-android-dark-09-split.png",
-      "bytes": 253001,
-      "sha256": "22e3330e609d5a79a6d196e43cde8dc1060bd70e4589c2a005d476427268d99d"
+      "bytes": 250844,
+      "sha256": "b876389603d07dee352b1a2d364b4e49ae89d3c3ebe1f9412988f943678c36a4"
     },
     {
       "item": "C22",
@@ -3742,7 +3742,7 @@
       "model": "iPhone 16 Pro",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -3752,8 +3752,8 @@
       "pack": "core",
       "alt": "Left to spend. An estimate after upcoming bills, plans and your buffer.",
       "file": "b-iphone-63-dark-01-amount.png",
-      "bytes": 267563,
-      "sha256": "b98e9b5d47019df9398bc6eb288dfc9a2d6f27c2f46c9f2e5bea175d96b1e7cc"
+      "bytes": 266247,
+      "sha256": "6439cc184ff9e4a0fad8987bdbcfbfe1971abb3fcf9191935b0df691c309c094"
     },
     {
       "item": "C22",
@@ -3771,7 +3771,7 @@
       "model": "iPhone 16 Pro",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -3781,8 +3781,8 @@
       "pack": "core",
       "alt": "Upcoming payments. Your bills and one-off payments, in one view.",
       "file": "b-iphone-63-dark-02-upcoming.png",
-      "bytes": 244855,
-      "sha256": "0e894ef0ef859ba46725096578f0fb1bcfdbaeb931a6457ecdfdd92d1b717235"
+      "bytes": 243380,
+      "sha256": "a1580a391509a6eec1bd77ed0cc130d616763dfc6478ca0a6cbb88433729de5e"
     },
     {
       "item": "C22",
@@ -3800,7 +3800,7 @@
       "model": "iPhone 16 Pro",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -3810,8 +3810,8 @@
       "pack": "core",
       "alt": "Upcoming by account. See each account's available amount and suggested cover.",
       "file": "b-iphone-63-dark-03-upcoming-accounts.png",
-      "bytes": 275294,
-      "sha256": "ef378baeeb649eaf0f0f1d5300bd93c66bea8a4f341ea46d7b78e8d1eb7129c5"
+      "bytes": 273655,
+      "sha256": "019cd5a65b7b697cf0a1840027f5ff4b907546cd256106eb88b98baf192baba8"
     },
     {
       "item": "C22",
@@ -3829,7 +3829,7 @@
       "model": "iPhone 16 Pro",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -3839,8 +3839,8 @@
       "pack": "core",
       "alt": "Cover the gap. A suggested move. You make the transfer in your bank.",
       "file": "b-iphone-63-dark-04-cover.png",
-      "bytes": 247601,
-      "sha256": "b693202a5350514dbeadc1835f332adfb5f1f567027b8e69c682154eba78e5c9"
+      "bytes": 245957,
+      "sha256": "cfe0a1d41c020fa49013934b09b098277270c1af57678fbb3db46f4df915bab6"
     },
     {
       "item": "C22",
@@ -3858,7 +3858,7 @@
       "model": "iPhone 16 Pro",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -3868,8 +3868,8 @@
       "pack": "core",
       "alt": "Spending changes. Compare the same point in your usual pay period.",
       "file": "b-iphone-63-dark-05-spend.png",
-      "bytes": 304878,
-      "sha256": "98be9327bfcad96b4769025037a007eab6b093f91c9900eeeb514fa1d5b74ef2"
+      "bytes": 292145,
+      "sha256": "ace354934eece37d032a76a8c2cbf3a0654d600d29e1c7f813411dd21d8ee809"
     },
     {
       "item": "C22",
@@ -3887,7 +3887,7 @@
       "model": "iPhone 16 Pro",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -3897,8 +3897,8 @@
       "pack": "core",
       "alt": "Plan a one-off. Choose an amount, date and account. Review before you confirm.",
       "file": "b-iphone-63-dark-06-aside.png",
-      "bytes": 307842,
-      "sha256": "752e1ef2b82e69f12cfb2a35cc412610264dad0650feb7634665171434c2d08a"
+      "bytes": 306203,
+      "sha256": "a78c7f0576a8d97eeb5a7c65904b9b2abda02c96785dcbdbba782623bb881acc"
     },
     {
       "item": "C22",
@@ -3916,7 +3916,7 @@
       "model": "iPhone 16 Pro",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -3926,8 +3926,8 @@
       "pack": "core",
       "alt": "Plan with Penny. Review the plan before you confirm. No money moves.",
       "file": "b-iphone-63-dark-07-goal.png",
-      "bytes": 268913,
-      "sha256": "363e3bb65832d41f5f69267786e4dd960bb8631e885e30d55d9cbd3d35081790"
+      "bytes": 267194,
+      "sha256": "02d4966c97619489106188035d3940de6116fd6d6afb0c4c8d6b8a094440a497"
     },
     {
       "item": "C22",
@@ -3945,7 +3945,7 @@
       "model": "iPhone 16 Pro",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -3955,8 +3955,8 @@
       "pack": "core",
       "alt": "Change a planned payment. Review a new amount and date with Penny.",
       "file": "b-iphone-63-dark-08-schedule.png",
-      "bytes": 282233,
-      "sha256": "20b239165ea9d263a9a46134e197f54ed619b500859518d5f7b647aeddc0880f"
+      "bytes": 280427,
+      "sha256": "ff40b3c7b598e8c9c9b21f215e4f62af02cff03e8f65e8bc83948747ed67fb99"
     },
     {
       "item": "C22",
@@ -3974,7 +3974,7 @@
       "model": "iPhone 16 Pro",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -3984,8 +3984,8 @@
       "pack": "additional",
       "alt": "Explore 50/30/20. Compare a completed pay period with the 50/30/20 example.",
       "file": "b-iphone-63-dark-09-split.png",
-      "bytes": 285864,
-      "sha256": "583555a544ff6ec1e9f254b74fbd2c980dc36c7a4969fc4d4f61b0b7b2249b6f"
+      "bytes": 283883,
+      "sha256": "8997a920bbd4b0a9817fe246bf6ca8caa50f3e4521b935b6dabaff0d037a4d9a"
     },
     {
       "item": "C22",
@@ -4003,7 +4003,7 @@
       "model": "iPhone 16 Pro Max",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -4013,8 +4013,8 @@
       "pack": "core",
       "alt": "Left to spend. An estimate after upcoming bills, plans and your buffer.",
       "file": "b-iphone-69-dark-01-amount.png",
-      "bytes": 279154,
-      "sha256": "8fb9735b186b057046a006bf8e66acb18ffc65e48ab96d2f1602be594b3dc16f"
+      "bytes": 277601,
+      "sha256": "ac81f6f3fc7ac9b1f116d91c19ebe0cce1145cebcb233b096e621514a5b60c22"
     },
     {
       "item": "C22",
@@ -4032,7 +4032,7 @@
       "model": "iPhone 16 Pro Max",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -4042,8 +4042,8 @@
       "pack": "core",
       "alt": "Upcoming payments. Your bills and one-off payments, in one view.",
       "file": "b-iphone-69-dark-02-upcoming.png",
-      "bytes": 251585,
-      "sha256": "ccc2c31f2a290e4e50cc7d44cb09914b8348cac0884163c3ecbc442259188a8a"
+      "bytes": 249957,
+      "sha256": "a21b3344d5c0111d824efcd1fa99ff5bf76f7467a01fd01fb2060ee3d4b38bd3"
     },
     {
       "item": "C22",
@@ -4061,7 +4061,7 @@
       "model": "iPhone 16 Pro Max",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -4071,8 +4071,8 @@
       "pack": "core",
       "alt": "Upcoming by account. See each account's available amount and suggested cover.",
       "file": "b-iphone-69-dark-03-upcoming-accounts.png",
-      "bytes": 284788,
-      "sha256": "751ff1e5f03a541090241b0e4403671e7bdcb1f1f3076557b5314d0f927bc3b2"
+      "bytes": 283635,
+      "sha256": "9bddcaced52d7f65134451443770101aba14ae7e49c7d3e8c145bd0c8c75e8ea"
     },
     {
       "item": "C22",
@@ -4090,7 +4090,7 @@
       "model": "iPhone 16 Pro Max",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -4100,8 +4100,8 @@
       "pack": "core",
       "alt": "Cover the gap. A suggested move. You make the transfer in your bank.",
       "file": "b-iphone-69-dark-04-cover.png",
-      "bytes": 259378,
-      "sha256": "db972bfbd320cba11154baa53817f0bf9d10b5bb6649bd1a1cb59e5ccac81852"
+      "bytes": 257660,
+      "sha256": "c31abdd4d61c93eca7d0dbdcb70020c951c7263f49434c9f0d391485f4066a39"
     },
     {
       "item": "C22",
@@ -4119,7 +4119,7 @@
       "model": "iPhone 16 Pro Max",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -4129,8 +4129,8 @@
       "pack": "core",
       "alt": "Spending changes. Compare the same point in your usual pay period.",
       "file": "b-iphone-69-dark-05-spend.png",
-      "bytes": 328333,
-      "sha256": "741583229393bed57eeeea063a0cdb5cdeb21ec81cba87696aa0336034ac06f1"
+      "bytes": 326867,
+      "sha256": "55b28ca885e7161157d1ccd89a71ef02d5babf470e44feea0166e432edc774ac"
     },
     {
       "item": "C22",
@@ -4148,7 +4148,7 @@
       "model": "iPhone 16 Pro Max",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -4158,8 +4158,8 @@
       "pack": "core",
       "alt": "Plan a one-off. Choose an amount, date and account. Review before you confirm.",
       "file": "b-iphone-69-dark-06-aside.png",
-      "bytes": 311257,
-      "sha256": "17261f7e3ac6951a3c082e4465c68d26dd1bc4d6f1c2b06e77ce1dd1aa1e6911"
+      "bytes": 309517,
+      "sha256": "59e9e3d2894622ee1657f1e8e96ff5242d15bd8d843df63fc38947d455c8e944"
     },
     {
       "item": "C22",
@@ -4177,7 +4177,7 @@
       "model": "iPhone 16 Pro Max",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -4187,8 +4187,8 @@
       "pack": "core",
       "alt": "Plan with Penny. Review the plan before you confirm. No money moves.",
       "file": "b-iphone-69-dark-07-goal.png",
-      "bytes": 279211,
-      "sha256": "09fdbfd2a8a27900d80396fcd0b1cda7711b52eb56ae020eb4a20047bf96bacd"
+      "bytes": 277908,
+      "sha256": "0fbf989caf699cbe9d206ba2f7e7cf112ceafc770c2955245936d6b9460cdf6c"
     },
     {
       "item": "C22",
@@ -4206,7 +4206,7 @@
       "model": "iPhone 16 Pro Max",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -4216,8 +4216,8 @@
       "pack": "core",
       "alt": "Change a planned payment. Review a new amount and date with Penny.",
       "file": "b-iphone-69-dark-08-schedule.png",
-      "bytes": 292014,
-      "sha256": "9a930c4ac5e527f2cb201b2e2d079de857caa81be064a4b161d0550afb96c053"
+      "bytes": 290650,
+      "sha256": "9545281a40ae65b78973ef0cab4c4a4cdeed37bc8f1f0d204fdb62293dda46e7"
     },
     {
       "item": "C22",
@@ -4235,7 +4235,7 @@
       "model": "iPhone 16 Pro Max",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -4245,8 +4245,8 @@
       "pack": "additional",
       "alt": "Explore 50/30/20. Compare a completed pay period with the 50/30/20 example.",
       "file": "b-iphone-69-dark-09-split.png",
-      "bytes": 297750,
-      "sha256": "a1a594fdddfc2cb420dd7d3758bbac8594815ad9dc40c7d591ac5b037acea010"
+      "bytes": 296418,
+      "sha256": "06aa6c44c0b3d9d10bb6b131df8a1f01787082ee5bed4530b01f38a076f14e2f"
     },
     {
       "item": "C22",
@@ -4264,7 +4264,7 @@
       "model": "iPhone 11 Pro Max",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -4274,8 +4274,8 @@
       "pack": "core",
       "alt": "Left to spend. An estimate after upcoming bills, plans and your buffer.",
       "file": "b-iphone-65-dark-01-amount.png",
-      "bytes": 276577,
-      "sha256": "76b9da140b227c145d771bf24b1ebc40b563d33b4742959cc67361815ed6306e"
+      "bytes": 275056,
+      "sha256": "bdb29756cc9d1779cfaada233b46fadcf14dbbbc7b08e20795da4952d13b8e53"
     },
     {
       "item": "C22",
@@ -4293,7 +4293,7 @@
       "model": "iPhone 11 Pro Max",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -4303,8 +4303,8 @@
       "pack": "core",
       "alt": "Upcoming payments. Your bills and one-off payments, in one view.",
       "file": "b-iphone-65-dark-02-upcoming.png",
-      "bytes": 248953,
-      "sha256": "fb4dc0806e43e27b63d932a87fef8aacba57bb5ae323cdfe6054b1db1f222d39"
+      "bytes": 248133,
+      "sha256": "d3feabf2497b2f7fbb76a6c4b4a2dda255fdf9a4df3bd8b2c1778838e66c2681"
     },
     {
       "item": "C22",
@@ -4322,7 +4322,7 @@
       "model": "iPhone 11 Pro Max",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -4332,8 +4332,8 @@
       "pack": "core",
       "alt": "Upcoming by account. See each account's available amount and suggested cover.",
       "file": "b-iphone-65-dark-03-upcoming-accounts.png",
-      "bytes": 284185,
-      "sha256": "0e97fedac0d82654e4bb8e95600745fda4d6df415dc000b742a4a39990e5e05a"
+      "bytes": 282847,
+      "sha256": "4385833df3f019be569e933f4d3cf85653bf8b4dcd43245335f42585bd2bf197"
     },
     {
       "item": "C22",
@@ -4351,7 +4351,7 @@
       "model": "iPhone 11 Pro Max",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -4361,8 +4361,8 @@
       "pack": "core",
       "alt": "Cover the gap. A suggested move. You make the transfer in your bank.",
       "file": "b-iphone-65-dark-04-cover.png",
-      "bytes": 258745,
-      "sha256": "8d07e3fc0c0429966388bb2b6a4befffba92ed86fa479d2fa33a20ede5314b55"
+      "bytes": 257509,
+      "sha256": "5e142c74858f1c25d32cbb8112cac62d5813fe9120e88da23a611d7bb810c5b4"
     },
     {
       "item": "C22",
@@ -4380,7 +4380,7 @@
       "model": "iPhone 11 Pro Max",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -4390,8 +4390,8 @@
       "pack": "core",
       "alt": "Spending changes. Compare the same point in your usual pay period.",
       "file": "b-iphone-65-dark-05-spend.png",
-      "bytes": 317029,
-      "sha256": "66cba51b2d70d4a04b5da231ae6f4515e6191e8d50833fff4211948bd48e8cde"
+      "bytes": 313317,
+      "sha256": "837de560f1e0866a687ad174550e5606ca35b46853e5c47bbfd10542ef6d2397"
     },
     {
       "item": "C22",
@@ -4409,7 +4409,7 @@
       "model": "iPhone 11 Pro Max",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -4419,8 +4419,8 @@
       "pack": "core",
       "alt": "Plan a one-off. Choose an amount, date and account. Review before you confirm.",
       "file": "b-iphone-65-dark-06-aside.png",
-      "bytes": 314840,
-      "sha256": "caa90e4944c2a4da682578df1bdee1e55f9754ecf5bbb9d41e3c83c514a349cc"
+      "bytes": 313093,
+      "sha256": "599ee518890e5dce099003d22522dd78fdce89bb3eb8c95020568fa5fccca485"
     },
     {
       "item": "C22",
@@ -4438,7 +4438,7 @@
       "model": "iPhone 11 Pro Max",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -4448,8 +4448,8 @@
       "pack": "core",
       "alt": "Plan with Penny. Review the plan before you confirm. No money moves.",
       "file": "b-iphone-65-dark-07-goal.png",
-      "bytes": 278625,
-      "sha256": "b142dd85bcd16bae0579d47ac7eee36c0d93cfeee110bcd5b6c4307b99e13c59"
+      "bytes": 276704,
+      "sha256": "cfe2f34f1303a011cca7b8623999989ba15b8963f62bbbc3165131254348b15f"
     },
     {
       "item": "C22",
@@ -4467,7 +4467,7 @@
       "model": "iPhone 11 Pro Max",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -4477,8 +4477,8 @@
       "pack": "core",
       "alt": "Change a planned payment. Review a new amount and date with Penny.",
       "file": "b-iphone-65-dark-08-schedule.png",
-      "bytes": 292899,
-      "sha256": "2d8ff5b6e1f033289cd4abe1d46e1b09d14ff88c84834d1be4c26f96160c07f4"
+      "bytes": 291283,
+      "sha256": "150f1df285a30e94c82d8dce2e8f9bc46a6fd97c98f9f2e8167393eac68e2a28"
     },
     {
       "item": "C22",
@@ -4496,7 +4496,7 @@
       "model": "iPhone 11 Pro Max",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -4506,8 +4506,8 @@
       "pack": "additional",
       "alt": "Explore 50/30/20. Compare a completed pay period with the 50/30/20 example.",
       "file": "b-iphone-65-dark-09-split.png",
-      "bytes": 295511,
-      "sha256": "e65cf3196430225314ecd02e8a3583477f65d37485b25e7519b57f477e78cbd5"
+      "bytes": 293964,
+      "sha256": "f7c5343d39c35d19a82618b216fa57056c1253773dfa6c372353d8e7006d4678"
     },
     {
       "item": "C22",
@@ -4525,7 +4525,7 @@
       "model": "Pixel 9 Pro XL",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -4535,8 +4535,8 @@
       "pack": "core",
       "alt": "Left to spend. An estimate after upcoming bills, plans and your buffer.",
       "file": "b-android-dark-01-amount.png",
-      "bytes": 238946,
-      "sha256": "5f60f759ed96395d69f7592605c4a5c89cff400118263cc18c2a7646d7f9cedc"
+      "bytes": 237302,
+      "sha256": "2dd26306b9a2ce0a97cb4acf59acf441a0fc3a346160c603d20b3052efe3bc3f"
     },
     {
       "item": "C22",
@@ -4554,7 +4554,7 @@
       "model": "Pixel 9 Pro XL",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -4564,8 +4564,8 @@
       "pack": "core",
       "alt": "Upcoming payments. Your bills and one-off payments, in one view.",
       "file": "b-android-dark-02-upcoming.png",
-      "bytes": 215857,
-      "sha256": "ad3094532cc7a0796db2eb264577d43faaaec55904809c1db89e56dddd8f2dd6"
+      "bytes": 213734,
+      "sha256": "13a221ddc89de9361341b3627de66389381cce196e0c59778fbb5b06ea7ee8fe"
     },
     {
       "item": "C22",
@@ -4583,7 +4583,7 @@
       "model": "Pixel 9 Pro XL",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -4593,8 +4593,8 @@
       "pack": "core",
       "alt": "Upcoming by account. See each account's available amount and suggested cover.",
       "file": "b-android-dark-03-upcoming-accounts.png",
-      "bytes": 243643,
-      "sha256": "2062388bd83d563d9626bfb8f7a3583f0adf6027bc82c5e7348ab6a6157a6bb2"
+      "bytes": 241796,
+      "sha256": "2afec326e02c84d7afd3f09d0978bbb30eac039ffac0042786431c86942cfee7"
     },
     {
       "item": "C22",
@@ -4612,7 +4612,7 @@
       "model": "Pixel 9 Pro XL",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -4622,8 +4622,8 @@
       "pack": "core",
       "alt": "Cover the gap. A suggested move. You make the transfer in your bank.",
       "file": "b-android-dark-04-cover.png",
-      "bytes": 220012,
-      "sha256": "5ff6971c1c2d9fca2f015510bc2c2cf4b95c8082f306cc5fd034de528d9c9989"
+      "bytes": 218382,
+      "sha256": "87a76786cfa43e32eceacb82c5ee0b2aa36349dcad4458955b7f04f67e9e4029"
     },
     {
       "item": "C22",
@@ -4641,7 +4641,7 @@
       "model": "Pixel 9 Pro XL",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -4651,8 +4651,8 @@
       "pack": "core",
       "alt": "Spending changes. Compare the same point in your usual pay period.",
       "file": "b-android-dark-05-spend.png",
-      "bytes": 269837,
-      "sha256": "f567381f45aef45cd12226159b5ceaafd800c9317e4637aa8aae28fe2c62ed8e"
+      "bytes": 267876,
+      "sha256": "236721633d2c71ca761848e28faacaef1a0fae9590aca2b7293b884a98adbf20"
     },
     {
       "item": "C22",
@@ -4670,7 +4670,7 @@
       "model": "Pixel 9 Pro XL",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -4680,8 +4680,8 @@
       "pack": "core",
       "alt": "Plan a one-off. Choose an amount, date and account. Review before you confirm.",
       "file": "b-android-dark-06-aside.png",
-      "bytes": 265384,
-      "sha256": "c0a3494d4313ff8e1dd242c9568384218228a8e8059d3265e11e4d271f3c006c"
+      "bytes": 264044,
+      "sha256": "272f45be83b52676d817c2e03e5ab8252ef6d0c1ec207c26927743cc8fed7290"
     },
     {
       "item": "C22",
@@ -4699,7 +4699,7 @@
       "model": "Pixel 9 Pro XL",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -4709,8 +4709,8 @@
       "pack": "core",
       "alt": "Plan with Penny. Review the plan before you confirm. No money moves.",
       "file": "b-android-dark-07-goal.png",
-      "bytes": 240402,
-      "sha256": "02ffa826c621e1f81032f1fc6ce4d941233d325cee3a1ce1941c949974d56c77"
+      "bytes": 238614,
+      "sha256": "05d42124c0d6c54fd1c46a768ad0a0d4d10270b6d6cbe786fda3047e264d4fb6"
     },
     {
       "item": "C22",
@@ -4728,7 +4728,7 @@
       "model": "Pixel 9 Pro XL",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -4738,8 +4738,8 @@
       "pack": "core",
       "alt": "Change a planned payment. Review a new amount and date with Penny.",
       "file": "b-android-dark-08-schedule.png",
-      "bytes": 250928,
-      "sha256": "ee175f5429ed34e4626e8ae6e2d318b792d11843345c5ed202575c84dc1df977"
+      "bytes": 249256,
+      "sha256": "36932bf5e0bc3bfedea58e5565032189ffb69e5e021c6ded007480ac396aaab3"
     },
     {
       "item": "C22",
@@ -4757,7 +4757,7 @@
       "model": "Pixel 9 Pro XL",
       "deviceFrame": "coded illustration, not a native simulator capture",
       "render": "direct production components at deviceScaleFactor 3, no screenshot intermediate",
-      "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+      "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
       "persona": "Alex Taylor",
       "asOf": "2026-11-17",
       "period": [
@@ -4767,8 +4767,8 @@
       "pack": "additional",
       "alt": "Explore 50/30/20. Compare a completed pay period with the 50/30/20 example.",
       "file": "b-android-dark-09-split.png",
-      "bytes": 249481,
-      "sha256": "7d1eabe5692f75a6c603693d85363282490efee125653eb08063bb177a87711d"
+      "bytes": 247746,
+      "sha256": "62425ac5a7edcb59dbd7257d936492d58d71181dcbbe952d8ade47d157e733cd"
     }
   ],
   "packs": [
@@ -4787,8 +4787,8 @@
         "a-iphone-63-light-07-goal.png",
         "a-iphone-63-light-08-schedule.png"
       ],
-      "bytes": 2323060,
-      "sha256": "f041d8be62dff1570c10c874be2d9dc249a20bc9c031e6a11d1f5cf64c802bc9"
+      "bytes": 2295050,
+      "sha256": "d4748872a6123b535a7f31d4c40fba201ad9c1127390edbc40f8f57d049e975c"
     },
     {
       "file": "sorted-a-iphone-63-dark.zip",
@@ -4805,8 +4805,8 @@
         "a-iphone-63-dark-07-goal.png",
         "a-iphone-63-dark-08-schedule.png"
       ],
-      "bytes": 2088218,
-      "sha256": "00ad4a28a823f9b49cb56e0b8b1622fd13d8b7d19e88a4294f780609984eabe0"
+      "bytes": 2059975,
+      "sha256": "f3cfc779efb9252fe67a2b29f969e4e42eed5d8775703a12ffe6ef3e104ce675"
     },
     {
       "file": "sorted-a-iphone-69-light.zip",
@@ -4823,8 +4823,8 @@
         "a-iphone-69-light-07-goal.png",
         "a-iphone-69-light-08-schedule.png"
       ],
-      "bytes": 2417532,
-      "sha256": "1f2aa75c5ab2abb683b5f6d28af004622f8aafa36b24eb580771823d7755db86"
+      "bytes": 2399878,
+      "sha256": "e06b2cddd6392a40305771ef0cf9967ac7c229d349647bcc2b05edb348dc0135"
     },
     {
       "file": "sorted-a-iphone-69-dark.zip",
@@ -4841,8 +4841,8 @@
         "a-iphone-69-dark-07-goal.png",
         "a-iphone-69-dark-08-schedule.png"
       ],
-      "bytes": 2154331,
-      "sha256": "a8071ae567975f1088884364a3b3b9a146c0d4d09dd271f6f1c194327ec3cb17"
+      "bytes": 2142210,
+      "sha256": "13c620dc4f991c89e55429129024509e7485228fe9c3500e1b4e520247652fa1"
     },
     {
       "file": "sorted-a-iphone-65-light.zip",
@@ -4859,8 +4859,8 @@
         "a-iphone-65-light-07-goal.png",
         "a-iphone-65-light-08-schedule.png"
       ],
-      "bytes": 2441324,
-      "sha256": "312e749f63a1f5f3ebac8ad0d35d3219d659ec39a0c24647961a14c66b2b8c95"
+      "bytes": 2422725,
+      "sha256": "309eb4941ecddc27d23cb816a82a432b56e2d061ec38d8465931dd58f66dc9d7"
     },
     {
       "file": "sorted-a-iphone-65-dark.zip",
@@ -4877,8 +4877,8 @@
         "a-iphone-65-dark-07-goal.png",
         "a-iphone-65-dark-08-schedule.png"
       ],
-      "bytes": 2173109,
-      "sha256": "df68e3f768d53160f2c816c04db50c4364f025ff2470b12e5f71d565ebe3f75a"
+      "bytes": 2154971,
+      "sha256": "ab0682e537b9614eabaac8a29023c008d34660738ac03275924c9bcd9e846684"
     },
     {
       "file": "sorted-a-android-light.zip",
@@ -4895,8 +4895,8 @@
         "a-android-light-07-goal.png",
         "a-android-light-08-schedule.png"
       ],
-      "bytes": 2092745,
-      "sha256": "7a81ac2a24ecfdf8f2a167a938dcaf6fe382c8cbb8b67bb35c299c7023cfb4bd"
+      "bytes": 2077094,
+      "sha256": "d10983f971d6bed7fc5217e35a0cd67c53a57a14de05b156fb372423688e7462"
     },
     {
       "file": "sorted-a-android-dark.zip",
@@ -4913,8 +4913,8 @@
         "a-android-dark-07-goal.png",
         "a-android-dark-08-schedule.png"
       ],
-      "bytes": 1862478,
-      "sha256": "7f5770a6829e74726a4268a76f1fac2e962a306dfc2e0ebdbffa5422967defea"
+      "bytes": 1847620,
+      "sha256": "9b3974b886bf1aac02594ebacb61310888e2e662932b6584177d943876ab8c62"
     },
     {
       "file": "sorted-b-iphone-63-light.zip",
@@ -4931,8 +4931,8 @@
         "b-iphone-63-light-07-goal.png",
         "b-iphone-63-light-08-schedule.png"
       ],
-      "bytes": 2340078,
-      "sha256": "afe54d07183703013ed780fa14e99ab6f8b278a88d3f96af77309835f925c257"
+      "bytes": 2312712,
+      "sha256": "6e13d1890260cdf5c2fc7ff4fb60d20b7f5f2f757be668ef4927598dc8ce7c74"
     },
     {
       "file": "sorted-b-iphone-63-dark.zip",
@@ -4949,8 +4949,8 @@
         "b-iphone-63-dark-07-goal.png",
         "b-iphone-63-dark-08-schedule.png"
       ],
-      "bytes": 2101471,
-      "sha256": "03ac20a3ac61b469c25fbbea2d6dc17f15390b26078a3f28363b917c5135b011"
+      "bytes": 2076202,
+      "sha256": "78635f4fb32200d4dcf833536f350def4709cb3f3be81268d2e62b76a47fe4b0"
     },
     {
       "file": "sorted-b-iphone-69-light.zip",
@@ -4967,8 +4967,8 @@
         "b-iphone-69-light-07-goal.png",
         "b-iphone-69-light-08-schedule.png"
       ],
-      "bytes": 2404048,
-      "sha256": "e7ec3e2259533c463aecff72945d4af6f85e3f37d76b7432cf69cf5d55ec9b0e"
+      "bytes": 2391440,
+      "sha256": "aaba905073839ebfb6652e7bb8f4ea7a5582168a5842e70b8bff4033c1222de2"
     },
     {
       "file": "sorted-b-iphone-69-dark.zip",
@@ -4985,8 +4985,8 @@
         "b-iphone-69-dark-07-goal.png",
         "b-iphone-69-dark-08-schedule.png"
       ],
-      "bytes": 2173780,
-      "sha256": "5562a41aa745cf134829eacc251020ef46a1465760ea654b2e719a54f1f8c557"
+      "bytes": 2160736,
+      "sha256": "b89ea5657e1ee4d5b8cfb9d096a80a649491f5e2ec860765108559dc7bc34f91"
     },
     {
       "file": "sorted-b-iphone-65-light.zip",
@@ -5003,8 +5003,8 @@
         "b-iphone-65-light-07-goal.png",
         "b-iphone-65-light-08-schedule.png"
       ],
-      "bytes": 2445971,
-      "sha256": "c319822184f7666962e920bd9b586540f70d1ec2c484226e522df9a2fb9a7ea0"
+      "bytes": 2425385,
+      "sha256": "c1f119e68b87ea314cfb4d2151ba3503518276934fe10ff8265366db7aace365"
     },
     {
       "file": "sorted-b-iphone-65-dark.zip",
@@ -5021,8 +5021,8 @@
         "b-iphone-65-dark-07-goal.png",
         "b-iphone-65-dark-08-schedule.png"
       ],
-      "bytes": 2167519,
-      "sha256": "f87c3a8893cc498ce8ac2a52e2155ce675bba3849cace1a1b2e8afedb4e1f398"
+      "bytes": 2152264,
+      "sha256": "a7a4e75f61389c9e1a13e6b17ff6e5f9b4736eb5b3f983609d1abdef312b8a60"
     },
     {
       "file": "sorted-b-android-light.zip",
@@ -5039,8 +5039,8 @@
         "b-android-light-07-goal.png",
         "b-android-light-08-schedule.png"
       ],
-      "bytes": 2079995,
-      "sha256": "f4a71bb26620788d22eac6d250b2efff4b0a2f38f82007750391b97b9de13d9b"
+      "bytes": 2063741,
+      "sha256": "6397db92cc3eabd544ff7186ae6898bb53a26110690ef2bb6f532e32e2381a43"
     },
     {
       "file": "sorted-b-android-dark.zip",
@@ -5057,8 +5057,8 @@
         "b-android-dark-07-goal.png",
         "b-android-dark-08-schedule.png"
       ],
-      "bytes": 1868287,
-      "sha256": "98acdcfc3d447942591c685dd7eb4fdf83ff3df8b593f03bda0c5cf6ad250c50"
+      "bytes": 1854178,
+      "sha256": "ca25ab785e17671241fd1f7b7fcd4a7efe50985a8353aa52ce7894d2194aa88e"
     }
   ],
   "shellGetStubs": [],
