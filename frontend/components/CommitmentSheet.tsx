@@ -8,7 +8,7 @@ import { accountBrand, BankBadge } from "@/components/AccountMiniCard";
 import { AccountRadioPicker } from "@/components/AccountRadioPicker";
 import { isPlanSourceAccount } from "@/lib/upcomingPlans";
 import { api, Account, CardPlanPrefill, Commitment, CommitmentPreview, PlanFillCandidates } from "@/lib/api";
-import { CARD_PLAN_COPY, projectedMonthLine, isCardAccount, isCardPlan as isCardPlanRecord, legMatchFor, offerLine, paidLine, prefillBasisLine } from "@/lib/cardRepaymentPlan";
+import { CARD_PLAN_COPY, cardPlanEvidenceLines, isCardAccount, isCardPlan as isCardPlanRecord, legMatchFor, prefillBasisLine } from "@/lib/cardRepaymentPlan";
 import { RecentRepayments, RecognisePayment } from "@/components/plans/CardPaymentHistory";
 import { FillRulePicker, type FillRuleValue } from "@/components/AllocationFields";
 import { usePreferences } from "@/components/PreferencesContext";
@@ -766,7 +766,7 @@ export default function CommitmentSheet({
                 hiddenName={isCardPlan ? "Card repayment plan" : undefined}
               >
                 <div className="space-y-1 text-sm text-slate-600 dark:text-slate-300">
-                  {isCardPlan && [paidLine(commitment.card_plan), projectedMonthLine(commitment.card_plan), offerLine(commitment.card_plan)].filter((line): line is string => Boolean(line)).map(line => <p key={line}><MoneyText text={line} /></p>)}
+                  {isCardPlan && cardPlanEvidenceLines(commitment.card_plan).map(line => <p key={line}><MoneyText text={line} /></p>)}
                   {commitment.source_account_id && <p>Money comes from {tidyAccountName(accountList.find(account => account.id === commitment.source_account_id)?.name ?? "your selected account")}.</p>}
                   {!isCardPlan && potsFromCommitment(commitment).length > 0 && <p>Saved in {potsFromCommitment(commitment).map(pot => tidyAccountName(accountList.find(account => account.id === pot.account_id)?.name ?? "your savings pot")).join(", ")}.</p>}
                   {commitment.current_period_contribution && commitment.current_period_contribution.contribution !== commitment.schedule_preview.current_period.amount && <p><MoneyText text={`Your contribution this pay period: £${commitment.current_period_contribution.contribution.toLocaleString("en-GB")}.`} /></p>}

@@ -10,6 +10,7 @@
     "check:g483-welcome-screen": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g483-welcome-screen.test.mjs",
     "check:g476-card-plan-history": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g476-card-plan-history.test.mjs",
     "check:g475-card-plans": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g475-card-plans.test.mjs",
+    "check:g492-card-plan-progress": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g492-card-plan-progress.test.mjs",
     "check:g473-install-id": "node --no-warnings --experimental-strip-types scripts/g473-install-id.test.mjs",
     "check:g467-penny-placeholder": "node scripts/g467-penny-placeholder.test.mjs",
     "check:c49-play-publish": "node scripts/c49-play-publish.test.mjs",

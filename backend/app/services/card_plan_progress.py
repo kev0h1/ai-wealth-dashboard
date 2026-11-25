@@ -15,6 +15,7 @@ from __future__ import annotations
 import hashlib
 import json
 from datetime import date, datetime, time, timedelta, timezone
+import re
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 
 from app.core import timeutil
@@ -31,6 +32,27 @@ def _day(value) -> date | None:
         return date.fromisoformat(str(value)[:10])
     except (TypeError, ValueError):
         return None
+
+
+def _valid_payoff_month(value, today: date) -> bool:
+    """A debt forecast month must be a real current-or-future calendar month.
+
+    The debt engine normally guarantees this.  The stored progress boundary
+    nevertheless treats stale or malformed cached input as unavailable rather
+    than handing it to a display formatter or presenting a past finish.
+    """
+    if not isinstance(value, str) or not re.fullmatch(r'\d{4}-(?:0[1-9]|1[0-2])', value):
+        return False
+    try:
+        year = int(value[:4])
+        date(year, int(value[5:]), 1)
+    except ValueError:
+        return False
+    return value >= today.strftime('%Y-%m')
+
+
+def _has_repayment_plan_forecast(debt_card: dict | None) -> bool:
+    return isinstance(debt_card, dict) and isinstance(debt_card.get('repayment_plan'), dict) and bool(debt_card['repayment_plan'])
 
 
 def _pence(value) -> int | None:
@@ -210,14 +232,26 @@ def build_plan_facts(
         'next_payment_date': next_event[0].isoformat() if next_event else None,
         'starts_on': start.isoformat() if start else None,
         'would_clear_by_month': None, 'would_clear_by': None,
+        # This is deliberately separate from the legacy debt-plan month.  A
+        # row may only present it when this calculation can prove the saved
+        # plan clears before its one reconciled 0% offer ends.
+        'finish_estimate': {'status': 'unavailable', 'reason': 'offer_progress_unavailable'},
         'promo': None, 'offers': [],
     }
+    if state == 'not_started':
+        facts['finish_estimate'] = {'status': 'unavailable', 'reason': 'future_plan'}
+    elif state == 'paused':
+        facts['finish_estimate'] = {'status': 'unavailable', 'reason': 'paused'}
+    elif state == 'ended':
+        facts['finish_estimate'] = {'status': 'unavailable', 'reason': 'ended'}
+    elif owed == 0:
+        facts['finish_estimate'] = {'status': 'unavailable', 'reason': 'balance_cleared'}
     # A future plan's current debt forecast still follows the usual payment.
     # Do not mislabel that date as a projection from the future plan.
-    if state in ('active', 'not_started') and owed and debt_card and debt_card.get('repayment_plan'):
+    if state in ('active', 'not_started') and owed and _has_repayment_plan_forecast(debt_card):
         from app.services.debt_plan import month_label_to_human
         month = debt_card.get('payoff_month')
-        if month:
+        if _valid_payoff_month(month, today):
             facts.update(would_clear_by_month=month, would_clear_by=month_label_to_human(month))
     if (card.get('currency') or 'GBP').upper() != 'GBP':
         return {'status': 'unavailable', 'reason': 'currency_unsupported', 'card_name': facts['card_name']}, None
@@ -281,7 +315,27 @@ def build_plan_facts(
         }
         item['outlook'] = 'paused' if paused else 'short' if residual else 'behind' if paid < expected else 'on_track'
         facts['promo'] = item
-    # Today's record is not a promise about a future starting balance.
+    # Today's record is not a promise about a future starting balance.  The
+    # legacy would_clear_by field above is intentionally broader than this
+    # offer-bound estimate and remains for its existing consumers.
+    promo = facts.get('promo')
+    if state == 'active' and owed and isinstance(promo, dict) and (promo.get('progress') or {}).get('status') == 'ready':
+        if not _has_repayment_plan_forecast(debt_card) or 'payoff_month' not in debt_card:
+            facts['finish_estimate'] = {'status': 'unavailable', 'reason': 'forecast_unavailable'}
+        else:
+            month = debt_card.get('payoff_month')
+            if month is None:
+                facts['finish_estimate'] = {'status': 'unavailable', 'reason': 'no_payoff'}
+            elif not _valid_payoff_month(month, today):
+                facts['finish_estimate'] = {'status': 'unavailable', 'reason': 'forecast_unavailable'}
+            elif month >= promo['until'][:7]:
+                facts['finish_estimate'] = {'status': 'unavailable', 'reason': 'offer_boundary'}
+            else:
+                from app.services.debt_plan import month_label_to_human
+                facts['finish_estimate'] = {
+                    'status': 'ready', 'month': month, 'label': month_label_to_human(month),
+                    'basis': 'before_offer_end',
+                }
     return facts, baseline if start is not None and start <= today else None
 
 

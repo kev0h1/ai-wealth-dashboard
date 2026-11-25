@@ -66,6 +66,7 @@ Derived (NEVER stored — always computed live):
 """
 import logging
 import math
+import re
 from datetime import date, datetime, timedelta, timezone
 
 from bson import ObjectId
@@ -104,6 +105,55 @@ _SOURCES = {"manual", "can_i"}
 _MAX_NAME = 40
 _MAX_AMOUNT = 1_000_000
 _MAX_POTS = 8
+
+_FINISH_UNAVAILABLE_REASONS = {
+    "future_plan", "paused", "ended", "balance_cleared", "offer_progress_unavailable",
+    "forecast_unavailable", "no_payoff", "offer_boundary",
+}
+_FINISH_MONTH_RE = re.compile(r"^[0-9]{4}-(?:0[1-9]|1[0-2])$")
+
+
+def _valid_cached_finish_estimate(value: object) -> bool:
+    """Only accept the stored G492 finish contract in a response-cache hit."""
+    if not isinstance(value, dict):
+        return False
+    if value.get("status") == "ready":
+        if set(value) != {"status", "month", "label", "basis"}:
+            return False
+        month = value.get("month")
+        if not isinstance(month, str) or not _FINISH_MONTH_RE.fullmatch(month):
+            return False
+        try:
+            if int(month[:4]) < 1:
+                return False
+            date(int(month[:4]), int(month[5:]), 1)
+        except ValueError:
+            return False
+        return value.get("label") == month_label_to_human(month) and value.get("basis") == "before_offer_end"
+    reason = value.get("reason")
+    return (
+        set(value) == {"status", "reason"}
+        and value.get("status") == "unavailable"
+        and isinstance(reason, str)
+        and reason in _FINISH_UNAVAILABLE_REASONS
+    )
+
+
+def _current_card_plan_cache_payload(payload: object, today: date) -> bool:
+    """Whether a commitments cache payload can safely bypass the store read."""
+    if not isinstance(payload, dict) or not isinstance(payload.get("items"), list):
+        return False
+    for item in payload["items"]:
+        if not isinstance(item, dict):
+            return False
+        if not card_repayment_plans.is_card_plan(item):
+            continue
+        facts = item.get("card_plan")
+        if not isinstance(facts, dict) or facts.get("status") != "ready":
+            return False
+        if facts.get("as_of") != today.isoformat() or not _valid_cached_finish_estimate(facts.get("finish_estimate")):
+            return False
+    return True
 
 # A86 (pentest A51-2026-09-20, API-08): the ONE place a commitment's legal
 # status transitions are defined. Keys are the CURRENT status, values are
@@ -1393,17 +1443,14 @@ async def _get_owned(uid: str, commitment_id: str) -> dict:
 @router.get("/commitments")
 async def list_commitments(user: dict = Depends(current_user)):
     uid = user["email"]
+    today = timeutil.user_today()
 
     # ── Mongo-backed response cache (6h safety bound; every write below
     # already calls the generic response_cache.invalidate(uid) full-wipe,
     # so this cache entry never outlives a
     # create/update/delete/cancel/complete/consent write) ─────────────────
     cached = await response_cache.aget("commitments", uid)
-    if cached is not None and all(
-        not card_repayment_plans.is_card_plan(item)
-        or (item.get("card_plan") or {}).get("status") == "ready"
-        for item in cached.get("items", [])
-    ):
+    if _current_card_plan_cache_payload(cached, today):
         return cached
     v = await response_cache.snapshot(uid)
 
@@ -1429,7 +1476,7 @@ async def list_commitments(user: dict = Depends(current_user)):
     result = {"items": items}
     # Pending snapshots must not stick in a six-hour response cache while
     # their worker result is being prepared at this same input version.
-    if all(not card_repayment_plans.is_card_plan(item) or (item.get("card_plan") or {}).get("status") == "ready" for item in items):
+    if _current_card_plan_cache_payload(result, today):
         await response_cache.aput("commitments", uid, result, version=v)
     return result
 

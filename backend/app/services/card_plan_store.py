@@ -21,7 +21,9 @@ from app.db.collections import card_plan_progress_col, commitments_col, user_dat
 
 logger = logging.getLogger(__name__)
 
-SHAPE_VERSION = 1
+# G492 finish-estimate provenance is additive, but an older snapshot cannot
+# prove that its payoff month passed the conservative offer boundary.
+SHAPE_VERSION = 2
 TASK_NAME = "task_refresh_card_plan_progress"
 _JOB_PREFIX = "card-plan-progress:"
 QUEUE_TIMEOUT_SECONDS = 0.2
