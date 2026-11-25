@@ -125,7 +125,7 @@
     "pageErrors": [],
     "keyboardStops": 9,
     "savedThemeCases": 2,
-    "proofCaptureCorrection": "Await the additional lazy image decode before its evidence screenshot. Both corrected theme captures were read; rendering source and assets are unchanged."
+    "proofCaptureCorrection": "The capture harness waited for the additional lazy image to decode before taking evidence screenshots. The confirmation run passed 34 cases with 160 successful downloads and no page errors. Both corrected theme captures were visually reviewed; rendering source and assets are unchanged."
   },
   "localChecks": {
     "TypeScript": "passed",
