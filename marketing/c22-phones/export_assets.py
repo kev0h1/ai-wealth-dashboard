@@ -58,7 +58,7 @@ def source_hashes() -> dict[str, str]:
     # Imported frozen pure-engine goal data is a fixture input, not an image.
     fixture_directory = ROOT / "frontend/app/design/marketing-kit/capabilities"
     paths.extend(p for p in fixture_directory.iterdir() if p.suffix in {".ts", ".json"})
-    paths.extend([Path(__file__).resolve(), ROOT / "marketing/c22-phones/validate_assets.py", ROOT / "marketing/c22-phones/layout_checks.py"])
+    paths.extend([Path(__file__).resolve(), ROOT / "marketing/c22-phones/validate_assets.py", ROOT / "marketing/c22-phones/layout_checks.py", ROOT / "marketing/c22-phones/verify_fixture.mjs", ROOT / "marketing/c22-phones/fixture-loader.mjs"])
     return {str(p.relative_to(ROOT)): digest(p) for p in sorted(set(paths))}
 
 
@@ -156,7 +156,7 @@ def main() -> None:
                             const content = row.querySelector('[data-row-content]');
                             if (!content) return null;
                             const r=row.getBoundingClientRect(), c=content.getBoundingClientRect();
-                            return {name:row.getAttribute('data-balanced-row'),top:c.top-r.top,bottom:r.bottom-c.bottom};
+                            return {name:row.getAttribute('data-balanced-row'),top:(c.top-r.top)/scale,bottom:(r.bottom-c.bottom)/scale};
                           }).filter(Boolean);
                           const closed = [...node.querySelectorAll('summary')].filter(el=>!el.parentElement.open)
                             .concat([...node.querySelectorAll('[data-schedule-disclosure] > button[aria-expanded="false"]')])
@@ -192,6 +192,7 @@ def main() -> None:
                             assert geometry["fullPhoneContained"], (format_id, story, geometry)
                         assert geometry["statusInside"], (variant, format_id, "Clipped illustrated status bar")
                         assert all(abs(row["top"]-row["bottom"]) <= 1.01 for row in geometry["disclosures"]), (variant, format_id, story, geometry["disclosures"])
+                        assert all(abs(row["top"]-row["bottom"]) <= 1.01 for row in geometry["balancedRows"]), (variant, format_id, story, geometry["balancedRows"])
                         assert "until 30 October" not in geometry["text"] and "Chart my spending" not in geometry["text"]
                         assert not errors, errors
                         geometry["fidelity"] = check_layout(target, format_id, story)
