@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 from urllib.parse import urlparse
 from playwright.sync_api import sync_playwright
+from layout_checks import check_layout
 
 ROOT=Path(__file__).resolve().parents[2]
 spec=importlib.util.spec_from_file_location('c22_export',ROOT/'marketing/c22-phones/export_assets.py')
@@ -26,7 +27,10 @@ MEASURE=r'''() => {
  }
  const art=a.getBoundingClientRect();
  const controls=[...document.querySelectorAll('[aria-label="Artwork controls"] a,[aria-label="Artwork controls"] select')].map(el=>{const r=el.getBoundingClientRect();return{label:el.innerText||el.getAttribute('aria-label'),height:r.height,width:r.width}});
+ const grid=document.querySelector('ol[class*="thumbGrid"]'),image=grid.querySelector('img'),imageRect=image.getBoundingClientRect();
  return{disclosures,identityRows,productWidth:p.clientWidth,artboard:{left:art.left,right:art.right,top:art.top,width:art.width,height:art.height},scrollWidth:document.documentElement.scrollWidth,viewport:innerWidth,controls,
+  downloadColumns:getComputedStyle(grid).gridTemplateColumns.split(' ').length,
+  thumbnailRatio:imageRect.width/imageRect.height,thumbnailNaturalRatio:image.naturalWidth/image.naturalHeight,
   navDisplayed:getComputedStyle(p.querySelector('nav[data-penny-navigation]')).display,
   allProductControlsInert:[...p.querySelectorAll('button,a,summary,input,select')].every(el=>!!el.closest('[inert]')),
   background:getComputedStyle(p).backgroundColor,text:a.innerText};
@@ -56,18 +60,23 @@ with sync_playwright() as pw:
    measure=page.evaluate(MEASURE);results.append({'theme':theme,'width':width,'story':'amount',**measure})
    assert measure['scrollWidth']<=width+1 and measure['allProductControlsInert']
    assert measure['navDisplayed']=='flex' and measure['productWidth']>=320
+   assert measure['downloadColumns']==(1 if width<500 else 4),measure
+   assert abs(measure['thumbnailRatio']-measure['thumbnailNaturalRatio'])<.001,measure
    assert all(el['height']>=43.9 for el in measure['controls'])
    assert all(abs(row['top']-row['bottom'])<=1.01 for row in measure['disclosures'])
    if width<500:assert measure['artboard']['top']<=500,measure['artboard']
    name=f'gallery-{theme}-{width}-top.png';page.screenshot(path=str(OUT/name));captures.append(str(OUT/name))
    if width in [390,1440]:
     page.locator('[class*=previewShell]').scroll_into_view_if_needed();name=f'gallery-{theme}-{width}-preview.png';page.screenshot(path=str(OUT/name));captures.append(str(OUT/name))
-    for story in ['upcoming','cover','aside','goal']:
+    if width==390:
+     name=f'gallery-{theme}-390-download-item.png';page.locator('ol[class*="thumbGrid"] > li').first.screenshot(path=str(OUT/name),animations='disabled');captures.append(str(OUT/name))
+    for story in ['upcoming','cover','aside','goal','spend']:
      page.goto(f'http://127.0.0.1:3158/design/marketing-phones?mode={theme}&story={story}',wait_until='networkidle')
      page.wait_for_selector('[data-c22-viewport-ready="true"]');page.evaluate('document.fonts.ready')
      m=page.evaluate(MEASURE);results.append({'theme':theme,'width':width,'story':story,**m})
      assert all(abs(row['top']-row['bottom'])<=1.01 for row in m['disclosures']),m['disclosures']
      assert all(abs(row['top']-row['bottom'])<=1.01 for row in m['identityRows']),m['identityRows']
+     check_layout(page.locator('[data-c22-artboard]'),'iphone-63',story)
   context.close()
  context=browser.new_context(viewport={'width':390,'height':900},reduced_motion='reduce')
  context.route('**/api/**',lambda route:route.abort())
