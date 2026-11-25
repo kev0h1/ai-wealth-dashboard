@@ -32,14 +32,6 @@ type PreviewRoute = {
 
 const ROUTES: PreviewRoute[] = [
   {
-    slug: "card-plan-progress",
-    name: "Debt repayment plan rows · G492",
-    description: "Two tighter layouts for the compact repayment ring: A Paired amounts brings the payment beside the repayment figure; B Ring right pairs payment and offer deadline below the reading. Identical fictional figures, one expiry and the same short outlook. Future, paused, hidden and unavailable evidence stay distinct; no live data or bank actions.",
-    variants: [{ label: "A · Paired amounts", value: "a" }, { label: "B · Ring right", value: "b" }],
-    states: [{ label: "Ready", value: "ready" }, { label: "Future start", value: "future" }, { label: "Paused", value: "paused" }, { label: "Loading", value: "loading" }, { label: "Updating", value: "stale" }, { label: "Unavailable", value: "unavailable" }, { label: "No plans", value: "empty" }, { label: "Hidden", value: "hidden" }, { label: "Long names", value: "long" }],
-    group: "current",
-  },
-  {
     slug: "left-to-spend-money-in",
     name: "Left to spend with money still to come in · G480",
     description:

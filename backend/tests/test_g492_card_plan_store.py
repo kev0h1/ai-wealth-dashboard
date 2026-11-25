@@ -73,7 +73,9 @@ def _fakes(monkeypatch):
 
     async def compute(uid, previous=None):
         assert uid == UID
-        return {"plans": {"plan": {"marker": "stored"}}, "baselines": {}}
+        return {"plans": {"plan": {"marker": "stored", "finish_estimate": {
+            "status": "ready", "month": "2027-02", "label": "Feb 2027", "basis": "before_offer_end",
+        }}}, "baselines": {}}
 
     module.compute_progress = compute
     monkeypatch.setitem(sys.modules, "app.services.card_plan_progress", module)
@@ -120,6 +122,26 @@ def test_read_stale_and_error_hide_old_facts(_fakes, monkeypatch):
     assert queued == [UID, UID]
 
 
+def test_old_snapshot_shape_is_stale_and_queues_a_rebuild_without_exposing_facts(_fakes, monkeypatch):
+    progress, _versions, _commitments, _today, _module = _fakes
+    progress.docs[UID] = {
+        "_id": UID, "status": "ok", "shape": store.SHAPE_VERSION - 1,
+        "input_version": 7, "as_of_day": "2026-11-23",
+        "computed_at": datetime(2026, 11, 23, tzinfo=timezone.utc),
+        "payload": {"plans": {"plan": {"finish_estimate": {"status": "ready"}}}},
+    }
+    queued = []
+
+    async def enqueue(uid, **_kwargs):
+        queued.append(uid)
+        return True
+
+    monkeypatch.setattr(store, "enqueue_refresh", enqueue)
+    result = _run(store.read(UID))
+    assert result == {"status": "stale", "as_of": "2026-11-23T00:00:00+00:00", "plans": {}}
+    assert queued == [UID]
+
+
 def test_refresh_writes_only_current_version_and_day(_fakes):
     progress, _versions, _commitments, _today, _module = _fakes
     out = _run(store.refresh(UID))
@@ -130,6 +152,7 @@ def test_refresh_writes_only_current_version_and_day(_fakes):
     assert saved["payload"]["plans"]["plan"]["marker"] == "stored"
     read = _run(store.read(UID))
     assert read["status"] == "ok" and read["plans"] == saved["payload"]["plans"]
+    assert read["plans"]["plan"]["finish_estimate"]["month"] == "2027-02"
 
 
 @pytest.mark.parametrize('bad_version', [True, -1, 7.5, '7'])

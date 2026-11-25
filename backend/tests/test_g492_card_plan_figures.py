@@ -266,6 +266,89 @@ def test_marker_is_the_clearing_target_by_now_not_an_inadequate_plan_schedule():
     assert f['promo']['progress']['paid_percent'] == 20
 
 
+def _active_finish_facts(*, payoff_month='2027-04', terms=None, card_balance=900, plan_doc=None):
+    """One reconciled active 0% offer, with a debt-plan payoff supplied separately."""
+    p = plan_doc or plan(10000, '2026-11-01')
+    terms = terms or {'status': 'confirmed', 'promos': [offer(1000, '2027-05-31', as_of='2026-10-31')]}
+    debt = {'repayment_plan': {'schedule': p['schedule']}, 'payoff_month': payoff_month}
+    return progress.build_plan_facts(p, card(card_balance), terms, CFG, TODAY,
+                                     [(date(2026, 11, 2), 10000)], debt_card=debt)[0]
+
+
+def test_finish_estimate_is_a_pre_offer_month_from_the_persisted_debt_forecast():
+    f = _active_finish_facts()
+    assert f['finish_estimate'] == {
+        'status': 'ready', 'month': '2027-04', 'label': 'Apr 2027', 'basis': 'before_offer_end',
+    }
+
+
+@pytest.mark.parametrize('payoff_month', ['2027-05', '2027-06'])
+def test_finish_estimate_never_claims_the_offer_boundary_or_after(payoff_month):
+    f = _active_finish_facts(payoff_month=payoff_month)
+    assert f['finish_estimate'] == {'status': 'unavailable', 'reason': 'offer_boundary'}
+
+
+@pytest.mark.parametrize('payoff_month', ['2027-5', '2027-13', '0000-01', '2026-10', 202705, True])
+def test_finish_estimate_rejects_malformed_forecast_months(payoff_month):
+    f = _active_finish_facts(payoff_month=payoff_month)
+    assert f['finish_estimate'] == {'status': 'unavailable', 'reason': 'forecast_unavailable'}
+    assert f['would_clear_by'] is None
+
+
+def test_finish_estimate_distinguishes_a_missing_forecast_from_an_explicit_no_payoff():
+    p = plan(10000, '2026-11-01')
+    terms = {'status': 'confirmed', 'promos': [offer(1000, '2027-05-31', as_of='2026-10-31')]}
+    f, _ = progress.build_plan_facts(p, card(900), terms, CFG, TODAY, [(date(2026, 11, 2), 10000)])
+    assert f['finish_estimate'] == {'status': 'unavailable', 'reason': 'forecast_unavailable'}
+    kwargs = {'debt_card': {'repayment_plan': {'schedule': p['schedule']}}}
+    f, _ = progress.build_plan_facts(p, card(900), terms, CFG, TODAY, [(date(2026, 11, 2), 10000)], **kwargs)
+    assert f['finish_estimate'] == {'status': 'unavailable', 'reason': 'forecast_unavailable'}
+    f = _active_finish_facts(payoff_month=None)
+    assert f['finish_estimate'] == {'status': 'unavailable', 'reason': 'no_payoff'}
+
+
+@pytest.mark.parametrize('repayment_plan', ['saved plan', True, []])
+def test_finish_estimate_requires_a_nonempty_repayment_plan_object(repayment_plan):
+    p = plan(10000, '2026-11-01')
+    f, _ = progress.build_plan_facts(
+        p, card(900), {'status': 'confirmed', 'promos': [offer(1000, '2027-05-31', as_of='2026-10-31')]},
+        CFG, TODAY, [(date(2026, 11, 2), 10000)],
+        debt_card={'repayment_plan': repayment_plan, 'payoff_month': '2027-04'},
+    )
+    assert f['finish_estimate'] == {'status': 'unavailable', 'reason': 'forecast_unavailable'}
+    assert f['would_clear_by'] is None
+
+
+def test_finish_estimate_names_non_live_schedule_states_without_a_date():
+    future, _ = progress.build_plan_facts(
+        plan(10000, '2026-11-27'), card(1000),
+        {'status': 'confirmed', 'promos': [offer(1000, as_of='2026-11-22')]}, CFG, TODAY, [],
+        debt_card={'repayment_plan': {'schedule': {}}, 'payoff_month': '2027-02'},
+    )
+    paused, _ = progress.build_plan_facts(
+        plan(10000, '2026-11-01', paused=True), card(900),
+        {'status': 'confirmed', 'promos': [offer(1000, as_of='2026-10-31')]}, CFG, TODAY,
+        [(date(2026, 11, 2), 10000)], debt_card={'repayment_plan': {'schedule': {}}, 'payoff_month': '2027-02'},
+    )
+    ended_plan = plan(10000, '2026-01-01')
+    ended_plan['schedule'] = crp.fixed_schedule(10000, date(2026, 1, 1), 1)
+    ended, _ = progress.build_plan_facts(ended_plan, card(900), {'status': 'confirmed', 'promos': [offer(1000, as_of='2025-12-31')]}, CFG, TODAY, [])
+    cleared = _active_finish_facts(card_balance=0)
+    assert future['finish_estimate'] == {'status': 'unavailable', 'reason': 'future_plan'}
+    assert paused['finish_estimate'] == {'status': 'unavailable', 'reason': 'paused'}
+    assert ended['finish_estimate'] == {'status': 'unavailable', 'reason': 'ended'}
+    assert cleared['finish_estimate'] == {'status': 'unavailable', 'reason': 'balance_cleared'}
+
+
+@pytest.mark.parametrize('terms,card_balance', [
+    ({'status': 'confirmed', 'promos': [offer(1000, '2027-05-31', as_of='2026-10-31', apr_pct=3.9)]}, 900),
+    ({'status': 'confirmed', 'promos': [offer(1000, '2027-05-31', as_of='2026-10-31')]}, 700),
+])
+def test_finish_estimate_needs_reconciled_zero_rate_offer_progress(terms, card_balance):
+    f = _active_finish_facts(terms=terms, card_balance=card_balance)
+    assert f['finish_estimate'] == {'status': 'unavailable', 'reason': 'offer_progress_unavailable'}
+
+
 def test_daily_challenge_correct_and_old_schedules_are_distinct_stored_inputs():
     # G357 records the earlier confirmed 812.80/December draft. G492's
     # 61/871/January shape follows a different, 65-day schedule. A read must

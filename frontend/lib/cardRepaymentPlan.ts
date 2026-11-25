@@ -19,6 +19,8 @@ export function isCardAccount(account: Pick<Account, "type" | "subtype">): boole
 const gbp = (value: number) => `£${Math.round(value).toLocaleString("en-GB")}`;
 const gbp2 = (value: number) => `£${value.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const exactMoney = (value: number) => Number.isInteger(value) ? gbp(value) : gbp2(value);
+/** Stored card-plan amounts retain pence when present, but never manufacture .00. */
+export const cardPlanMoney = (value: number) => exactMoney(value);
 
 function longDate(iso: string): string {
   const d = new Date(`${iso.slice(0, 10)}T12:00:00Z`);
@@ -52,10 +54,60 @@ export function paidLine(facts: CardPlanFacts | null | undefined): string | null
   return `${gbp2(paid)} paid to this card this pay period`;
 }
 
-/** "would clear by Mar 2028": hedged, and silent when the balance is cleared or no month is known. */
+/**
+ * G492's conservative, persisted finish line. Do not fall back to the legacy
+ * `would_clear_by`: it has no offer-bound provenance and may be stale.
+ */
 export function projectedMonthLine(facts: CardPlanFacts | null | undefined): string | null {
-  if (!facts?.would_clear_by) return null;
-  return `At this pace it would clear by about ${facts.would_clear_by}`;
+  if (facts?.status !== "ready") return "Finish date unavailable";
+  const finish = facts?.finish_estimate;
+  if (!finish) return "Finish date unavailable";
+  if (finish.status === "ready" && finish.basis === "before_offer_end" && typeof finish.label === "string" && finish.label.trim()) return `Estimated finish ${finish.label}`;
+  if (finish.status !== "unavailable") return "Finish date unavailable";
+  switch (finish.reason) {
+    case "no_payoff": return "No finish date on this plan";
+    case "future_plan": return "Finish date not available yet";
+    case "paused": return "Plan paused.";
+    case "ended": return "Schedule ended";
+    case "balance_cleared": return "Balance cleared";
+    default: return "Finish date unavailable";
+  }
+}
+
+/** The one offer deadline the compact row may surface. Its value is stored, never derived. */
+export function offerDeadlineLine(facts: CardPlanFacts | null | undefined): string | null {
+  const offer = facts?.status === "ready" ? facts.promo : null;
+  if (!offer?.until) return null;
+  return `Offer ends ${longDate(offer.until)}`;
+}
+
+/**
+ * Evidence stays in the existing sheet. Every figure below comes straight
+ * from the persisted snapshot, so an omitted/stale fact remains omitted.
+ */
+export function cardPlanEvidenceLines(facts: CardPlanFacts | null | undefined): string[] {
+  if (facts?.status !== "ready") return [facts?.status === "pending" ? "Preparing plan figures" : "Plan figures unavailable"];
+  const lines: string[] = [];
+  const offer = facts.promo;
+  const progress = offer?.progress;
+  if (progress?.status === "ready") {
+    if (progress.paid != null && progress.target != null) lines.push(`Repaid ${cardPlanMoney(progress.paid)} of ${cardPlanMoney(progress.target)}`);
+    if (progress.expected_by_now != null) lines.push(`Expected by now ${cardPlanMoney(progress.expected_by_now)}`);
+  }
+  if (facts.this_period_planned != null) lines.push(`Planned this pay period ${cardPlanMoney(facts.this_period_planned)}`);
+  if (facts.paid_this_period != null) lines.push(`Paid this pay period ${cardPlanMoney(facts.paid_this_period)}`);
+  if (facts.paid_from_source_this_period != null) lines.push(`Paid from your account this pay period ${cardPlanMoney(facts.paid_from_source_this_period)}`);
+  if (facts.reserved_from_source_this_period != null) lines.push(`Reserved from your account this pay period ${cardPlanMoney(facts.reserved_from_source_this_period)}`);
+  const deadline = offerDeadlineLine(facts);
+  if (deadline) lines.push(deadline);
+  if (offer?.residual_at_end != null) lines.push(`Residual at offer end ${cardPlanMoney(offer.residual_at_end)}`);
+  if (offer?.outlook === "on_track") lines.push("Offer outlook: on track");
+  if (offer?.outlook === "short") lines.push("Offer outlook: short at the offer end");
+  if (offer?.outlook === "behind") lines.push("Offer outlook: behind expected progress");
+  if (offer?.outlook === "paused") lines.push("Offer outlook: paused");
+  const finish = facts.finish_estimate;
+  lines.push(finish?.status === "unavailable" && finish.reason === "no_payoff" ? "No finish estimate is available from the saved plan and current data" : projectedMonthLine(facts) ?? "Finish date unavailable");
+  return lines;
 }
 
 /** A fact about an offer with an end date, never advice. Null when the card has none. */

@@ -1125,9 +1125,27 @@ export type CardPlanFacts = {
   period_label?: string;
   would_clear_by_month?: string | null;
   would_clear_by?: string | null;
+  /** G492: backend-proven payoff estimate. Older snapshots omit this entirely. */
+  finish_estimate?: CardPlanFinishEstimate | null;
   promo?: CardPlanOfferFacts | null;
   offers?: CardPlanOfferFacts[];
 };
+
+/** A finish date is present only when the persisted forecast clears before its 0% offer ends. */
+export type CardPlanFinishEstimate =
+  | { status: "ready"; month: string; label: string; basis: "before_offer_end" }
+  | {
+      status: "unavailable";
+      reason:
+        | "future_plan"
+        | "paused"
+        | "ended"
+        | "balance_cleared"
+        | "offer_progress_unavailable"
+        | "forecast_unavailable"
+        | "no_payoff"
+        | "offer_boundary";
+    };
 
 /** G492: positions, residual and target are computed and stored by the backend. */
 export type CardPlanOfferFacts = {
