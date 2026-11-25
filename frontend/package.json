@@ -99,6 +99,7 @@
     "check:g322-left-to-spend-copy": "node scripts/g322-left-to-spend-copy.test.mjs",
     "check:g296-settings": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g296-settings.test.mjs",
     "check:g309-settings-spacing": "node scripts/g309-settings-spacing.test.mjs",
+    "check:f28-consent-scopes": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/f28-consent-scopes.test.mjs",
     "check:design-index": "node scripts/check-design-index.mjs",
     "check:b53-plus-tier": "node scripts/b53-plus-tier.test.mjs",
     "check:b50-plan-picker": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/b50-plan-picker.test.mjs",

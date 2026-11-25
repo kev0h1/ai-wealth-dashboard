@@ -4,6 +4,7 @@ import { getInstallId } from "./installId";
 import { isAppLocked } from "./appLock";
 import { invalidateEndpoint, TRANSACTIONS_CHANGED_KEYS } from "./endpointCache";
 import { LEGACY_BANK_AVAILABLE, LEGACY_BANK_ID } from "./legacyBankProvider";
+import { buildDecisionBody } from "./oauthScopes";
 import type { AccountRefreshResult } from "./accountRefresh";
 import type { IncomeForecastEvidence } from "./incomeEvidence";
 import type { FiledTransfersQuery, FiledTransfersResponse, FiledTransfersUndoResult } from "./filedTransfers";
@@ -3786,8 +3787,8 @@ export const api = {
   // back the /oauth/consent page; listOAuthConnections/revokeOAuthConnection
   // back F4's "Connected assistants" settings card.
   getOAuthRequest: (reqId: string) => get<OAuthRequestDetails>(`/oauth/request/${encodeURIComponent(reqId)}`),
-  decideOAuthRequest: (reqId: string, approve: boolean) =>
-    post<{ redirect: string }>("/oauth/decision", { req_id: reqId, approve }),
+  decideOAuthRequest: (reqId: string, approve: boolean, grantedScopes?: string[]) =>
+    post<{ redirect: string }>("/oauth/decision", buildDecisionBody(reqId, approve, grantedScopes)),
   listOAuthConnections: () => get<{ connections: OAuthConnection[] }>("/oauth/connections"),
   revokeOAuthConnection: (clientId: string) =>
     fetch(`${API_BASE}/oauth/connections/${encodeURIComponent(clientId)}`, {

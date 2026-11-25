@@ -1,14 +1,22 @@
 "use client";
 
-import { ShieldCheck, Check } from "lucide-react";
+import { useState } from "react";
 import type { OAuthScopeDetail } from "@/lib/api";
+import { grantedScopesFor, scopeDisclosure, toggleScope } from "@/lib/oauthScopes";
 
-// F2: the actual consent UI, kept presentational (no fetching, no
-// sessionStorage, no navigation) so both the live page
-// (OAuthConsentClient.tsx) and the /design/oauth-consent fixture preview
-// render the exact same markup. Deliberately plain indigo, no gradient —
-// DESIGN.md's Penny Gradient Rule reserves indigo→violet for the AI
-// adviser; this is a plain authorisation screen, styled like LoginScreen.
+// F28: the production consent screen, folded in from F23 variant A
+// ("Decision ledger", approved by Kevin 2026-11-24, with the two rules above
+// "Before you share" removed). Presentational: no fetching, no
+// sessionStorage, no navigation; OAuthConsentClient.tsx owns those.
+//
+// Plain indigo only. DESIGN.md's Penny Gradient Rule reserves indigo to
+// violet for Penny, and red is reserved for genuine financial risk, so the
+// provider warning is ink on the surface, not a red alert.
+//
+// The redirect host comes from the server (the registered redirect URI) and
+// is shown prominently. The assistant name is what the assistant reported
+// when it registered, so it is labelled as such; no "verified" claim is made
+// until the allowlist (F24) supplies a server-verified name.
 export default function OAuthConsentCard({
   clientName,
   redirectHost,
@@ -21,71 +29,142 @@ export default function OAuthConsentCard({
   clientName: string;
   redirectHost: string;
   scopes: OAuthScopeDetail[];
-  onApprove: () => void;
+  onApprove: (grantedScopes: string[]) => void;
   onDeny: () => void;
   busy?: boolean;
   error?: string | null;
 }) {
+  const requested = scopes.map((s) => s.scope);
+  const [selected, setSelected] = useState<string[]>(requested);
+  const granted = grantedScopesFor(requested, selected);
+  const summary =
+    granted.length === 0
+      ? "No data will be shared."
+      : `${granted.length} permission${granted.length === 1 ? "" : "s"} selected.`;
+
   return (
-    <div className="min-h-dvh flex items-center justify-center px-6">
-      <div className="w-full max-w-sm">
-        <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl shadow-lg mb-5 overflow-hidden">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/icons/icon-192.png" alt="Sorted" width={64} height={64} className="w-full h-full object-cover" />
-          </div>
-          <h1 className="text-xl font-bold text-slate-900 dark:text-slate-100 tracking-tight">
-            {clientName} wants to read your Sorted data
-          </h1>
-        </div>
-
-        <div className="bg-white dark:bg-slate-800 rounded-3xl shadow-sm p-6">
-          <ul className="space-y-3 mb-5">
-            {scopes.map((s) => (
-              <li key={s.scope} className="flex items-start gap-3">
-                <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-indigo-50 dark:bg-indigo-500/15 text-indigo-600 dark:text-indigo-400">
-                  <Check size={13} strokeWidth={3} />
-                </span>
-                <span className="text-sm text-slate-700 dark:text-slate-200 leading-snug">{s.description}</span>
-              </li>
-            ))}
-          </ul>
-
-          <div className="flex items-start gap-2 rounded-2xl bg-slate-50 dark:bg-slate-700/40 px-4 py-3 mb-5">
-            <ShieldCheck size={16} className="mt-0.5 shrink-0 text-slate-400 dark:text-slate-500" />
-            <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
-              It cannot see individual transactions or bank details, and it cannot make changes.
+    <main className="min-h-dvh px-3 py-3 text-slate-900 dark:text-slate-100 sm:px-6 sm:py-6">
+      <div className="mx-auto max-w-xl">
+        <div className="overflow-hidden rounded-3xl border border-slate-200 bg-white px-5 pb-5 pt-6 shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:shadow-none sm:px-8 sm:pt-8">
+          <header>
+            <h1 className="text-balance text-2xl font-bold tracking-[-0.025em] text-slate-950 dark:text-white sm:text-3xl">
+              Choose what to share
+            </h1>
+            <p className="mt-3 text-sm leading-6 text-slate-600 dark:text-slate-300">
+              Pick the financial information this assistant can read. It cannot change your bank accounts or make payments.
             </p>
-          </div>
+          </header>
 
-          <p className="text-[11px] uppercase tracking-wide text-slate-400 dark:text-slate-500 text-center mb-5">
-            Redirects to {redirectHost}
-          </p>
+          <section
+            data-mcp-identity
+            aria-label="Assistant and redirect host"
+            className="mt-6 border-y border-slate-200 py-4 dark:border-slate-700"
+          >
+            <p className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-500 dark:text-slate-400">
+              Redirect host
+            </p>
+            <h2 className="mt-1 [overflow-wrap:anywhere] text-lg font-bold leading-6 text-slate-950 dark:text-white">
+              {redirectHost}
+            </h2>
+            <p className="mt-3 text-sm leading-5 text-slate-600 dark:text-slate-300">
+              Assistant name, as it reported it:{" "}
+              <span className="font-semibold text-slate-800 [overflow-wrap:anywhere] dark:text-slate-200">{clientName}</span>
+            </p>
+          </section>
+
+          <section className="pt-6" aria-labelledby="permissions-title">
+            <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+              <h2 id="permissions-title" className="text-base font-bold text-slate-950 dark:text-white">
+                Your permissions
+              </h2>
+              <p aria-live="polite" className="text-sm text-slate-600 dark:text-slate-300">
+                {summary}
+              </p>
+            </div>
+            <p className="mt-1.5 text-sm leading-5 text-slate-600 dark:text-slate-300">
+              This can include bank data received through Finexer, information Sorted derives and details you add. Select only what you are comfortable sharing. You can deny the request instead.
+            </p>
+            <div className="mt-4 border-t border-slate-200 dark:border-slate-700">
+              {scopes.map((s) => {
+                const d = scopeDisclosure(s.scope, s.description);
+                const inputId = `scope-${s.scope}`;
+                return (
+                  <label
+                    key={s.scope}
+                    htmlFor={inputId}
+                    data-mcp-scope={s.scope}
+                    className={`flex min-h-16 items-start gap-3 border-b border-slate-200 px-4 py-3 transition last:border-b-0 active:opacity-75 motion-reduce:active:opacity-100 dark:border-slate-700 ${busy ? "cursor-not-allowed opacity-60" : "cursor-pointer"}`}
+                  >
+                    <input
+                      id={inputId}
+                      type="checkbox"
+                      name="granted_scopes"
+                      autoComplete="off"
+                      checked={selected.includes(s.scope)}
+                      disabled={busy}
+                      onChange={() => setSelected((cur) => toggleScope(cur, s.scope))}
+                      className="mt-0.5 size-5 shrink-0 rounded border-slate-400 text-indigo-600 focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 dark:border-slate-500 dark:bg-slate-950 dark:focus:ring-offset-slate-900"
+                    />
+                    <span className="min-w-0">
+                      <span className="block text-sm font-semibold leading-5 text-slate-900 dark:text-slate-100">{d.title}</span>
+                      <span className="mt-1 block text-sm leading-5 text-slate-600 dark:text-slate-300">{d.description}</span>
+                    </span>
+                  </label>
+                );
+              })}
+            </div>
+          </section>
+
+          <section data-mcp-warning className="mt-6" aria-labelledby="provider-warning-title">
+            <h2 id="provider-warning-title" className="text-sm font-bold text-slate-900 dark:text-slate-100">
+              Before you share
+            </h2>
+            <p className="mt-1.5 text-sm leading-5 text-slate-700 dark:text-slate-200">
+              This assistant provider has not been assessed by Sorted or Finexer. Its retention, training and international processing rules are its own. Data shared with it cannot be recalled.
+            </p>
+          </section>
+
+          <details data-mcp-disclosure className="group mt-6 border-y border-slate-200 py-4 dark:border-slate-700">
+            <summary className="flex min-h-11 cursor-pointer touch-manipulation items-center justify-between gap-3 text-sm font-semibold text-slate-900 marker:content-none [-webkit-tap-highlight-color:transparent] active:opacity-70 motion-reduce:active:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 dark:text-slate-100 dark:focus-visible:ring-offset-slate-900 [&::-webkit-details-marker]:hidden">
+              <span>What happens if I allow this?</span>
+              <span className="shrink-0 text-xs font-bold text-indigo-700 group-open:hidden dark:text-indigo-300">Show details</span>
+              <span className="hidden shrink-0 text-xs font-bold text-indigo-700 group-open:inline dark:text-indigo-300">Hide details</span>
+            </summary>
+            <p className="pb-1 pt-2 text-sm leading-5 text-slate-600 dark:text-slate-300">
+              The selected information is sent to the assistant provider after you continue. Use its privacy information to decide whether its own rules are right for you.
+            </p>
+          </details>
 
           {error && (
-            <div className="mb-4 px-4 py-3 rounded-xl bg-slate-50 dark:bg-slate-700/40 border border-slate-200 dark:border-slate-600">
-              <p className="text-sm text-slate-700 dark:text-slate-200 text-center">{error}</p>
-            </div>
+            <p
+              role="alert"
+              className="mt-5 flex gap-2 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm leading-5 text-slate-800 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+            >
+              <span aria-hidden="true" className="mt-1.5 size-1.5 shrink-0 rounded-full bg-amber-500 dark:bg-amber-400" />
+              {error}
+            </p>
           )}
 
-          <button
-            type="button"
-            onClick={onApprove}
-            disabled={busy}
-            className="w-full min-h-11 py-3 px-4 rounded-2xl bg-indigo-600 hover:bg-indigo-700 active:scale-95 transition font-semibold text-white text-sm shadow-sm disabled:opacity-60"
-          >
-            Approve
-          </button>
-          <button
-            type="button"
-            onClick={onDeny}
-            disabled={busy}
-            className="mt-3 w-full min-h-11 py-3 px-4 rounded-2xl text-slate-500 dark:text-slate-400 font-medium text-sm hover:text-slate-700 dark:hover:text-slate-200 transition disabled:opacity-60"
-          >
-            Deny
-          </button>
+          <div className="mt-6 grid gap-3 sm:grid-cols-2">
+            <button
+              type="button"
+              onClick={() => onApprove(granted)}
+              disabled={busy || granted.length === 0}
+              className="min-h-12 touch-manipulation rounded-xl bg-indigo-600 px-4 text-sm font-bold text-white [-webkit-tap-highlight-color:transparent] transition hover:bg-indigo-700 active:scale-95 motion-reduce:active:scale-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 dark:focus-visible:ring-offset-slate-900"
+            >
+              {busy ? "Preparing secure redirect…" : "Allow selected data"}
+            </button>
+            <button
+              type="button"
+              onClick={onDeny}
+              disabled={busy}
+              className="min-h-12 touch-manipulation rounded-xl border border-slate-300 bg-white px-4 text-sm font-bold text-slate-800 [-webkit-tap-highlight-color:transparent] transition hover:bg-slate-50 active:scale-95 motion-reduce:active:scale-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800 dark:focus-visible:ring-offset-slate-900"
+            >
+              Deny
+            </button>
+          </div>
         </div>
       </div>
-    </div>
+    </main>
   );
 }
