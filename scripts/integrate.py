@@ -1048,7 +1048,7 @@ def _rollback_and_restart(pre_sha: str, merge_sha: str, changed: set[str]) -> No
             _systemctl_restart("wealth-frontend")
             skip_frontend = True
             print("frontend build reverted to the pre-merge build after the failed integrate")
-        except (frontend_build.FrontendBuildError, IntegrateError) as exc:
+        except (frontend_build.FrontendBuildError, IntegrateError, OSError) as exc:
             print(
                 f"warning: could not revert the frontend build ({exc}); rebuilding from the reverted tree",
                 file=sys.stderr,
