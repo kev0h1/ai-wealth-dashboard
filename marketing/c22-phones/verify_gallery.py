@@ -98,6 +98,8 @@ with sync_playwright() as pw:
   context.add_init_script("localStorage.setItem('wd_dark','"+saved+"')")
   context.route('**/api/**',lambda route:route.fulfill(status=200,content_type='application/json',body='{}'))
   page=context.new_page();page.on('pageerror',lambda e:errors.append(str(e)))
+  page.goto('http://127.0.0.1:3158/design',wait_until='networkidle')
+  original_scheme=page.evaluate('document.documentElement.style.colorScheme')
   page.goto('http://127.0.0.1:3158/design/marketing-phones?mode=dark',wait_until='networkidle')
   page.wait_for_selector('[data-c22-viewport-ready="true"]')
   states=[]
@@ -112,8 +114,8 @@ with sync_playwright() as pw:
   page.get_by_role('link',name='Design previews',exact=True).click();page.wait_for_url('**/design')
   page.wait_for_function("document.documentElement.classList.contains('dark') === "+('true' if saved=='1' else 'false'))
   assert page.evaluate("document.documentElement.classList.contains('dark')")==(saved=='1')
-  assert page.evaluate("document.documentElement.style.colorScheme") == ''
-  theme_switches.append({'saved':saved,'states':states,'restored':True})
+  assert page.evaluate("document.documentElement.style.colorScheme") == original_scheme
+  theme_switches.append({'saved':saved,'states':states,'restored':True,'restoredInlineScheme':original_scheme})
   context.close()
  browser.close()
 assert not errors,errors
