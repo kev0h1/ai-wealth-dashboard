@@ -14,15 +14,21 @@ export const SCENARIO = {
 export const FORMAT_IDS = ["iphone-63", "iphone-69", "iphone-65", "android"] as const;
 export type PhoneFormat = (typeof FORMAT_IDS)[number];
 
-/** Logical CSS canvas rendered directly at 3x, with no proof-image intermediate. */
+/**
+ * The export canvas is rendered directly at 3x, without a proof-image
+ * intermediate. `viewportWidth` is the product's canonical logical width;
+ * it is intentionally separate from the smaller Android marketing canvas.
+ * The display and chassis ratios are separate because their bezels differ.
+ */
 export const FORMATS: Record<PhoneFormat, {
   label: string; model: PhoneModel; modelLabel: string;
   width: number; height: number; cssWidth: number; cssHeight: number;
+  viewportWidth: number; displayAspectRatio: number; bodyAspectRatio: number;
 }> = {
-  "iphone-63": { label: "iPhone 6.3 inch", model: "iphone16", modelLabel: "iPhone 16 Pro", width: 1206, height: 2622, cssWidth: 402, cssHeight: 874 },
-  "iphone-69": { label: "iPhone 6.9 inch", model: "iphone16", modelLabel: "iPhone 16 Pro Max", width: 1320, height: 2868, cssWidth: 440, cssHeight: 956 },
-  "iphone-65": { label: "iPhone 6.5 inch", model: "iphone11", modelLabel: "iPhone 11 Pro Max", width: 1242, height: 2688, cssWidth: 414, cssHeight: 896 },
-  android: { label: "Android phone", model: "pixel9", modelLabel: "Pixel 9 Pro XL", width: 1080, height: 1920, cssWidth: 360, cssHeight: 640 },
+  "iphone-63": { label: "iPhone 6.3 inch", model: "iphone16", modelLabel: "iPhone 16 Pro", width: 1206, height: 2622, cssWidth: 402, cssHeight: 874, viewportWidth: 402, displayAspectRatio: 1206 / 2622, bodyAspectRatio: 71.5 / 149.6 },
+  "iphone-69": { label: "iPhone 6.9 inch", model: "iphone16", modelLabel: "iPhone 16 Pro Max", width: 1320, height: 2868, cssWidth: 440, cssHeight: 956, viewportWidth: 440, displayAspectRatio: 1320 / 2868, bodyAspectRatio: 77.6 / 163 },
+  "iphone-65": { label: "iPhone 6.5 inch", model: "iphone11", modelLabel: "iPhone 11 Pro Max", width: 1242, height: 2688, cssWidth: 414, cssHeight: 896, viewportWidth: 414, displayAspectRatio: 1242 / 2688, bodyAspectRatio: 77.8 / 158 },
+  android: { label: "Android phone (20:9)", model: "pixel9", modelLabel: "Pixel 9 Pro XL", width: 1080, height: 2400, cssWidth: 360, cssHeight: 800, viewportWidth: 412, displayAspectRatio: 1344 / 2992, bodyAspectRatio: 76.6 / 162.8 },
 };
 
 export const STORIES: Record<StoryId, {
@@ -40,7 +46,7 @@ export const STORIES: Record<StoryId, {
 
 export const VARIANTS: Record<PhoneVariant, { label: string; description: string }> = {
   a: { label: "A · Full phone", description: "A compact headline above the complete handset." },
-  b: { label: "B · Close view", description: "A smaller title and a closer crop of the handset." },
+  b: { label: "B · Close view", description: "A smaller title and a closer view of the complete handset." },
 };
 
 export const ASSET_BASE = "/design-media/c22/phones";

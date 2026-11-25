@@ -4,6 +4,20 @@ Revised store artwork for Kevin's 24 and 25 November feedback. Review at
 `/design/marketing-phones`. This is a design round for choosing a composition,
 with downloadable assets, not permission to publish to either store.
 
+The 25 November fidelity correction restores Spend's production period controls,
+pace hero, Changes/Spending/Charts navigation, pay-arrived event and continuous
+journey rail. Its example shows one real pace chart, using the same authoritative
+pace series as the hero. Optional transfer reviews remain absent because this
+fictional example has none. The app's own financial typography and components
+are retained.
+
+The handset now has an in-flow navigation footer, so the complete goal proposal,
+Create goal, Cancel and Edit schedule remain visible at the initial position.
+The model body and its display have separate fixed proportions; the app is laid
+out at canonical logical widths of 402, 440, 414 and 412 pixels and uniformly
+scaled into the display. Content cannot widen a short handset stage. Both A
+and B retain the complete phone, including its navigation and gesture area.
+
 The continuous lines in the earlier images came from a one-pixel border around
 the whole captured product image in `marketing-kit/store/store.module.css`.
 That rectangle continued through the gaps between the product's own cards.
@@ -14,7 +28,7 @@ own production borders and dividers.
 ## Review directions and exports
 
 - A, Full phone: a compact headline and the complete handset.
-- B, Close view: a smaller heading and a closer crop of the handset.
+- B, Close view: a smaller heading and a closer view of the complete handset.
 
 Each direction has one ordered set per format and theme. Themes never alternate
 within a set. The seven stories are Left to spend, Upcoming payments, Cover the
@@ -30,21 +44,26 @@ The manifest and assets live at `/design-media/c22/phones/`.
 | iPhone with Dynamic Island, medium | 1206 × 2622 | iPhone 16 Pro |
 | iPhone with Dynamic Island, large | 1320 × 2868 | iPhone 16 Pro Max |
 | iPhone with Face ID, large | 1242 × 2688 | iPhone 11 Pro Max |
-| Google Play phone | 1080 × 1920 | Pixel 9 Pro XL |
+| Android phone, 20:9 | 1080 × 2400 | Pixel 9 Pro XL |
 
 The surrounds are coded hardware illustrations with model-specific cutouts and
 proportions. They are not simulator captures or photographs of physical devices.
-The Google Play composition has its own export size; the Pixel's display ratio
-describes the illustrated screen inside that composition.
+The Android composition uses a taller 20:9 export canvas. Its illustrated Pixel
+display keeps the model's own resolution ratio; that display is distinct from
+the physical chassis ratio.
 
 Apple currently requires the medium Dynamic Island category and disallows alpha
 channels. The two larger iPhone options are supplied as well.
 [Apple screenshot specifications](https://developer.apple.com/help/app-store-connect/reference/app-information/screenshot-specifications/).
-Google Play's permitted dimensions and aspect ratio include 1080 × 1920, with
-RGB artwork and no transparency.
+Google Play's current standard screenshot limit permits an aspect ratio up to
+2.3:1, which includes this 1080 × 2400 RGB artwork without transparency. Its
+separate recommendation surfaces still request 9:16 portrait screenshots; this
+20:9 phone set does not claim eligibility for every recommendation placement.
 [Google Play preview asset requirements](https://support.google.com/googleplay/android-developer/answer/9866151?hl=en).
-Device proportions were checked against
-[Apple's iPhone 16 Pro Max specification](https://support.apple.com/en-us/121032)
+Device proportions were checked against Apple's
+[iPhone 16 Pro](https://support.apple.com/en-us/121031),
+[iPhone 16 Pro Max](https://support.apple.com/en-us/121032) and
+[iPhone 11 Pro Max](https://support.apple.com/en-us/111878) specifications,
 and [Google's Pixel specifications](https://support.google.com/pixelphone/answer/7158570).
 
 ## One fictional example
@@ -107,6 +126,10 @@ Browser review covers phone and desktop galleries, both themes, all handset
 formats, controls, downloads, readable content, model cutouts and balanced
 divider clearance. The independent review and export measurements are recorded
 beside this brief. A preview capture proves the marketing composition only.
+The focused `layout_checks.py` acceptance gate additionally checks body/display
+ratios, uniform scaling, the visible Spend hero/navigation/rail, and the full
+goal card plus action text ranges above the actual navigation. Document-level
+scroll metrics alone are insufficient evidence for action visibility.
 The gallery verifier writes its captures to the ignored
 `frontend/.screens/c22-phones/` directory.
 

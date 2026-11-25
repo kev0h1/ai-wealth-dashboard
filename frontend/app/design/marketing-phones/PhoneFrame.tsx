@@ -6,13 +6,14 @@ import styles from "./phones.module.css";
 
 type Props = {
   model: PhoneModel;
+  viewportWidth: number;
   children: ReactNode;
 };
 
 /** An illustrative hardware surround. It contains live product UI, never a captured screenshot. */
-export default function PhoneFrame({ model, children }: Props) {
+export default function PhoneFrame({ model, viewportWidth, children }: Props) {
   const contentRef = useRef<HTMLDivElement>(null);
-  const [available, setAvailable] = useState({ width: 320, height: 640 });
+  const [available, setAvailable] = useState({ width: viewportWidth, height: viewportWidth * 2 });
   const [ready, setReady] = useState(false);
   useLayoutEffect(() => {
     const element = contentRef.current;
@@ -30,7 +31,9 @@ export default function PhoneFrame({ model, children }: Props) {
     measure();
     return () => observer.disconnect();
   }, []);
-  const viewportWidth = Math.max(320, available.width);
+  // The product is always laid out at the format's real logical width, then
+  // reduced with one scale factor to fit the illustrative display. In
+  // particular, a narrow Android chassis must not make the app a 320px UI.
   const scale = available.width / viewportWidth;
   const viewportHeight = available.height / scale;
   return <div className={`${styles.phone} ${styles[model]}`} data-c22-phone data-c22-model={model}>
