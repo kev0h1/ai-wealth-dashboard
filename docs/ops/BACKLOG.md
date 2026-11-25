@@ -925,6 +925,21 @@ backend/.venv/bin/python scripts/integrate.py --once
 backend/.venv/bin/python scripts/integrate.py --loop 600
 ```
 
+`--only ID[,ID...]` (H162) integrates just those `review` items, e.g.
+`scripts/integrate.py --once --only F28,G495`, so nobody wraps integrate in a
+/tmp script to pick items. Unknown ids and ids not in `review` with a branch
+are printed as `[skipped-not-in-review]` and skipped (not an error); without
+`--only` every review item is considered, exactly as before.
+
+UAT never keeps code that is not on `origin/main` (H162). Nothing is pushed
+before every gate and the build have passed (H156), so once the new frontend
+build is swapped in, any later failure (health check, `git push origin main`,
+e.g. a transient publickey error) runs `frontend_build.revert` to put the
+pre-merge build back and restarts `wealth-frontend`, before the usual reset of
+main. Only if the revert itself fails does it rebuild from the reset tree, and
+if that fails too it warns that UAT may still serve the merged build (check
+`scripts/frontend_build.py --status`).
+
 Refuses unless the shared tree is on `main` and clean apart from
 untracked files, and takes a lock file so two passes never overlap. For
 every board item in `review` with a branch, in id order: fetch, warn (but

@@ -629,11 +629,18 @@ def _require_memory(required_mb: int, what: str) -> None:
             time.sleep(MEMORY_POLL_S)
 
 
-def _restart_services(changed: set[str]) -> None:
+# H162: True once this pass has swapped a new frontend build into
+# frontend/.next. Any later failure (health check, push) must put the
+# previous build back so UAT never serves code that is not on origin/main.
+_FRONTEND_SWAPPED = False
+
+
+def _restart_services(changed: set[str], skip_frontend: bool = False) -> None:
+    global _FRONTEND_SWAPPED
     frontend_or_shared = any(p == "frontend" or p.startswith("frontend/") or p == "shared" or p.startswith("shared/") for p in changed)
     backend_changed = any(p == "backend" or p.startswith("backend/") for p in changed)
 
-    if frontend_or_shared:
+    if frontend_or_shared and not skip_frontend:
         # H51: never build in place. frontend_build builds in a scratch
         # mirror of frontend/ (<repo>/.frontend-staging), verifies BUILD_ID
         # and every file required-server-files.json lists, and only then
@@ -660,6 +667,7 @@ def _restart_services(changed: set[str]) -> None:
             if not msg.startswith("frontend build failed"):
                 msg = f"frontend build failed: {msg}"
             raise IntegrateError(msg) from None
+        _FRONTEND_SWAPPED = True
         print(
             f"frontend build {result.build_id} swapped into frontend/.next "
             f"(previous {result.previous_build_id or 'none'} kept at frontend/.next-prev)"
@@ -1026,6 +1034,25 @@ def _rollback_and_restart(pre_sha: str, merge_sha: str, changed: set[str]) -> No
                 print(f"warning: could not rebase local main onto origin/main after rollback:\n{out}", file=sys.stderr)
         else:
             _sh(["git", "merge", "--ff-only", "origin/main"])
+    # H162: put the previous (pre-merge) frontend build back BEFORE anything
+    # else, so UAT never keeps serving a build whose code is not on main. The
+    # fast path is frontend_build.revert (the swap kept the old build at
+    # .next-prev); only if that fails do we fall back to rebuilding the reset
+    # tree below, and say so loudly if that fails too.
+    skip_frontend = False
+    global _FRONTEND_SWAPPED
+    if _FRONTEND_SWAPPED:
+        _FRONTEND_SWAPPED = False
+        try:
+            frontend_build.revert(REPO_ROOT / "frontend")
+            _systemctl_restart("wealth-frontend")
+            skip_frontend = True
+            print("frontend build reverted to the pre-merge build after the failed integrate")
+        except (frontend_build.FrontendBuildError, IntegrateError, OSError) as exc:
+            print(
+                f"warning: could not revert the frontend build ({exc}); rebuilding from the reverted tree",
+                file=sys.stderr,
+            )
     # The reset above restores requirements.txt / package-lock.json to their
     # pre-merge contents, but does not touch a venv or node_modules that
     # _install_dependencies may have already updated for the merged
@@ -1033,10 +1060,17 @@ def _rollback_and_restart(pre_sha: str, merge_sha: str, changed: set[str]) -> No
     # restored lockfiles again before restarting services.
     try:
         _install_dependencies(changed)
-        _restart_services(changed)
+        if skip_frontend:
+            _restart_services(changed, skip_frontend=True)
+        else:
+            _restart_services(changed)
         _wait_and_check_health()
     except IntegrateError as exc:
-        print(f"warning: service restore after rollback also failed: {exc}", file=sys.stderr)
+        print(
+            f"warning: service restore after rollback also failed: {exc}"
+            + ("; UAT may still be serving the merged frontend build, check `scripts/frontend_build.py --status`" if not skip_frontend and any(p == "frontend" or p.startswith("frontend/") or p == "shared" or p.startswith("shared/") for p in changed) else ""),
+            file=sys.stderr,
+        )
 
 
 def _warn_if_branch_name_unexpected(item_id: str, branch: str) -> None:
@@ -1062,6 +1096,8 @@ def _integrate_one(item: dict) -> tuple[str, str]:
     branch = item["branch"]
     title = item["title"]
 
+    global _FRONTEND_SWAPPED
+    _FRONTEND_SWAPPED = False
     _warn_if_branch_name_unexpected(item_id, branch)
 
     rc, _ = _sh(["git", "rev-parse", "--verify", f"origin/{branch}"])
@@ -1237,7 +1273,18 @@ def _integrate_one(item: dict) -> tuple[str, str]:
     return "merged", f"{item_id}: merged {branch} as {merge_sha[:7] if merge_sha else '?'} ({landed_detail})"
 
 
-def integrate_once(allow_branch: Optional[str] = None) -> int:
+def _filter_only(items: list[dict], only: list[str]) -> list[dict]:
+    """H162: keep only the named review items. Unknown or non-review ids are
+    reported and skipped, never an error."""
+    wanted = [i.strip() for i in only if i.strip()]
+    by_id = {i["id"]: i for i in items}
+    for item_id in wanted:
+        if item_id not in by_id:
+            print(f"[skipped-not-in-review] {item_id}: not an item in review with a branch, skipping")
+    return [by_id[i] for i in sorted(set(wanted) & set(by_id), key=_id_sort_key)]
+
+
+def integrate_once(allow_branch: Optional[str] = None, only: Optional[list[str]] = None) -> int:
     _BOARD_WRITE_FAILURES.clear()
     try:
         with _locked():
@@ -1249,6 +1296,8 @@ def integrate_once(allow_branch: Optional[str] = None) -> int:
                 return 1
 
             items = _review_items()
+            if only is not None:
+                items = _filter_only(items, only)
             rejected = _rejected_items()
             cancelled = _cancelled_items()
             review_no_branch = _review_items_missing_branch()
@@ -1344,13 +1393,19 @@ def main(argv: Optional[list[str]] = None) -> int:
         metavar="NAME",
         help="Also accept this branch as if it were main. Testing only — never use in a real integrate.",
     )
+    parser.add_argument(
+        "--only",
+        metavar="ID[,ID...]",
+        help="Only integrate these review items (comma separated). Unknown or non-review ids are reported and skipped.",
+    )
     args = parser.parse_args(argv)
+    only = [i for i in args.only.split(",") if i.strip()] if args.only is not None else None
 
     if args.loop:
         while True:
-            integrate_once(allow_branch=args.allow_branch)
+            integrate_once(allow_branch=args.allow_branch, only=only)
             time.sleep(args.loop)
-    return integrate_once(allow_branch=args.allow_branch)
+    return integrate_once(allow_branch=args.allow_branch, only=only)
 
 
 if __name__ == "__main__":

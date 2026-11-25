@@ -402,3 +402,117 @@ def test_changed_paths_raising_rolls_back_without_a_nameerror(env, monkeypatch):
     assert _git(env.shared, "rev-parse", "HEAD") == env.pre_sha
     assert not (env.shared / "feature.txt").exists()
     assert not (env.shared / ".integrate-window").exists()
+
+
+# --- H162: UAT never keeps a frontend build whose code is not on main -------
+
+
+class _FakeFrontend:
+    def __init__(self, monkeypatch, revert_fails=False):
+        self.calls: list[str] = []
+        self.revert_fails = revert_fails
+        fb = integrate.frontend_build
+
+        def build_and_swap(frontend_dir, *a, **k):
+            self.calls.append("build")
+            return fb.BuildResult("new", "old", Path("/nonexistent/.next"), Path("/nonexistent/.next-prev"))
+
+        def revert(frontend_dir, *a, **k):
+            self.calls.append("revert")
+            if self.revert_fails:
+                raise fb.FrontendBuildError("no previous build")
+            return fb.BuildResult("old", "new", Path("/nonexistent/.next"), Path("/nonexistent/.next-prev"))
+
+        monkeypatch.setattr(fb, "build_and_swap", build_and_swap)
+        monkeypatch.setattr(fb, "revert", revert)
+        monkeypatch.setattr(integrate, "_systemctl_restart", lambda svc: self.calls.append(f"restart:{svc}"))
+        monkeypatch.setattr(integrate, "_changed_paths", lambda rng: {"frontend/app/x.tsx"})
+
+
+def test_push_failure_after_swap_reverts_the_frontend_build(env, monkeypatch):
+    env.reject_pushes_containing("feature.txt")
+    fake = _FakeFrontend(monkeypatch)
+
+    result, detail = integrate._integrate_one(_item())
+
+    assert result == "blocked"
+    assert not env.origin_has_file("feature.txt")
+    # built once, then reverted; never rebuilt from the reset tree
+    assert fake.calls == ["build", "restart:wealth-frontend", "revert", "restart:wealth-frontend"]
+
+
+def test_push_failure_with_failed_revert_falls_back_to_rebuild(env, monkeypatch):
+    env.reject_pushes_containing("feature.txt")
+    fake = _FakeFrontend(monkeypatch, revert_fails=True)
+
+    result, _ = integrate._integrate_one(_item())
+
+    assert result == "blocked"
+    assert fake.calls == ["build", "restart:wealth-frontend", "revert", "build", "restart:wealth-frontend"]
+
+
+def test_failed_build_never_swapped_so_nothing_is_reverted(env, monkeypatch):
+    fake = _FakeFrontend(monkeypatch)
+    fb = integrate.frontend_build
+    n = {"i": 0}
+    orig = fb.build_and_swap
+
+    def flaky(frontend_dir, *a, **k):
+        n["i"] += 1
+        if n["i"] == 1:
+            fake.calls.append("build-failed")
+            raise fb.FrontendBuildError("boom")
+        return orig(frontend_dir)
+
+    monkeypatch.setattr(fb, "build_and_swap", flaky)
+
+    result, _ = integrate._integrate_one(_item())
+
+    assert result == "blocked"
+    assert "revert" not in fake.calls
+
+
+def test_successful_run_never_reverts(env, monkeypatch):
+    fake = _FakeFrontend(monkeypatch)
+
+    result, detail = integrate._integrate_one(_item())
+
+    assert result == "merged", detail
+    assert fake.calls == ["build", "restart:wealth-frontend"]
+
+
+# --- H162: --only filtering --------------------------------------------------
+
+
+def test_filter_only_keeps_named_review_items_and_reports_the_rest(capsys):
+    items = [{"id": "A1"}, {"id": "A2"}, {"id": "G495"}]
+    kept = integrate._filter_only(items, ["G495", "A1", "ZZ9", " "])
+    assert [i["id"] for i in kept] == ["A1", "G495"]
+    out = capsys.readouterr().out
+    assert "ZZ9" in out and "skipped" in out
+
+
+def test_integrate_once_only_passes_named_ids_through(monkeypatch):
+    seen = []
+    monkeypatch.setattr(integrate, "_check_preconditions", lambda b: None)
+    monkeypatch.setattr(integrate, "_sh", lambda *a, **k: (0, ""))
+    monkeypatch.setattr(integrate, "_locked", lambda: __import__("contextlib").nullcontext())
+    monkeypatch.setattr(integrate, "_review_items", lambda: [{"id": "A1", "branch": "b", "title": "t"}, {"id": "A2", "branch": "b", "title": "t"}])
+    for name in ("_rejected_items", "_cancelled_items", "_review_items_missing_branch"):
+        monkeypatch.setattr(integrate, name, lambda: [])
+    monkeypatch.setattr(integrate, "_integrate_one", lambda item: (seen.append(item["id"]) or ("skipped", item["id"])))
+
+    assert integrate.integrate_once(only=["A2", "NOPE"]) == 0
+    assert seen == ["A2"]
+    seen.clear()
+    assert integrate.integrate_once() == 0
+    assert seen == ["A1", "A2"]
+
+
+def test_main_parses_only(monkeypatch):
+    got = {}
+    monkeypatch.setattr(integrate, "integrate_once", lambda allow_branch=None, only=None: got.update(only=only) or 0)
+    assert integrate.main(["--only", "F28,G495"]) == 0
+    assert got["only"] == ["F28", "G495"]
+    integrate.main([])
+    assert got["only"] is None
