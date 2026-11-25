@@ -143,10 +143,13 @@ def main() -> None:
                         geometry = target.evaluate("""node => {
                           const a = node.getBoundingClientRect();
                           const screen = node.querySelector('[data-c22-screen]').getBoundingClientRect();
-                          const phone = node.querySelector('[data-c22-phone]').getBoundingClientRect();
+                          const phoneElement = node.querySelector('[data-c22-phone]');
+                          const phone = phoneElement.getBoundingClientRect();
+                          const stage = phoneElement.parentElement.getBoundingClientRect();
                           const copy = node.querySelector('[data-c22-copy]').getBoundingClientRect();
                           const product = node.querySelector('[data-c22-product]');
-                          const visibleHeight = Math.max(0, Math.min(screen.bottom,a.bottom)-Math.max(screen.top,a.top));
+                          const scale = product.getBoundingClientRect().width / product.clientWidth;
+                          const visibleHeight = Math.max(0, Math.min(screen.bottom,a.bottom,stage.bottom)-Math.max(screen.top,a.top,stage.top));
                           const proofImages = [...node.querySelectorAll('img')].map(n=>n.getAttribute('src')).filter(s=>s && /proof-|design-media\\/c22/.test(s));
                           const rows = [...node.querySelectorAll('[data-balanced-row]')].map(row=> {
                             const content = row.querySelector('[data-row-content]');
@@ -154,11 +157,31 @@ def main() -> None:
                             const r=row.getBoundingClientRect(), c=content.getBoundingClientRect();
                             return {name:row.getAttribute('data-balanced-row'),top:c.top-r.top,bottom:r.bottom-c.bottom};
                           }).filter(Boolean);
+                          const closed = [...node.querySelectorAll('summary')].filter(el=>!el.parentElement.open)
+                            .concat([...node.querySelectorAll('[data-schedule-disclosure] > button[aria-expanded="false"]')])
+                            .filter(el=>el.getBoundingClientRect().height>0);
+                          const disclosures = closed.map(el=>{
+                            const r=el.getBoundingClientRect(), range=document.createRange();
+                            range.selectNodeContents(el); const c=range.getBoundingClientRect();
+                            return {label:el.innerText,top:(c.top-r.top)/scale,bottom:(r.bottom-c.bottom)/scale,height:r.height/scale};
+                          });
+                          const status=node.querySelector('[class*="statusBar"]');
+                          const radius=parseFloat(getComputedStyle(node.querySelector('[data-c22-screen]')).borderTopLeftRadius);
+                          const inside=(x,y)=>{
+                            if(x<screen.left||x>screen.right||y<screen.top||y>screen.bottom)return false;
+                            const cx=Math.max(screen.left+radius,Math.min(x,screen.right-radius));
+                            const cy=Math.max(screen.top+radius,Math.min(y,screen.bottom-radius));
+                            return Math.hypot(x-cx,y-cy)<=radius+.5;
+                          };
+                          const statusInside=[...status.children].every(el=>{
+                            const r=el.getBoundingClientRect();
+                            return [[r.left,r.top],[r.right,r.top],[r.left,r.bottom],[r.right,r.bottom]].every(([x,y])=>inside(x,y));
+                          });
                           return {visibleScreenRatio:visibleHeight/a.height, screenWidth:screen.width,
                             productWidth:product.clientWidth, copyGap:phone.top-copy.bottom,
-                            fullPhoneContained:phone.top>=a.top && phone.bottom<=a.bottom && phone.left>=a.left && phone.right<=a.right,
+                            fullPhoneContained:phone.top>=Math.max(a.top,stage.top) && phone.bottom<=Math.min(a.bottom,stage.bottom) && phone.left>=a.left && phone.right<=a.right,
                             productScrollHeight:product.scrollHeight, productClientHeight:product.clientHeight,
-                            proofImages, balancedRows:rows, text:node.innerText};
+                            proofImages, balancedRows:rows, disclosures, statusInside, text:node.innerText};
                         }""")
                         assert not geometry["proofImages"], geometry["proofImages"]
                         assert .75 <= geometry["visibleScreenRatio"] <= .905, (variant, format_id, story, geometry["visibleScreenRatio"])
@@ -166,6 +189,8 @@ def main() -> None:
                         assert geometry["copyGap"] >= 11.5, (variant, format_id, story, geometry["copyGap"])
                         if variant == "a":
                             assert geometry["fullPhoneContained"], (format_id, story, geometry)
+                        assert geometry["statusInside"], (variant, format_id, "Clipped illustrated status bar")
+                        assert all(abs(row["top"]-row["bottom"]) <= 1.01 for row in geometry["disclosures"]), (variant, format_id, story, geometry["disclosures"])
                         assert "until 30 October" not in geometry["text"] and "Chart my spending" not in geometry["text"]
                         assert not errors, errors
                         filename = f"{variant}-{format_id}-{theme}-{order:02}-{story}.png"
