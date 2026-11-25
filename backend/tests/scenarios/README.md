@@ -150,6 +150,8 @@ Step 2 (H142), numbers are the board's scenario numbers:
   and the switch is replaced by the static Savings are not counted line (frontend gate, rendered from the snapshot's
   account rows; backend asserts the serialised diagnostics and the pool).
 
+- G500 `g500-dismissed-card-statement-payment` and `g500-edited-card-statement-payment-amount`: saved `upcoming_overrides` (fixture key `upcoming_overrides`, docs `{key, date, skip, new_date, new_amount}`, scope one) apply to the dated card statement payment, matched on its name key and original due date. Dismissed leaves 1,350; edited to 500 leaves 850.
+
 Add a scenario whenever a money bug is fixed.
 
 ## Extra fixture keys (H142)
