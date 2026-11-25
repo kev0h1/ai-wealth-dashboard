@@ -219,7 +219,7 @@ async def _seed(spec: dict, uid: str) -> None:
     # account ids are plain strings, so empty the seeded collections first.
     # `_rebind_collections` has already asserted this is a wealth_test_* database.
     for c in (col.preferences_col, col.accounts_col, col.manual_accounts_col, col.cashflow_cache_col,
-              col.transactions_col, col.commitments_col, col.allocations_col, col.card_terms_col):
+              col.transactions_col, col.commitments_col, col.allocations_col, col.card_terms_col, col.upcoming_overrides_col):
         await c.delete_many({})
     await col.preferences_col.insert_one({
         "user_id": uid,
@@ -242,6 +242,8 @@ async def _seed(spec: dict, uid: str) -> None:
         await col.allocations_col.insert_one({"user_id": uid, **_datetimes(a)})
     for term in spec.get("card_terms", []):
         await col.card_terms_col.insert_one({"user_id": uid, **term})
+    for ov in spec.get("upcoming_overrides", []):
+        await col.upcoming_overrides_col.insert_one({"uid": uid, "scope": "one", **ov})
 
 
 def _r2(x):
