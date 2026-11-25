@@ -18,8 +18,11 @@ pace series as the hero. Optional transfer reviews remain absent because this
 fictional example has none. The app's own financial typography and components
 are retained.
 
-Mock signal and battery glyphs have been removed from the handset status area;
-the clock, physical camera cutout and app navigation remain. Upcoming now leads
+The handset status area has no clock, signal or battery glyphs. The light safe
+strip extends below the whole camera cutout: its top inset is 48 pixels on the
+iPhones and 36 pixels on Pixel, including clearance below the Pixel camera ring.
+The dark version uses the corresponding dark screen fill. The physical camera
+cutout, bottom safe area and app navigation retain their existing geometry. Upcoming now leads
 with “See what’s coming up and what needs attention.” The named Monzo current
 account makes the source of the planned car-service payment explicit.
 
@@ -170,7 +173,8 @@ formats, controls, downloads, readable content, model cutouts and balanced
 divider clearance. The independent review and export measurements are recorded
 beside this brief. A preview capture proves the marketing composition only.
 The focused `layout_checks.py` acceptance gate additionally checks body/display
-ratios, uniform scaling, the visible Spend hero/navigation/rail, and the full
+ratios, uniform scaling, camera clearance, the absence of a handset clock,
+the visible Spend hero/navigation/rail, and the full
 goal card plus action text ranges above the actual navigation. Document-level
 scroll metrics alone are insufficient evidence for action visibility.
 The gallery verifier writes its captures to the ignored

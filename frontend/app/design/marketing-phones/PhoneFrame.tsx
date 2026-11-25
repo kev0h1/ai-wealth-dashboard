@@ -40,9 +40,8 @@ export default function PhoneFrame({ model, viewportWidth, children }: Props) {
     <span className={styles.sideButton} aria-hidden="true" />
     <span className={styles.sideButtonLower} aria-hidden="true" />
     <div className={styles.phoneScreen} data-c22-screen>
-      <span className={styles.camera} aria-hidden="true" />
-      <div className={styles.statusBar} aria-hidden="true"><span>09:41</span></div>
-      <div className={styles.screenContent} ref={contentRef}>
+      <span className={styles.camera} data-c22-camera aria-hidden="true" />
+      <div className={styles.screenContent} data-c22-screen-content ref={contentRef}>
         <div className={styles.productViewport} data-c22-product-viewport data-c22-viewport-ready={ready ? "true" : "false"} aria-hidden="true" inert style={{ width: viewportWidth, height: viewportHeight, transform: `scale(${scale})` }}>{children}</div>
       </div>
       <span className={styles.homeGesture} aria-hidden="true" />

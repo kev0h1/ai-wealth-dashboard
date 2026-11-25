@@ -1,30 +1,31 @@
 {
   "item": "C22",
   "status": "local-design-review-passed",
-  "checkedAt": "2026-11-25T20:46:39.124181+00:00",
-  "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+  "checkedAt": "2026-11-25T22:58:30.262727+00:00",
+  "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
   "skills": [
     "impeccable",
     "frontend-design",
     "web-design-guidelines"
   ],
-  "scope": "Eight core marketing stories and one optional 50/30/20 story, using actual product renderers and fictional data. No production component or backend changes.",
+  "scope": "Camera-safe handset top areas and removal of the illustrated clock across both marketing directions, all four formats and both themes. Eight core stories and the optional 50/30/20 story retain their production renderers and fictional data. No production component or backend changes.",
+  "safeAreaChange": "The iPhone top inset is 48px and Pixel is 36px, extending the existing light or dark screen fill below the entire camera cutout. The Pixel camera ring is included in clearance measurements. No time, signal or battery status markup is rendered. The physical camera, chassis/display ratios, canonical app width, uniform scale and 18px bottom inset are preserved.",
   "financialChecks": "Current account Available values £272/£150/£0, one global £110 buffer and pooled £312 reconcile. The unsaved future £120 Car service proposal uses add_planned and names Monzo current account. The separate completed 30 Sep to 29 Oct 2026 split reconciles £1,800 income, Fixed £900, Moved £300, Free £450 and Left £150; exact reference differences are £0, −£60 and −£90.",
   "nativeMetrics": {
     "nativeCases": 144,
     "errors": [],
-    "sourceFingerprint": "6d17afaa54467ffb6452bec50f0f962e1bcced4d307a6e14934a6c110e818a15",
+    "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
     "purposeCards": 16,
     "purposeActionTextRanges": 32,
-    "minimumPurposeClearanceCssPx": 180.96874396745548,
+    "minimumPurposeClearanceCssPx": 159.93749787086665,
     "goalCards": 16,
-    "minimumGoalClearanceCssPx": 71.21876454907795,
+    "minimumGoalClearanceCssPx": 50.1875184524891,
     "splitCards": 16,
-    "minimumSplitClearanceCssPx": 83.73433206247729,
+    "minimumSplitClearanceCssPx": 62.70308596588845,
     "balancedRows": 64,
     "maximumBalancedRowAsymmetryCssPx": 1.0000701821142712,
     "closedDisclosures": 128,
-    "maximumDisclosureAsymmetryCssPx": 1.0000243454836717,
+    "maximumDisclosureAsymmetryCssPx": 1.0000598350267733,
     "accountGapPairs": [
       [
         13.0,
@@ -57,6 +58,18 @@
     "byAccountVisible": 16,
     "mockSystemIconCases": 0,
     "fullPhoneContained": 144,
+    "clockAbsentCases": 144,
+    "cameraInsideScreenCases": 144,
+    "cameraClearanceByFormatCssPx": {
+      "iphone-63": 12.98342784298211,
+      "iphone-69": 12.986059811747886,
+      "iphone-65": 12.991703186827213,
+      "android": 11.991792357298939
+    },
+    "safeTopByModelCssPx": {
+      "iphone": 48,
+      "pixel": 36
+    },
     "packs": 16,
     "packImages": 8,
     "additionalImages": 1,
@@ -74,67 +87,116 @@
   },
   "rootNativeVisuals": [
     "a-iphone-63-light-01-amount.png",
-    "a-iphone-63-light-02-upcoming.png",
-    "a-iphone-63-light-03-upcoming-accounts.png",
-    "a-iphone-63-light-04-cover.png",
-    "a-iphone-63-light-06-aside.png",
+    "a-iphone-63-light-08-schedule.png",
     "a-iphone-63-light-07-goal.png",
-    "a-iphone-63-light-09-split.png",
     "a-android-light-01-amount.png",
-    "a-android-light-02-upcoming.png",
-    "a-android-light-03-upcoming-accounts.png",
-    "a-android-light-04-cover.png",
-    "a-android-light-06-aside.png",
     "a-android-light-07-goal.png",
-    "a-android-light-09-split.png",
-    "a-iphone-63-dark-02-upcoming.png",
-    "a-iphone-63-dark-06-aside.png",
-    "a-iphone-63-dark-07-goal.png",
-    "a-iphone-63-dark-09-split.png",
-    "b-android-dark-05-spend.png",
-    "b-android-dark-09-split.png"
+    "a-android-light-08-schedule.png",
+    "a-iphone-65-light-08-schedule.png",
+    "a-iphone-63-dark-08-schedule.png",
+    "a-android-dark-08-schedule.png",
+    "b-iphone-63-dark-05-spend.png",
+    "b-iphone-63-dark-09-split.png"
   ],
   "independentReview": {
     "status": "passed",
     "agent": "c22_phone_independent_audit",
     "nativeVisuals": [
-      "a-iphone-69-light-02-upcoming.png",
-      "a-iphone-69-light-06-aside.png",
       "a-iphone-69-light-07-goal.png",
-      "a-iphone-69-light-09-split.png",
-      "a-iphone-65-light-02-upcoming.png",
-      "a-iphone-65-light-06-aside.png",
+      "a-iphone-69-light-08-schedule.png",
       "a-iphone-65-light-07-goal.png",
-      "a-iphone-65-light-09-split.png",
-      "b-iphone-69-dark-02-upcoming.png",
-      "b-iphone-69-dark-06-aside.png",
+      "a-iphone-65-light-08-schedule.png",
+      "a-android-light-01-amount.png",
+      "a-android-light-04-cover.png",
       "b-iphone-69-dark-07-goal.png",
-      "b-iphone-69-dark-09-split.png",
-      "b-iphone-65-dark-02-upcoming.png",
-      "b-iphone-65-dark-06-aside.png",
+      "b-iphone-69-dark-08-schedule.png",
       "b-iphone-65-dark-07-goal.png",
-      "b-iphone-65-dark-09-split.png"
+      "b-iphone-65-dark-08-schedule.png",
+      "b-android-dark-07-goal.png",
+      "b-iphone-63-dark-08-schedule.png"
     ],
-    "scope": "Source, financial semantics, G474 spacing and native visual audit."
+    "scope": "Independent source, native images, handset geometry, action visibility, G474 spacing, gallery, keyboard, saved-theme restoration and downloads audit.",
+    "galleryVisuals": [
+      "gallery-light-390-preview.png",
+      "gallery-dark-390-preview.png",
+      "gallery-light-1440-preview.png",
+      "gallery-dark-1440-preview.png"
+    ]
   },
   "galleryReview": {
     "status": "passed",
-    "cases": 34,
-    "capturesRead": 14,
+    "cases": 38,
+    "capturesRead": 10,
+    "visualsRead": [
+      "gallery-light-320-top.png",
+      "gallery-light-390-preview.png",
+      "gallery-light-1440-preview.png",
+      "gallery-light-390-download-item.png",
+      "gallery-light-390-extra-item.png",
+      "gallery-dark-320-top.png",
+      "gallery-dark-390-preview.png",
+      "gallery-dark-1440-preview.png",
+      "gallery-dark-390-download-item.png",
+      "gallery-dark-390-extra-item.png"
+    ],
     "downloadsHttp200": 160,
     "pageErrors": [],
     "keyboardStops": 9,
     "savedThemeCases": 2,
-    "proofCaptureCorrection": "The capture harness waited for the additional lazy image to decode before taking evidence screenshots. The confirmation run passed 34 cases with 160 successful downloads and no page errors. Both corrected theme captures were visually reviewed; rendering source and assets are unchanged."
+    "spacing": {
+      "cases": 38,
+      "widths": [
+        320,
+        390,
+        1440
+      ],
+      "themes": [
+        "dark",
+        "light"
+      ],
+      "identityRows": 12,
+      "identityGapPairsCssPx": [
+        [
+          12.0,
+          12.0
+        ]
+      ],
+      "maximumIdentityAsymmetryCssPx": 8.86832163828899e-05,
+      "closedDisclosures": 36,
+      "disclosureGapPairsCssPx": [
+        [
+          11.5,
+          11.5
+        ],
+        [
+          13.0,
+          13.0
+        ],
+        [
+          14.0,
+          14.0
+        ],
+        [
+          15.0,
+          16.0
+        ]
+      ],
+      "maximumDisclosureAsymmetryCssPx": 1.0000440437905844,
+      "clockAbsentCases": 38,
+      "minimumCameraClearanceCssPx": 13.00547219256545
+    },
+    "harnessCorrection": "The production preview blocks bare-string evaluation during the return to /design. The readiness and theme-restoration predicates now use functions, preserving the same assertions without changing application CSP. The complete confirmation run passed; rendering source and the 144 assets stayed unchanged."
   },
   "localChecks": {
-    "TypeScript": "passed",
+    "TypeScriptProductionBuild": "passed",
     "scopedESLint": "passed",
     "financialFixtureVerifier": "passed",
-    "assetProvenanceSizesRgbZipContents": "passed"
+    "assetProvenanceSizesRgbZipContents": "passed",
+    "designIndex": "passed",
+    "designStale": "passed"
   },
   "delivery": {
     "status": "pending at this source snapshot",
-    "next": "Mandatory session finish, exact-pin coordinator integration and public UAT verification. Final delivery evidence belongs on C22."
+    "record": "Mandatory session checks, exact-pin coordinator integration and public UAT verification are recorded separately on C22."
   }
 }

@@ -58,10 +58,10 @@ with sync_playwright() as pw:
    page.set_viewport_size({'width':width,'height':900})
    response=page.goto(f'http://127.0.0.1:3158/design/marketing-phones?mode={theme}',wait_until='networkidle');assert response.status==200
    page.wait_for_selector('[data-c22-viewport-ready="true"]');page.evaluate('document.fonts.ready')
-   page.wait_for_function('document.querySelector("[data-c22-preview-ready=true]") !== null')
+   page.wait_for_function('() => document.querySelector("[data-c22-preview-ready=true]") !== null')
    page.evaluate('()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))')
    page.add_style_tag(content='nextjs-portal{display:none!important}');page.evaluate('window.scrollTo(0,0)')
-   measure=page.evaluate(MEASURE);results.append({'theme':theme,'width':width,'story':'amount',**measure})
+   measure=page.evaluate(MEASURE);measure['fidelity']=check_layout(page.locator('[data-c22-artboard]'),'iphone-63','amount');results.append({'theme':theme,'width':width,'story':'amount',**measure})
    assert measure['scrollWidth']<=width+1 and measure['allProductControlsInert']
    assert measure['navDisplayed']=='flex' and measure['productWidth']>=320
    assert measure['downloadColumns']==(1 if width<500 else 4),measure
@@ -81,14 +81,13 @@ with sync_playwright() as pw:
      extra.locator('img').evaluate('(image)=>image.decode()')
      page.evaluate('()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))')
      name=f'gallery-{theme}-390-extra-item.png';extra.screenshot(path=str(OUT/name),animations='disabled');captures.append(str(OUT/name))
-    for story in ['upcoming','upcoming-accounts','cover','aside','goal','spend','split']:
+    for story in ['upcoming','upcoming-accounts','cover','aside','goal','spend','schedule','split']:
      fold_before=page.evaluate('(key)=>sessionStorage.getItem(key)',FINE_KEY)
      page.goto(f'http://127.0.0.1:3158/design/marketing-phones?mode={theme}&story={story}',wait_until='networkidle')
      page.wait_for_selector('[data-c22-viewport-ready="true"]');page.evaluate('document.fonts.ready')
-     m=page.evaluate(MEASURE);results.append({'theme':theme,'width':width,'story':story,**m})
+     m=page.evaluate(MEASURE);m['fidelity']=check_layout(page.locator('[data-c22-artboard]'),'iphone-63',story);results.append({'theme':theme,'width':width,'story':story,**m})
      assert all(abs(row['top']-row['bottom'])<=1.01 for row in m['disclosures']),m['disclosures']
      assert all(abs(row['top']-row['bottom'])<=1.01 for row in m['identityRows']),m['identityRows']
-     check_layout(page.locator('[data-c22-artboard]'),'iphone-63',story)
      assert page.evaluate('(key)=>sessionStorage.getItem(key)',FINE_KEY)==fold_before, 'Artwork changed account-fold preference'
   context.close()
  context=browser.new_context(viewport={'width':390,'height':900},reduced_motion='reduce')
@@ -135,7 +134,7 @@ with sync_playwright() as pw:
    states.append({'theme':theme,**state})
   assert states[0]['card']==states[2]['card'] and states[0]['card']!=states[1]['card']
   page.get_by_role('link',name='Design previews',exact=True).click();page.wait_for_url('**/design')
-  page.wait_for_function("document.documentElement.classList.contains('dark') === "+('true' if saved=='1' else 'false'))
+  page.wait_for_function("expected => document.documentElement.classList.contains('dark') === expected", arg=saved=='1')
   assert page.evaluate("document.documentElement.classList.contains('dark')")==(saved=='1')
   assert page.evaluate("document.documentElement.style.colorScheme") == original_scheme
   theme_switches.append({'saved':saved,'states':states,'restored':True,'restoredInlineScheme':original_scheme})
