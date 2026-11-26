@@ -4,6 +4,7 @@ import { getInstallId } from "./installId";
 import { isAppLocked } from "./appLock";
 import { invalidateEndpoint, TRANSACTIONS_CHANGED_KEYS } from "./endpointCache";
 import { LEGACY_BANK_AVAILABLE, LEGACY_BANK_ID } from "./legacyBankProvider";
+import { buildDecisionBody } from "./oauthScopes";
 import type { AccountRefreshResult } from "./accountRefresh";
 import type { IncomeForecastEvidence } from "./incomeEvidence";
 import type { FiledTransfersQuery, FiledTransfersResponse, FiledTransfersUndoResult } from "./filedTransfers";
@@ -807,9 +808,16 @@ export type Overspending = {
   trend: OverspendingTrend;
   /** The user answered "one-off" for this period (asked, never inferred). */
   acknowledged: boolean;
+  /** Server-validated current, fresh result that may be presented to the user. */
+  display_ready?: boolean;
+  /** A Home heads-up has already been granted for this pay period. */
+  heads_up_seen?: boolean;
   computed_at?: string;
   schema_version?: number;
 };
+
+export type OverspendingOneOffResponse = { ok: boolean; period_end: string; acknowledged: boolean };
+export type OverspendingHeadsUpResponse = { shown: boolean; period_end: string };
 
 export type SpendVerdict = {
   state: SpendVerdictState;
@@ -1117,9 +1125,27 @@ export type CardPlanFacts = {
   period_label?: string;
   would_clear_by_month?: string | null;
   would_clear_by?: string | null;
+  /** G492: backend-proven payoff estimate. Older snapshots omit this entirely. */
+  finish_estimate?: CardPlanFinishEstimate | null;
   promo?: CardPlanOfferFacts | null;
   offers?: CardPlanOfferFacts[];
 };
+
+/** A finish date is present only when the persisted forecast clears before its 0% offer ends. */
+export type CardPlanFinishEstimate =
+  | { status: "ready"; month: string; label: string; basis: "before_offer_end" }
+  | {
+      status: "unavailable";
+      reason:
+        | "future_plan"
+        | "paused"
+        | "ended"
+        | "balance_cleared"
+        | "offer_progress_unavailable"
+        | "forecast_unavailable"
+        | "no_payoff"
+        | "offer_boundary";
+    };
 
 /** G492: positions, residual and target are computed and stored by the backend. */
 export type CardPlanOfferFacts = {
@@ -2047,6 +2073,8 @@ export type CompanionItem = {
   /** G359: set on the ask that carries a hedged income prompt ("confirm_salary" or "payday_funds_moves"). */
   income_note_kind?: "confirm_salary" | "payday_funds_moves";
   plan_dest?: PlanDest;
+  /** G496: on the no-source cover item, the goals and set-asides a review could free. */
+  last_resort?: LastResort;
   /** G212: account row for a cover plan card with no transfer source (readable name, balance and payments in one line). */
   dest_row?: { title: string; detail: string };
   covered?: boolean;
@@ -2202,6 +2230,25 @@ export type AccountEligibility = {
   earmarked_total?: number;
   covered_by_move?: { amount: number; shortfall?: number; savings_amount?: number; current_amount?: number; from: { account_id: string; name: string; amount: number; display_label?: string | null; source_kind?: "savings" }[] };
   short_after_cover?: number;
+  /** G496: read-only last resort when no account can cover the gap; absent otherwise. */
+  last_resort?: LastResort;
+};
+
+/** G496: goals and set-asides paid from a still-short account, largest first. Recommendation only. */
+export type LastResort = {
+  gap: number;
+  total_frees: number;
+  covers_gap: boolean;
+  sentence: string;
+  options: {
+    plan_id: string;
+    record_id: string;
+    kind: "goal" | "set_aside";
+    name: string;
+    remaining: number;
+    frees: number;
+    covers_gap: boolean;
+  }[];
 };
 
 export type TodayResponse = {
@@ -3743,6 +3790,12 @@ export const api = {
   paceDetail: (offset = 0) => get<PaceDetail>(`/pace/detail?offset=${offset}`),
   categorySignals: (offset = 0) => get<CategorySignals>(`/spend/category-signals?offset=${offset}`),
   spendVerdict: (offset = 0) => get<SpendVerdict>(`/spend/verdict?offset=${offset}`),
+  recordOverspendingOneOff: (periodEnd: string) =>
+    post<OverspendingOneOffResponse>("/spend/overspend/one-off", { period_end: periodEnd }),
+  deleteOverspendingOneOff: (periodEnd: string) =>
+    del<OverspendingOneOffResponse>(`/spend/overspend/one-off?period_end=${encodeURIComponent(periodEnd)}`),
+  claimOverspendingHeadsUp: (periodEnd: string) =>
+    post<OverspendingHeadsUpResponse>("/spend/overspend/heads-up", { period_end: periodEnd }),
   dismissUnresolvedAsk: (txnId: string) =>
     post<{ ok: boolean }>("/spend/verdict/dismiss-unresolved", { txn_id: txnId }),
   cashflow: () => get<CashflowData>("/cashflow"),
@@ -3752,8 +3805,8 @@ export const api = {
   // back the /oauth/consent page; listOAuthConnections/revokeOAuthConnection
   // back F4's "Connected assistants" settings card.
   getOAuthRequest: (reqId: string) => get<OAuthRequestDetails>(`/oauth/request/${encodeURIComponent(reqId)}`),
-  decideOAuthRequest: (reqId: string, approve: boolean) =>
-    post<{ redirect: string }>("/oauth/decision", { req_id: reqId, approve }),
+  decideOAuthRequest: (reqId: string, approve: boolean, grantedScopes?: string[]) =>
+    post<{ redirect: string }>("/oauth/decision", buildDecisionBody(reqId, approve, grantedScopes)),
   listOAuthConnections: () => get<{ connections: OAuthConnection[] }>("/oauth/connections"),
   revokeOAuthConnection: (clientId: string) =>
     fetch(`${API_BASE}/oauth/connections/${encodeURIComponent(clientId)}`, {

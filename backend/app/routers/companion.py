@@ -134,8 +134,17 @@ async def _with_overspending(payload, uid: str):
     outside the response cache, so an acknowledgement shows at once."""
     if not isinstance(payload, dict):
         return payload
-    from app.services.overspending import read_stored_overspending
-    return {**payload, "overspending": await read_stored_overspending(uid)}
+    from app.services.overspending_moments import closed_period_observation, read_overspending_moment
+    moment = await read_overspending_moment(uid)
+    # Enrich the existing close invitation, outside the cached payload. History
+    # is stored at sync; no closed-period calculation is done on a page load.
+    items = []
+    for item in payload.get("items") or []:
+        observation = None
+        if item.get("type") == "needle":
+            observation = closed_period_observation(moment, str(item.get("id", "")).removeprefix("needle:"))
+        items.append({**item, "body": observation} if observation else item)
+    return {**payload, "items": items, "overspending": moment}
 
 
 COVER_PLAN_CACHE = "cover_plan"

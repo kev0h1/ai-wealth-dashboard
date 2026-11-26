@@ -160,6 +160,7 @@ async def _recompute(uid: str) -> None:
     from app.services.categorisation import apply_rules_bulk, categorise_others_bg
     from app.services.derived_caches import mark_stale, recompute_derived_caches
     from app.services.manual_account_rules import apply_rules as apply_mirror_rules
+    figures_refreshed = False
     try:
         await apply_rules_bulk(uid, structural=True)
         await categorise_others_bg(uid)
@@ -171,8 +172,15 @@ async def _recompute(uid: str) -> None:
         await cashflow_cache_col.update_one(
             {"_id": uid}, {"$set": {"synced_at": _utcnow()}}, upsert=True,
         )
-        await recompute_derived_caches(uid, new_count=0, trigger="user")
+        computed = await recompute_derived_caches(uid, new_count=0, trigger="user")
+        figures_refreshed = isinstance(computed, dict) and computed.get("recomputed") is True
     except Exception:
         logger.exception("post-refresh recompute failed for %s", uid)
     finally:
         await response_cache.ainvalidate(uid)
+    if figures_refreshed:
+        try:
+            from app.services.warmup import warm_after_sync
+            await warm_after_sync(uid)
+        except Exception:
+            logger.exception("post-refresh warm failed for %s", uid)

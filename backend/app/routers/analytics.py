@@ -4937,7 +4937,7 @@ async def _build_cashflow_response(cached: dict, uid: str | None = None, prefs: 
     statement_bills_unverified = False
     if uid:
         try:
-            from app.services.card_statements import apply_statement_bills, load_statement_bills, statement_card_for_bill
+            from app.services.card_statements import apply_statement_bills, apply_statement_overrides, load_statement_bills, statement_card_for_bill
             statement_bills = await load_statement_bills(uid, today=today_d)
             if statement_bills:
                 _statement_accounts = {str(a["_id"]): a for a in await accounts_col.find({"user_id": uid}).to_list(None)}
@@ -4946,6 +4946,8 @@ async def _build_cashflow_response(cached: dict, uid: str | None = None, prefs: 
                     raw_bills, statement_bills, _statement_accounts, today_d, window_end.date(),
                     observed_pending=raw_observed_pending_bills,
                 )
+                # G500: saved dismissals and edits on the dated statement payments.
+                raw_bills = apply_statement_overrides(raw_bills, overrides, today_d, window_end.date())
                 # Preserve the weekly projection's existing non-card scope.
                 # Adjust only the learned occurrences the dated rule replaces.
                 _bill_occ_dates.extend(

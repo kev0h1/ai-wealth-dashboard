@@ -32,11 +32,12 @@ type PreviewRoute = {
 
 const ROUTES: PreviewRoute[] = [
   {
-    slug: "card-plan-progress",
-    name: "Debt repayment plan rows · G492",
-    description: "A Progress first and B Payment row compare compact plans with full names, scheduled payments, recorded offer targets and an expected-by-now marker. Fictional reconciled fixtures include future starts, long names, unavailable progress and hidden figures. Financial results are precomputed; no live data or bank actions.",
-    variants: [{ label: "A · Progress first", value: "a" }, { label: "B · Payment row", value: "b" }],
-    states: [{ label: "Ready", value: "ready" }, { label: "Future start", value: "future" }, { label: "Paused", value: "paused" }, { label: "Loading", value: "loading" }, { label: "Updating", value: "stale" }, { label: "Unavailable", value: "unavailable" }, { label: "No plans", value: "empty" }, { label: "Hidden", value: "hidden" }, { label: "Long names", value: "long" }],
+    slug: "marketing-phones",
+    name: "Marketing kit with iPhone and Android frames · C22",
+    description:
+      "Revised store artwork: A Full phone and B Close view, with model iPhone and Pixel frames. Eight ordered stories show two accounts to spend from, both Upcoming views and creating a one-off with Penny. An additional 50/30/20 image compares a completed pay period. Production components at 3x with fictional figures, separate light and dark PNGs and eight-image ZIP sets. Review before publication.",
+    states: [{ label: "Left to spend", value: "amount" }, { label: "By payment", value: "upcoming" }, { label: "By account", value: "upcoming-accounts" }, { label: "Plan a one-off", value: "aside" }, { label: "50/30/20", value: "split" }],
+    variants: [{ label: "A · Full phone", value: "a" }, { label: "B · Close view", value: "b" }],
     group: "current",
   },
   {
@@ -122,8 +123,8 @@ const ROUTES: PreviewRoute[] = [
   },
   {
     slug: "marketing-kit",
-    name: "Sorted marketing kit · C22",
-    description: "Final-UI refresh: eight ordered App Store and Google Play screenshots in both themes, three iPhone sizes, Play feature graphics and download packs. Plus 36 Instagram images and 16 edited films, using current production components with fictional data, sound and captions. Review before publication.",
+    name: "Marketing social films and earlier store artwork · C22",
+    description: "Existing Instagram images, captioned films and earlier store artwork. The revised iPhone and Android store round is at marketing-phones. These earlier store images use frozen product captures and have been superseded for review.",
     states: [{ label: "Light", value: "light" }, { label: "Dark", value: "dark" }],
     variants: [
       { label: "Movement", value: "movement" },

@@ -643,3 +643,66 @@ def apply_statement_bills(
             "dest_account_id": None, "dest_account_spendable": None,
         })
     return kept, known
+
+
+STATEMENT_BILL_PREFIX = "card-statement:"
+
+
+def apply_statement_overrides(bills: list[dict], overrides: list[dict], today: date, window_end: date) -> list[dict]:
+    """G500: honour saved per-occurrence decisions on the dated statement payments.
+
+    Rule: a bill named `card-statement:<card>:<statement close>` whose original due date
+    (`original_date`, else `expected_date`) equals a saved override's `date` under that same
+    key is dropped when the override has `skip`, otherwise takes its `new_date` and/or
+    `new_amount`. A new statement has a new close date, so a skip never carries over.
+    Learned series already had their overrides applied upstream; they are returned untouched.
+    """
+    from app.services.own_account_transfers import saved_key_applies
+
+    if not overrides:
+        return bills
+    out: list[dict] = []
+    for b in bills:
+        name = str(b.get("name") or "")
+        if not name.startswith(STATEMENT_BILL_PREFIX) or not b.get("is_card_repayment"):
+            out.append(b)
+            continue
+        due_str = b.get("original_date") or b.get("expected_date")
+        edited_date: str | None = None
+        edited_amount = None
+        skipped = False
+        for ov in overrides:
+            if not saved_key_applies(ov.get("key"), name):
+                continue
+            ov_date = ov.get("date", "")
+            scope = ov.get("scope", "one")
+            if not (due_str == ov_date or (scope == "future" and due_str and due_str >= ov_date)):
+                continue
+            if ov.get("skip"):
+                skipped = True
+                break
+            if ov.get("new_date"):
+                edited_date = ov["new_date"]
+            if ov.get("new_amount") is not None:
+                edited_amount = _money(ov["new_amount"])
+        if skipped:
+            continue
+        if edited_date is None and edited_amount is None:
+            out.append(b)
+            continue
+        nb = dict(b)
+        if edited_amount is not None and edited_amount > 0:
+            nb["amount"] = edited_amount
+        if edited_date:
+            d = date.fromisoformat(edited_date)
+            display = max(d, today)
+            if display > window_end:
+                continue
+            nb["expected_date"] = display.isoformat()
+            nb["days_away"] = (display - today).days
+            nb["pending"] = d <= today
+            nb["days_past_due"] = max(0, (today - d).days)
+            nb["original_date"] = d.isoformat() if d != display else None
+        nb["edited"] = True
+        out.append(nb)
+    return out

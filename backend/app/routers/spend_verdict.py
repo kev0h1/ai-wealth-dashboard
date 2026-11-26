@@ -13,7 +13,8 @@ from app.core.auth import current_user
 from app.db.collections import preferences_col
 from app.services import response_cache
 from app.services.checkpoints import delete_intent
-from app.services.overspending import delete_one_off, read_stored_overspending, record_one_off
+from app.services.overspending import delete_one_off, record_one_off
+from app.services.overspending_moments import claim_home_heads_up, read_overspending_moment
 from app.services.spend_impact import compute_intent_preview
 from app.services.spend_verdict import compute_spend_verdict
 
@@ -47,7 +48,17 @@ async def _with_overspending(payload: dict, uid: str, offset: int) -> dict:
     and the cached entry is never mutated."""
     if offset != 0:
         return payload
-    return {**payload, "overspending": await read_stored_overspending(uid)}
+    return {**payload, "overspending": await read_overspending_moment(uid)}
+
+
+@router.post("/spend/overspend/heads-up")
+async def post_overspend_heads_up(body: dict, user: dict = Depends(current_user)):
+    """Grant one Home display per period; a view is never a one-off answer."""
+    period_end = _parse_period_end(body.get("period_end"))
+    if period_end is None:
+        raise HTTPException(400, "Provide period_end")
+    pe = period_end.isoformat()
+    return {"shown": await claim_home_heads_up(user["email"], pe), "period_end": pe}
 
 
 @router.post("/spend/overspend/one-off")

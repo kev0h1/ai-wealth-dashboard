@@ -48,17 +48,26 @@ export function cachedVerdict(offset: number): SpendVerdict | null {
   return hit && Date.now() - hit.at < VERDICT_TTL_MS ? hit.data : null;
 }
 
-export function fetchVerdictData(offset: number): Promise<SpendVerdict> {
-  const fresh = cachedVerdict(offset);
-  if (fresh) return Promise.resolve(fresh);
+export function fetchVerdictData(offset: number, forceFresh = false): Promise<SpendVerdict> {
+  // An explicit entry from Home must observe the server's current verdict,
+  // rather than a warm period or a pre-navigation request. It deliberately
+  // replaces, rather than joins, any older in-flight read for this offset.
+  if (forceFresh) verdictCache.delete(offset);
+  if (!forceFresh) {
+    const fresh = cachedVerdict(offset);
+    if (fresh) return Promise.resolve(fresh);
+  }
   const pending = verdictInflight.get(offset);
-  if (pending) return pending;
+  if (pending && !forceFresh) return pending;
   const p = api.spendVerdict(offset)
     .then(v => {
-      verdictCache.set(offset, { data: v, at: Date.now() });
+      // Only the request that still owns this slot may write. A superseded
+      // or invalidated request still resolves to its own caller, but can
+      // neither revive stale cache data nor disturb a newer dedup slot.
+      if (verdictInflight.get(offset) === p) verdictCache.set(offset, { data: v, at: Date.now() });
       return v;
     })
-    .finally(() => { verdictInflight.delete(offset); });
+    .finally(() => { if (verdictInflight.get(offset) === p) verdictInflight.delete(offset); });
   verdictInflight.set(offset, p);
   return p;
 }

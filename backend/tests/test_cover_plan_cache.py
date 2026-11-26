@@ -74,7 +74,7 @@ def test_warm_user_populates_cover_plan(monkeypatch):
 
     for n in ("_compute_card_plan_progress", "_compute_today", "_compute_safe_to_spend", "_compute_spend_verdict",
               "_compute_miscategorised_count", "_compute_miscategorised_list",
-              "_compute_grow", "_compute_commitments"):
+              "_compute_grow", "_compute_commitments", "_compute_overspending"):
         monkeypatch.setattr(warmup, n, ok)
 
     async def go():
@@ -94,7 +94,7 @@ def _stub_other_steps(monkeypatch):
 
     for n in ("_compute_card_plan_progress", "_compute_today", "_compute_safe_to_spend", "_compute_spend_verdict",
               "_compute_miscategorised_count", "_compute_miscategorised_list",
-              "_compute_grow", "_compute_commitments"):
+              "_compute_grow", "_compute_commitments", "_compute_overspending"):
         monkeypatch.setattr(warmup, n, ok)
 
 

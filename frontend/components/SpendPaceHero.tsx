@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useState } from "react";
+import { Fragment, useId, useState, type ReactNode } from "react";
 import { ChevronDown, CircleAlert, Info } from "lucide-react";
 import TransactionRow from "@/components/TransactionRow";
 import type { SpendVerdict, Transaction } from "@/lib/api";
@@ -16,10 +16,14 @@ export interface SpendPaceHeroProps {
   onTransactionClick: (transaction: Transaction) => void;
   onOutTap: () => void;
   onMovedTap: () => void;
+  /** Preview-only rendering seam. Production keeps TransactionRow unchanged. */
+  renderIncomeTransaction?: (transaction: Transaction) => ReactNode;
+  /** Optional status presentation; the default remains the existing pace badge. */
+  renderStatus?: (model: Pick<ReturnType<typeof spendHeroModel>, "status" | "direction">) => ReactNode;
 }
 
 /** Approved G186 typography B, shared by production and its preview. */
-export default function SpendPaceHero({ verdict, incomeTxns, incomeLoading = false, onIncomeOpen, onTransactionClick, onOutTap, onMovedTap }: SpendPaceHeroProps) {
+export default function SpendPaceHero({ verdict, incomeTxns, incomeLoading = false, onIncomeOpen, onTransactionClick, onOutTap, onMovedTap, renderIncomeTransaction, renderStatus }: SpendPaceHeroProps) {
   const [incomeOpen, setIncomeOpen] = useState(false);
   const incomeId = useId();
   const spendHeroMoney = useMaskedFormatter(spendHeroMoneyRaw);
@@ -36,10 +40,10 @@ export default function SpendPaceHero({ verdict, incomeTxns, incomeLoading = fal
   return <section data-g186-hero="b" data-g186-scale="b" data-tutorial-id="tutorial-spend-verdict" className="glass-hero min-w-0 rounded-3xl p-5 shadow-sm sm:p-6" aria-label={`${period} spending summary`}>
     <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
       <h2 className={label}>{verdict.period.closed ? "Out in completed period" : "Out this pay period"}</h2>
-      <span className={`inline-flex items-center gap-1 rounded-full px-2 py-1 text-[11px] font-semibold text-slate-700 dark:text-slate-200 ${model.direction === "above" ? "bg-amber-50 dark:bg-amber-400/10" : "bg-slate-100 dark:bg-slate-700"}`}>
+      {renderStatus ? renderStatus({ status: model.status, direction: model.direction }) : <span className={`inline-flex items-center gap-1 rounded-full px-2 py-1 text-[11px] font-semibold text-slate-700 dark:text-slate-200 ${model.direction === "above" ? "bg-amber-50 dark:bg-amber-400/10" : "bg-slate-100 dark:bg-slate-700"}`}>
         {model.direction === "above" ? <CircleAlert size={13} className="text-amber-600 dark:text-amber-400" aria-hidden="true" /> : <Info size={13} className="text-slate-500 dark:text-slate-300" aria-hidden="true" />}
         {model.status}
-      </span>
+      </span>}
     </div>
     <div className="mt-3">
       <button data-out-amount type="button" onClick={onOutTap} aria-label={`Show spending behind ${out} out`} className={`${action} ${amountSize} whitespace-nowrap text-left font-mono font-bold leading-tight tracking-[-0.025em] tabular-nums text-slate-950 dark:text-white`}>{out}</button>
@@ -64,7 +68,9 @@ export default function SpendPaceHero({ verdict, incomeTxns, incomeLoading = fal
       <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">Income this period</h3>
       {incomeLoading && incomeTxns.length === 0 ? <p role="status" className="mt-2 text-[13px] text-slate-600 dark:text-slate-300">Loading income payments…</p>
         : incomeTxns.length === 0 ? <p className="mt-2 text-[13px] text-slate-600 dark:text-slate-300">No income payments to show.</p>
-          : <div className="mt-2 lg:max-h-64 lg:overflow-y-auto lg:overscroll-contain">{incomeTxns.map(transaction => <TransactionRow key={transaction.id} transaction={transaction} onClick={() => onTransactionClick(transaction)} />)}</div>}
+          : <div className="mt-2 lg:max-h-64 lg:overflow-y-auto lg:overscroll-contain">{incomeTxns.map(transaction => renderIncomeTransaction
+            ? <Fragment key={transaction.id}>{renderIncomeTransaction(transaction)}</Fragment>
+            : <TransactionRow key={transaction.id} transaction={transaction} onClick={() => onTransactionClick(transaction)} />)}</div>}
     </div>}
     {verdict.pills.spent !== 0 && <details className="group mt-3 border-t border-slate-200 dark:border-slate-700">
       <summary className={`${action} flex cursor-pointer list-none items-center justify-between gap-3 text-[13px] font-semibold text-slate-700 dark:text-slate-200 [&::-webkit-details-marker]:hidden`}>How Out adds up <ChevronDown size={16} aria-hidden="true" className="shrink-0 transition-transform group-open:rotate-180 motion-reduce:transition-none" /></summary>

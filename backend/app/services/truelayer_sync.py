@@ -318,6 +318,13 @@ async def sync_connection_with_derived(connection_id: str, user_id: str) -> tupl
             return ids, new_count
         for cid, run in first_sync_runs:
             await complete_first_sync(connections_col, cid, run)
+        # The callback is also a complete sync path. Refresh the stored
+        # reading after the final version bump, before considering its push.
+        try:
+            from app.services.warmup import warm_after_sync
+            await warm_after_sync(user_id)
+        except Exception:
+            logger.exception("post-callback warm failed for %s", user_id)
         return ids, new_count
     except Exception:
         for cid, run in first_sync_runs:
@@ -613,6 +620,6 @@ async def _sync_connection(
             )
 
     if all_new_txns and not is_initial_sync and user_id and user_id != "unknown":
-        asyncio.create_task(notify_after_sync(user_id, all_new_txns))
+        asyncio.create_task(notify_after_sync(user_id, all_new_txns, include_spending_pace=False))
 
     return fetched, len(all_new_txns)

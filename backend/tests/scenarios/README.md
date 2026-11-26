@@ -134,6 +134,9 @@ Step 2 (H142), numbers are the board's scenario numbers:
   needs, no goal pot is a plan destination. Headroom and the payday plan read the schedule through
   `_goal_source_slices` (G375), so the daily goal is 354.48 on every surface.
 - G465 `g465-daily-goal-counts-only-payments-from-its-start`: a daily rising goal (12.12, +4p a day) starting mid-period with matching payments before and after the start; only the later ones count, the reserve is planned less paid (136.84), and Left to spend deducts it.
+- G495 `g495-potless-goal-reserved-at-its-source-no-cover-move`: a goal with a stored source account but no funding pot is reserved at that source (cover finder, payday plan and Upcoming agree), so the finder never suggests moving money the goal has earmarked.
+- G498 `g498-plan-short-account-is-not-a-payment-source`: a payment-short account and a plan-short account on the same run; the plan-short account (highest spare, so the old payment pass picked it) is never a source, and no account is both a destination and a source, giving two moves instead of a pass-through.
+- G496 `g496-no-source-last-resort-names-goals-on-the-short-account`: when no account can cover a payment or plan gap, the short account carries a read-only `last_resort` naming the goals and set-asides it pays for (largest first, frees capped at the gap); no move or reserve changes.
 - 8 `set-aside-in-a-pot-reserved-at-its-source`: an allocation filling a savings pot, its source learned from a
   same-day paired transfer; the unfilled 150 is reserved at the source in Left to spend, headroom and positions,
   the pot is never spendable.
@@ -146,6 +149,8 @@ Step 2 (H142), numbers are the board's scenario numbers:
   Savings pool only, never spendable, the account sheet shows the empty-state copy with the bank data time line,
   and the switch is replaced by the static Savings are not counted line (frontend gate, rendered from the snapshot's
   account rows; backend asserts the serialised diagnostics and the pool).
+
+- G500 `g500-dismissed-card-statement-payment` and `g500-edited-card-statement-payment-amount`: saved `upcoming_overrides` (fixture key `upcoming_overrides`, docs `{key, date, skip, new_date, new_amount}`, scope one) apply to the dated card statement payment, matched on its name key and original due date. Dismissed leaves 1,350; edited to 500 leaves 850.
 
 Add a scenario whenever a money bug is fixed.
 

@@ -136,6 +136,26 @@ async def _enqueue_warm(uid: str) -> None:
             pass
 
 
+async def current_strict(uid: str) -> int | None:
+    """A verified live version for financial presentation, without memo fallback.
+
+    A successful absent-row read means the initial version zero. A failed or
+    malformed read means unavailable, never zero or a remembered version.
+    Ordinary response caches retain ``current``'s existing degrade behaviour.
+    """
+    try:
+        doc = await user_data_version_col.find_one(
+            {"_id": uid}, {"version": 1}, max_time_ms=_MAX_TIME_MS,
+        )
+    except Exception:
+        logger.exception("data_version.current_strict(%s) unavailable", uid)
+        return None
+    if doc is None:
+        return 0
+    version = doc.get("version")
+    return version if type(version) is int and version >= 0 else None
+
+
 async def current(uid: str, *, fresh: bool = False) -> int:
     """Current version for uid, 0 if it has never been bumped.
 

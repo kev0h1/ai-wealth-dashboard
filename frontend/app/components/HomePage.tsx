@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useState, useCallback, useMemo, useRef } from "react";
+import { useEffect, useLayoutEffect, useState, useCallback, useMemo, useRef } from "react";
 import dynamic from "next/dynamic";
 import { ChevronRight } from "lucide-react";
-import { api, ApiError, Account, type Connection, AccountEligibility, Transaction, InvestmentAccount, SafeToSpend, CompanionItem, type SyncStatus, type UserProfile } from "@/lib/api";
+import { api, ApiError, Account, type Connection, AccountEligibility, Transaction, InvestmentAccount, SafeToSpend, CompanionItem, type Overspending, type SyncStatus, type UserProfile } from "@/lib/api";
 import { startConsent } from "@/lib/startConsent";
 import { bestSpendAccount, type TodayRequestStatus } from "@/lib/spendFromAccount";
 import SafeToSpendCard from "@/components/SafeToSpendCard";
@@ -26,9 +26,9 @@ import { isHomeCurrency } from "@/lib/currency";
 import FuelSavingsCard from "@/components/FuelSavingsCard";
 import GroceryBasketCard from "@/components/GroceryBasketCard";
 import { useHomePinnedCards } from "@/lib/useHomePinnedCards";
-import { getHomeCache, setHomeCache } from "@/lib/homeCache";
+import { clearHomeCache, getHomeCache, setHomeCache } from "@/lib/homeCache";
 import { invalidateMiscategorisedCount } from "@/lib/miscategorisedCount";
-import { cachedEndpoint, ENDPOINT, peekEndpoint } from "@/lib/endpointCache";
+import { cachedEndpoint, ENDPOINT, invalidateEndpoint, peekEndpoint } from "@/lib/endpointCache";
 import HomeBrief, { HomeBriefClearedRow } from "@/components/HomeBrief";
 import HomeGreetingHeader from "@/components/HomeGreetingHeader";
 import { buildGreeting, useClockHour } from "@/lib/greeting";
@@ -44,6 +44,7 @@ import { isPaydayWindowActive, writePaydayDotCache } from "@/lib/paydayWindow";
 import { useTutorialReady } from "@/components/TutorialContext";
 import { APP_LOCK_UNLOCKED_EVENT } from "@/components/BiometricLock";
 import { cachedVerdict, fetchVerdictData } from "@/lib/verdictCache";
+import { invalidateVerdictCache } from "@/lib/verdictCache";
 import { getAccountsCached } from "@/lib/accountsCache";
 import { useHomePinnedAccounts } from "@/lib/homePinnedAccounts";
 import { isLegacyBankSource } from "@/lib/legacyBankProvider";
@@ -68,6 +69,7 @@ import FirstAccountCard from "@/components/FirstAccountCard";
 import HomeEstateSection from "@/components/HomeEstateSection";
 import { useProviderHealth } from "@/lib/useProviderHealth";
 import { noticeSheet } from "@/components/ConfirmSheet";
+import { hasProjectedOverspending, OverspendingHomeAlert } from "@/components/OverspendingMoments";
 
 const MiscategorisedReviewSheet = dynamic(() => import("@/components/MiscategorisedReviewSheet"));
 
@@ -304,6 +306,17 @@ export default function HomePage() {
   const pinnedIds = useHomePinnedAccounts();
   const { pinned: pinnedCards } = useHomePinnedCards();
   const [companionItems, setCompanionItems] = useState<CompanionItem[]>(homeCache?.companionItems ?? []);
+  // Overspending is deliberately not seeded from Home's warm cache. The
+  // server's current/fresh display gate is a moment-in-time decision, so a
+  // Home revisit waits for the present /today response rather than reviving
+  // a prior heads-up from memory.
+  const [overspending, setOverspending] = useState<Overspending | null>(null);
+  const [headsUpGrantedPeriod, setHeadsUpGrantedPeriod] = useState<string | null>(null);
+  const headsUpClaimedPeriod = useRef<string | null>(null);
+  const visibleOverspendingPeriod = useRef<string | null>(null);
+  useLayoutEffect(() => {
+    visibleOverspendingPeriod.current = overspending?.period.end ?? null;
+  }, [overspending?.period.end]);
   // G110 — per-account headroom snapshot from the same GET /today response,
   // joined against `accounts` (above) by lib/spendFromAccount.ts to name
   // the best account to spend from under the Safe-to-Spend hero.
@@ -460,6 +473,7 @@ export default function HomePage() {
       const applyToday = (v: Awaited<ReturnType<typeof api.getToday>>) => {
         setCompanionItems(v.items);
         setAccountEligibility(v.account_eligibility ?? undefined);
+        setOverspending(v.overspending ?? null);
         setTodayStatus("ready");
         setTodaySettled(true);
         setAvailabilityFresh(true);
@@ -620,6 +634,7 @@ export default function HomePage() {
         if (requestId !== loadRequestRef.current) return;
         setCompanionItems(v.items);
         setAccountEligibility(v.account_eligibility ?? undefined);
+        setOverspending(v.overspending ?? null);
         setTodayStatus("ready");
         setAvailabilityFresh(true);
       })
@@ -627,6 +642,20 @@ export default function HomePage() {
         if (requestId === loadRequestRef.current) setTodayStatus("failed");
       });
   }, []);
+
+  // The server atomically decides whether this device gets the one Home
+  // heads-up. The ref makes React strict-mode's development effect replay a
+  // no-op locally, while a successful grant remains visible for this mount
+  // even if a revalidation subsequently reports `heads_up_seen`.
+  const acknowledgeOverspending = useCallback(async () => {
+    if (!overspending) throw new Error("No current overspending reading");
+    await api.recordOverspendingOneOff(overspending.period.end);
+    setHeadsUpGrantedPeriod(null);
+    invalidateVerdictCache();
+    invalidateEndpoint(ENDPOINT.today.key);
+    clearHomeCache();
+    refetchToday();
+  }, [overspending, refetchToday]);
 
   useEffect(() => { void loadData({ allowCache: true }); }, [loadData]);
 
@@ -1048,6 +1077,23 @@ export default function HomePage() {
     (visibleSyncStatus?.first_sync === true && firstSyncActive) || syncStatus === null;
   const isFreshUser = hasNoAccounts && syncStatus !== null && !firstSyncActive;
 
+  useEffect(() => {
+    if (!pageReady || loading || stsLoading || todayStatus !== "ready" || !preferencesReady || verdictWithheld || !hasProjectedOverspending(overspending) || overspending.heads_up_seen) return;
+    const periodEnd = overspending.period.end;
+    function claimWhenVisible() {
+      if (document.visibilityState !== "visible" || headsUpGrantedPeriod === periodEnd || headsUpClaimedPeriod.current === periodEnd) return;
+      headsUpClaimedPeriod.current = periodEnd;
+      void api.claimOverspendingHeadsUp(periodEnd).then((result) => {
+        if (result.shown && result.period_end === periodEnd && headsUpClaimedPeriod.current === periodEnd && visibleOverspendingPeriod.current === periodEnd) setHeadsUpGrantedPeriod(periodEnd);
+      }).catch(() => {
+        if (headsUpClaimedPeriod.current === periodEnd) headsUpClaimedPeriod.current = null;
+      });
+    }
+    claimWhenVisible();
+    document.addEventListener("visibilitychange", claimWhenVisible);
+    return () => document.removeEventListener("visibilitychange", claimWhenVisible);
+  }, [headsUpGrantedPeriod, loading, overspending, pageReady, preferencesReady, stsLoading, todayStatus, verdictWithheld]);
+
   // User-pinned insight cards render once accounts exist and loading is done,
   // load error or not (unchanged from before G221 moved them into Your money).
   const showPinnedCards =
@@ -1169,6 +1215,12 @@ export default function HomePage() {
               onCoverMoveVisibleChange={onCoverMoveVisibleChange}
               banner={<div className="space-y-3">
                 {reauthBanner}
+                {headsUpGrantedPeriod === overspending?.period.end && todayStatus === "ready" && preferencesReady && !verdictWithheld && hasProjectedOverspending(overspending) && (
+                  <OverspendingHomeAlert
+                    overspending={overspending}
+                    onOneOff={acknowledgeOverspending}
+                  />
+                )}
                 <ReconfirmPrompt
                   connections={bankConnections}
                   bankNameFor={(c) => accounts.find((a) => a.connection_id === c.connection_id)?.provider}

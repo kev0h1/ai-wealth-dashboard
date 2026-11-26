@@ -46,6 +46,7 @@ from app.services.account_kinds import (
 )
 from app.services.categories import MOVEMENT
 from app.services.categorisation import series_key
+from app.services.last_resort import build_last_resort
 
 
 _WEEKDAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
@@ -1351,8 +1352,12 @@ async def _goal_source_slices(
                     # paying account for the card, so it is a source need like any
                     # other plan and is never a payday-plan destination.
                     card_plan = card_repayment_plans.is_card_plan(c)
-                    if not dest_ids and not card_plan:
-                        continue  # an unlinked goal moves nothing through the plan
+                    # G495: a pot-less goal still earmarks money at its stored
+                    # source account (Upcoming counts it), so it is reserved
+                    # there; with no stored source there is nothing to reserve.
+                    potless = not dest_ids and not card_plan
+                    if potless and c.get("source_account_id") is None:
+                        continue  # an unlinked goal with no source moves nothing
                     try:
                         slice_info = await _pot_progress_and_slice(c, pay_cfg, ledger, today_d)
                     except Exception:
@@ -1362,7 +1367,7 @@ async def _goal_source_slices(
                     )
                     assumed = False
                     if source is None:
-                        if c.get("source_unset") is True or c.get("source_account_id") is not None:
+                        if potless or c.get("source_unset") is True or c.get("source_account_id") is not None:
                             continue  # "Not set", or a stored account that is no longer usable
                         source, assumed = (salary_acct or ""), True
                     out.append({
@@ -3141,6 +3146,7 @@ async def compute_today_items(
             return False
         return True
 
+    _gp_plans: list[dict] | None = None  # G496: the account-plan rows, when read below
     if account_eligibility_out is not None:
         # Snapshot BEFORE any `_find_legs_for_destination` call below
         # consumes `source_capacity` in place — this reports each account's
@@ -3327,6 +3333,12 @@ async def compute_today_items(
         if _src and _dst:
             _transfer_dests_of.setdefault(_src, set()).add(_dst)
 
+    # G498: every account that needs money this window, for a payment OR a plan,
+    # decided before any source is chosen. An account that needs money is never
+    # a source for another card, so no money passes through it (A to B to C) and
+    # no two cards pull on each other's accounts. Filled by the pre-pass below.
+    _cover_destinations: set[str] = set()
+
     def _find_legs_for_destination(dest_acct: str, amount_needed: float, build_move_map, existing_sources: frozenset = frozenset(), exclude_sources: frozenset = frozenset()) -> list[dict]:
         # `exclude_sources` (G422): accounts that may never fund this cover,
         # e.g. the savings account a standing order pays into, since moving
@@ -3356,6 +3368,8 @@ async def compute_today_items(
                 sid = acc["_str_id"]
                 if sid == dest_acct or sid in excluded_sources or sid in used_sources or sid in exclude_sources:
                     continue
+                if sid in _cover_destinations:
+                    continue  # G498: it needs money itself, so it is never anyone's source
                 if sid in _transfer_dests_of.get(dest_acct, ()):
                     continue  # G479: never lend back to the source of the transfer that credits you
                 if _same_bank_account(acc, _dest_doc):
@@ -3459,6 +3473,57 @@ async def compute_today_items(
             if covers:
                 break
         return legs
+
+    # G498 pre-pass: collect every account that needs money before any card
+    # picks a source. Payment shortfalls are known (Step 1); plan gaps use the
+    # same end-of-window walk and eligibility as section 6b (it reuses
+    # `_ap_plans` / `_ap_ctx` below, so the figures cannot drift).
+    _ap_plans: list[dict] = []
+    _ap_ctx: tuple | None = None
+    _ap_gaps: list[dict] = []
+    if not payday_preview:
+        try:
+            _ap_plans = await _load_account_plans(uid, goals=True)
+            if _ap_plans:
+                from app.services.allocation_shortfall import compute_allocation_gaps
+                _ap_closing = {
+                    sid: min(
+                        float(running.get(sid, live_balances.get(sid, float(acc.get("balance") or 0)))),
+                        float(source_walks[sid].low_point) if sid in source_walks else float(min_running.get(sid, live_balances.get(sid, 0.0))),
+                    )
+                    for acc in all_uk_accounts + offline_accounts
+                    for sid in [acc["_str_id"]]
+                }
+                _ap_movement: dict[str, list] = {}
+                for _b in assessable_bills:
+                    if _b.get("kind") == MOVEMENT and not _b.get("is_credit_card") and not _b.get("pending"):
+                        _ap_movement.setdefault(str(_b.get("account_id") or ""), []).append(
+                            _b.get("dest_account_id") or None
+                        )
+                _ap_accts = {a["_str_id"]: a for a in all_uk_accounts + offline_accounts}
+                _ap_ctx = (_ap_closing, _ap_movement, _ap_accts)
+                _ap_gaps = compute_allocation_gaps(
+                    _ap_plans, _ap_closing, movement_out=_ap_movement, require_allocation=None, floor_pence=1
+                )
+        except Exception:
+            log.warning("allocation shortfall failed for %s", uid, exc_info=True)
+            _ap_plans, _ap_ctx, _ap_gaps = [], None, []
+    _cover_destinations.update(str(_sf[2]) for _sf in shortfalls)
+    _cover_destinations.update(
+        str(_g["account_id"]) for _g in _ap_gaps
+        if f"allocation_shortfall:{_g['account_id']}:{window_end.isoformat()}" not in dismissed
+    )
+    # G499: an account that may get a section 5d unfunded_move top-up needs money
+    # too, so it is never a source either. Structural, not left to the bounced-
+    # movement usability check. Conservative (ignores the later payday-plan and
+    # regular-card suppression), which only ever excludes a needy account.
+    _cover_destinations.update(
+        str(_um_a) for _um_a, _um_bs in bounced_bills.items()
+        if any(
+            _b.get("kind") == MOVEMENT and _b.get("pending") and not _b.get("is_card_repayment")
+            for _b in _um_bs
+        )
+    )
 
     # Step 3: For every shortfall, find a source (split across multiple if needed)
     covered: list[dict] = []     # each entry = list of leg dicts
@@ -3777,6 +3842,23 @@ async def compute_today_items(
     for leg in covered:
         legs_by_dest.setdefault(leg["dest_acct"], []).append(leg)
     uncovered_by_dest: dict[str, dict] = {u["dest_acct"]: u for u in uncovered}
+
+    _plan_uncovered_by_acct: dict[str, float] = {}  # G496: plan gap left after the cover search
+
+    async def _last_resort_for(acct_id: str, gap: float) -> dict | None:
+        """G496: the goals and set-asides paid from `acct_id` that a review could
+        free, once no account can cover the rest. Read-only; fail-open to None."""
+        try:
+            nonlocal _gp_plans
+            if _gp_plans is None:
+                _lr_plans = await _load_account_plans(uid, goals=True)
+                _gp_plans = await _attribute_unsourced_set_asides(
+                    uid, _lr_plans, _account_map, resp["internal_inflows"],
+                )
+            return build_last_resort(acct_id, gap, _gp_plans)
+        except Exception:
+            log.warning("last-resort suggestion failed for %s", uid, exc_info=True)
+            return None
 
     # ── 5b. PAYDAY PLAN — salary allocation engine, payday + 2 days ─────────
     # On the moment that sets up the whole period, we allocate the landed
@@ -5217,6 +5299,7 @@ async def compute_today_items(
                 user_tokens=_ns_tokens,
             )
             headline, body = _ns["headline"], _ns["body"]
+            _ns_last_resort = await _last_resort_for(dest_acct, float(u["shortfall"]))
             item_doc = {
                 "_id": item_id,
                 "uid": uid,
@@ -5256,6 +5339,7 @@ async def compute_today_items(
                 "brief_lead": _ns["brief_lead"],
                 "dest_row": _ns["dest_row"],
                 "plan_dest": dest_summaries[dest_acct],
+                **({"last_resort": _ns_last_resort} if _ns_last_resort else {}),
             })
             emitted_dests += 1
             continue
@@ -5530,33 +5614,12 @@ async def compute_today_items(
     # G422: own-savings standing orders the source cannot fund. They ride the
     # same combined cover move as a plan gap on the same account (below), or
     # get their own card in 6b2 when the account has no plan gap.
-    _ap_plans: list[dict] = []
-    _ap_ctx: tuple | None = None
     _plan_gap_seen = False
     if not payday_preview:
         try:
-            _ap_plans = await _load_account_plans(uid, goals=True)
             if _ap_plans:
-                from app.services.allocation_shortfall import compute_allocation_gaps
-                _ap_closing = {
-                    sid: min(
-                        float(running.get(sid, live_balances.get(sid, float(acc.get("balance") or 0)))),
-                        float(source_walks[sid].low_point) if sid in source_walks else float(min_running.get(sid, live_balances.get(sid, 0.0))),
-                    )
-                    for acc in all_uk_accounts + offline_accounts
-                    for sid in [acc["_str_id"]]
-                }
-                _ap_movement: dict[str, list] = {}
-                for _b in assessable_bills:
-                    if _b.get("kind") == MOVEMENT and not _b.get("is_credit_card") and not _b.get("pending"):
-                        _ap_movement.setdefault(str(_b.get("account_id") or ""), []).append(
-                            _b.get("dest_account_id") or None
-                        )
-                _ap_accts = {a["_str_id"]: a for a in all_uk_accounts + offline_accounts}
-                _ap_ctx = (_ap_closing, _ap_movement, _ap_accts)
-                for _g in compute_allocation_gaps(
-                    _ap_plans, _ap_closing, movement_out=_ap_movement, require_allocation=None, floor_pence=1
-                ):
+                _ap_accts = _ap_ctx[2]
+                for _g in _ap_gaps:
                     _plan_gap_seen = True
                     _pay_id = _g["account_id"]
                     _pay_acc = _ap_accts.get(_pay_id)
@@ -5618,6 +5681,7 @@ async def compute_today_items(
                         exclude_sources=_own_transfer_targets(bounced_bills.get(_pay_id)),
                     )
                     _covered = round(sum(float(l["amount"]) for l in _legs), 2)
+                    _plan_uncovered_by_acct[_pay_id] = round(max(0.0, float(_gap) - _covered), 2)
                     # G414: a plan gap gets the same useful, possibly partial
                     # cover recommendation as a payment gap.  The plan edit
                     # remains an alternative action, carried in ``plans``.
@@ -6881,6 +6945,21 @@ async def compute_today_items(
         + rhythm_items
         + intent_pace_items
     )
+    if account_eligibility_out is not None:
+        # G496: an account that is still short once every source is used gets the
+        # read-only last-resort suggestion (goals and set-asides it pays for).
+        for _lr_sid, _lr_entry in account_eligibility_out.items():
+            _lr_gap = (
+                float(_lr_entry.get("short_after_cover") or 0.0)
+                if "covered_by_move" in _lr_entry
+                else float((uncovered_by_dest.get(_lr_sid) or {}).get("shortfall") or 0.0)
+                + float(_plan_uncovered_by_acct.get(_lr_sid) or 0.0)
+            )
+            if _lr_gap <= 0.5 or _lr_entry.get("uncertain"):
+                continue
+            _lr = await _last_resort_for(_lr_sid, _lr_gap)
+            if _lr:
+                _lr_entry["last_resort"] = _lr
     if account_eligibility_out is not None:
         finalise_account_available(account_eligibility_out)
         # Reuse the explicit Home pin preference already loaded by this

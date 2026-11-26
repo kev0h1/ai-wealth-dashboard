@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, useMemo, useRef } from "react";
+import { useEffect, useState, useCallback, useMemo, useRef, useId } from "react";
 import dynamic from "next/dynamic";
 import { useSearchParams, useRouter } from "next/navigation";
 import { BarChart3, Check, WalletCards, Undo2 } from "lucide-react";
@@ -39,6 +39,7 @@ import Spinner from "@/components/Spinner";
 import SpendVerdictView from "@/components/SpendVerdictView";
 import { SpendPeriodBar, type RecentPeriodOption, SpendHeroSkeleton } from "@/components/SpendHeader";
 import SpendPaceHero from "@/components/SpendPaceHero";
+import { hasProjectedOverspending, OverspendingDetailsSheet, OverspendingStatusPill, overspendingMatchesVerdict } from "@/components/OverspendingMoments";
 import { unresolvedWorthAsking } from "@/lib/spendUnresolved";
 import SpendJourneyNav, { type SpendJourneyDestination } from "@/components/SpendJourneyNav";
 import PayPeriodSettingsSheet, { formatPeriodLocal } from "@/components/PayPeriodSettingsSheet";
@@ -260,6 +261,7 @@ export default function SpendPage() {
   }, []);
   const { colours } = useColours();
   const searchParams = useSearchParams();
+  const overspendingEntryRequested = searchParams.get("overspending") === "1";
   const router = useRouter();
   const firstSync = useFirstSync(reloadAfterFirstSync);
   // BACK-navigation restore (lib/spendUiState.ts) — read once at mount,
@@ -329,7 +331,7 @@ export default function SpendPage() {
   // independently guessing "now" and only converging later.
   const initialPeriodRef = useRef<{ start: Date; end: Date; offset: number } | null>(null);
   if (initialPeriodRef.current === null) {
-    initialPeriodRef.current = computeInitialPeriod(restoredUi);
+    initialPeriodRef.current = computeInitialPeriod(overspendingEntryRequested ? {} : restoredUi);
   }
   const initialPeriod = initialPeriodRef.current;
   // Set only when there's a saved period to restore; cleared the instant
@@ -339,7 +341,7 @@ export default function SpendPage() {
   // manually navigated (handlePrev/handleNext/handleSelectOffset flip
   // hasNavigatedRef first) — a live Settings pay-period edit after that
   // point must always land back on the current period, same as today.
-  const pendingRestoreRef = useRef<string | null>(restoredUi.periodStart ?? null);
+  const pendingRestoreRef = useRef<string | null>(overspendingEntryRequested ? null : restoredUi.periodStart ?? null);
   const hasNavigatedRef = useRef(false);
   // G326: these two are the CLIENT's navigation guess (the pay-period config
   // stepped locally). They only seed the verdict request's offset and stand in
@@ -354,6 +356,15 @@ export default function SpendPage() {
     api.oldestTransaction().then(r => { if (r.date) setOldestTxDate(new Date(r.date)); }).catch(() => {});
   }, []);
   const [selectedTx, setSelectedTx] = useState<Transaction | null>(null);
+  const [overspendingDetailsOpen, setOverspendingDetailsOpen] = useState(false);
+  const overspendingQueryHandled = useRef(false);
+  const overspendingEntryGeneration = useRef(0);
+  const overspendingEntryLive = useRef(true);
+  useEffect(() => {
+    overspendingEntryLive.current = true;
+    return () => { overspendingEntryLive.current = false; };
+  }, []);
+  const overspendingDetailsId = useId();
   // Set only by the ask card's "Tell me what this was" — see onAskCorrect
   // below. Tracks the id rather than a plain boolean so it can't stick
   // after a later, unrelated setSelectedTx call reuses "truthy state".
@@ -428,9 +439,10 @@ export default function SpendPage() {
   // /transactions) paints instantly; every read still revalidates against
   // the server and updates in place — never a stale-data lie, just an
   // instant first paint while the fresh copy lands a round trip later.
-  const [verdict, setVerdict] = useState<SpendVerdict | null>(() => cachedVerdict(initialPeriod.offset));
-  const [verdictLoading, setVerdictLoading] = useState(() => cachedVerdict(initialPeriod.offset) == null);
+  const [verdict, setVerdict] = useState<SpendVerdict | null>(() => overspendingEntryRequested ? null : cachedVerdict(initialPeriod.offset));
+  const [verdictLoading, setVerdictLoading] = useState(() => overspendingEntryRequested || cachedVerdict(initialPeriod.offset) == null);
   const verdictOffsetRef = useRef(initialPeriod.offset);
+  const verdictRequestRef = useRef(0);
   // G326: ONE period definition. The server's verdict period, when it is for
   // the offset on screen, wins over the client's own pay-period math.
   const serverPeriod = verdict && verdict.period.offset === periodOffset && verdict.period.label != null ? verdict.period : null;
@@ -472,13 +484,15 @@ export default function SpendPage() {
   // branch just re-confirms what's already on screen (belt-and-braces
   // against a hit expiring in the gap between the two calls) rather than
   // the real "revalidate against the server" it used to be.
-  const fetchVerdict = useCallback((offset: number, silent = false) => {
+  const fetchVerdict = useCallback((offset: number, silent = false, forceFresh = false) => {
+    const request = ++verdictRequestRef.current;
     verdictOffsetRef.current = offset;
     if (!silent) setVerdictLoading(true);
-    return fetchVerdictData(offset)
-      .then(v => { if (verdictOffsetRef.current === offset) setVerdict(v); })
-      .catch(() => { if (verdictOffsetRef.current === offset && !silent) setVerdict(null); })
-      .finally(() => { if (verdictOffsetRef.current === offset) setVerdictLoading(false); });
+    const current = () => verdictOffsetRef.current === offset && verdictRequestRef.current === request;
+    return fetchVerdictData(offset, forceFresh)
+      .then(v => { if (!current()) return null; setVerdict(v); return v; })
+      .catch(() => { if (current() && !silent) setVerdict(null); return null; })
+      .finally(() => { if (current()) setVerdictLoading(false); });
   }, []);
   const refreshAfterGroupSave = useCallback(async () => {
     // The save has succeeded even if a following GET is temporarily unavailable.
@@ -506,7 +520,9 @@ export default function SpendPage() {
   // invalidates the verdict cache itself once the save actually lands, so
   // a hit here is only ever this SAME (still-current) config's data.
   useEffect(() => {
-    if (firstSync.pending || firstSync.active) return;
+    // A Home/push entry owns its fresh current-period request below. A
+    // restored period or the normal 90-second cache must not overtake it.
+    if (overspendingEntryRequested || firstSync.pending || firstSync.active) return;
     verdictOffsetRef.current = periodOffset;
     const hit = cachedVerdict(periodOffset);
     if (hit) {
@@ -517,7 +533,38 @@ export default function SpendPage() {
       setVerdict(null);
       fetchVerdict(periodOffset);
     }
-  }, [periodOffset, fetchVerdict, payPeriodConfig, firstSync.pending, firstSync.active]);
+  }, [periodOffset, fetchVerdict, payPeriodConfig, firstSync.pending, firstSync.active, overspendingEntryRequested]);
+
+  // Both Home and the push name this period, even when Back navigation has
+  // saved an older period. Fetch anew before opening, and ignore an earlier
+  // request if the user has since navigated away or chosen another period.
+  useEffect(() => {
+    if (!overspendingEntryRequested) {
+      overspendingQueryHandled.current = false;
+      overspendingEntryGeneration.current += 1;
+      return;
+    }
+    if (overspendingQueryHandled.current || !preferencesReady || firstSync.pending || firstSync.active) return;
+    overspendingQueryHandled.current = true;
+    const generation = ++overspendingEntryGeneration.current;
+    queueMicrotask(() => {
+      if (!overspendingEntryLive.current || generation !== overspendingEntryGeneration.current) return;
+      pendingRestoreRef.current = null;
+      hasNavigatedRef.current = true;
+      const [start, end] = getPayPeriodWithConfig(new Date(), payPeriodConfig);
+      setPeriodStart(start);
+      setPeriodEnd(end);
+      setPeriodOffset(0);
+      void fetchVerdict(0, false, true).then(fresh => {
+        if (!overspendingEntryLive.current || generation !== overspendingEntryGeneration.current) return;
+        if (verdictOffsetRef.current === 0 && overspendingMatchesVerdict(fresh?.overspending, fresh)) setOverspendingDetailsOpen(true);
+        router.replace("/spend");
+      });
+    });
+  }, [firstSync.active, firstSync.pending, fetchVerdict, overspendingEntryRequested, payPeriodConfig, preferencesReady, router]);
+  const displayedOverspending = verdict?.overspending;
+  const hasDisplayedOverspending = !overspendingEntryRequested && !firstSync.pending && !firstSync.active && !verdictLoading
+    && periodOffset === 0 && overspendingMatchesVerdict(displayedOverspending, verdict);
 
   // The closing SpendShapeCard's own GET /money-shape — independent of the
   // period fetch above (the shape is the user's own recent-period pattern,
@@ -876,7 +923,7 @@ export default function SpendPage() {
   // The verdict is the page's meaningful first response. Supporting counts,
   // signals and account labels may settle after reveal; none can hold the
   // whole screen behind a network request the user did not ask for.
-  const [initialHadWarmVerdict] = useState(() => cachedVerdict(initialPeriod.offset) != null);
+  const [initialHadWarmVerdict] = useState(() => !overspendingEntryRequested && cachedVerdict(initialPeriod.offset) != null);
   const [initialSettled, setInitialSettled] = useState(initialHadWarmVerdict);
   const [forceReveal, setForceReveal] = useState(false);
   useEffect(() => {
@@ -1045,6 +1092,7 @@ export default function SpendPage() {
     const [s, e] = prevPeriodWithConfig(clientPeriodStart, payPeriodConfig);
     setPeriodStart(s);
     setPeriodEnd(e);
+    verdictOffsetRef.current = periodOffset - 1;
     setPeriodOffset(o => o - 1);
   }
 
@@ -1053,6 +1101,7 @@ export default function SpendPage() {
     const [s, e] = nextPeriodWithConfig(clientPeriodEnd, payPeriodConfig);
     setPeriodStart(s);
     setPeriodEnd(e);
+    verdictOffsetRef.current = periodOffset + 1;
     setPeriodOffset(o => o + 1);
   }
 
@@ -1076,6 +1125,7 @@ export default function SpendPage() {
     }
     setPeriodStart(s);
     setPeriodEnd(e);
+    verdictOffsetRef.current = offset;
     setPeriodOffset(offset);
   }
 
@@ -1216,7 +1266,7 @@ export default function SpendPage() {
       </div>
     );
   }
-  if (showFullSkeleton) {
+  if (showFullSkeleton || overspendingEntryRequested) {
     return <SpendSkeleton />;
   }
 
@@ -1254,6 +1304,16 @@ export default function SpendPage() {
             onTransactionClick={(tx) => { setAskHandoffTxId(null); setSelectedTx(tx); }}
             onOutTap={handleOutTap}
             onMovedTap={handleMovedTap}
+            renderStatus={hasDisplayedOverspending ? ({ status }) => {
+              const projected = hasProjectedOverspending(displayedOverspending);
+              return <OverspendingStatusPill
+                label={displayedOverspending.crossed ? "More out than in" : projected ? "May pass income" : status}
+                caution={displayedOverspending.crossed || projected}
+                controls={overspendingDetailsId}
+                expanded={overspendingDetailsOpen}
+                onOpen={() => setOverspendingDetailsOpen(true)}
+              />;
+            } : undefined}
           />
           {verdict && <div className="mt-5 hidden lg:block"><SpendJourneyNav destinations={journeyDestinations} desktop /></div>}
         </section>
@@ -1391,6 +1451,22 @@ export default function SpendPage() {
           )}
         </main>
       </div>
+      {overspendingDetailsOpen && hasDisplayedOverspending && (
+        <OverspendingDetailsSheet
+          overspending={displayedOverspending}
+          verdict={verdict!}
+          id={overspendingDetailsId}
+          onClose={() => setOverspendingDetailsOpen(false)}
+          onOpenCategory={(category) => {
+            const params = new URLSearchParams();
+            params.set("category", category);
+            params.set("from", displayedOverspending.period.start);
+            params.set("to", displayedOverspending.period.end);
+            setOverspendingDetailsOpen(false);
+            router.push(`/transactions?${params.toString()}`);
+          }}
+        />
+      )}
 
       {/* Category sheet — survives ONLY for the synthetic "Payments over
           £250" list (Spend Trends' onReviewLarge, below): an amount-

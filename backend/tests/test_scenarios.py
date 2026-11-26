@@ -219,7 +219,7 @@ async def _seed(spec: dict, uid: str) -> None:
     # account ids are plain strings, so empty the seeded collections first.
     # `_rebind_collections` has already asserted this is a wealth_test_* database.
     for c in (col.preferences_col, col.accounts_col, col.manual_accounts_col, col.cashflow_cache_col,
-              col.transactions_col, col.commitments_col, col.allocations_col, col.card_terms_col):
+              col.transactions_col, col.commitments_col, col.allocations_col, col.card_terms_col, col.upcoming_overrides_col):
         await c.delete_many({})
     await col.preferences_col.insert_one({
         "user_id": uid,
@@ -242,6 +242,8 @@ async def _seed(spec: dict, uid: str) -> None:
         await col.allocations_col.insert_one({"user_id": uid, **_datetimes(a)})
     for term in spec.get("card_terms", []):
         await col.card_terms_col.insert_one({"user_id": uid, **term})
+    for ov in spec.get("upcoming_overrides", []):
+        await col.upcoming_overrides_col.insert_one({"uid": uid, "scope": "one", **ov})
 
 
 def _r2(x):
@@ -294,7 +296,7 @@ async def _compute(spec: dict, uid: str) -> dict:
         "account_eligibility": elig,
         "account_plans": plans,
         "items": [
-            {k: i.get(k) for k in ("id", "type", "amount", "total", "moves", "dests", "salary", "covered", "income_note", "habitual_note", "plan_dest", "plan_shortfall", "cover_note", "cover_split")
+            {k: i.get(k) for k in ("id", "type", "amount", "total", "moves", "dests", "salary", "covered", "income_note", "habitual_note", "plan_dest", "plan_shortfall", "cover_note", "cover_split", "last_resort")
              if k in i}
             for i in items
         ],
@@ -448,6 +450,14 @@ def _check_expected(snap: dict, spec: dict) -> None:
                 f"{acct_id} covered_by_move from",
                 sorted((e["account_id"], _r2(e["amount"]), e.get("source_kind") or "") for e in cov.get("from") or []),
                 sorted((e["account_id"], _r2(e["amount"]), e.get("source_kind") or "") for e in want["covered_by_move"]["from"]),
+            )
+        if "last_resort" in want:
+            # G496: the read-only last-resort suggestion (None = the field is absent).
+            lr = got.get("last_resort")
+            chk.check(
+                f"{acct_id} last_resort",
+                None if lr is None else [(o["plan_id"], o["kind"], _r2(o["frees"])) for o in lr["options"]],
+                None if want["last_resort"] is None else [(o[0], o[1], _r2(o[2])) for o in want["last_resort"]],
             )
         if "short_after_cover" in want:
             chk.check(f"{acct_id} short_after_cover", _r2(got.get("short_after_cover")), _r2(want["short_after_cover"]))

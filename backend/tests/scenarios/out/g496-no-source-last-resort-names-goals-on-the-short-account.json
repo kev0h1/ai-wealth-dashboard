@@ -1,0 +1,357 @@
+{
+  "account_eligibility": {
+    "acc-hs": {
+      "after_payments": -80.0,
+      "after_payments_and_money_in": -80.0,
+      "after_payments_and_plans": -165.0,
+      "estimated": false,
+      "headroom": -175.0,
+      "is_current_account": true,
+      "last_resort": {
+        "covers_gap": true,
+        "gap": 80.0,
+        "options": [
+          {
+            "covers_gap": false,
+            "frees": 60.0,
+            "kind": "goal",
+            "name": "Holiday Fund",
+            "plan_id": "goal:goal-holiday",
+            "record_id": "goal-holiday",
+            "remaining": 60.0
+          },
+          {
+            "covers_gap": false,
+            "frees": 25.0,
+            "kind": "goal",
+            "name": "Car Fund",
+            "plan_id": "goal:goal-car",
+            "record_id": "goal-car",
+            "remaining": 25.0
+          }
+        ],
+        "sentence": "If you still need it, reviewing your Holiday Fund goal or another plan on this account could free up to \u00a380.",
+        "total_frees": 80.0
+      },
+      "low_point": -80.0,
+      "low_point_and_plans": -165.0,
+      "plans_reserved": 85.0,
+      "short": true,
+      "spend_from_headroom": -165.0,
+      "uncertain": false
+    },
+    "acc-mz": {
+      "after_payments": 300.0,
+      "after_payments_and_money_in": 300.0,
+      "after_payments_and_plans": -40.0,
+      "estimated": false,
+      "headroom": -50.0,
+      "is_current_account": true,
+      "last_resort": {
+        "covers_gap": true,
+        "gap": 40.0,
+        "options": [
+          {
+            "covers_gap": true,
+            "frees": 40.0,
+            "kind": "goal",
+            "name": "Daily Challenge",
+            "plan_id": "goal:goal-daily",
+            "record_id": "goal-daily",
+            "remaining": 340.0
+          }
+        ],
+        "sentence": "If you still need it, reviewing your Daily Challenge goal could free up to \u00a340.",
+        "total_frees": 40.0
+      },
+      "low_point": 300.0,
+      "low_point_and_plans": -40.0,
+      "plans_reserved": 340.0,
+      "short": true,
+      "spend_from_headroom": -40.0,
+      "uncertain": false
+    }
+  },
+  "account_plans": [
+    {
+      "active": true,
+      "destination": "No funding pot",
+      "destination_account_ids": [],
+      "filled_amount": null,
+      "fulfilment": null,
+      "id": "goal:goal-daily",
+      "inferred": false,
+      "kind": "goal",
+      "name": "Daily Challenge",
+      "paid_amount": 0.0,
+      "paid_this_period": false,
+      "period_amount": 340.0,
+      "record_id": "goal-daily",
+      "remaining": 340.0,
+      "source_account_id": "acc-mz",
+      "source_account_name": "Monzo Current",
+      "source_basis": "chosen"
+    },
+    {
+      "active": true,
+      "destination": "No funding pot",
+      "destination_account_ids": [],
+      "filled_amount": null,
+      "fulfilment": null,
+      "id": "goal:goal-holiday",
+      "inferred": false,
+      "kind": "goal",
+      "name": "Holiday Fund",
+      "paid_amount": 0.0,
+      "paid_this_period": false,
+      "period_amount": 60.0,
+      "record_id": "goal-holiday",
+      "remaining": 60.0,
+      "source_account_id": "acc-hs",
+      "source_account_name": "HSBC Current",
+      "source_basis": "chosen"
+    },
+    {
+      "active": true,
+      "destination": "No funding pot",
+      "destination_account_ids": [],
+      "filled_amount": null,
+      "fulfilment": null,
+      "id": "goal:goal-car",
+      "inferred": false,
+      "kind": "goal",
+      "name": "Car Fund",
+      "paid_amount": 0.0,
+      "paid_this_period": false,
+      "period_amount": 25.0,
+      "record_id": "goal-car",
+      "remaining": 25.0,
+      "source_account_id": "acc-hs",
+      "source_account_name": "HSBC Current",
+      "source_basis": "chosen"
+    }
+  ],
+  "accounts": [
+    {
+      "balance": 40.0,
+      "currency": "GBP",
+      "id": "acc-hs",
+      "include_in_safe_to_spend": true,
+      "name": "HSBC Current",
+      "provider": "hsbc",
+      "status": "connected",
+      "subtype": "TRANSACTION",
+      "type": "BANK"
+    },
+    {
+      "balance": 300.0,
+      "currency": "GBP",
+      "id": "acc-mz",
+      "include_in_safe_to_spend": true,
+      "name": "Monzo Current",
+      "provider": "monzo",
+      "status": "connected",
+      "subtype": "TRANSACTION",
+      "type": "BANK"
+    }
+  ],
+  "at_risk_count": 1,
+  "cashflow": {
+    "internal_inflows": [],
+    "next_payday": "2026-11-27",
+    "observed_pending_bills": [],
+    "period": {
+      "day_number": 18,
+      "end": "2026-11-26",
+      "label": "30 Oct to 26 Nov",
+      "length_days": 28,
+      "payday": "2026-11-27",
+      "payday_observed": null,
+      "start": "2026-10-30",
+      "type": "last_friday"
+    },
+    "plans_count": 3,
+    "plans_reserved": 425.0,
+    "spendable_balance": 340.0,
+    "upcoming_bills": [
+      {
+        "account_balance": 40.0,
+        "account_bank": "HSBC",
+        "account_id": "acc-hs",
+        "account_name": "HSBC Current",
+        "amount": 120.0,
+        "amount_basis": null,
+        "card_dest_account_bank": null,
+        "card_dest_account_id": null,
+        "card_dest_account_name": null,
+        "category": "Bills",
+        "days_away": 4,
+        "days_past_due": 0,
+        "dest_account_bank": null,
+        "dest_account_id": null,
+        "dest_account_name": null,
+        "dest_account_spendable": null,
+        "edited": false,
+        "expected_date": "2026-11-20",
+        "is_card_repayment": false,
+        "is_credit_card": false,
+        "kind": "commitment",
+        "name": "BROADBAND",
+        "observed_pending": false,
+        "original_date": null,
+        "pending": false,
+        "rule_label": null
+      },
+      {
+        "account_balance": 40.0,
+        "account_bank": "HSBC",
+        "account_id": "acc-hs",
+        "account_name": "HSBC Current",
+        "amount": 120.0,
+        "amount_basis": null,
+        "card_dest_account_bank": null,
+        "card_dest_account_id": null,
+        "card_dest_account_name": null,
+        "category": "Bills",
+        "days_away": 35,
+        "days_past_due": 0,
+        "dest_account_bank": null,
+        "dest_account_id": null,
+        "dest_account_name": null,
+        "dest_account_spendable": null,
+        "edited": false,
+        "expected_date": "2026-12-21",
+        "is_card_repayment": false,
+        "is_credit_card": false,
+        "kind": "commitment",
+        "name": "BROADBAND",
+        "observed_pending": false,
+        "original_date": "2026-12-20",
+        "pending": false,
+        "rule_label": null
+      }
+    ],
+    "upcoming_income": []
+  },
+  "days_to_payday": 11,
+  "items": [
+    {
+      "id": "move:acc-hs:2026-11-27:7b75378d06",
+      "last_resort": {
+        "covers_gap": true,
+        "gap": 80.0,
+        "options": [
+          {
+            "covers_gap": false,
+            "frees": 60.0,
+            "kind": "goal",
+            "name": "Holiday Fund",
+            "plan_id": "goal:goal-holiday",
+            "record_id": "goal-holiday",
+            "remaining": 60.0
+          },
+          {
+            "covers_gap": false,
+            "frees": 25.0,
+            "kind": "goal",
+            "name": "Car Fund",
+            "plan_id": "goal:goal-car",
+            "record_id": "goal-car",
+            "remaining": 25.0
+          }
+        ],
+        "sentence": "If you still need it, reviewing your Holiday Fund goal or another plan on this account could free up to \u00a380.",
+        "total_frees": 80.0
+      },
+      "plan_dest": {
+        "account_id": "acc-hs",
+        "balance": 40.0,
+        "bills": [
+          {
+            "amount": 120,
+            "expected_date": "2026-11-20",
+            "label": "Broadband"
+          }
+        ],
+        "display_label": "HSBC Current",
+        "is_overdraft": false,
+        "name": "HSBC Current",
+        "needs_by": "Friday",
+        "needs_by_date": "2026-11-20",
+        "needs_by_last": "Friday",
+        "needs_by_last_date": "2026-11-20",
+        "needs_total": 120,
+        "provider": "hsbc"
+      },
+      "type": "move"
+    },
+    {
+      "amount": 0,
+      "covered": false,
+      "id": "allocation_shortfall:acc-mz:2026-11-27",
+      "moves": [],
+      "plan_dest": {
+        "account_id": "acc-mz",
+        "balance": 300.0,
+        "bills": [],
+        "is_overdraft": false,
+        "name": "Monzo Current",
+        "needs_by": "",
+        "needs_by_date": null,
+        "needs_by_last": "",
+        "needs_by_last_date": null,
+        "needs_total": 340.0,
+        "plans": [
+          {
+            "id": "goal-daily",
+            "kind": "goal",
+            "name": "Daily Challenge",
+            "period_amount": 340.0,
+            "remaining": 340.0
+          }
+        ],
+        "provider": "monzo"
+      },
+      "plan_shortfall": {
+        "covered": 0,
+        "estimated": false,
+        "moves": [],
+        "paying_account": {
+          "account_id": "acc-mz",
+          "name": "Monzo Current",
+          "provider": "monzo"
+        },
+        "plans": [
+          {
+            "id": "goal-daily",
+            "kind": "goal",
+            "name": "Daily Challenge",
+            "period_amount": 340.0,
+            "remaining": 340.0
+          }
+        ],
+        "shortfall": 40.0
+      },
+      "type": "move"
+    }
+  ],
+  "name": "Nothing can cover a payment, so the account that is short names the goals it pays for as a last resort, read only (G496)",
+  "period": {
+    "end": "2026-11-26",
+    "start": "2026-10-30"
+  },
+  "safe_to_spend": {
+    "allocations_reserved": 0.0,
+    "calculation_status": "complete",
+    "commitments_reserved": 425.0,
+    "left_to_spend_lines": {
+      "accounts_total": 220.0,
+      "buffer": 0.0,
+      "plans_total": 425.0
+    },
+    "lowest_projected_balance": 220.0,
+    "safe_to_spend": -205.0,
+    "safe_to_spend_cash": -205.0
+  },
+  "today": "2026-11-16"
+}
