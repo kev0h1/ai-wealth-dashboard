@@ -35,7 +35,7 @@ Use a real device, a test account Kevin is happy to show, with the connector fla
 2. `B-consent-real.png`: the real consent screen reached from the assistant, authenticated, showing the real per-scope list, the redirect host (`claude.ai` or `chatgpt.com`) and the assistant name taken from Sorted's allowlist. Scroll if needed so the full list, the "Before you share" paragraph and both buttons are shown (two screenshots if it does not fit). If possible, one more with one box unticked.
 3. `C-connected-answering-claude.png` and `C-connected-answering-chatgpt.png`: each assistant, after connecting, answering a simple question that uses Sorted data (for example "what is my left to spend"), with the connector name visible. Redact figures if wished.
 4. `D-settings-connected-assistants.png`: Settings, Connected assistants, with at least one connected assistant, its read summary, last used and connected dates, and the Disconnect button visible.
-5. `E-disconnect-confirm.png` and `E-disconnected.png`: the Disconnect confirmation, then the list after disconnecting showing the "disconnected" line.
+5. `E-disconnect-confirm.png` and `E-disconnected.png`: the Disconnect confirmation, then the list after disconnecting showing the "disconnected" line (it appears for only about 5 seconds, so capture it straight away).
 6. `F-activity-log.png`: the Activity log opened from "View full log" with real rows from step 3, showing assistant name, tool, date and time, and the 90 day note.
 7. Optional: `G-denied-or-unlisted.png`: an assistant that is not on the allowlist being refused, if Kevin wants to evidence that unknown assistants cannot connect.
 
