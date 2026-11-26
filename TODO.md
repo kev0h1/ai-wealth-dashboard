@@ -1362,6 +1362,7 @@ Board: the private page /ops/go-live on UAT reads and edits these files. Session
 - [ ] **F31. MCP hardening from the F26 retest: reuse an existing client for an identical registration and expire registrations that never obtained a token (F26-L1), and key the /mcp tool-call rate limit by client and user rather than client alone (F26-I2)** [owner: claude]
   - note (2026-11-26, claude): Kevin approved 2026-11-26. Source: docs/security/pentest-runs/F26-2026-11-26/report-for-finexer.md section 5 (on the F26 branch until it merges). L1: unauthenticated POST /auth/oauth/register stores a new client doc per call for an allowlisted URI, bounded only by 10/min/IP. I2: the 60/min tool-call limit is keyed by client_id, so users sharing one client share the allowance. Tests with synthetic data only, never against the real DB. Related: F26, F24.
 - [ ] **F32. Consent screen adds one line asking the user to continue only if they started the connection from their assistant (F26-I1, consent request ids are not bound to the starting user)** [owner: codex]
+  - note (2026-11-26, claude): Kevin approved 2026-11-26. frontend/app/oauth/consent/OAuthConsentCard.tsx. One short line, existing styles, no design round; independent reviewer checks it against DESIGN.md. Copy rules: no em dashes, British English. Related: F26, F28.
 
 ## G. Design and copy follow-ups
 
