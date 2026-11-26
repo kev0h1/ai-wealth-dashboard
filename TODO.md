@@ -1348,7 +1348,7 @@ Board: the private page /ops/go-live on UAT reads and edits these files. Session
   - note (2026-11-25, claude): git push origin main failed: / git@github.com: Permission denied (publickey). / fatal: Could not read from remote repository. / Please make sure you have the correct access rights / and the repository exists.
 - [ ] **F29. MCP: confirm decisions, then submit the Finexer reply for Q2 to Q5 and keep the connector off until written sign-off** [owner: kevin] [priority: p1]
   - note (2026-11-23, claude): Kevin decisions needed: (a) build per-scope selection (F22) or keep all-or-nothing with justification; (b) allowlist-only (F24) vs open registration with an unverified warning; (c) approve the drafted answers for Q2 to Q5 (drafts are in the session that created this ticket; update docs/compliance/finexer-agent-controls-2026-09.md Q2/Q9 wording if appropriate); (d) submit on the Finexer portal once F22 to F28 are done or the reply commits to them. MCP_CONNECTOR_ENABLED and NEXT_PUBLIC_MCP_CONNECTOR stay unset in production until Finexer confirms in writing.
-- [ ] **F30. Connected assistants card in Settings says which assistants Sorted works with (Claude, ChatGPT, Perplexity) and that others cannot connect, reading the names from F24's allowlist rather than hardcoding them (Kevin 2026-11-26)** [owner: codex]
+- [ ] **F30. Connected assistants card in Settings says which assistants Sorted works with (Claude, ChatGPT, Perplexity) and that others cannot connect, reading the names from F24's allowlist rather than hardcoding them (Kevin 2026-11-26)** [owner: codex] [priority: p2]
 
 ## G. Design and copy follow-ups
 
