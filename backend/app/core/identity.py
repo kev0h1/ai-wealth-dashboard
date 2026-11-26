@@ -44,12 +44,55 @@ from datetime import datetime, timezone
 
 from app.core.allowlist import resolve_allowed_signup
 from app.core.config import _gmail_key, is_signup_open, mask_email
-from app.db.collections import linked_identities_col, user_profiles_col
+from app.db.collections import (
+    accounts_col,
+    connections_col,
+    linked_identities_col,
+    manual_accounts_col,
+    preferences_col,
+    statement_accounts_col,
+    user_profiles_col,
+)
 
 # Apple call sites pass distinct provider labels ("apple-native"); the link
 # lookup and the auto-link write both need to recognise "this is an Apple
 # sign-in", so check by prefix rather than an exact "apple" match.
 _APPLE_PREFIX = "apple"
+
+# G501: what a brand-new sign-up has pinned to Home. The read-side fallback in
+# routers/preferences.py stays "period_compare", so every existing user (no
+# saved value) is unchanged; only a genuinely new account is seeded with this.
+NEW_SIGNUP_HOME_PINNED_WIDGET = "category_pie"
+
+
+async def _has_prior_footprint(uid: str) -> bool:
+    """True when this account already has any stored record, so it is not new."""
+    if await preferences_col.find_one({"user_id": uid}, {"_id": 1}):
+        return True
+    if await user_profiles_col.find_one({"_id": uid}, {"_id": 1}):
+        return True
+    for col in (connections_col, accounts_col, manual_accounts_col, statement_accounts_col):
+        if await col.find_one({"user_id": uid}, {"_id": 1}):
+            return True
+    return False
+
+
+async def _seed_new_signup_defaults(uid: str) -> None:
+    """G501: stamp the new-sign-up Home chart default on a brand-new account.
+    Runs only when the sign-in just created the first-seen email alias AND the
+    account has no stored record of any kind. $setOnInsert plus the upsert means
+    it can never overwrite an existing preferences document. Never blocks a
+    sign-in."""
+    try:
+        if await _has_prior_footprint(uid):
+            return
+        await preferences_col.update_one(
+            {"user_id": uid},
+            {"$setOnInsert": {"user_id": uid, "home_pinned_widget": NEW_SIGNUP_HOME_PINNED_WIDGET}},
+            upsert=True,
+        )
+    except Exception as exc:
+        logging.info("New sign-up defaults not stored (%s)", type(exc).__name__)
 
 
 async def resolve_signin_email(
@@ -128,6 +171,7 @@ async def resolve_signin_email(
             }},
             upsert=True,
         )
+        await _seed_new_signup_defaults(candidate)
 
     # Auto-link this Apple subject to the resolved account, whether that
     # account is brand new or existing, so a later explicit link (POST
