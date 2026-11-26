@@ -70,11 +70,13 @@ If you withdraw consent, we will stop retrieving new information from that accou
 <!-- mcp-connector:start -->
 ### Connecting an AI assistant
 
-You may connect your own AI assistant, such as Claude or ChatGPT, to read your Sorted data through our connector. The assistant acts on your instructions, and you are responsible for the assistant you choose, for its provider's own terms, and for anything you do on the basis of what it tells you.
+You may connect your own AI assistant to read your Sorted data through our connector. Only assistants that Sorted has reviewed can connect: at present Claude (from Anthropic) and ChatGPT (from OpenAI). Any other assistant is refused, and we may add or remove assistants over time. The assistant acts on your instructions, and you are responsible for the assistant you choose, for its provider's own terms, and for anything you do on the basis of what it tells you.
+
+The data is what Sorted already holds from the bank accounts you have connected through Finexer LTD. When you connect an assistant you choose which groups of information it may read, and it is given only those. Neither Sorted nor Finexer has assessed how an assistant's provider handles data: its retention, training and international processing rules may differ from ours and are outside our control. Information an assistant has received cannot be recalled, although you can stop further access at any time in Settings under Connected assistants.
 
 We provide the connector with only your own data and our own deterministic figures, on a read-only basis; it cannot move money, change your settings, or make any changes in Sorted. Connector use counts against your plan's monthly allowance and is available on the plans that include it. We may suspend a connection that breaches Section 8.
 
-The disclaimer in Section 6 (information, not financial advice) applies equally to anything an AI assistant tells you based on your Sorted data.
+AI assistants can make mistakes. The disclaimer in Section 6 (information, not financial advice) applies equally to anything an AI assistant tells you based on your Sorted data, which is not advice from Sorted.
 <!-- mcp-connector:end -->
 
 ## 6. Important: information, not financial advice
