@@ -66,16 +66,20 @@ We use AI to categorise your transactions and generate insights (for example, sp
 <!-- mcp-connector:start -->
 ## 6. AI assistants you connect
 
-You can also connect your own AI assistant, for example Claude or ChatGPT, to read your Sorted data through a connector. This is separate from the in-app Penny assistant described in Section 5, and only happens on your instruction.
+You can also connect your own AI assistant to read your Sorted data through a connector. This is separate from the in-app Penny assistant described in Section 5, and only happens on your instruction.
 
-- **What it can read.** The same summaries Penny uses: your balances by account, upcoming bills, your plans and goals, your spending verdicts and insights, and your tax position figures.
+- **Which assistants can connect.** Only assistants that Sorted has reviewed can connect. At present these are Claude (from Anthropic) and ChatGPT (from OpenAI). Any other assistant is refused, even if you try to connect it. We add an assistant only after reviewing its published privacy and data terms, and we may add or remove assistants over time. Our review is of the assistant's published terms; it is not an audit of how its provider handles data, and neither Sorted nor Finexer has assessed that.
+- **Where the data comes from.** The data is what Sorted already holds from the bank accounts you have connected through Finexer LTD, our regulated account information provider (see Section 7). The assistant never connects to your bank and never receives your bank sign-in details.
+- **You choose what it can read.** When you connect an assistant, Sorted shows you its verified name and the address it will return to, and lists what it asks to read in up to three groups: balances and account names; bills, plans, goals and your tax position figures; and spending verdicts and insights. You can tick only some of them, and the assistant is given only the groups you tick. If you deny the request, nothing is shared.
 - **What it cannot read.** It cannot read your individual transactions, account numbers, sort codes, IBANs, card numbers or bank consent identifiers. These are removed before anything leaves Sorted.
 - **What it cannot do.** The connector is read-only. It cannot move money, change your settings or make any changes in Sorted.
-- **Who receives the data.** Your chosen assistant provider, for example Anthropic or OpenAI, receives it, at your instruction, under your own agreement with them. They are not our sub-processor, and we do not control what they do with it once they have it. Please check their own privacy terms.
-- **Audit log.** We keep a record of every connector request, including which tool was used, when, and by which client, and this is visible to you. We keep this log for 90 days, after which each request record is deleted automatically; it does not affect your monthly usage count, which we keep separately for billing purposes.
-- **How to stop.** You can disconnect the assistant from its own settings or, once available, from Settings within Sorted. Connection tokens can also be revoked by us if we believe one is being misused.
+- **Who receives the data.** Your chosen assistant provider, for example Anthropic or OpenAI, receives it, at your instruction, under your own agreement with them. They are not our sub-processor, and we do not control what they do with it once they have it. Their retention, training and international processing rules may differ from ours, may involve processing outside the UK, and are outside our control. Please check their own privacy terms before you connect.
+- **Data already shared cannot be recalled.** Disconnecting stops any further access, but it cannot remove information the assistant has already received or that its provider has kept.
+- **Assistants can make mistakes.** What an assistant tells you, including anything based on your Sorted data, may be wrong, and it is not advice from Sorted (see Section 6 of our Terms).
+- **Activity log.** We keep a record of every connector request, including which tool was used, when, and by which assistant, and this is visible to you in Settings under Connected assistants. We keep this log for 90 days, after which each request record is deleted automatically; it does not affect your monthly usage count, which we keep separately for billing purposes.
+- **How to stop.** You can disconnect an assistant at any time in Settings under Connected assistants, which ends its access straight away. We can also revoke a connection if we believe it is being misused, or if an assistant is removed from our reviewed list.
 
-Our lawful basis for this processing is your explicit instruction, in the same way as the explicit consent basis described in Section 3: you choose to connect an assistant and which scopes it may read, and you can withdraw that at any time by disconnecting it.
+Our lawful basis for this processing is your explicit instruction, in the same way as the explicit consent basis described in Section 3: you choose to connect an assistant and which groups of information it may read, and you can withdraw that at any time by disconnecting it.
 <!-- mcp-connector:end -->
 
 ## 7. Who we share data with
