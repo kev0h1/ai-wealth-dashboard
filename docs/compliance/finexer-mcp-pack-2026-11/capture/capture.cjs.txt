@@ -1,0 +1,43 @@
+const puppeteer = require('/root/.npm/_npx/1a4eb60c8f6b0f89/node_modules/puppeteer');
+const OUT='/root/worktrees/feature-F27-mcp-journey-screenshots-for/docs/compliance/finexer-mcp-pack-2026-11/frames/';
+const B='http://127.0.0.1:PORT';
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+(async()=>{
+ const br=await puppeteer.launch({executablePath:'/usr/bin/google-chrome',headless:'new',args:['--no-sandbox']});
+ const p=await br.newPage();
+ await p.setViewport({width:390,height:844,deviceScaleFactor:2,isMobile:true});
+ await p.emulateMediaFeatures([{name:'prefers-color-scheme',value:'light'}]);
+ await p.setRequestInterception(true);
+ const calls=[];
+ const mk=(tool,client,min)=>({tool,client,ts:new Date(Date.UTC(2026,10,25,18,0)-min*60000).toISOString(),ok:true});
+ p.on('request',r=>{
+  const u=r.url(); if(!u.includes('_next')&&!u.startsWith('data:'))console.log('U',u.slice(0,120));
+  if(u.includes('mcp/audit')){console.log('AUDIT',u);
+    r.respond({status:200,contentType:'application/json',body:JSON.stringify({year_month:null,next_cursor:null,clients:['Claude','ChatGPT'],calls:[
+     mk('get_balances','Claude',0),mk('get_spending_verdict','Claude',3),mk('get_upcoming_bills','ChatGPT',1500),mk('get_balances','ChatGPT',1510),mk('get_spending_by_category','Claude',2900)]})});
+  } else if(u.startsWith(B)||u.startsWith('data:')) r.continue();
+  else if(u.includes('/api/')) {console.log('BLOCK',u); r.respond({status:401,contentType:'application/json',body:'{}'}); }
+  else r.continue();
+ });
+ async function shot(name,url,opts={}){
+  await p.goto(url,{waitUntil:'networkidle2',timeout:90000}); await sleep(opts.wait||3500);
+  if(opts.pre) await opts.pre();
+  await p.screenshot({path:OUT+name+'.png',...(opts.clip?{clip:opts.clip}:{fullPage:opts.full!==false})});
+  console.log('ok',name);
+ }
+ await shot('01-consent-card',B+'/design/f27-tmp?frame=consent');
+ await shot('02-settings-connected-assistants',B+'/design/f27-tmp?frame=connected',{clip:{x:0,y:0,width:390,height:400}});
+ await shot('03-settings-disconnect-confirm',B+'/design/f27-tmp?frame=connected',{full:false,pre:async()=>{
+   const b=await p.$$('button'); for(const x of b){const t=await x.evaluate(e=>e.textContent); if(/Disconnect/.test(t)){await x.click();break;}} await sleep(1500);}});
+ await shot('04-activity-log',B+'/design/f27-tmp?frame=activity');
+ for (const [n,path,head] of [['05-privacy-ai-assistants',"/privacy",'AI assistants you connect'],['06-terms-connecting-an-ai-assistant','/terms','Connecting an AI assistant']]){
+  await p.goto(B+path,{waitUntil:'networkidle2',timeout:90000}); await sleep(2500);
+  const clip=await p.evaluate((head)=>{
+    const hs=[...document.querySelectorAll('h2,h3')]; const i=hs.findIndex(h=>h.textContent.includes(head)); if(i<0) return null;
+    const h=hs[i]; const nx=hs[i+1]; const y=h.getBoundingClientRect().top+scrollY; const y2=nx?nx.getBoundingClientRect().top+scrollY:y+1500;
+    return {x:0,y:y-12,width:innerWidth,height:y2-y+12};},head);
+  console.log(n,JSON.stringify(clip));
+  if(clip) await p.screenshot({path:OUT+n+'.png',clip,captureBeyondViewport:true});
+ }
+ await br.close();
+})().catch(e=>{console.error(e);process.exit(1)});
