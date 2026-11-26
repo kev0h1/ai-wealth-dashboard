@@ -2,7 +2,7 @@
 
 **Owner:** Founder / Information Security Manager
 **Applies to:** the Auriq Wealth product (web app, iOS/Android apps) and all supporting infrastructure operated by AURIQ LTD.
-**Status:** Version 1.19, last reviewed 2026-10-05. Reviewed at least annually and after any material incident or architecture change.
+**Status:** Version 1.20, last reviewed 2026-11-26. Reviewed at least annually and after any material incident or architecture change.
 
 This document is the company's primary security policy. It exists to satisfy our obligations as a registered agent of Finexer LTD for Account Information Services (AIS) and under UK GDPR / the Data Protection Act 2018. It covers our security controls, our incident-response process, and our data-breach procedures.
 
@@ -169,7 +169,7 @@ in all. As of 2026-10-04:
   re-check of on-disk residue has not been run.
 - A119 is closed: debug build only, with the signed release APK verified on
   2026-09-28 as not remotely inspectable.
-- Five (A73, A77, A79, A81, A94) remain open.
+- Four (A77, A79, A81, A94) remain open. A73 was fixed on `main` on 2026-11-24 and confirmed Fixed by the F26 retest on 2026-11-26 (see the A73 row).
 - Two further pre-documented items are not in the counts above: the Android
   backup High (A129, fixed, listed in the High table) and the `AND-08`
   scheme-exclusivity Low (no board item, listed in the Low table).
@@ -199,7 +199,7 @@ device testing, is unrelated to either.
 
 | Item | Finding | Status |
 |---|---|---|
-| A73 | OAuth consent page under-emphasises the true redirect host relative to the connector's self-reported name | Open |
+| A73 | OAuth consent page under-emphasises the true redirect host relative to the connector's self-reported name | Fixed on `main` 2026-11-24 (F28, `67fedb325`): the redirect host is now the headline of the identity block and the assistant name a secondary line; F24 (`6d0bb293f`, 2026-11-26) then replaced the self-reported name with the name from Sorted's allowlist of assessed assistants. Confirmed Fixed by source read on 2026-11-26 (F26, `docs/security/pentest-runs/F26-2026-11-26/`). The OAuth server was not registered on production when last checked (A112, 2026-09-27; confirm before enablement), so this was not seen in production; the page is behind sign-in and was not screenshotted |
 | A74 | Refresh-token rotation does not cascade-revoke the sibling access token from the same grant (pre-documented gap) | Fixed on main 2026-09-22 (eac94538); in production from `release-20260927-0947` (A112 retested the `release-20260927-1844` build); retested 2026-09-27 on UAT (the OAuth server is not registered on production), confirmed Fixed live (A112) |
 | A79 | Bank narrative text is sent to OpenRouter for categorisation and Penny read tools, unredacted (pre-documented design concern) | Open |
 | A88 | Finexer consent callback accepts a missing `state` parameter (defence-in-depth gap only; no cross-account path exists because binding is fixed at session-gated consent creation) | Fixed on main 2026-09-22 (683078c8); in production from `release-20260927-0947` (A112 retested the `release-20260927-1844` build); retested 2026-09-27, confirmed Fixed by source read (A112) |
@@ -273,7 +273,7 @@ findings: the eleven first-round fixes were retested on 2026-09-27 (ten
 confirmed Fixed, A80 Partially fixed); A120 and A122 were fixed, shipped and
 retested on device on 2026-10-04; A118 has its server-side revocation in
 production with the on-device re-check outstanding; A119 is closed (debug
-build only); and five (A73, A77, A79, A81, A94) remain open.
+build only); A73 was fixed on `main` (F28, 2026-11-24) and confirmed Fixed by the F26 retest of 2026-11-26; and four (A77, A79, A81, A94) remain open.
 
 **Production status as of 2026-10-04.** Every fix listed above is in
 production: the first-round fixes since 2026-09-27 (`release-20260927-0947`;
@@ -457,3 +457,4 @@ This policy is reviewed at least annually, and after any material incident, chan
 | 1.17 | 2026-10-04 | A60: §3b brought in line with version 1.0 of the security test report (`docs/security/reports/internal-security-test-report-2026-09.md`). Recorded the 2026-10-04 on-device retest (`docs/security/pentest-runs/A60-2026-10-04/`): A120, A121 and A122 fixed, in production since `release-20261001-2038` and retested on both phones; A118 server-side revocation in production with the on-device residue re-check not yet run; A119 closed (debug build only); first-round fixes updated with A112's 2026-09-27 retest outcomes (A80 Partially fixed). Follow-ups A123 and A138 noted. Added the pre-documented Android backup High (`AND-01` / `AND-02`, fixed under A129, verified by package-flag inspection). Reworded the testing description as a security assessment carried out by AURIQ LTD, 20 September to 4 October 2026. Sub-steps that could not be run (no Mac, rooted device or instrumentation) are carried as not tested. WP12 recorded as a review with the same tooling as the testing, the planned second pass with different tooling not performed (Information Security Manager decision, 2026-10-04); reviewed 2026-10-04, PASS on second pass. |
 | 1.18 | 2026-10-04 | A60: live `API-15` account-deletion retest ran on production with the disposable identity PT-C (`docs/security/pentest-runs/A60-2026-10-04/`), superseding A112's Blocked, source-only verdict. A82, A83 (destructive half) and A84 updated to Fixed, retested live; the Finexer dashboard was not viewed. Report finalised as version 1.0. |
 | 1.19 | 2026-10-05 | A60: Wording of roles revised; no personal names; no change to findings, statuses or evidence. |
+| 1.20 | 2026-11-26 | F26: MCP pre-enablement retest of the final build (F22, F24, F28 merged), run on a local test instance with a disposable database because the OAuth server was not registered on production when last checked (A112, 2026-09-27; confirm before enablement) (`docs/security/pentest-runs/F26-2026-11-26/`, 114 tests, all as expected). A73 recorded Fixed. No Critical or High open; the retest raised one Low (F26-L1, unauthenticated registration stores a client document per call) and three Informational notes, all in the F26 report. |
