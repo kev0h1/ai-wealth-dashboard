@@ -1359,6 +1359,7 @@ Board: the private page /ops/go-live on UAT reads and edits these files. Session
 - [ ] **F30. Connected assistants card in Settings says which assistants Sorted works with (Claude, ChatGPT, Perplexity) and that others cannot connect, reading the names from F24's allowlist rather than hardcoding them (Kevin 2026-11-26)** [owner: codex] [priority: p2] [unblocks: Q3]
   - note (2026-11-26, claude): Frontend half of F24; merge only after F24. components/ConnectedAssistantsCard.tsx (Settings). Names come from the server allowlist so the copy never drifts from what can actually connect; if a name is pending (Perplexity until its redirect URI is confirmed) it is not listed. Copy rules: no em dashes, British English. No design round; independent reviewer checks the diff against DESIGN.md.
 - [ ] **F31. MCP hardening from the F26 retest: reuse an existing client for an identical registration and expire registrations that never obtained a token (F26-L1), and key the /mcp tool-call rate limit by client and user rather than client alone (F26-I2)** [owner: claude]
+- [ ] **F32. Consent screen adds one line asking the user to continue only if they started the connection from their assistant (F26-I1, consent request ids are not bound to the starting user)** [owner: codex]
 
 ## G. Design and copy follow-ups
 
