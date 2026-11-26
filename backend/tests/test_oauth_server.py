@@ -22,6 +22,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 
 import app.core.auth as auth_mod
 import json
+import urllib.parse
 
 import app.core.mcp_client_allowlist as allowlist_mod
 import app.core.subscription as subscription_module
@@ -517,7 +518,9 @@ def test_decision_deny_returns_access_denied_and_consumes_request(monkeypatch):
         "scopes": ["accounts:read"], "state": "s2", "code_challenge": "chal2",
     }
     result = _run(oauth.decide_oauth_request({"req_id": "req2", "approve": False}, user={"email": "u@e.com"}))
-    assert result["redirect"] == "https://claude.ai/cb?error=access_denied&state=s2"
+    assert result["redirect"] == (
+        "https://claude.ai/cb?error=access_denied&state=s2&iss=" + urllib.parse.quote(oauth.API_PUBLIC_URL, safe="")
+    )
     assert not codes.docs
     assert "req2" not in store
 
@@ -1547,3 +1550,42 @@ def test_f24_consent_details_rederive_name_from_allowlist_for_legacy_pending_req
     }
     details = _run(oauth.get_oauth_request_details("old", user={"email": "u@e.com"}))
     assert details["client_name"] == "Claude"
+
+
+def test_f24_shipped_allowlist_is_exactly_the_approved_entries(monkeypatch):
+    monkeypatch.delenv("MCP_CLIENT_ALLOWLIST_FILE", raising=False)
+    got = {e["id"]: e["redirect_uris"] for e in allowlist_mod.load_allowlist()}
+    assert got == {
+        "claude": ["https://claude.ai/api/mcp/auth_callback"],
+        "chatgpt": ["https://chatgpt.com/connector_platform_oauth_redirect"],
+    }
+    assert allowlist_mod.verify_redirect_uris(["https://claude.ai/api/mcp/auth_callback"]).name == "Claude"
+    assert allowlist_mod.verify_redirect_uris(["https://chatgpt.com/connector_platform_oauth_redirect"]).name == "ChatGPT"
+    for refused in (
+        ["https://chatgpt.com/connector/oauth/abc123"],
+        ["http://127.0.0.1:8989/callback"],
+        ["https://executor.sh/api/oauth/callback"],
+        ["https://claude.ai/api/mcp/auth_callback", "https://evil.example.com/cb"],
+    ):
+        assert allowlist_mod.verify_redirect_uris(refused) is None
+
+
+def test_f24_authorization_responses_carry_iss(monkeypatch):
+    _, _, _, store = _install_fakes(monkeypatch)
+    iss = urllib.parse.quote(oauth.API_PUBLIC_URL, safe="")
+    # error redirect from authorize
+    reg = _run(_register())
+    resp = _run(oauth.authorize(
+        response_type="code", client_id=reg["client_id"], redirect_uri=reg["redirect_uris"][0],
+        scope="bogus", state="s", code_challenge="c", code_challenge_method="S256",
+    ))
+    assert f"iss={iss}" in resp.headers["location"]
+    # approve redirect from decision
+    store["rq"] = {
+        "client_id": reg["client_id"], "client_name": "Claude", "redirect_uri": reg["redirect_uris"][0],
+        "scopes": ["accounts:read"], "state": "s", "code_challenge": "c",
+    }
+    out = _run(oauth.decide_oauth_request({"req_id": "rq", "approve": True}, user={"email": "u@e.com"}))
+    assert f"iss={iss}" in out["redirect"]
+    meta = _run(oauth.oauth_authorization_server_metadata())
+    assert meta["authorization_response_iss_parameter_supported"] is True

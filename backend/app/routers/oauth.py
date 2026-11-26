@@ -104,6 +104,13 @@ def _is_valid_redirect_uri(uri: str) -> bool:
     return False
 
 
+def _auth_response_url(redirect_uri: str, params: dict) -> str:
+    """RFC 9207: every authorization response carries `iss`, matching the
+    issuer in our metadata. ChatGPT only uses its stable redirect URI (the one
+    on the allowlist) for servers that do this."""
+    return f"{redirect_uri}?{urllib.parse.urlencode({**params, 'iss': API_PUBLIC_URL})}"
+
+
 def _oauth_error(error: str, status: int = 400, description: str | None = None) -> JSONResponse:
     """RFC 6749 section 5.2 error body."""
     body: dict = {"error": error}
@@ -118,6 +125,7 @@ def _oauth_error(error: str, status: int = 400, description: str | None = None) 
 async def oauth_authorization_server_metadata():
     return {
         "issuer": API_PUBLIC_URL,
+        "authorization_response_iss_parameter_supported": True,
         "authorization_endpoint": f"{API_PUBLIC_URL}/auth/oauth/authorize",
         "token_endpoint": f"{API_PUBLIC_URL}/auth/oauth/token",
         "registration_endpoint": f"{API_PUBLIC_URL}/auth/oauth/register",
@@ -273,7 +281,7 @@ async def authorize(
         params = {"error": error}
         if state:
             params["state"] = state
-        return RedirectResponse(f"{redirect_uri}?{urllib.parse.urlencode(params)}", status_code=302)
+        return RedirectResponse(_auth_response_url(redirect_uri, params), status_code=302)
 
     if response_type != "code":
         return _err_redirect("unsupported_response_type")
@@ -348,7 +356,7 @@ async def decide_oauth_request(body: dict, user: dict = Depends(current_user)):
     state = data["state"]
 
     if not approve:
-        return {"redirect": f"{redirect_uri}?{urllib.parse.urlencode({'error': 'access_denied', 'state': state})}"}
+        return {"redirect": _auth_response_url(redirect_uri, {"error": "access_denied", "state": state})}
 
     # F24: the allowlist may have changed since authorize; no code for an
     # assistant that is no longer on it.
@@ -368,7 +376,7 @@ async def decide_oauth_request(body: dict, user: dict = Depends(current_user)):
         "expires_at": now + timedelta(seconds=CODE_TTL),
         "used_at": None,
     })
-    redirect = f"{redirect_uri}?{urllib.parse.urlencode({'code': code, 'state': state})}"
+    redirect = _auth_response_url(redirect_uri, {"code": code, "state": state})
     return {"redirect": redirect}
 
 

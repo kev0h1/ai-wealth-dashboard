@@ -13,10 +13,9 @@ import { grantedScopesFor, scopeDisclosure, toggleScope } from "@/lib/oauthScope
 // violet for Penny, and red is reserved for genuine financial risk, so the
 // provider warning is ink on the surface, not a red alert.
 //
-// The redirect host comes from the server (the registered redirect URI) and
-// is shown prominently. The assistant name is what the assistant reported
-// when it registered, so it is labelled as such; no "verified" claim is made
-// until the allowlist (F24) supplies a server-verified name.
+// The redirect host and the assistant name both come from the server. Since
+// F24 the name is taken from Sorted's allowlist of assessed assistants (the
+// assistant's own reported name is never shown), so it is shown plainly.
 export default function OAuthConsentCard({
   clientName,
   redirectHost,
@@ -67,7 +66,7 @@ export default function OAuthConsentCard({
               {redirectHost}
             </h2>
             <p className="mt-3 text-sm leading-5 text-slate-600 dark:text-slate-300">
-              Assistant name, as it reported it:{" "}
+              Assistant:{" "}
               <span className="font-semibold text-slate-800 [overflow-wrap:anywhere] dark:text-slate-200">{clientName}</span>
             </p>
           </section>
