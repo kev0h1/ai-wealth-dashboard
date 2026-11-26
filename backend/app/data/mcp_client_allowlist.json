@@ -1,0 +1,31 @@
+{
+  "_comment": "F24: MCP assistants Sorted has assessed. Empty means no assistant can register or sign in. Add an entry only after the review in DEPLOY.md (MCP client allowlist). Fields per client: id, name (shown on the consent screen), redirect_uris (exact https URIs the assistant publishes), review {reviewed_on, reviewed_by, terms_url, notes}.",
+  "clients": [
+    {
+      "id": "claude",
+      "name": "Claude",
+      "redirect_uris": [
+        "https://claude.ai/api/mcp/auth_callback"
+      ],
+      "review": {
+        "reviewed_on": "2026-11-26",
+        "reviewed_by": "Kevin Maingi (F24 decision)",
+        "terms_url": "https://www.anthropic.com/legal/privacy",
+        "notes": "Redirect URI from Anthropic's connector authentication docs and real UAT registrations."
+      }
+    },
+    {
+      "id": "chatgpt",
+      "name": "ChatGPT",
+      "redirect_uris": [
+        "https://chatgpt.com/connector_platform_oauth_redirect"
+      ],
+      "review": {
+        "reviewed_on": "2026-11-26",
+        "reviewed_by": "Kevin Maingi (F24 decision)",
+        "terms_url": "https://openai.com/policies/privacy-policy",
+        "notes": "Stable redirect URI from OpenAI's Apps SDK auth docs; used because Sorted returns iss on authorization responses."
+      }
+    }
+  ]
+}

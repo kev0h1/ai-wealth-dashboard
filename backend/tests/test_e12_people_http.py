@@ -47,6 +47,11 @@ def world(monkeypatch):
     monkeypatch.setattr(allowlist_module, "allowed_signups_col", w.allow)
     monkeypatch.setattr(admin_allowlist, "allowed_signups_col", w.allow)
     monkeypatch.setattr(mcp, "oauth_tokens_col", w.tokens)
+
+    async def _listed(_client_id):  # F24: these tests are about revocation, not the allowlist
+        from app.core.mcp_client_allowlist import VerifiedClient
+        return VerifiedClient("test", "Claude")
+    monkeypatch.setattr(mcp, "verified_client_for_id", _listed)
     monkeypatch.setattr(oauth, "oauth_tokens_col", w.tokens)
 
     async def none(*a, **k):

@@ -21,6 +21,10 @@ from fastapi import HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 import app.core.auth as auth_mod
+import json
+import urllib.parse
+
+import app.core.mcp_client_allowlist as allowlist_mod
 import app.core.subscription as subscription_module
 import app.db.collections as db_collections
 import app.routers.mcp as mcp
@@ -51,6 +55,43 @@ def _mcp_connector_enabled(monkeypatch):
     its auth_middleware integration points assuming the connector IS turned
     on. See tests/test_mcp_connector_flag.py for the flag-off behaviour."""
     monkeypatch.setattr(auth_mod, "MCP_CONNECTOR_ENABLED", True)
+
+
+class _SimpleClients:
+    def __init__(self, docs):
+        self.docs = docs
+
+    async def find_one(self, query):
+        return self.docs.get(query.get("_id"))
+
+
+_REVIEW = {"reviewed_on": "2026-11-24", "reviewed_by": "test", "terms_url": "https://example.test/terms"}
+ALLOWED_URIS = [
+    "https://claude.ai/api/mcp/callback", "https://claude.ai/api/cb", "https://claude.ai/cb",
+    "https://chatgpt.com/connector_platform_oauth_redirect",
+]
+
+
+def _write_allowlist(path, clients):
+    path.write_text(json.dumps({"clients": clients}))
+
+
+@pytest.fixture(autouse=True)
+def _allowlist(monkeypatch, tmp_path):
+    """F24: this file's clients register against a throwaway allowlist (never
+    the shipped data file), with one reviewed entry covering the test URIs."""
+    f = tmp_path / "allowlist.json"
+    _write_allowlist(f, [
+        {"id": "claude", "name": "Claude", "redirect_uris": ALLOWED_URIS, "review": _REVIEW},
+    ])
+    monkeypatch.setenv("MCP_CLIENT_ALLOWLIST_FILE", str(f))
+    # Ids that tests seed straight into token docs resolve to allowlisted
+    # clients too, unless a test installs its own fakes.
+    monkeypatch.setattr(allowlist_mod, "oauth_clients_col", _SimpleClients({
+        cid: {"_id": cid, "redirect_uris": ["https://claude.ai/cb"]}
+        for cid in ("claude-1", "client-1", "c1")
+    }))
+    return f
 
 
 class _FakeTombstoneCol:
@@ -185,9 +226,12 @@ def _fake_pending_store():
 
 def _install_fakes(monkeypatch, seed_clients=None, seed_codes=None, seed_tokens=None):
     clients = _FakeCollection(seed_clients)
+    for cid in ("c1", "rq-client"):  # ids that tests put straight into pending requests
+        clients.docs.setdefault(cid, {"_id": cid, "redirect_uris": ["https://claude.ai/cb"]})
     codes = _FakeCollection(seed_codes)
     tokens = _FakeCollection(seed_tokens)
     monkeypatch.setattr(oauth, "oauth_clients_col", clients)
+    monkeypatch.setattr(allowlist_mod, "oauth_clients_col", clients)
     monkeypatch.setattr(oauth, "oauth_codes_col", codes)
     monkeypatch.setattr(oauth, "oauth_tokens_col", tokens)
     store, fake_store, fake_get, fake_pop = _fake_pending_store()
@@ -280,6 +324,14 @@ def test_register_rejects_missing_client_name(monkeypatch):
     assert exc.value.status_code == 400
 
 
+def test_register_rejects_loopback_unless_allowlisted(monkeypatch):
+    # F24: loopback redirects used by unassessed local tools are refused now.
+    _install_fakes(monkeypatch)
+    resp = _run(_register(redirect_uris=["http://127.0.0.1:54123/callback"]))
+    assert resp.status_code == 400
+    assert b"invalid_redirect_uri" in resp.body
+
+
 def test_register_rejects_non_https_non_loopback_redirect(monkeypatch):
     _install_fakes(monkeypatch)
     with pytest.raises(HTTPException) as exc:
@@ -287,19 +339,15 @@ def test_register_rejects_non_https_non_loopback_redirect(monkeypatch):
     assert exc.value.status_code == 400
 
 
-def test_register_accepts_loopback_redirect_any_port(monkeypatch):
-    _install_fakes(monkeypatch)
-    result = _run(_register(redirect_uris=["http://127.0.0.1:54123/callback"]))
-    assert result["client_id"]
-    assert result["token_endpoint_auth_method"] == "none"
-    assert result["redirect_uris"] == ["http://127.0.0.1:54123/callback"]
-
-
 def test_register_accepts_https_redirect(monkeypatch):
     clients, *_ = _install_fakes(monkeypatch)
     result = _run(_register(client_name="ChatGPT", redirect_uris=["https://chatgpt.com/connector_platform_oauth_redirect"]))
     assert result["client_id"] in clients.docs
-    assert clients.docs[result["client_id"]]["client_name"] == "ChatGPT"
+    # F24: the stored and returned name is the verified one, not the
+    # self-reported "ChatGPT" (this file's single entry is named Claude).
+    assert clients.docs[result["client_id"]]["client_name"] == "Claude"
+    assert clients.docs[result["client_id"]]["reported_client_name"] == "ChatGPT"
+    assert result["client_name"] == "Claude"
 
 
 # ── authorize ────────────────────────────────────────────────────────────
@@ -445,7 +493,7 @@ def test_decision_without_granted_scopes_grants_all_requested(monkeypatch):
 
 def test_subset_survives_code_exchange_and_refresh_and_client_scope_param_is_ignored(monkeypatch):
     clients, codes, tokens, _ = _install_fakes(monkeypatch)
-    clients.docs["client-1"] = {"_id": "client-1", "client_id": "client-1", "client_name": "Claude"}
+    clients.docs["client-1"] = {"_id": "client-1", "client_id": "client-1", "client_name": "Claude", "redirect_uris": ["https://claude.ai/cb"]}
     code, verifier, code_doc = _run(_approve_and_get_code(scopes=["plans:read"]))
     codes.docs[code_doc["_id"]] = code_doc
     import json
@@ -470,7 +518,9 @@ def test_decision_deny_returns_access_denied_and_consumes_request(monkeypatch):
         "scopes": ["accounts:read"], "state": "s2", "code_challenge": "chal2",
     }
     result = _run(oauth.decide_oauth_request({"req_id": "req2", "approve": False}, user={"email": "u@e.com"}))
-    assert result["redirect"] == "https://claude.ai/cb?error=access_denied&state=s2"
+    assert result["redirect"] == (
+        "https://claude.ai/cb?error=access_denied&state=s2&iss=" + urllib.parse.quote(oauth.API_PUBLIC_URL, safe="")
+    )
     assert not codes.docs
     assert "req2" not in store
 
@@ -514,7 +564,7 @@ async def _approve_and_get_code(clients_seed=None, redirect_uri="https://claude.
 
 def test_token_exchange_succeeds_with_correct_verifier(monkeypatch):
     clients, codes, tokens, _ = _install_fakes(monkeypatch)
-    clients.docs["client-1"] = {"_id": "client-1", "client_id": "client-1", "client_name": "Claude"}
+    clients.docs["client-1"] = {"_id": "client-1", "client_id": "client-1", "client_name": "Claude", "redirect_uris": ["https://claude.ai/cb"]}
     code, verifier, code_doc = _run(_approve_and_get_code())
     codes.docs[code_doc["_id"]] = code_doc
 
@@ -536,7 +586,7 @@ def test_token_exchange_succeeds_with_correct_verifier(monkeypatch):
 
 def test_token_exchange_fails_with_wrong_verifier(monkeypatch):
     clients, codes, tokens, _ = _install_fakes(monkeypatch)
-    clients.docs["client-1"] = {"_id": "client-1", "client_id": "client-1", "client_name": "Claude"}
+    clients.docs["client-1"] = {"_id": "client-1", "client_id": "client-1", "client_name": "Claude", "redirect_uris": ["https://claude.ai/cb"]}
     code, verifier, code_doc = _run(_approve_and_get_code())
     codes.docs[code_doc["_id"]] = code_doc
 
@@ -554,7 +604,7 @@ def test_token_exchange_fails_with_wrong_verifier(monkeypatch):
 
 def test_code_reuse_revokes_the_whole_family(monkeypatch):
     clients, codes, tokens, _ = _install_fakes(monkeypatch)
-    clients.docs["client-1"] = {"_id": "client-1", "client_id": "client-1", "client_name": "Claude"}
+    clients.docs["client-1"] = {"_id": "client-1", "client_id": "client-1", "client_name": "Claude", "redirect_uris": ["https://claude.ai/cb"]}
     code, verifier, code_doc = _run(_approve_and_get_code())
     codes.docs[code_doc["_id"]] = code_doc
 
@@ -653,7 +703,7 @@ def test_concurrent_code_exchange_only_one_winner(monkeypatch):
     both the vulnerable and the fixed handler, and why gating
     find_one_and_update instead makes this test unable to fail (A33)."""
     clients, codes, tokens, _ = _install_fakes(monkeypatch)
-    clients.docs["client-1"] = {"_id": "client-1", "client_id": "client-1", "client_name": "Claude"}
+    clients.docs["client-1"] = {"_id": "client-1", "client_id": "client-1", "client_name": "Claude", "redirect_uris": ["https://claude.ai/cb"]}
     code, verifier, code_doc = _run(_approve_and_get_code())
     codes.docs[code_doc["_id"]] = code_doc
 
@@ -687,7 +737,7 @@ def test_concurrent_code_exchange_only_one_winner(monkeypatch):
 
 def test_refresh_rotation_revokes_old_refresh_token(monkeypatch):
     clients, codes, tokens, _ = _install_fakes(monkeypatch)
-    clients.docs["client-1"] = {"_id": "client-1", "client_id": "client-1", "client_name": "Claude"}
+    clients.docs["client-1"] = {"_id": "client-1", "client_id": "client-1", "client_name": "Claude", "redirect_uris": ["https://claude.ai/cb"]}
     code, verifier, code_doc = _run(_approve_and_get_code())
     codes.docs[code_doc["_id"]] = code_doc
 
@@ -727,7 +777,7 @@ def test_concurrent_refresh_rotation_only_one_winner(monkeypatch):
     and the fixed handler), not find_one_and_update — see the note on
     _rendezvous_gate (A33)."""
     clients, codes, tokens, _ = _install_fakes(monkeypatch)
-    clients.docs["client-1"] = {"_id": "client-1", "client_id": "client-1", "client_name": "Claude"}
+    clients.docs["client-1"] = {"_id": "client-1", "client_id": "client-1", "client_name": "Claude", "redirect_uris": ["https://claude.ai/cb"]}
     code, verifier, code_doc = _run(_approve_and_get_code())
     codes.docs[code_doc["_id"]] = code_doc
 
@@ -772,7 +822,7 @@ def test_refresh_rotation_revokes_sibling_access_token(monkeypatch):
     token is rotated, so access1 must now be rejected at /mcp immediately
     after rotation, while the freshly minted access2 keeps working."""
     clients, codes, tokens, _ = _install_fakes(monkeypatch)
-    clients.docs["client-1"] = {"_id": "client-1", "client_id": "client-1", "client_name": "Claude"}
+    clients.docs["client-1"] = {"_id": "client-1", "client_id": "client-1", "client_name": "Claude", "redirect_uris": ["https://claude.ai/cb"]}
     code, verifier, code_doc = _run(_approve_and_get_code())
     codes.docs[code_doc["_id"]] = code_doc
 
@@ -811,7 +861,7 @@ def test_refresh_replay_revokes_whole_grant_including_newest_access_token(monkey
     directly sharing refresh1's pair_id, then replay refresh1 and confirm
     access3 dies too, not just access1/access2."""
     clients, codes, tokens, _ = _install_fakes(monkeypatch)
-    clients.docs["client-1"] = {"_id": "client-1", "client_id": "client-1", "client_name": "Claude"}
+    clients.docs["client-1"] = {"_id": "client-1", "client_id": "client-1", "client_name": "Claude", "redirect_uris": ["https://claude.ai/cb"]}
     code, verifier, code_doc = _run(_approve_and_get_code())
     codes.docs[code_doc["_id"]] = code_doc
 
@@ -864,7 +914,7 @@ def test_refresh_replay_leaves_unrelated_grant_for_same_user_untouched(monkeypat
     or a second connector authorised separately) must survive a replay
     detected on the first grant."""
     clients, codes, tokens, _ = _install_fakes(monkeypatch)
-    clients.docs["client-1"] = {"_id": "client-1", "client_id": "client-1", "client_name": "Claude"}
+    clients.docs["client-1"] = {"_id": "client-1", "client_id": "client-1", "client_name": "Claude", "redirect_uris": ["https://claude.ai/cb"]}
 
     code_a, verifier_a, code_doc_a = _run(_approve_and_get_code())
     codes.docs[code_doc_a["_id"]] = code_doc_a
@@ -915,7 +965,7 @@ def test_unsupported_grant_type(monkeypatch):
 
 def test_revoke_endpoint_revokes_access_and_its_refresh_sibling(monkeypatch):
     clients, codes, tokens, _ = _install_fakes(monkeypatch)
-    clients.docs["client-1"] = {"_id": "client-1", "client_id": "client-1", "client_name": "Claude"}
+    clients.docs["client-1"] = {"_id": "client-1", "client_id": "client-1", "client_name": "Claude", "redirect_uris": ["https://claude.ai/cb"]}
     code, verifier, code_doc = _run(_approve_and_get_code())
     codes.docs[code_doc["_id"]] = code_doc
     import json
@@ -1099,7 +1149,7 @@ def test_resolve_mcp_principal_rejects_expired_token(monkeypatch):
 
 def test_token_exchange_succeeds_when_stored_code_expires_at_is_naive(monkeypatch):
     clients, codes, tokens, _ = _install_fakes(monkeypatch)
-    clients.docs["client-1"] = {"_id": "client-1", "client_id": "client-1", "client_name": "Claude"}
+    clients.docs["client-1"] = {"_id": "client-1", "client_id": "client-1", "client_name": "Claude", "redirect_uris": ["https://claude.ai/cb"]}
     verifier, challenge = _pkce_pair()
     code = secrets.token_urlsafe(32)
     naive_now = datetime.utcnow()
@@ -1125,7 +1175,7 @@ def test_token_exchange_succeeds_when_stored_code_expires_at_is_naive(monkeypatc
 
 def test_refresh_grant_succeeds_when_stored_expires_at_is_naive(monkeypatch):
     clients, codes, tokens, _ = _install_fakes(monkeypatch)
-    clients.docs["client-1"] = {"_id": "client-1", "client_id": "client-1", "client_name": "Claude"}
+    clients.docs["client-1"] = {"_id": "client-1", "client_id": "client-1", "client_name": "Claude", "redirect_uris": ["https://claude.ai/cb"]}
     code, verifier, code_doc = _run(_approve_and_get_code())
     codes.docs[code_doc["_id"]] = code_doc
     import json
@@ -1150,7 +1200,7 @@ def test_refresh_grant_succeeds_when_stored_expires_at_is_naive(monkeypatch):
 
 def test_refresh_grant_rejects_expired_naive_expires_at(monkeypatch):
     clients, codes, tokens, _ = _install_fakes(monkeypatch)
-    clients.docs["client-1"] = {"_id": "client-1", "client_id": "client-1", "client_name": "Claude"}
+    clients.docs["client-1"] = {"_id": "client-1", "client_id": "client-1", "client_name": "Claude", "redirect_uris": ["https://claude.ai/cb"]}
     code, verifier, code_doc = _run(_approve_and_get_code())
     codes.docs[code_doc["_id"]] = code_doc
     import json
@@ -1176,7 +1226,7 @@ def test_refresh_grant_rejects_expired_naive_expires_at(monkeypatch):
 
 def test_revoke_endpoint_works_when_stored_expires_at_is_naive(monkeypatch):
     clients, codes, tokens, _ = _install_fakes(monkeypatch)
-    clients.docs["client-1"] = {"_id": "client-1", "client_id": "client-1", "client_name": "Claude"}
+    clients.docs["client-1"] = {"_id": "client-1", "client_id": "client-1", "client_name": "Claude", "redirect_uris": ["https://claude.ai/cb"]}
     code, verifier, code_doc = _run(_approve_and_get_code())
     codes.docs[code_doc["_id"]] = code_doc
     import json
@@ -1355,3 +1405,187 @@ def test_valid_shaped_sorted_at_bearer_still_reaches_call_next_on_mcp_subpath():
         call_next,
     ))
     assert result == "reached"
+
+
+# ── F24: client allowlist ───────────────────────────────────────────────
+
+def _json(resp):
+    return json.loads(resp.body)
+
+
+def test_f24_register_unlisted_client_is_refused_and_nothing_stored(monkeypatch):
+    clients, *_ = _install_fakes(monkeypatch)
+    n = len(clients.docs)
+    resp = _run(_register(client_name="Claude", redirect_uris=["https://evil.example.com/cb"]))
+    assert resp.status_code == 400
+    assert _json(resp)["error"] == "invalid_redirect_uri"
+    assert len(clients.docs) == n
+
+
+def test_f24_register_with_one_unlisted_uri_among_listed_is_refused(monkeypatch):
+    _install_fakes(monkeypatch)
+    resp = _run(_register(redirect_uris=["https://claude.ai/cb", "https://evil.example.com/cb"]))
+    assert resp.status_code == 400
+
+
+def test_f24_empty_or_missing_allowlist_refuses_everyone(monkeypatch, tmp_path):
+    _install_fakes(monkeypatch)
+    f = tmp_path / "empty.json"
+    _write_allowlist(f, [])
+    monkeypatch.setenv("MCP_CLIENT_ALLOWLIST_FILE", str(f))
+    assert _run(_register()).status_code == 400
+    monkeypatch.setenv("MCP_CLIENT_ALLOWLIST_FILE", str(tmp_path / "missing.json"))
+    assert _run(_register()).status_code == 400
+
+
+def test_f24_shipped_allowlist_file_is_valid_and_every_entry_reviewed(monkeypatch):
+    monkeypatch.delenv("MCP_CLIENT_ALLOWLIST_FILE", raising=False)
+    raw = json.loads(allowlist_mod.DEFAULT_PATH.read_text())
+    assert len(allowlist_mod.load_allowlist()) == len(raw["clients"])
+
+
+def test_f24_entry_without_review_record_or_with_http_uri_is_ignored(monkeypatch, tmp_path):
+    f = tmp_path / "bad.json"
+    _write_allowlist(f, [
+        {"id": "a", "name": "A", "redirect_uris": ["https://a.example/cb"]},
+        {"id": "b", "name": "B", "redirect_uris": ["http://b.example/cb"], "review": _REVIEW},
+        {"id": "c", "name": "C", "redirect_uris": ["https://c.example/cb"], "review": {**_REVIEW, "reviewed_by": ""}},
+        {"id": "d", "name": "D", "redirect_uris": ["https://d.example/cb"], "review": _REVIEW},
+    ])
+    monkeypatch.setenv("MCP_CLIENT_ALLOWLIST_FILE", str(f))
+    assert [e["id"] for e in allowlist_mod.load_allowlist()] == ["d"]
+
+
+def test_f24_authorize_refuses_legacy_client_no_longer_on_allowlist(monkeypatch):
+    # A client registered under the old open registration, redirect URI not on the list.
+    _, _, _, store = _install_fakes(monkeypatch, seed_clients=[
+        {"_id": "old", "client_name": "Claude", "redirect_uris": ["https://evil.example.com/cb"]},
+    ])
+    resp = _run(oauth.authorize(
+        response_type="code", client_id="old", redirect_uri="https://evil.example.com/cb",
+        scope="accounts:read", state="s", code_challenge="c", code_challenge_method="S256",
+    ))
+    assert isinstance(resp, HTMLResponse) and resp.status_code == 400
+    assert not store
+
+
+def test_f24_consent_shows_verified_name_not_self_reported(monkeypatch):
+    _, _, _, store = _install_fakes(monkeypatch)
+    reg = _run(_register(client_name="Totally Official Bank App"))
+    assert reg["client_name"] == "Claude"
+    resp = _run(oauth.authorize(
+        response_type="code", client_id=reg["client_id"], redirect_uri=reg["redirect_uris"][0],
+        scope="accounts:read", state="s", code_challenge="c", code_challenge_method="S256",
+    ))
+    req_id = resp.headers["location"].rsplit("req=", 1)[1]
+    assert store[req_id]["client_name"] == "Claude"
+    details = _run(oauth.get_oauth_request_details(req_id, user={"email": "u@e.com"}))
+    assert details["client_name"] == "Claude"
+    assert details["redirect_host"] == "claude.ai"
+    assert "Totally Official" not in json.dumps(details)
+
+
+def test_f24_decision_refuses_code_if_client_dropped_since_authorize(monkeypatch, tmp_path):
+    _, codes, _, store = _install_fakes(monkeypatch)
+    reg = _run(_register())
+    store["rq"] = {
+        "client_id": reg["client_id"], "client_name": "Claude", "redirect_uri": reg["redirect_uris"][0],
+        "scopes": ["accounts:read"], "state": "s", "code_challenge": "c",
+    }
+    f = tmp_path / "now-empty.json"
+    _write_allowlist(f, [])
+    monkeypatch.setenv("MCP_CLIENT_ALLOWLIST_FILE", str(f))
+    with pytest.raises(HTTPException) as exc:
+        _run(oauth.decide_oauth_request({"req_id": "rq", "approve": True}, user={"email": "u@e.com"}))
+    assert exc.value.status_code == 403
+    assert not codes.docs
+
+
+def test_f24_code_exchange_and_refresh_and_mcp_stop_when_client_dropped(monkeypatch, tmp_path, _allowlist):
+    clients, codes, tokens, _ = _install_fakes(monkeypatch)
+    monkeypatch.setattr(mcp, "oauth_tokens_col", tokens)
+    clients.docs["client-1"] = {"_id": "client-1", "client_name": "Old", "redirect_uris": ["https://claude.ai/cb"]}
+    # First a code exchange that works while listed, giving a live pair.
+    code, verifier, code_doc = _run(_approve_and_get_code(scopes=["plans:read"]))
+    codes.docs[code_doc["_id"]] = code_doc
+    ok = _json(_run(oauth.token_endpoint(_FakeFormRequest({
+        "grant_type": "authorization_code", "code": code, "redirect_uri": "https://claude.ai/cb",
+        "client_id": "client-1", "code_verifier": verifier,
+    }))))
+    assert ok["access_token"]
+    # Token docs carry the verified name, not the stored one.
+    assert {d["client_name"] for d in tokens.docs.values()} == {"Claude"}
+    assert _run(mcp.resolve_mcp_principal(_FakeRequestWithAuth(ok["access_token"])))["client"] == "Claude"
+
+    # Drop the client from the allowlist.
+    f = tmp_path / "gone.json"
+    _write_allowlist(f, [])
+    monkeypatch.setenv("MCP_CLIENT_ALLOWLIST_FILE", str(f))
+
+    with pytest.raises(HTTPException) as exc:
+        _run(mcp.resolve_mcp_principal(_FakeRequestWithAuth(ok["access_token"])))
+    assert exc.value.status_code == 401
+    before = len(tokens.docs)
+    resp = _run(oauth.token_endpoint(_FakeFormRequest({
+        "grant_type": "refresh_token", "refresh_token": ok["refresh_token"], "client_id": "client-1",
+    })))
+    assert resp.status_code == 400 and _json(resp)["error"] == "invalid_client"
+    assert len(tokens.docs) == before  # nothing minted
+
+    code2, verifier2, code_doc2 = _run(_approve_and_get_code(scopes=["plans:read"]))
+    codes.docs[code_doc2["_id"]] = code_doc2
+    resp = _run(oauth.token_endpoint(_FakeFormRequest({
+        "grant_type": "authorization_code", "code": code2, "redirect_uri": "https://claude.ai/cb",
+        "client_id": "client-1", "code_verifier": verifier2,
+    })))
+    assert resp.status_code == 400 and _json(resp)["error"] == "invalid_client"
+    assert len(tokens.docs) == before
+
+
+def test_f24_consent_details_rederive_name_from_allowlist_for_legacy_pending_request(monkeypatch):
+    _, _, _, store = _install_fakes(monkeypatch)
+    store["old"] = {
+        "client_id": "c1", "client_name": "Totally Official Bank App",
+        "redirect_uri": "https://claude.ai/cb", "scopes": ["accounts:read"], "state": "s", "code_challenge": "c",
+    }
+    details = _run(oauth.get_oauth_request_details("old", user={"email": "u@e.com"}))
+    assert details["client_name"] == "Claude"
+
+
+def test_f24_shipped_allowlist_is_exactly_the_approved_entries(monkeypatch):
+    monkeypatch.delenv("MCP_CLIENT_ALLOWLIST_FILE", raising=False)
+    got = {e["id"]: e["redirect_uris"] for e in allowlist_mod.load_allowlist()}
+    assert got == {
+        "claude": ["https://claude.ai/api/mcp/auth_callback"],
+        "chatgpt": ["https://chatgpt.com/connector_platform_oauth_redirect"],
+    }
+    assert allowlist_mod.verify_redirect_uris(["https://claude.ai/api/mcp/auth_callback"]).name == "Claude"
+    assert allowlist_mod.verify_redirect_uris(["https://chatgpt.com/connector_platform_oauth_redirect"]).name == "ChatGPT"
+    for refused in (
+        ["https://chatgpt.com/connector/oauth/abc123"],
+        ["http://127.0.0.1:8989/callback"],
+        ["https://executor.sh/api/oauth/callback"],
+        ["https://claude.ai/api/mcp/auth_callback", "https://evil.example.com/cb"],
+    ):
+        assert allowlist_mod.verify_redirect_uris(refused) is None
+
+
+def test_f24_authorization_responses_carry_iss(monkeypatch):
+    _, _, _, store = _install_fakes(monkeypatch)
+    iss = urllib.parse.quote(oauth.API_PUBLIC_URL, safe="")
+    # error redirect from authorize
+    reg = _run(_register())
+    resp = _run(oauth.authorize(
+        response_type="code", client_id=reg["client_id"], redirect_uri=reg["redirect_uris"][0],
+        scope="bogus", state="s", code_challenge="c", code_challenge_method="S256",
+    ))
+    assert f"iss={iss}" in resp.headers["location"]
+    # approve redirect from decision
+    store["rq"] = {
+        "client_id": reg["client_id"], "client_name": "Claude", "redirect_uri": reg["redirect_uris"][0],
+        "scopes": ["accounts:read"], "state": "s", "code_challenge": "c",
+    }
+    out = _run(oauth.decide_oauth_request({"req_id": "rq", "approve": True}, user={"email": "u@e.com"}))
+    assert f"iss={iss}" in out["redirect"]
+    meta = _run(oauth.oauth_authorization_server_metadata())
+    assert meta["authorization_response_iss_parameter_supported"] is True

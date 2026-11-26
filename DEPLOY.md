@@ -315,6 +315,19 @@ registration) is unchanged, and `/auth/oauth/token` / `/auth/oauth/authorize`
 now have their own explicit per-IP entries too (30/minute, same as the
 generic `/auth/` rule they used to fall through to).
 
+### MCP client allowlist (F24)
+
+Dynamic client registration is no longer open. `POST /auth/oauth/register` only accepts a client whose redirect URIs ALL appear, exactly, in one entry of `backend/app/data/mcp_client_allowlist.json` (override the path with `MCP_CLIENT_ALLOWLIST_FILE`). The same check runs again at authorize, consent decision, code exchange, refresh and on every `/mcp` call, so removing an entry also cuts off clients registered earlier and their live tokens (their stored rows stay, but nothing is minted or accepted). The consent screen gets the verified name from the entry and the host from the matched redirect URI; the self-reported `client_name` is stored as `reported_client_name` for audit only. A missing, unreadable or malformed file, or an entry without a complete review record, is ignored (fail closed). The file lists exactly two assistants, chosen by Kevin on 2026-11-26: Claude (`https://claude.ai/api/mcp/auth_callback`) and ChatGPT (`https://chatgpt.com/connector_platform_oauth_redirect`); every other client, including the loopback local tools (OpenClaw, Codex) and Executor, is refused. ChatGPT only uses that stable redirect URI when authorization responses carry `iss` (RFC 9207) and the metadata sets `authorization_response_iss_parameter_supported`, so both are in place; its per-connector fallback `https://chatgpt.com/connector/oauth/{callback_id}` is deliberately not allowed. Perplexity is not listed: it publishes no redirect URI. This does not affect the F3 session-bearer path, which is not issued by registration.
+
+Adding an assistant (a pull request, never a runtime edit):
+
+1. Review the provider's retention, training and international processing terms for data sent to it by a connector, and record the outcome.
+2. Take the redirect URIs from the provider's own published documentation (exact https URIs, no wildcards, no loopback), not from an observed registration.
+3. Add an entry: `id`, `name` (shown to customers), `redirect_uris`, and `review` with `reviewed_on`, `reviewed_by`, `terms_url` (and `notes`).
+4. Get a second person to approve the pull request, then deploy. Removing an entry is the same file edit and takes effect on the next request.
+
+Rollout: clients registered before F24 that are not listed (for example local tools such as OpenClaw, Codex or Executor on UAT) stop working until they are added with a reviewed entry, by design.
+
 ### MCP connector flag
 
 A17 (2026-09-08): everything above is built, but not part of the Finexer

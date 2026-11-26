@@ -54,6 +54,7 @@ from app.core.redis_client import get_redis, redis_ok
 from app.core.allowlist import is_access_revoked
 from app.core.session_revocation import is_revoked
 from app.core.timeutil import as_utc
+from app.core.mcp_client_allowlist import verified_client_for_id
 from app.db.collections import mcp_call_counters_col, mcp_calls_col, oauth_tokens_col
 from app.services.mcp_mask import mask_output_and_count
 from app.services.penny_tools import TOOL_SCHEMAS, execute_tool, tips_tools_enabled, TIP_TOOL_NAMES, visible_tool_schemas
@@ -354,6 +355,13 @@ async def resolve_mcp_principal(request: Request) -> dict:
         if revoked:
             raise HTTPException(
                 401, "Invalid, revoked or expired access token",
+                headers={"WWW-Authenticate": MCP_WWW_AUTHENTICATE},
+            )
+        # F24: a token minted for a client that is no longer on the allowlist
+        # (or never was, if it predates F24) stops working at once.
+        if not await verified_client_for_id(doc["client_id"]):
+            raise HTTPException(
+                401, "This assistant is not on Sorted's list of assessed assistants",
                 headers={"WWW-Authenticate": MCP_WWW_AUTHENTICATE},
             )
         # Best-effort freshness stamp for the connections list's

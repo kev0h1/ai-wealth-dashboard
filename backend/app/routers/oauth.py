@@ -14,9 +14,12 @@ OAuth 2.1 draft this is built against.
 Grant flow, end to end:
 
 1. `POST /auth/oauth/register` — the connector registers itself (RFC 7591)
-   and gets back a `client_id`. No approval step; any https (or loopback)
-   redirect URI is accepted, same as Claude's/ChatGPT's own connector UX
-   expects.
+   and gets back a `client_id`, but only if every redirect URI it presents is
+   published by an assistant on Sorted's allowlist (F24,
+   `app.core.mcp_client_allowlist`). Anything else is refused with
+   `invalid_redirect_uri`. The same check runs again at authorize, code
+   exchange, refresh and on every /mcp call, so dropping an entry from the
+   allowlist also stops clients registered earlier.
 2. `GET /auth/oauth/authorize` — the connector sends the user's browser
    here with `client_id`, `redirect_uri`, `scope`, `state`, `code_challenge`
    (S256). This endpoint validates everything BEFORE trusting the
@@ -56,6 +59,7 @@ from app.core.signin_handoff import signin_error_response
 
 from app.core.auth import current_user
 from app.core.config import API_PUBLIC_URL, APP_URL, MCP_PUBLIC_URL
+from app.core.mcp_client_allowlist import verified_client_for_id, verify_redirect_uris
 from app.core.pending_oauth import get_oauth_request, pop_oauth_request, store_oauth_request
 from app.core.allowlist import is_access_revoked
 from app.core.session_revocation import is_revoked
@@ -100,6 +104,13 @@ def _is_valid_redirect_uri(uri: str) -> bool:
     return False
 
 
+def _auth_response_url(redirect_uri: str, params: dict) -> str:
+    """RFC 9207: every authorization response carries `iss`, matching the
+    issuer in our metadata. ChatGPT only uses its stable redirect URI (the one
+    on the allowlist) for servers that do this."""
+    return f"{redirect_uri}?{urllib.parse.urlencode({**params, 'iss': API_PUBLIC_URL})}"
+
+
 def _oauth_error(error: str, status: int = 400, description: str | None = None) -> JSONResponse:
     """RFC 6749 section 5.2 error body."""
     body: dict = {"error": error}
@@ -114,6 +125,7 @@ def _oauth_error(error: str, status: int = 400, description: str | None = None) 
 async def oauth_authorization_server_metadata():
     return {
         "issuer": API_PUBLIC_URL,
+        "authorization_response_iss_parameter_supported": True,
         "authorization_endpoint": f"{API_PUBLIC_URL}/auth/oauth/authorize",
         "token_endpoint": f"{API_PUBLIC_URL}/auth/oauth/token",
         "registration_endpoint": f"{API_PUBLIC_URL}/auth/oauth/register",
@@ -181,11 +193,11 @@ async def oauth_protected_resource_metadata_for_path(resource_path: str):
 
 @router.post("/auth/oauth/register")
 async def register_client(body: dict):
-    client_name = str(body.get("client_name") or "").strip()
+    reported_name = str(body.get("client_name") or "").strip()
     redirect_uris = body.get("redirect_uris")
     software_id = body.get("software_id")
 
-    if not client_name:
+    if not reported_name:
         raise HTTPException(400, "client_name is required")
     if not isinstance(redirect_uris, list) or not redirect_uris:
         raise HTTPException(400, "redirect_uris must be a non-empty list")
@@ -195,6 +207,15 @@ async def register_client(body: dict):
                 400,
                 f"redirect_uris must be https, or http://localhost or http://127.0.0.1 on any port: {uri!r}",
             )
+    # F24: only assessed assistants. The self-reported name is kept for the
+    # audit trail only; everything shown to the user is the verified name.
+    verified = verify_redirect_uris(redirect_uris)
+    if not verified:
+        return _oauth_error(
+            "invalid_redirect_uri", 400,
+            "This assistant is not on Sorted's list of assessed assistants.",
+        )
+    client_name = verified.name
 
     client_id = secrets.token_urlsafe(16)
     grant_types = ["authorization_code", "refresh_token"]
@@ -202,6 +223,8 @@ async def register_client(body: dict):
         "_id": client_id,
         "client_id": client_id,
         "client_name": client_name,
+        "reported_client_name": reported_name,
+        "allowlist_id": verified.allowlist_id,
         "redirect_uris": redirect_uris,
         "token_endpoint_auth_method": "none",
         "grant_types": grant_types,
@@ -245,12 +268,20 @@ async def authorize(
             status_code=400, heading="This link can’t be used",
             message="This request’s redirect address does not match what was registered for this assistant. Close this window and start again from the assistant.",
         )
+    # F24: a client that is not (or is no longer) on the allowlist never gets
+    # as far as the consent screen, and is never redirected to.
+    verified = verify_redirect_uris(client.get("redirect_uris"))
+    if not verified:
+        return signin_error_response(
+            status_code=400, heading="This assistant can’t connect",
+            message="This assistant is not on Sorted’s list of assessed assistants. Close this window.",
+        )
 
     def _err_redirect(error: str) -> RedirectResponse:
         params = {"error": error}
         if state:
             params["state"] = state
-        return RedirectResponse(f"{redirect_uri}?{urllib.parse.urlencode(params)}", status_code=302)
+        return RedirectResponse(_auth_response_url(redirect_uri, params), status_code=302)
 
     if response_type != "code":
         return _err_redirect("unsupported_response_type")
@@ -265,7 +296,7 @@ async def authorize(
     req_id = secrets.token_urlsafe(16)
     await store_oauth_request(req_id, {
         "client_id": client_id,
-        "client_name": client["client_name"],
+        "client_name": verified.name,
         "redirect_uri": redirect_uri,
         "scopes": scopes,
         "state": state,
@@ -281,9 +312,14 @@ async def get_oauth_request_details(req_id: str, user: dict = Depends(current_us
     data = await get_oauth_request(req_id)
     if not data:
         raise HTTPException(404, "This request has expired. Please try connecting again.")
+    # F24: the name is re-derived from the allowlist, never read from the
+    # stored request (which may predate F24 and carry a self-reported name).
+    verified = await verified_client_for_id(data["client_id"])
+    if not verified:
+        raise HTTPException(404, "This request has expired. Please try connecting again.")
     host = urllib.parse.urlparse(data["redirect_uri"]).hostname or data["redirect_uri"]
     return {
-        "client_name": data["client_name"],
+        "client_name": verified.name,
         "redirect_host": host,
         "scopes": [
             {"scope": s, "description": SCOPE_DESCRIPTIONS.get(s, s)}
@@ -320,7 +356,12 @@ async def decide_oauth_request(body: dict, user: dict = Depends(current_user)):
     state = data["state"]
 
     if not approve:
-        return {"redirect": f"{redirect_uri}?{urllib.parse.urlencode({'error': 'access_denied', 'state': state})}"}
+        return {"redirect": _auth_response_url(redirect_uri, {"error": "access_denied", "state": state})}
+
+    # F24: the allowlist may have changed since authorize; no code for an
+    # assistant that is no longer on it.
+    if not await verified_client_for_id(data["client_id"]):
+        raise HTTPException(403, "This assistant is no longer on Sorted's list of assessed assistants.")
 
     code = secrets.token_urlsafe(32)
     now = datetime.now(timezone.utc)
@@ -335,7 +376,7 @@ async def decide_oauth_request(body: dict, user: dict = Depends(current_user)):
         "expires_at": now + timedelta(seconds=CODE_TTL),
         "used_at": None,
     })
-    redirect = f"{redirect_uri}?{urllib.parse.urlencode({'code': code, 'state': state})}"
+    redirect = _auth_response_url(redirect_uri, {"code": code, "state": state})
     return {"redirect": redirect}
 
 
@@ -418,6 +459,9 @@ async def _handle_authorization_code_grant(form) -> JSONResponse:
         return _oauth_error("invalid_client")
     if doc.get("redirect_uri") != redirect_uri:
         return _oauth_error("invalid_grant", description="redirect_uri mismatch")
+    verified = await verified_client_for_id(client_id)  # F24
+    if not verified:
+        return _oauth_error("invalid_client", description="Client is not on the allowlist")
 
     expected_challenge = base64.urlsafe_b64encode(
         hashlib.sha256(code_verifier.encode()).digest()
@@ -451,9 +495,7 @@ async def _handle_authorization_code_grant(form) -> JSONResponse:
         )
         return _oauth_error("invalid_grant", description="Code already used")
 
-    client = await oauth_clients_col.find_one({"_id": client_id})
-    client_name = client.get("client_name") if client else client_id
-    result = await _issue_token_pair(client_id, client_name, doc["uid"], doc["scopes"], code_hash)
+    result = await _issue_token_pair(client_id, verified.name, doc["uid"], doc["scopes"], code_hash)
     return JSONResponse(result)
 
 
@@ -515,6 +557,9 @@ async def _handle_refresh_token_grant(form) -> JSONResponse:
         return JSONResponse({"error": "temporarily_unavailable"}, status_code=503)
     if doc.get("client_id") != client_id:
         return _oauth_error("invalid_client")
+    verified = await verified_client_for_id(client_id)  # F24: before rotating
+    if not verified:
+        return _oauth_error("invalid_client", description="Client is not on the allowlist")
 
     # Rotate: the old refresh token is revoked the instant it's redeemed,
     # so it can only ever be used once (reuse of a rotated-out refresh
@@ -552,10 +597,8 @@ async def _handle_refresh_token_grant(form) -> JSONResponse:
         {"$set": {"revoked_at": now}},
     )
 
-    client = await oauth_clients_col.find_one({"_id": client_id})
-    client_name = client.get("client_name") if client else client_id
     result = await _issue_token_pair(
-        client_id, client_name, doc["uid"],
+        client_id, verified.name, doc["uid"],
         # F22: the refresh token's own grant, never a client-supplied scope.
         [s for s in (doc.get("scopes") or []) if s in V1_SCOPES],
         doc.get("origin_code_hash"), rotated_from=token_hash,
