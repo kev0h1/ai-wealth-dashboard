@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { ArrowRightLeft, CalendarClock, X } from "lucide-react";
+import { ArrowRightLeft, CalendarClock, X } from "@/lib/phosphorIcons";
 import type { CompanionItem } from "@/lib/api";
 import SettleMark from "@/components/SettleMark";
 import ActionLabel from "@/components/ActionLabel";

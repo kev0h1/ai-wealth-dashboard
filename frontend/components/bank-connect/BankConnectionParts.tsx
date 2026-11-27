@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowRight, ChevronRight, Landmark, LoaderCircle, Search, X } from "lucide-react";
+import { ArrowRight, ChevronRight, Landmark, LoaderCircle, Search, X } from "@/lib/phosphorIcons";
 import { useState, type RefObject } from "react";
 import type { Bank } from "@/components/BankPickerSheet";
 import { resolveApiAsset } from "@/lib/api";

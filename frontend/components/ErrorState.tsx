@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { Undo2 } from "lucide-react";
+import { Undo2 } from "@/lib/phosphorIcons";
 
 // G215: the one designed error surface for Next's not-found and error boundaries.
 // Same anatomy as the sign-in hand-off page (shared/signin-handoff/template.html):

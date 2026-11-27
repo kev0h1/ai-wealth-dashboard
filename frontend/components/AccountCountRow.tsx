@@ -8,7 +8,7 @@
 
 import CountTowardsSafeToSpendRow, { type CountTowardsSafeToSpendRowProps } from "@/components/CountTowardsSafeToSpendRow";
 import { BUSINESS_NOT_COUNTED, SAVINGS_NOT_COUNTED, isSavingsAccount } from "@/lib/accountSheetNotes";
-import { Wallet } from "lucide-react";
+import { Wallet } from "@/lib/phosphorIcons";
 import { AccountDetailsFactRow } from "@/components/AccountDetailsContent";
 
 export interface AccountCountRowProps extends CountTowardsSafeToSpendRowProps {

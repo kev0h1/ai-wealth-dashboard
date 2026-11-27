@@ -1,7 +1,7 @@
 "use client";
 
-import type { LucideIcon } from "lucide-react";
-import { AlertCircle, AlertTriangle, Check, ChevronDown, Clock } from "lucide-react";
+import type { PhosphorIcon } from "@/lib/phosphorIcons";
+import { AlertCircle, AlertTriangle, Check, ChevronDown, Clock } from "@/lib/phosphorIcons";
 import SwipeDismissRow from "@/components/upcoming/SwipeDismissRow";
 import { useBalancesHidden, maskMoneyText } from "@/lib/balancesHidden";
 import { getUpcomingStatus, upcomingMoney, upcomingStatusText } from "@/lib/upcomingAttention";
@@ -66,7 +66,7 @@ export type UpcomingRowModel = {
   };
   after: UpcomingRowAfter;
   categoryColour: string;
-  CategoryIcon: LucideIcon;
+  CategoryIcon: PhosphorIcon;
 };
 
 type UpcomingRowProps = {

@@ -1,4 +1,4 @@
-import { Info } from "lucide-react";
+import { Info } from "@/lib/phosphorIcons";
 
 export default function AdviceDisclaimer({ className = "" }: { className?: string }) {
   return (

@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useSearchParams } from "next/navigation";
-import { ArrowLeftRight, ChevronDown, CreditCard, Landmark, ShieldCheck, X } from "lucide-react";
+import { ArrowLeftRight, ChevronDown, CreditCard, Landmark, ShieldCheck, X } from "@/lib/phosphorIcons";
 import BottomNavRail from "@/components/navigation/BottomNavRail";
 import PhosphorNavIcon from "@/components/navigation/PhosphorNavIcon";
 import PennyAppearanceIcon from "@/components/PennyAppearanceIcon";

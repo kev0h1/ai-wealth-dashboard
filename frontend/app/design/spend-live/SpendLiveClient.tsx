@@ -22,7 +22,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { BarChart3, WalletCards } from "lucide-react";
+import { BarChart3, WalletCards } from "@/lib/phosphorIcons";
 import SpendVerdictView from "@/components/SpendVerdictView";
 import { SpendJourneySummary, SpendPeriodBar, type RecentPeriodOption } from "@/components/SpendHeader";
 import SpendJourneyNav, { type SpendJourneyDestination } from "@/components/SpendJourneyNav";

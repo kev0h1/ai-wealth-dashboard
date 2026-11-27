@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, ChevronDown, ChevronRight, CreditCard, Moon, Sun } from "lucide-react";
+import { ArrowLeft, ChevronDown, ChevronRight, CreditCard, Moon, Sun } from "@/lib/phosphorIcons";
 import type { Account, Allocation, Commitment } from "@/lib/api";
 import { assessPlanOverlap, type Plan } from "@/lib/upcomingPlans";
 import type { PaymentDetail, UpcomingDetailServices, UpcomingDetailView } from "@/components/upcoming/UpcomingDetailFlow";

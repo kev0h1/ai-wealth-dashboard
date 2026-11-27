@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { Check, ChevronDown, ChevronRight, Search } from "lucide-react";
+import { Check, ChevronDown, ChevronRight, Search } from "@/lib/phosphorIcons";
 import MoneyText from "@/components/MoneyText";
 import { SheetFrame, type SheetFrameControls } from "@/components/SheetFrame";
 import { usePreferences } from "@/components/PreferencesContext";

@@ -26,7 +26,7 @@
 
 import { useEffect, type ComponentType } from "react";
 import { useSearchParams } from "next/navigation";
-import { AlertCircle, AlertTriangle, ChevronDown, ShieldCheck } from "lucide-react";
+import { AlertCircle, AlertTriangle, ChevronDown, ShieldCheck } from "@/lib/phosphorIcons";
 import MoneyText from "@/components/MoneyText";
 import { HERO_FIXTURES, HERO_STATE_LABEL, HERO_STATE_ORDER, type HeroStateSlug, type SafeToSpendOk } from "./fixtures";
 

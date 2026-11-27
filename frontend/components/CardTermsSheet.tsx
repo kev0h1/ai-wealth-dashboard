@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
-import { X } from "lucide-react";
+import { X } from "@/lib/phosphorIcons";
 import { BANK_META, BankBadge, bankKey, bankLogoSrc } from "@/components/AccountMiniCard";
 import { RadioDot } from "@/components/PlanOneOffSheet";
 import { api, BtOffer, CardPromo, CardPromoKind, CardTermsCard, CardTermsLookup } from "@/lib/api";

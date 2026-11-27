@@ -6,7 +6,7 @@
 
 import { useEffect } from "react";
 import Link from "next/link";
-import { Info, TriangleAlert } from "lucide-react";
+import { Info, TriangleAlert } from "@/lib/phosphorIcons";
 import { useSearchParams } from "next/navigation";
 import MoneyText from "@/components/MoneyText";
 import SpendPaceEvidence from "@/components/SpendPaceEvidence";

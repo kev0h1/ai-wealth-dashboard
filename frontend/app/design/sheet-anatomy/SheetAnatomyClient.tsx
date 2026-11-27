@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft } from "@/lib/phosphorIcons";
 import { type SheetFrameVariant } from "@/components/SheetFrame";
 import SavingsGoalSheet, { type SavingsGoalOperations } from "@/components/SavingsGoalSheet";
 import TransactionFilterSheet, { type FilterDraft } from "@/components/TransactionFilterSheet";

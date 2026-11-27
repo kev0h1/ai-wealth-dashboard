@@ -3,7 +3,7 @@
 import { useEffect, useState, useRef } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ChevronLeft, Bell, Play } from "lucide-react";
+import { ChevronLeft, Bell, Play } from "@/lib/phosphorIcons";
 import {
   api,
   CycleStory,

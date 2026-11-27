@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ArrowLeft, Check, CreditCard, LockKeyhole, Upload } from "lucide-react";
+import { ArrowLeft, Check, CreditCard, LockKeyhole, Upload } from "@/lib/phosphorIcons";
 import { api, type CardTermsCard } from "@/lib/api";
 import { todayIso } from "@/lib/calendar";
 import { displayAccountName } from "@/lib/accountName";

@@ -14,7 +14,7 @@ import { PlanRecordView } from "../components/plans/PlanRecordView.tsx";
 import UnlinkedGoalPlans from "../components/upcoming/UnlinkedGoalPlans.tsx";
 import { planConfirmMessage } from "../components/PlanOneOffSheet.tsx";
 import { maskMoneyText } from "../lib/balancesHidden.tsx";
-import { Landmark } from "lucide-react";
+import { Landmark } from "../lib/phosphorIcons.tsx";
 import SetAsideList from "../components/upcoming/SetAsideList.tsx";
 import UpcomingPlansCard from "../components/upcoming/UpcomingPlansCard.tsx";
 import { ACCOUNTS, SCENARIOS, PERIOD, plansFor, forecastFor } from "../app/design/g176-account-plans/fixtures.ts";

@@ -5,7 +5,7 @@
 // still untouched until a direction is approved. No requests or mutations.
 
 import { useEffect } from "react";
-import { ArrowLeft, ArrowUpRight, Check, ChevronRight, CircleDollarSign, Landmark, ShieldCheck } from "lucide-react";
+import { ArrowLeft, ArrowUpRight, Check, ChevronRight, CircleDollarSign, Landmark, ShieldCheck } from "@/lib/phosphorIcons";
 import { useSearchParams } from "next/navigation";
 import { TransferReviewGuardrail } from "@/components/SpendVerdictView";
 

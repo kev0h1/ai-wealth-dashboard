@@ -1,6 +1,6 @@
 "use client";
 
-import { Lightbulb, TrendingUp } from "lucide-react";
+import { Lightbulb, TrendingUp } from "@/lib/phosphorIcons";
 import { Insight } from "@/lib/api";
 import MoneyText from "@/components/MoneyText";
 

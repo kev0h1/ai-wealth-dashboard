@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronDown, Upload } from "lucide-react";
+import { ChevronDown, Upload } from "@/lib/phosphorIcons";
 import type { CardTermsCard } from "@/lib/api";
 import { listCardOffers, monthlyClearingIllustration, offerLabel, offerTimeLeft } from "@/lib/cardOffers";
 import { formatValue } from "@/lib/calendar";

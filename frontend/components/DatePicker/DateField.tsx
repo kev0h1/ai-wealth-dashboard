@@ -13,7 +13,7 @@
 // announced in the accessible name while the field is still empty.
 
 import { useId, useRef, useState, type Ref } from "react";
-import { CalendarDays, ChevronRight } from "lucide-react";
+import { CalendarDays, ChevronRight } from "@/lib/phosphorIcons";
 import { formatValue, type PickerMode } from "@/lib/calendar";
 import { DatePickerSheet, type DatePickerView } from "./DatePickerSheet";
 

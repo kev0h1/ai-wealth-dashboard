@@ -2,7 +2,7 @@
 
 import { useId, useState } from "react";
 import Link from "next/link";
-import { Check, ChevronDown, ChevronRight, Lock, ShieldCheck, TriangleAlert } from "lucide-react";
+import { Check, ChevronDown, ChevronRight, Lock, ShieldCheck, TriangleAlert } from "@/lib/phosphorIcons";
 import type { GrowLadderStep } from "@wealth/shared";
 import { formatCurrency } from "@/lib/currency";
 import type { CheckpointFigures } from "@/lib/planningCheckpointFigures";

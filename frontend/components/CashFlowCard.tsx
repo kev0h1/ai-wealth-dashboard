@@ -3,7 +3,7 @@ import { upcomingDisplayName } from "@/lib/upcomingDisplayName";
 
 import { useEffect, useState } from "react";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from "recharts";
-import { CalendarClock, TrendingUp, TrendingDown } from "lucide-react";
+import { CalendarClock, TrendingUp, TrendingDown } from "@/lib/phosphorIcons";
 import { api, CashflowData } from "@/lib/api";
 import { cachedEndpoint, ENDPOINT, peekEndpoint } from "@/lib/endpointCache";
 

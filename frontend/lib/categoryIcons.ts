@@ -1,5 +1,5 @@
 import { createElement, forwardRef } from "react";
-import type { LucideIcon, LucideProps } from "lucide-react";
+import type { PhosphorIcon, PhosphorProps } from "@/lib/phosphorIcons";
 import manifest from "../../shared/category-icons.json" with { type: "json" };
 import { ICON_GEOMETRY } from "./category-icons/iconGeometry";
 
@@ -34,8 +34,8 @@ export function suggestIcon(name: string, kind?: string): string {
   return kind === "income" ? "money" : manifest.fallback;
 }
 
-function makeIcon(key: CategoryIconKey): LucideIcon {
-  const CategoryIcon = forwardRef<SVGSVGElement, LucideProps>(function CategoryIcon({ size = 24, color, className, style, ...props }, ref) {
+function makeIcon(key: CategoryIconKey): PhosphorIcon {
+  const CategoryIcon = forwardRef<SVGSVGElement, PhosphorProps>(function CategoryIcon({ size = 24, color, className, style, ...props }, ref) {
     // Original regular Phosphor vectors are filled contours. Existing callers
     // can pass Lucide stroke controls without visually changing that geometry.
     const svgProps = { ...props };
@@ -50,14 +50,14 @@ function makeIcon(key: CategoryIconKey): LucideIcon {
   return CategoryIcon;
 }
 
-export const ICON_LIBRARY: Record<string, LucideIcon> = Object.fromEntries(
+export const ICON_LIBRARY: Record<string, PhosphorIcon> = Object.fromEntries(
   manifest.icons.map(icon => [icon.key, makeIcon(icon.key as CategoryIconKey)]),
 );
 
 const fallbackIcon = ICON_LIBRARY[manifest.fallback];
 
 /** One canonical resolution path for every category surface. */
-export function getCategoryIcon(category?: string, overrides?: Record<string, string>): LucideIcon {
+export function getCategoryIcon(category?: string, overrides?: Record<string, string>): PhosphorIcon {
   if (!category) return fallbackIcon;
   const directOverride = overrides?.[category];
   const folded = normaliseName(category);

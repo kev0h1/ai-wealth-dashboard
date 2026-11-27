@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { Check, ChevronRight, Eye, Target } from "lucide-react";
+import { Check, ChevronRight, Eye, Target } from "@/lib/phosphorIcons";
 import FixtureBottomNav from "../_components/FixtureBottomNav";
 
 type Variant = "a" | "b" | "c";

@@ -23,7 +23,7 @@
 
 import { displayAccountName } from "@/lib/accountName";
 import { useMemo, useState } from "react";
-import { Search, CircleDashed } from "lucide-react";
+import { Search, CircleDashed } from "@/lib/phosphorIcons";
 import { accountBrand, BankBadge, RadioDot } from "@/components/AccountMiniCard";
 import { currencySymbol } from "@/lib/currency";
 import { fmt } from "@/lib/format";

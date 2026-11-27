@@ -15,7 +15,7 @@
 // mono column.
 
 import { useRef } from "react";
-import { AlertTriangle, ChevronRight, Plus } from "lucide-react";
+import { AlertTriangle, ChevronRight, Plus } from "@/lib/phosphorIcons";
 import { FIXTURES, fmtC, fmtC2, type PlanningFixture, type PlanRow } from "./fixtures";
 import { categoryVisual } from "./categoryVisuals";
 

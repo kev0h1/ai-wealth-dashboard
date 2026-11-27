@@ -8,7 +8,7 @@
 
 import { useId } from "react";
 import Toggle from "@/components/Toggle";
-import { Wallet } from "lucide-react";
+import { Wallet } from "@/lib/phosphorIcons";
 import { AccountDetailsPreferenceRow } from "@/components/AccountDetailsContent";
 
 export const COUNT_TOWARDS_LABEL = "Count towards Left to spend";

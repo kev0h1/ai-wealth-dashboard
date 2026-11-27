@@ -1,6 +1,6 @@
 "use client";
 
-import { CreditCard, Target, Wallet, type LucideIcon } from "lucide-react";
+import { CreditCard, Target, Wallet, type PhosphorIcon } from "@/lib/phosphorIcons";
 import type { Plan } from "@/lib/upcomingPlans";
 import { money, dateLabel } from "@/lib/upcomingPlans";
 import { useBalancesHidden, maskMoneyText } from "@/lib/balancesHidden";
@@ -21,7 +21,7 @@ export function PlanIcon({ kind, cardPlan = false }: { kind: Plan["kind"]; cardP
   return <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-indigo-50 text-indigo-600 dark:bg-indigo-400/10 dark:text-indigo-300"><Icon size={18} aria-hidden="true" /></span>;
 }
 
-export function CategoryIcon({ Icon, colour }: { Icon: LucideIcon; colour: string }) {
+export function CategoryIcon({ Icon, colour }: { Icon: PhosphorIcon; colour: string }) {
   return <span className="flex size-9 shrink-0 items-center justify-center rounded-xl" style={{ backgroundColor: `${colour}26` }}><Icon size={18} style={{ color: colour }} aria-hidden="true" /></span>;
 }
 

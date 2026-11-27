@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Plus, Upload, X } from "lucide-react";
+import { Plus, Upload, X } from "@/lib/phosphorIcons";
 import { DateField } from "@/components/DatePicker";
 import { SheetFrame } from "@/components/SheetFrame";
 import { usePreferences } from "@/components/PreferencesContext";

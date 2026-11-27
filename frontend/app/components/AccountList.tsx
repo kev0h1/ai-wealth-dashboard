@@ -1,7 +1,7 @@
 "use client";
 
 import { displayAccountName } from "@/lib/accountName";
-import { Building2, CheckCircle2 } from "lucide-react";
+import { Building2, CheckCircle2 } from "@/lib/phosphorIcons";
 import { Account } from "@/lib/api";
 
 function typeColor(type: string) {

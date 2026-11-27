@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { ChevronDown } from "lucide-react";
+import { ChevronDown } from "@/lib/phosphorIcons";
 import { SALARY, DESTS, delta, buildVerdict, breakdownParts, needsFigureIllustrative, FOLD_THRESHOLD_NOTE, type FixtureDest } from "./fixtures";
 import { CardHeader, SalaryTile, MinimisedRow, AmberDot, MoneyText, fmt, resolveBankChip, type Surface, type Mode, type CardState } from "./shared";
 import { BankBadge } from "@/components/AccountMiniCard";

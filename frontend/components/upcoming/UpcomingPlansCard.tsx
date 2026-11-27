@@ -1,7 +1,7 @@
 "use client";
 
 import { useId, useState } from "react";
-import { ChevronDown, ChevronRight } from "lucide-react";
+import { ChevronDown, ChevronRight } from "@/lib/phosphorIcons";
 import MoneyText from "@/components/MoneyText";
 import { PlanIcon } from "@/components/upcoming/detailPrimitives";
 import type { Account, Allocation } from "@/lib/api";

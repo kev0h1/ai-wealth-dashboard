@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
-import { ChevronLeft, Pencil } from "lucide-react";
+import { ChevronLeft, Pencil } from "@/lib/phosphorIcons";
 import { SheetFrame } from "@/components/SheetFrame";
 
 export interface UpcomingDetailsSheetProps {

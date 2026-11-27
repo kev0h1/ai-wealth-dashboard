@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { ChevronDown, ChevronRight, CircleHelp, CreditCard, Landmark, PiggyBank, ReceiptText, ShieldCheck } from "lucide-react";
+import { ChevronDown, ChevronRight, CircleHelp, CreditCard, Landmark, PiggyBank, ReceiptText, ShieldCheck } from "@/lib/phosphorIcons";
 import { Account, AiFiledTransfer, Transaction, TransferPairSuggestion, api } from "@/lib/api";
 import { SheetFrame } from "@/components/SheetFrame";
 import TeachingSheet from "@/components/TeachingSheet";

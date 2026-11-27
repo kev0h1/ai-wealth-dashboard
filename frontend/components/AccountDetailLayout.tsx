@@ -1,7 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { ChevronRight } from "lucide-react";
+import { ChevronRight } from "@/lib/phosphorIcons";
 import { BankIcon } from "@/components/AccountMiniCard";
 import type { Account } from "@/lib/api";
 import styles from "./AccountDetailLayout.module.css";

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, type ReactNode } from "react";
-import { Pencil } from "lucide-react";
+import { Pencil } from "@/lib/phosphorIcons";
 import { type Account, type Allocation, type Commitment } from "@/lib/api";
 import { displayAccountName } from "@/lib/accountName";
 import { tidyAccountText } from "@/lib/accountDisplay";

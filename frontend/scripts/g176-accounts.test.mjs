@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { Landmark } from "lucide-react";
+import { Landmark } from "../lib/phosphorIcons.tsx";
 import { buildUpcomingAccountSummaries, upcomingAccountWindow } from "../lib/upcomingAccounts.ts";
 import { compareUpcomingEvents, upcomingAccountAssessment, walkUpcomingAccounts } from "../lib/upcomingAccountWalk.ts";
 import { getUpcomingStatus } from "../lib/upcomingAttention.ts";

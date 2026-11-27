@@ -9,7 +9,7 @@
 
 import { displayAccountName } from "@/lib/accountName";
 import { useState } from "react";
-import { X, CheckCircle2, Circle, Shield, Pencil, Plus, ChevronDown } from "lucide-react";
+import { X, CheckCircle2, Circle, Shield, Pencil, Plus, ChevronDown } from "@/lib/phosphorIcons";
 import { api, SavingsInsights, SavingsGoalInput, SavingsAccountOption } from "@/lib/api";
 import { SheetFrame, type SheetFrameVariant } from "@/components/SheetFrame";
 import { fmt } from "@/lib/format";

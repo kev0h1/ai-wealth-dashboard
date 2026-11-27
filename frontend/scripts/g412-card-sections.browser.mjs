@@ -20,7 +20,7 @@ import styles from './components/AccountDetailLayout.module.css';
 import CardDetailsSections from './components/CardDetailsSections';import{SheetFrame}from'./components/SheetFrame';
 import{BalancesHiddenContext}from'./lib/balancesHidden';
 import CardTermsSheet from './components/CardTermsSheet';
-import{Star,Trash2}from'lucide-react';
+import{Star,Trash2}from'./lib/phosphorIcons';
 // The harness blocks every /api request, so the picker's one read is answered in the page.
 const realFetch=globalThis.fetch;globalThis.fetch=(u,...r)=>String(u).includes('/recent-payments')?Promise.resolve(new Response(JSON.stringify({status:'ok',payments:[{series_key:'American Express 20001',label:'AMERICAN EXPRESS …20001',last_amount:301,last_date:'2026-10-09'},{series_key:'American Express 20002',label:'AMERICAN EXPRESS …20002 PAYMENT REFERENCE WITH A LONG TRAILING NARRATIVE',last_amount:75.5,last_date:'2026-10-02'},{series_key:'Council Tax',label:'COUNCIL TAX',last_amount:150,last_date:'2026-10-20'}]}),{status:200,headers:{'Content-Type':'application/json'}})):realFetch(u,...r);
 const params=new URLSearchParams(location.search),dated=params.get('dates')!=='none',hidden=params.get('hidden')==='true',view=params.get('view')||'details',rule=params.get('rule')||'none';

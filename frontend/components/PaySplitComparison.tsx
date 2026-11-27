@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { ChevronDown, ChevronRight } from "lucide-react";
+import { ChevronDown, ChevronRight } from "@/lib/phosphorIcons";
 import type { MoneyShape } from "@/lib/api";
 import { GUIDES, compareShape, guideFor, money, signedMoney, referenceAmount, referenceShare, type ComparisonRow, type Guide, type GuideId, type SectionId } from "@/lib/paySplitReference";
 import { usePreferences } from "@/components/PreferencesContext";

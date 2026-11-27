@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect, useId } from "react";
-import { ChevronDown, Check } from "lucide-react";
+import { ChevronDown, Check } from "@/lib/phosphorIcons";
 
 interface Option {
   value: string | number;

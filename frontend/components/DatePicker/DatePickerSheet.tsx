@@ -23,7 +23,7 @@
 // with previous/next page chevrons. Previous/next chevrons stay too.
 
 import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type MutableRefObject } from "react";
-import { ChevronDown, ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronDown, ChevronLeft, ChevronRight } from "@/lib/phosphorIcons";
 import { SheetFrame, type SheetFrameControls } from "@/components/SheetFrame";
 import {
   MONTH_NAMES, MONTH_SHORT, WEEKDAY_HEADS, YEAR_PAGE, addDays, addMonths, chunk, clampYmd, dayKey, daysIn, formatDay, formatIso,

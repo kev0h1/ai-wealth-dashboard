@@ -1,5 +1,5 @@
 import type { ButtonHTMLAttributes, ReactNode } from "react";
-import { Check, Circle, X } from "lucide-react";
+import { Check, Circle, X } from "@/lib/phosphorIcons";
 import PennyMark from "@/components/PennyMark";
 import type { StatusTone } from "./fixtures";
 

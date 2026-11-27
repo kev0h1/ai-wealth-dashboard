@@ -8,7 +8,7 @@
 // means genuine risk only). Presentational, copy lives in lib/billingCopy.ts.
 
 import Link from "next/link";
-import { Pause } from "lucide-react";
+import { Pause } from "@/lib/phosphorIcons";
 import { pausedBanksBody, PAUSED_BANKS_TITLE, RESUBSCRIBE_HREF, RESUBSCRIBE_LABEL } from "@/lib/billingCopy";
 
 export default function PausedBanksStrip({ count }: { count: number }) {

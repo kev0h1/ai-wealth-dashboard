@@ -2,7 +2,7 @@
 
 import { Suspense, useEffect, useState, useCallback, useId, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ChevronLeft, RefreshCw } from "lucide-react";
+import { ChevronLeft, RefreshCw } from "@/lib/phosphorIcons";
 import { api, MirrorPortrait, MirrorTrait, ActiveAim, type CompletedAim } from "@/lib/api";
 import { goBack } from "@/lib/goBack";
 import AimSheet from "@/components/AimSheet";

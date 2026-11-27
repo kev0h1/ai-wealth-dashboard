@@ -1,7 +1,7 @@
 "use client";
 
 import { createElement, type ReactNode, type RefObject, useId, useRef, useState } from "react";
-import { RotateCcw, ShieldCheck } from "lucide-react";
+import { RotateCcw, ShieldCheck } from "@/lib/phosphorIcons";
 import MoneyText from "@/components/MoneyText";
 import { AimRing } from "@/components/AimProgress";
 import { useColours } from "@/components/ColourProvider";

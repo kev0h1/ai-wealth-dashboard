@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft } from "@/lib/phosphorIcons";
 import { SheetFrame } from "@/components/SheetFrame";
 import FixtureBottomNav from "../_components/FixtureBottomNav";
 import { GoalPreview, fixtureGoal } from "../sheet-anatomy/SheetAnatomyClient";

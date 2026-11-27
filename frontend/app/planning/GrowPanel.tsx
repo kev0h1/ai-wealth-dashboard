@@ -36,7 +36,7 @@ import {
   RefreshCw,
   ShieldCheck,
   Sparkles,
-} from "lucide-react";
+} from "@/lib/phosphorIcons";
 import type { GrowLadderStep, GrowView } from "@wealth/shared";
 import { api, SavingsInsights } from "@/lib/api";
 import { formatCurrency } from "@/lib/currency";

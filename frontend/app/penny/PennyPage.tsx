@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ChevronRight, ScanFace } from "lucide-react";
+import { ChevronRight, ScanFace } from "@/lib/phosphorIcons";
 import { api, CompanionItem, SafeToSpend } from "@/lib/api";
 import { BRAND_GRADIENT } from "@/lib/brand";
 import PennyMark from "@/components/PennyMark";

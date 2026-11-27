@@ -1,7 +1,7 @@
 "use client";
 
 import { MINUS } from "@/lib/currency";
-import { ArrowDownLeft, ArrowUpRight, X } from "lucide-react";
+import { ArrowDownLeft, ArrowUpRight, X } from "@/lib/phosphorIcons";
 import { Transaction } from "@/lib/api";
 
 const CATEGORY_COLORS: Record<string, string> = {

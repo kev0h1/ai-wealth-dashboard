@@ -8,7 +8,7 @@
 // "Edit or remove this aim". AimSheet stays the editor. Pace figures come
 // from the server (lib/aimPace.ts reads them), never from a model.
 import { useCallback, useEffect, useState } from "react";
-import { ChevronRight, Target } from "lucide-react";
+import { ChevronRight, Target } from "@/lib/phosphorIcons";
 import { api, type Checkpoint } from "@/lib/api";
 import AimSheet from "@/components/AimSheet";
 import { AimRing } from "@/components/AimProgress";

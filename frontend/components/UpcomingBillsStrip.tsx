@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback, useRef } from "react";
-import { ChevronRight } from "lucide-react";
+import { ChevronRight } from "@/lib/phosphorIcons";
 import { api, CashflowData } from "@/lib/api";
 import { cachedEndpoint, ENDPOINT, peekEndpoint } from "@/lib/endpointCache";
 import { useRouter } from "next/navigation";

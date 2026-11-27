@@ -1,6 +1,6 @@
 "use client";
 
-import { TrendingUp, Wallet, Clock, LineChart, PiggyBank } from "lucide-react";
+import { TrendingUp, Wallet, Clock, LineChart, PiggyBank } from "@/lib/phosphorIcons";
 import { KPIs } from "@/lib/api";
 import MoneyText from "@/components/MoneyText";
 

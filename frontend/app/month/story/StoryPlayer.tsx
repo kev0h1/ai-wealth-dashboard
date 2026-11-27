@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useRef, useCallback, useLayoutEffect, type CSSProperties } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { X } from "lucide-react";
+import { X } from "@/lib/phosphorIcons";
 import SettleMark from "@/components/SettleMark";
 import { api, CycleStory } from "@/lib/api";
 import MoneyText from "@/components/MoneyText";

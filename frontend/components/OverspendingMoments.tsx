@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { ChevronDown } from "lucide-react";
+import { ChevronDown } from "@/lib/phosphorIcons";
 import { useState } from "react";
 import MoneyText from "@/components/MoneyText";
 import { SheetFrame } from "@/components/SheetFrame";

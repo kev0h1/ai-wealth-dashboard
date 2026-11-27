@@ -44,7 +44,7 @@
 // forward. Dismissal here just hides the fixture row locally (dismissedIds
 // below); no backend or shared state involved.
 import { useState } from "react";
-import { AlertTriangle, AlertCircle, Clock } from "lucide-react";
+import { AlertTriangle, AlertCircle, Clock } from "@/lib/phosphorIcons";
 import { useColours } from "@/components/ColourProvider";
 import { getCategoryColour } from "@/lib/categories";
 import { useCategoryIcons } from "@/components/IconProvider";

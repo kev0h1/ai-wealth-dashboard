@@ -2,7 +2,7 @@
 
 import { useEffect } from "react";
 import { useSearchParams } from "next/navigation";
-import { ArrowLeft, ChevronRight, CircleAlert } from "lucide-react";
+import { ArrowLeft, ChevronRight, CircleAlert } from "@/lib/phosphorIcons";
 import FixtureBottomNav from "../_components/FixtureBottomNav";
 
 type Variant = "a" | "b" | "c";

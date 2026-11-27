@@ -6,7 +6,7 @@
 // DESIGN.md "Page Rhythm".
 
 import type { ReactNode } from "react";
-import { Search } from "lucide-react";
+import { Search } from "@/lib/phosphorIcons";
 import type { EstateLens } from "@/lib/accountsEstate";
 
 const LENSES = ["All", "Current", "Savings", "Credit", "Investment", "Owed"] as const;

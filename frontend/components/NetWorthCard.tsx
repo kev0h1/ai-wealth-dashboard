@@ -3,7 +3,7 @@
 import { MINUS } from "@/lib/currency";
 import { useState } from "react";
 import { KPIs } from "@/lib/api";
-import { TrendingDown, TrendingUp, Eye, EyeOff } from "lucide-react";
+import { TrendingDown, TrendingUp, Eye, EyeOff } from "@/lib/phosphorIcons";
 import { usePreferences } from "@/components/PreferencesContext";
 
 interface NetWorthCardProps {

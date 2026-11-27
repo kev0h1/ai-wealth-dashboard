@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { ChevronLeft } from "lucide-react";
+import { ChevronLeft } from "@/lib/phosphorIcons";
 import { api, CardsStory, CardsStoryCard } from "@/lib/api";
 import { goBack } from "@/lib/goBack";
 import { accountBrand, BankBadge } from "@/components/AccountMiniCard";

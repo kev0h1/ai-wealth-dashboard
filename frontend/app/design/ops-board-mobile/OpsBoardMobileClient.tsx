@@ -90,7 +90,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { MessageSquare, Search } from "lucide-react";
+import { MessageSquare, Search } from "@/lib/phosphorIcons";
 import {
   DEFAULT_GO_LIVE_FILTERS,
   filterItems,

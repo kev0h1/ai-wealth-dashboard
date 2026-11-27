@@ -14,7 +14,7 @@
 // (Red Is Risk). Tokens only, the real glass-card surface, no gradient.
 
 import { useEffect, type ReactNode, type RefObject, type KeyboardEvent } from "react";
-import { EyeOff, Plus, RefreshCw } from "lucide-react";
+import { EyeOff, Plus, RefreshCw } from "@/lib/phosphorIcons";
 import { ADD_MENU_ITEM_SELECTOR } from "@/lib/accountsAddMenuLayer";
 
 export interface AccountsHeaderNetWorth {

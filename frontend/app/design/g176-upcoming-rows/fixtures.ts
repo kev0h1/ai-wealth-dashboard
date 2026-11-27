@@ -1,5 +1,5 @@
-import { ArrowRightLeft, Home, Landmark, ShieldCheck, Smartphone, Wifi, Zap } from "lucide-react";
-import type { LucideIcon } from "lucide-react";
+import { ArrowRightLeft, Home, Landmark, ShieldCheck, Smartphone, Wifi, Zap } from "@/lib/phosphorIcons";
+import type { PhosphorIcon } from "@/lib/phosphorIcons";
 import type { UpcomingRowModel } from "@/components/upcoming/UpcomingRow";
 import { upcomingAccountAssessment, walkUpcomingAccounts, type UpcomingAccountWalk } from "@/lib/upcomingAccountWalk";
 
@@ -17,7 +17,7 @@ type Payment = {
   moveName: string;
   date: string;
   pence: number;
-  Icon: LucideIcon;
+  Icon: PhosphorIcon;
   colour: string;
 };
 export type ForecastPayment = Payment & {

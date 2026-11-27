@@ -5,7 +5,7 @@
 
 import { displayAccountName } from "@/lib/accountName";
 import { useState, useEffect, useRef, useId } from "react";
-import { Undo2, ChevronRight, ChevronLeft, Home, Landmark, ReceiptText, Target } from "lucide-react";
+import { Undo2, ChevronRight, ChevronLeft, Home, Landmark, ReceiptText, Target } from "@/lib/phosphorIcons";
 import {
   api, ApiError, type Account, type Commitment, type Transaction,
   type CorrectionChoice, type CorrectionRequest, type CorrectionScope, type CorrectionScopeCounts,

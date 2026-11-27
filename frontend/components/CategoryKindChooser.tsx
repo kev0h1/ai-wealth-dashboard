@@ -9,7 +9,7 @@
 // design preview at app/design/category-kind can keep importing it without
 // dragging in the rest of the retired Manage sheet.
 
-import { type LucideIcon, Wallet, Receipt, ArrowLeftRight, CircleMinus } from "lucide-react";
+import { type PhosphorIcon, Wallet, Receipt, ArrowLeftRight, CircleMinus } from "@/lib/phosphorIcons";
 import { CATEGORY_KINDS, DEFAULT_CUSTOM_COLOUR, type CategoryKind } from "@/lib/categories";
 
 // ── Category kind ───────────────────────────────────────────────────────────
@@ -20,7 +20,7 @@ import { CATEGORY_KINDS, DEFAULT_CUSTOM_COLOUR, type CategoryKind } from "@/lib/
 // a decision already made, never a blank question.
 const KIND_META: Record<CategoryKind, {
   label: string;
-  icon: LucideIcon;
+  icon: PhosphorIcon;
   consequence: string;   // follows the category name in the verdict sentence
   tail: string;          // one-line consequence on the alternative rows
 }> = {

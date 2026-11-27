@@ -18,7 +18,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Check } from "lucide-react";
+import { ArrowLeft, Check } from "@/lib/phosphorIcons";
 import { api, type McpAuditCall } from "@/lib/api";
 import { formatDateTime, toolLabel } from "@/components/ConnectedAssistantsCard";
 import Spinner from "@/components/Spinner";

@@ -122,7 +122,7 @@
 
 import { useEffect } from "react";
 import { useSearchParams } from "next/navigation";
-import { ChevronLeft } from "lucide-react";
+import { ChevronLeft } from "@/lib/phosphorIcons";
 import { getCategoryColour } from "@/lib/categories";
 import { useColours } from "@/components/ColourProvider";
 import MoneyText from "@/components/MoneyText";

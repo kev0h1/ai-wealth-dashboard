@@ -1,7 +1,7 @@
 "use client";
 
 import { useId } from "react";
-import { ChevronRight } from "lucide-react";
+import { ChevronRight } from "@/lib/phosphorIcons";
 import { hasPlanSource, remaining, type Plan } from "@/lib/upcomingPlans";
 import { detailFocus, detailInk, detailMuted, useMaskedMoney, PlanIcon } from "./detailPrimitives";
 

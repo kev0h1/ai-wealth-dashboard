@@ -5,7 +5,7 @@
 // Dense movement cards open by default, while quieter cards begin folded.
 
 import { useState } from "react";
-import { ChevronDown } from "lucide-react";
+import { ChevronDown } from "@/lib/phosphorIcons";
 import type { CardFixture } from "./fixtures";
 import { FAMILY_FIXTURES, STACK_FIXTURE_IDS } from "./fixtures";
 import { DismissButton } from "./primitives";

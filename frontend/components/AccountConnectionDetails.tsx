@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronRight, ShieldCheck } from "lucide-react";
+import { ChevronRight, ShieldCheck } from "@/lib/phosphorIcons";
 import type { Account, Connection } from "@/lib/api";
 import AccountRefreshRow from "@/components/AccountRefreshRow";
 import { canRefreshAccount, type AccountRefreshResult } from "@/lib/accountRefresh";

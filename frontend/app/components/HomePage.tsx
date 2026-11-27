@@ -2,7 +2,7 @@
 
 import { useEffect, useLayoutEffect, useState, useCallback, useMemo, useRef } from "react";
 import dynamic from "next/dynamic";
-import { ChevronRight } from "lucide-react";
+import { ChevronRight } from "@/lib/phosphorIcons";
 import { api, ApiError, Account, type Connection, AccountEligibility, Transaction, InvestmentAccount, SafeToSpend, CompanionItem, type Overspending, type SyncStatus, type UserProfile } from "@/lib/api";
 import { startConsent } from "@/lib/startConsent";
 import { bestSpendAccount, type TodayRequestStatus } from "@/lib/spendFromAccount";

@@ -1,6 +1,6 @@
 "use client";
 
-import { Zap, Flame, Star } from "lucide-react";
+import { Zap, Flame, Star } from "@/lib/phosphorIcons";
 import type { ChallengesData, Challenge } from "@/lib/api";
 
 export const TIER_CONFIG = {

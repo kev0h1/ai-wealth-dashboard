@@ -1,7 +1,7 @@
 import {
   Landmark, Plus, Upload, TrendingUp, ArrowLeftRight, ListChecks,
   Tag, Info, CalendarDays, Receipt, Wallet, Target,
-} from "lucide-react";
+} from "@/lib/phosphorIcons";
 import PhosphorNavIcon from "@/components/navigation/PhosphorNavIcon";
 import PennyAppearanceIcon from "@/components/PennyAppearanceIcon";
 import { getCategoryIcon } from "@/lib/categoryIcons";

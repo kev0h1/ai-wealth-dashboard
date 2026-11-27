@@ -2,7 +2,7 @@
 
 import { useEffect } from "react";
 import { useSearchParams } from "next/navigation";
-import { ArrowLeft, ArrowUpRight, CreditCard, Info, TrendingDown } from "lucide-react";
+import { ArrowLeft, ArrowUpRight, CreditCard, Info, TrendingDown } from "@/lib/phosphorIcons";
 import { CARD_META, DRIVERS, OUTLOOK_CARDS, PER_CARD } from "@/app/design/cards-page/fixtures";
 import FixtureBottomNav from "../_components/FixtureBottomNav";
 

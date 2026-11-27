@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { X, ChevronRight, RotateCcw } from "lucide-react";
+import { X, ChevronRight, RotateCcw } from "@/lib/phosphorIcons";
 import { api, SavingsInsight } from "@/lib/api";
 import { cachedEndpoint, ENDPOINT, peekEndpoint } from "@/lib/endpointCache";
 import { insightCategoryIcon } from "@/lib/insightIcons";

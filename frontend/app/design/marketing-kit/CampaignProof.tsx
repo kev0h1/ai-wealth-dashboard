@@ -1,6 +1,6 @@
 "use client";
 
-import { Smartphone, Zap } from "lucide-react";
+import { Smartphone, Zap } from "@/lib/phosphorIcons";
 import { BANK_META, BankBadge, bankKey, bankLogoSrc } from "@/components/AccountMiniCard";
 import { MoveCard } from "@/components/HomeBrief";
 import UpcomingAccountsCard from "@/components/upcoming/UpcomingAccountsCard";

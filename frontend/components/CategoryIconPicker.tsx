@@ -1,7 +1,7 @@
 "use client";
 
 import { useId, useMemo, useState } from "react";
-import { ChevronRight, Search } from "lucide-react";
+import { ChevronRight, Search } from "@/lib/phosphorIcons";
 import { useColours } from "@/components/ColourProvider";
 import { getCategoryColour } from "@/lib/categories";
 import { getIconLabel, ICON_CATALOG, ICON_LIBRARY, normaliseIconKey, RELATED_ICON_KEYS, suggestIcon } from "@/lib/categoryIcons";

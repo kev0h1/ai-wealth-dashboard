@@ -1,6 +1,6 @@
 "use client";
 
-import { TrendingUp } from "lucide-react";
+import { TrendingUp } from "@/lib/phosphorIcons";
 import { InvestmentAccount } from "@/lib/api";
 
 const PROVIDER_META: Record<string, { bg: string }> = {

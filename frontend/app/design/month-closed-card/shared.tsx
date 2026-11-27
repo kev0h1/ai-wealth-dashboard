@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
-import { ChevronRight, ChevronUp, Circle, X } from "lucide-react";
+import { ChevronRight, ChevronUp, Circle, X } from "@/lib/phosphorIcons";
 import MoneyText from "@/components/MoneyText";
 import type { CompanionItem } from "@/lib/api";
 import ActionLabel from "@/components/ActionLabel";

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, type ReactNode } from "react";
-import { X, Search, ChevronRight, ChevronDown, Loader2 } from "lucide-react";
+import { X, Search, ChevronRight, ChevronDown, Loader2 } from "@/lib/phosphorIcons";
 import { api, ApiError, resolveApiAsset } from "@/lib/api";
 import { AGENT_DISCLOSURE, TRADING_NAME_DISCLOSURE } from "@/lib/regulatoryCopy";
 import { LEGACY_BANK_SUBTITLE } from "@/lib/legacyBankProvider";

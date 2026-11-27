@@ -1,4 +1,4 @@
-import { ChevronRight } from "lucide-react";
+import { ChevronRight } from "@/lib/phosphorIcons";
 import type { ReactNode } from "react";
 
 // G281: the single affordance for a server-supplied action link. The API never

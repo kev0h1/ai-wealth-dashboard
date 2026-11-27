@@ -5,7 +5,7 @@ import { displayAccountName } from "@/lib/accountName";
 import { useEffect, useEffectEvent, useState, useCallback, useMemo, useRef } from "react";
 import { useSearchParams, useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, Plus, Landmark, RefreshCw, Upload, Trash2, AlertTriangle, TrendingUp, Eye, EyeOff, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Pencil, PiggyBank, Wallet, CreditCard, X, CircleDashed, Check, FileText, Star, Info } from "lucide-react";
+import { ArrowLeft, Plus, Landmark, RefreshCw, Upload, Trash2, AlertTriangle, TrendingUp, Eye, EyeOff, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Pencil, PiggyBank, Wallet, CreditCard, X, CircleDashed, Check, FileText, Star, Info } from "@/lib/phosphorIcons";
 import { formatPriceDay } from "@/lib/priceDay";
 import { api, ApiError, Account, Connection, Transaction, InvestmentAccount, InvestmentHolding, InvestmentNote, ManualAccount, ManualAccountType, ManualAccountRule, RuleMatchType, RuleMatchField, RuleSign, AccountCategorySummary, CardTermsCard } from "@/lib/api";
 import { startConsent } from "@/lib/startConsent";

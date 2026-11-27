@@ -17,7 +17,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { CheckCircle, ChevronRight, FileText, Landmark, Upload } from "lucide-react";
+import { CheckCircle, ChevronRight, FileText, Landmark, Upload } from "@/lib/phosphorIcons";
 import SafeToSpendCard from "@/components/SafeToSpendCard";
 import { ACTION_BASE, DismissChip } from "@/components/HomeBrief";
 import { HERO_FIXTURES } from "../safe-to-spend-hero/fixtures";

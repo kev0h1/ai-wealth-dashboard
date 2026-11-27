@@ -17,7 +17,7 @@
 // than assumed.
 
 import { useState } from "react";
-import { AlertTriangle, AlertCircle, Clock, ChevronRight, ChevronDown, Trash2, Plus } from "lucide-react";
+import { AlertTriangle, AlertCircle, Clock, ChevronRight, ChevronDown, Trash2, Plus } from "@/lib/phosphorIcons";
 import { FIXTURES, fmtC, fmtC2, type PlanningFixture, type PlanRow } from "./fixtures";
 import { categoryVisual } from "./categoryVisuals";
 

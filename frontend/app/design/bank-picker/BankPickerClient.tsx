@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft } from "@/lib/phosphorIcons";
 import BankPickerSheet, { type Bank } from "@/components/BankPickerSheet";
 import { FullScreenPicker, IndexSheet, PopularSheet } from "./proposals";
 import { STATES, VARIANTS, fixtureBanks } from "./fixtures";

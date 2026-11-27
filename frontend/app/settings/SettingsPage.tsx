@@ -8,7 +8,7 @@ import {
   AlertCircle,
   ChevronRight,
   UserRound,
-} from "lucide-react";
+} from "@/lib/phosphorIcons";
 import { useAuth } from "@/components/AuthProvider";
 import { usePreferences } from "@/components/PreferencesContext";
 import { api, NotificationPrefs, Account, IdentitiesResponse } from "@/lib/api";

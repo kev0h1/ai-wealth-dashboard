@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
-import { X } from "lucide-react";
+import { X } from "@/lib/phosphorIcons";
 import { TUTORIAL_FLOWS, useTutorialInternal } from "./TutorialContext";
 import { usePreferences } from "./PreferencesContext";
 import TutorialIcon from "./TutorialIcon";

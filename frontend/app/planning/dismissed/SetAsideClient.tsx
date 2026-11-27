@@ -30,7 +30,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ChevronLeft, Undo2 } from "lucide-react";
+import { ChevronLeft, Undo2 } from "@/lib/phosphorIcons";
 import { goBack } from "@/lib/goBack";
 import { api, DismissedUserRow, DismissedEngineRow } from "@/lib/api";
 import { BankBadge } from "@/components/AccountMiniCard";

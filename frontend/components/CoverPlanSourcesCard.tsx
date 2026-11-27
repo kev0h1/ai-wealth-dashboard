@@ -2,7 +2,7 @@
 
 import { displayAccountName } from "@/lib/accountName";
 import { Fragment, useState } from "react";
-import { ArrowRight, ChevronDown, Search, ShieldCheck } from "lucide-react";
+import { ArrowRight, ChevronDown, Search, ShieldCheck } from "@/lib/phosphorIcons";
 import type { Account } from "@/lib/api";
 import { accountBrand, BankBadge } from "@/components/AccountMiniCard";
 import MoneyText from "@/components/MoneyText";

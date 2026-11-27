@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { Upload, CheckCircle, FileText, Eye, EyeOff, Loader2 } from "lucide-react";
+import { Upload, CheckCircle, FileText, Eye, EyeOff, Loader2 } from "@/lib/phosphorIcons";
 import { api } from "@/lib/api";
 import { SheetFrame } from "@/components/SheetFrame";
 

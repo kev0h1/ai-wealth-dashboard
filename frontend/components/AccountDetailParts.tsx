@@ -1,4 +1,4 @@
-import { Plus, Search, X } from "lucide-react";
+import { Plus, Search, X } from "@/lib/phosphorIcons";
 import { BankBadge } from "@/components/AccountMiniCard";
 
 /** The kind line under an account's balance. G233: an offline account has

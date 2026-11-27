@@ -3,7 +3,7 @@
 import { isCountedInLeftToSpend } from "@/lib/accountCounted";
 import { useEffect, useMemo, useState, useRef, type ReactNode } from "react";
 import dynamic from "next/dynamic";
-import { EyeOff } from "lucide-react";
+import { EyeOff } from "@/lib/phosphorIcons";
 import { shouldRefetchStaleCashflow, scheduleStaleCashflowRefetch, canApplyStaleCashflow } from "@/lib/cashflowStaleRetry";
 import { api, Account, Allocation, CashflowData, type AccountEligibility, type AccountPlanData, type CompanionItem } from "@/lib/api";
 import { getAccountsCached } from "@/lib/accountsCache";

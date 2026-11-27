@@ -1,7 +1,7 @@
 "use client";
 
 import { createElement } from "react";
-import { ArrowLeftRight, CalendarDays, ChevronRight, CircleDot, CreditCard, PiggyBank, ReceiptText, type LucideIcon } from "lucide-react";
+import { ArrowLeftRight, CalendarDays, ChevronRight, CircleDot, CreditCard, PiggyBank, ReceiptText, type PhosphorIcon } from "@/lib/phosphorIcons";
 import { useColours } from "@/components/ColourProvider";
 import MirrorFeedbackCard from "@/components/MirrorFeedbackCard";
 import { getCategoryColour } from "@/lib/categories";
@@ -10,7 +10,7 @@ import styles from "./preview.module.css";
 
 export type CardProps = React.ComponentProps<typeof MirrorFeedbackCard>;
 
-const PATTERN_ICONS: Record<string, LucideIcon> = {
+const PATTERN_ICONS: Record<string, PhosphorIcon> = {
   saving_habit: PiggyBank,
   orchestrator: ArrowLeftRight,
   hygiene: ReceiptText,

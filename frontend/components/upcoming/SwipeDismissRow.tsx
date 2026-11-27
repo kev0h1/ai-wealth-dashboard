@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef } from "react";
-import { X } from "lucide-react";
+import { X } from "@/lib/phosphorIcons";
 
 // G131 (g124-upcoming-refine fold-in) — this row is now folded into one
 // bounded UpcomingDayCard per day (rounded-2xl border, overflow-hidden,

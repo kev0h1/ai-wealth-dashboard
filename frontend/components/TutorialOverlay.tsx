@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useRef, useLayoutEffect } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { ChevronLeft, ChevronRight, X, Lightbulb } from "lucide-react";
+import { ChevronLeft, ChevronRight, X, Lightbulb } from "@/lib/phosphorIcons";
 import { useTutorialInternal } from "./TutorialContext";
 import { usePreferences } from "./PreferencesContext";
 import TutorialIcon from "./TutorialIcon";

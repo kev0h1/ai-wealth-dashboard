@@ -3,7 +3,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
-import { Landmark, Plus, TrendingUp, Upload } from "lucide-react";
+import { Landmark, Plus, TrendingUp, Upload } from "@/lib/phosphorIcons";
 import { LEGACY_BANK_AVAILABLE, LEGACY_BANK_MENU_LABEL } from "@/lib/legacyBankProvider";
 import { RESUBSCRIBE_HREF } from "@/lib/billingCopy";
 import { ADD_MENU_ATTR, ADD_MENU_Z, addMenuPosition } from "@/lib/accountsAddMenuLayer";

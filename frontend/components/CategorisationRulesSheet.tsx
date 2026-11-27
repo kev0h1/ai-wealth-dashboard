@@ -2,7 +2,7 @@
 
 import { useEffect, useId, useRef, useState } from "react";
 import Link from "next/link";
-import { ArrowLeftRight, CreditCard, ReceiptText, SlidersHorizontal } from "lucide-react";
+import { ArrowLeftRight, CreditCard, ReceiptText, SlidersHorizontal } from "@/lib/phosphorIcons";
 import { SheetFrame } from "@/components/SheetFrame";
 import PennyMark from "@/components/PennyMark";
 import { api, ApiError } from "@/lib/api";

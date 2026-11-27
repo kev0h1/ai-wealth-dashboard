@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { ChevronRight, Search, X } from "lucide-react";
+import { ChevronRight, Search, X } from "@/lib/phosphorIcons";
 
 export const SETTINGS_SECTIONS = ["financial", "rules", "cover", "display", "notifications", "account", "penny-plan", "assistants", "help", "delete"] as const;
 export type SettingsSection = typeof SETTINGS_SECTIONS[number];

@@ -1,6 +1,6 @@
 "use client";
 
-import { Wallet, ChevronRight } from "lucide-react";
+import { Wallet, ChevronRight } from "@/lib/phosphorIcons";
 import MoneyText from "@/components/MoneyText";
 import { useBalancesHidden, maskMoneyText } from "@/lib/balancesHidden";
 import { titleFor, statusFor, humanizeRaw, fmtC, type SetAsideDisplayInput } from "@/lib/setAsideDisplay";

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, Check, ChevronRight, LockKeyhole, Search } from "lucide-react";
+import { ArrowLeft, Check, ChevronRight, LockKeyhole, Search } from "@/lib/phosphorIcons";
 import { ApiError, api, type CategoryGroupRow, type CategoryGroupsResponse, type CategoryKind } from "@/lib/api";
 import { SheetFrame } from "@/components/SheetFrame";
 import MoneyText from "@/components/MoneyText";
