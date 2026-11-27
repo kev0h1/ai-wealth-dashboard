@@ -85,7 +85,7 @@ function LastResortPlanAction({ review, plan, onPlan }: { review: LastResortRevi
   </div>;
 }
 
-function Verdict({ account, plans, plansStatus, onPlan }: Pick<UpcomingAccountDetailsProps, "account" | "plans" | "plansStatus" | "onPlan">) {
+function Verdict({ account, plans, plansStatus, onPlan }: Pick<UpcomingAccountDetailsProps, "account" | "onPlan"> & Required<Pick<UpcomingAccountDetailsProps, "plans" | "plansStatus">>) {
   const m = useMaskedMoney(), hidden = useBalancesHidden();
   const full = accountActionReading(account, plans, plansStatus);
   const reading = full.projection;
