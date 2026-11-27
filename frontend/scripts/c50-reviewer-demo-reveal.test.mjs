@@ -28,4 +28,5 @@ assert.match(reviewNotes, /activate the Sorted logo at the top five times/, "sto
 assert.match(reviewNotes, /\/login\?demo=1/, "store-review notes disclose the web path");
 assert.doesNotMatch("Sorted logo", /—/, "new rendered accessible copy has no em dash");
 assert.doesNotMatch(reviewNotes, /—/, "reviewer instructions have no em dash");
+await import("./c50-reviewer-demo-reveal.browser.mjs");
 console.log("c50-reviewer-demo-reveal: ok");
