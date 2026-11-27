@@ -59,7 +59,7 @@ from app.core.signin_handoff import signin_error_response
 
 from app.core.auth import current_user
 from app.core.config import API_PUBLIC_URL, APP_URL, MCP_PUBLIC_URL
-from app.core.mcp_client_allowlist import verified_client_for_id, verify_redirect_uris
+from app.core.mcp_client_allowlist import load_allowlist, verified_client_for_id, verify_redirect_uris
 from app.core.pending_oauth import get_oauth_request, pop_oauth_request, store_oauth_request
 from app.core.allowlist import is_access_revoked
 from app.core.session_revocation import is_revoked
@@ -682,7 +682,15 @@ async def list_connections(user: dict = Depends(current_user)):
         for entry in by_client.values()
     ]
     connections.sort(key=lambda c: c["created_at"], reverse=True)
-    return {"connections": connections}
+    # F30: settings names only assistants currently validated by the same
+    # allowlist that governs registration and MCP access. This intentionally
+    # leaves historical connection rows untouched, so a user can still see
+    # and revoke a connector after its assessment has been removed.
+    supported_assistants = [
+        {"id": entry["id"], "name": entry["name"]}
+        for entry in load_allowlist()
+    ]
+    return {"connections": connections, "supported_assistants": supported_assistants}
 
 
 @router.delete("/oauth/connections/{client_id}")

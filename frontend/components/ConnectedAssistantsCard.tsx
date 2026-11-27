@@ -36,7 +36,7 @@ import Link from "next/link";
 import { Plug } from "lucide-react";
 import ConfirmDialog from "@/components/ConfirmDialog";
 import { api } from "@/lib/api";
-import type { OAuthConnection } from "@/lib/api";
+import type { OAuthConnection, SupportedAssistant } from "@/lib/api";
 import { describeScopes } from "@/lib/oauthScopes";
 import { MCP_URL } from "@/lib/featureFlags";
 import { usePurchaseAvailability, PURCHASE_UNAVAILABLE_LABEL } from "@/lib/nativeAuth";
@@ -48,7 +48,7 @@ const INDIGO = "#4f46e5";
 export type ConnectionsState =
   | { status: "loading" }
   | { status: "error" }
-  | { status: "ready"; connections: OAuthConnection[] };
+  | { status: "ready"; connections: OAuthConnection[]; supportedAssistants: SupportedAssistant[] | null };
 
 /** F9: this calendar month's MCP connector call allowance (GET
  * /subscription's `mcp` block), or null before that fetch has resolved. */
@@ -158,6 +158,17 @@ export function formatDate(iso: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
   return d.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+}
+
+export function supportedAssistantsMessage(assistants: SupportedAssistant[]): string {
+  const names = assistants.map((assistant) => assistant.name);
+  if (names.length === 0) return "No assessed assistants can connect right now.";
+  const list = names.length === 1
+    ? names[0]
+    : names.length === 2
+      ? `${names[0]} and ${names[1]}`
+      : `${names.slice(0, -1).join(", ")}, and ${names[names.length - 1]}`;
+  return `${list} can connect to Sorted. Other assistants cannot connect.`;
 }
 
 // F20: seconds included (not just hour:minute) so two calls in the same
@@ -354,6 +365,11 @@ export default function ConnectedAssistantsCard({
 
       {state.status === "ready" && (
         <>
+          {state.supportedAssistants !== null && (
+            <p className="px-4 pt-3 text-xs leading-5 text-slate-500 dark:text-slate-400">
+              {supportedAssistantsMessage(state.supportedAssistants)}
+            </p>
+          )}
           {disconnectedName && (
             <p className="px-4 pt-3 text-xs text-emerald-600 dark:text-emerald-400">{disconnectedName} disconnected</p>
           )}
@@ -369,7 +385,11 @@ export default function ConnectedAssistantsCard({
             <div className="px-4 py-3.5">
               <p className="text-sm font-medium text-slate-800 dark:text-slate-100">No assistants connected</p>
               <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                Connect Claude or another assistant to Sorted at {MCP_URL} and it will appear here.
+                {state.supportedAssistants === null
+                  ? "Assistant availability could not be confirmed. Try reopening Settings."
+                  : state.supportedAssistants.length === 0
+                    ? "Check back for assessed assistants."
+                    : <>Connect a supported assistant to Sorted at {MCP_URL} and it will appear here.</>}
               </p>
             </div>
           ) : (
