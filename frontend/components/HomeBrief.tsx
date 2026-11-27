@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import dynamic from "next/dynamic";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { AlertTriangle, TrendingDown, TrendingUp, Minus, CircleDashed, X, ChevronRight, ChevronDown, CalendarDays, CreditCard, Check, Clock3, Circle, PiggyBank, CalendarClock } from "lucide-react";
+import { AlertTriangle, TrendingDown, TrendingUp, Minus, CircleDashed, X, ChevronRight, ChevronDown, CalendarDays, CreditCard, Check, Clock3, Circle, PiggyBank, CalendarClock } from "@/lib/phosphorIcons";
 import type { Account, Allocation, CompanionItem, PlanDest, PlanDestBill, SafeToSpend, UnfundedMoveEntry } from "@/lib/api";
 import type { AllocationEditServices } from "@/components/AllocationPlanEditor";
 import type { AllocationPeriodReduceServices } from "@/components/AllocationPeriodReduceSheet";

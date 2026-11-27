@@ -1,4 +1,4 @@
-import { forwardRef, type ComponentPropsWithoutRef, type ForwardRefExoticComponent, type RefAttributes } from "react";
+import { Children, forwardRef, isValidElement, type ComponentPropsWithoutRef, type ForwardRefExoticComponent, type ReactNode, type RefAttributes } from "react";
 
 // Original Phosphor geometry retrieved from the Iconify `ph` set through the
 // Better Icons source. Each export closes over only its own vectors so normal
@@ -30,6 +30,15 @@ function weightFor(strokeWidth: PhosphorProps["strokeWidth"]): PhosphorWeight {
   return "regular";
 }
 
+function hasNonEmptyDirectTitle(children: ReactNode): boolean {
+  return Children.toArray(children).some((child) => {
+    if (!isValidElement<{ children?: ReactNode }>(child) || child.type !== "title") return false;
+    return Children.toArray(child.props.children).some((titleChild) =>
+      typeof titleChild === "string" ? titleChild.trim().length > 0 : typeof titleChild === "number"
+    );
+  });
+}
+
 function createPhosphorIcon(name: string, geometry: PhosphorGeometry, lockedWeight?: "fill"): PhosphorIcon {
   const Icon = forwardRef<SVGSVGElement, PhosphorProps>(function PhosphorIcon({
     size = 24, color, className, style, strokeWidth, absoluteStrokeWidth, children, ...props
@@ -39,7 +48,7 @@ function createPhosphorIcon(name: string, geometry: PhosphorGeometry, lockedWeig
     // source weight at every size rather than applying a fake SVG stroke.
     const weight = lockedWeight ?? weightFor(strokeWidth);
     const paths = geometry[weight] ?? geometry.regular ?? geometry.fill ?? [];
-    const labelled = props["aria-label"] !== undefined || props["aria-labelledby"] !== undefined;
+    const labelled = props["aria-label"] !== undefined || props["aria-labelledby"] !== undefined || hasNonEmptyDirectTitle(children);
     return <svg
       {...props}
       ref={ref}
@@ -48,6 +57,7 @@ function createPhosphorIcon(name: string, geometry: PhosphorGeometry, lockedWeig
       viewBox="0 0 256 256"
       fill="currentColor"
       aria-hidden={props["aria-hidden"] ?? (labelled ? undefined : true)}
+      role={props.role ?? (labelled ? "img" : undefined)}
       focusable="false"
       className={className}
       style={{ color, ...style }}

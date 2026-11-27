@@ -5,8 +5,7 @@ G484 replaces the remaining app-level Lucide imports with the shared
 registry bundles original Phosphor Thin, Light, Regular and Bold SVG paths
 from Iconify's `ph` collection, the source documented by Better Icons,
 retrieved on 27 November 2026. The paths are not redrawn or normalised. They
-retain the 256px viewBox, `currentColor`, `aria-hidden` default, forwarded refs
-and SVG props.
+retain the 256px viewBox, `currentColor`, forwarded refs and SVG props.
 The vectors remain available under the existing [Phosphor MIT notice](../../frontend/lib/category-icons/PHOSPHOR-LICENSE.txt).
 
 The existing navigation and category registries remain the authority for their
@@ -24,7 +23,10 @@ This avoids a dynamic, monolithic icon lookup retaining every vector in a
 route bundle: an unused named export can be removed by the normal ESM tree
 shaker. The SVG renders caller children before its React path children, so a
 labelled use such as `<Icon><title>…</title></Icon>` remains
-valid and does not conflict with injected markup.
+valid and does not conflict with injected markup. Ordinary icons remain
+decorative with `aria-hidden="true"`. A non-empty direct `<title>`,
+`aria-label` or `aria-labelledby` instead makes the SVG labelled with the
+default `role="img"`; explicit `aria-hidden` and `role` values always win.
 
 The source had several intentional Lucide `strokeWidth` calls. G484 does not
 draw an artificial stroke over filled Phosphor paths. It selects source-native

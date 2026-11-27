@@ -277,7 +277,8 @@
     "check:g399-dismiss-refresh": "node --no-warnings scripts/g399-dismiss-refresh.test.mjs",
     "check:g421-cancel-refresh": "node --no-warnings scripts/g421-cancel-refresh.test.mjs",
     "check:g421-cover-rows": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g421-cover-rows.test.mjs",
-    "check:g489-approved-upcoming": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g489-approved-upcoming.test.mjs"
+    "check:g489-approved-upcoming": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g489-approved-upcoming.test.mjs",
+    "check:no-lucide-imports": "node scripts/check-no-lucide-imports.mjs"
   },
   "dependencies": {
     "@aparajita/capacitor-biometric-auth": "^10.0.0",
@@ -298,7 +299,6 @@
     "@sentry/nextjs": "10.69.0",
     "@sentry/react": "10.69.0",
     "@wealth/shared": "file:../shared",
-    "lucide-react": "^1.8.0",
     "next": "16.4.6",
     "react": "19.2.4",
     "react-dom": "19.2.4",

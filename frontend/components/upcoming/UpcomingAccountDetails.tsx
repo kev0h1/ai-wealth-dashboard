@@ -1,7 +1,7 @@
 "use client";
 
 import { useId, type ReactNode } from "react";
-import { ArrowDownLeft, ArrowUpRight, ChevronDown, ChevronRight, PiggyBank } from "lucide-react";
+import { ArrowDownLeft, ArrowUpRight, ChevronDown, ChevronRight, PiggyBank } from "@/lib/phosphorIcons";
 import { useColours } from "@/components/ColourProvider";
 import { useCategoryIcons } from "@/components/IconProvider";
 import { accountPaymentGap, type UpcomingAccountEvent, type UpcomingAccountSummary, type UpcomingSuggestedMove } from "@/lib/upcomingAccounts";

@@ -33,7 +33,7 @@
 // row.
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Plug } from "lucide-react";
+import { Plug } from "@/lib/phosphorIcons";
 import ConfirmDialog from "@/components/ConfirmDialog";
 import { api } from "@/lib/api";
 import type { OAuthConnection, SupportedAssistant } from "@/lib/api";
