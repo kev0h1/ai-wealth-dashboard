@@ -30,6 +30,7 @@ assert.match(html, /aria-label="Home shortcuts"/);
 assert.match(html, /data-phosphor-icon="bank"/);
 assert.match(html, /data-phosphor-icon="gear-six"/);
 assert.doesNotMatch(html, /lucide-/);
+assert.equal((html.match(/data-phosphor-icon=/g) ?? []).length, 2, "bank and settings are the two icons when the profile shows initials");
 assert.match(html, />AB</);
 assert.match(renderToStaticMarkup(h(HomeGreetingHeader, { greeting: "Good morning", avatarInitials: null })), /data-phosphor-icon="user-circle"/, "no name falls back to the person icon");
 

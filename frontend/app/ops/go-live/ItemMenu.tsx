@@ -8,7 +8,7 @@
 // Reject.
 
 import { useState } from "react";
-import { MoreHorizontal } from "lucide-react";
+import { MoreHorizontal } from "@/lib/phosphorIcons";
 import { PRIORITY_LABEL, PRIORITY_ORDER, type GoLiveItem, type GoLivePriority } from "@/lib/goLive";
 
 type Mode = "menu" | "block" | "reject" | "cancel" | "approve" | "note" | "unblocks";

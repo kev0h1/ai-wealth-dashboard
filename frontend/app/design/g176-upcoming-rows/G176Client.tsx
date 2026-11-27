@@ -4,7 +4,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { ArrowLeft, Check, ChevronDown, Moon, Sun, X } from "lucide-react";
+import { ArrowLeft, Check, ChevronDown, Moon, Sun, X } from "@/lib/phosphorIcons";
 import { BANK_META, BankBadge, bankLogoSrc } from "@/components/AccountMiniCard";
 import FixtureBottomNav from "@/app/design/_components/FixtureBottomNav";
 import { useSheetA11y } from "@/lib/useSheetA11y";

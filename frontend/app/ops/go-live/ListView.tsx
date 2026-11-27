@@ -4,7 +4,7 @@
 // rows. Same shape as the original page.tsx SectionCard/ItemRow, now with
 // a priority pill and "unblocks Q5, Q6" tags per item.
 
-import { ChevronDown, Square, SquareCheck } from "lucide-react";
+import { ChevronDown, Square, SquareCheck } from "@/lib/phosphorIcons";
 import type { api } from "@/lib/api";
 import { type GoLiveItem, type GoLiveSectionGroup } from "@/lib/goLive";
 import { OwnerToggle, PriorityPill, StatePill, UnblocksTags } from "./Badges";

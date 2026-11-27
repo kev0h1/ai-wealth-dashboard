@@ -18,7 +18,7 @@ import {
   TrendingUp,
   Upload,
   X,
-} from "lucide-react";
+} from "@/lib/phosphorIcons";
 import type { Account } from "@wealth/shared";
 import AccountLedgerRow from "@/components/AccountLedgerRow";
 import CountTowardsSafeToSpendRow from "@/components/CountTowardsSafeToSpendRow";

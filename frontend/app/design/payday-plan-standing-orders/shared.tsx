@@ -1,6 +1,6 @@
 "use client";
 
-import { WalletCards, ChevronUp, ChevronRight, X } from "lucide-react";
+import { WalletCards, ChevronUp, ChevronRight, X } from "@/lib/phosphorIcons";
 import PennyMark from "@/components/PennyMark";
 import MoneyText from "@/components/MoneyText";
 import { BankBadge, BANK_META, bankKey, bankLogoSrc } from "@/components/AccountMiniCard";

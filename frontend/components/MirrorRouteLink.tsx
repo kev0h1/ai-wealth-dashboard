@@ -5,7 +5,7 @@
 // Informational, so no Penny gradient. `from=spend` lets the Mirror offer
 // "Back to Spend".
 import Link from "next/link";
-import { ChevronRight } from "lucide-react";
+import { ChevronRight } from "@/lib/phosphorIcons";
 import PennyMark from "@/components/PennyMark";
 
 export default function MirrorRouteLink({ href = "/mirror?from=spend" }: { href?: string }) {

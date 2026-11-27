@@ -31,7 +31,7 @@
 
 import { useState, type ReactNode } from "react";
 import Link from "next/link";
-import { ChevronRight, ChevronLeft, ChevronDown, Check } from "lucide-react";
+import { ChevronRight, ChevronLeft, ChevronDown, Check } from "@/lib/phosphorIcons";
 import MoneyText from "@/components/MoneyText";
 import { SheetFrame } from "@/components/SheetFrame";
 import type { MoneyShape, MoneyShapeJob } from "@/lib/api";

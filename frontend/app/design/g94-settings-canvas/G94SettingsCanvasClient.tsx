@@ -1,7 +1,7 @@
 "use client";
 import { useEffect } from "react";
 import { useSearchParams } from "next/navigation";
-import { ArrowLeft, Bell, ChevronRight, CreditCard, Database, HelpCircle, KeyRound, LogOut, Moon, ShieldCheck, UserRound } from "lucide-react";
+import { ArrowLeft, Bell, ChevronRight, CreditCard, Database, HelpCircle, KeyRound, LogOut, Moon, ShieldCheck, UserRound } from "@/lib/phosphorIcons";
 import FixtureBottomNav from "../_components/FixtureBottomNav";
 
 type Variant = "a" | "b" | "c"; type Mode = "light" | "dark"; type State = "ready" | "attention" | "empty";

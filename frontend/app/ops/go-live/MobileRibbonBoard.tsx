@@ -27,7 +27,7 @@
 // for the full reasoning.
 
 import { useState } from "react";
-import { ChevronDown } from "lucide-react";
+import { ChevronDown } from "@/lib/phosphorIcons";
 import { itemFilterState, toggleValue, type GoLiveFilterState, type GoLiveFilters, type GoLiveItem } from "@/lib/goLive";
 import { OwnerInitialChip, PriorityPill, StatePill } from "./Badges";
 

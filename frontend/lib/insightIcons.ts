@@ -1,4 +1,4 @@
-import type { LucideIcon } from "lucide-react";
+import type { PhosphorIcon } from "@/lib/phosphorIcons";
 import { getCategoryIcon } from "./categoryIcons";
 
 // Insight keys are server contracts rather than user-facing category names.
@@ -24,7 +24,7 @@ const INSIGHT_CATEGORY_NAMES: Record<string, string> = {
   pension: "Investment",
 };
 
-export function insightCategoryIcon(category: string, overrides?: Record<string, string>): LucideIcon {
+export function insightCategoryIcon(category: string, overrides?: Record<string, string>): PhosphorIcon {
   const name = Object.hasOwn(INSIGHT_CATEGORY_NAMES, category) ? INSIGHT_CATEGORY_NAMES[category] : category.replaceAll("_", " ");
   return getCategoryIcon(name, overrides);
 }

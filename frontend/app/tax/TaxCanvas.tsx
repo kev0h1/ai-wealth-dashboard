@@ -9,7 +9,7 @@ import {
   CheckCircle2,
   ChevronDown,
   Info,
-} from "lucide-react";
+} from "@/lib/phosphorIcons";
 import MoneyText from "@/components/MoneyText";
 
 export type TaxActionStatus = "action" | "info";

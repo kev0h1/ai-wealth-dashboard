@@ -1,7 +1,7 @@
 "use client";
 
 import { useId, useState, type ReactNode } from "react";
-import { Check, ChevronDown } from "lucide-react";
+import { Check, ChevronDown } from "@/lib/phosphorIcons";
 import MoneyText from "@/components/MoneyText";
 import { useBalancesHidden } from "@/lib/balancesHidden";
 import type { GoalSchedulePreview } from "@/lib/api";

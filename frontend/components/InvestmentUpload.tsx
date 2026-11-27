@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState, type ReactNode } from "react";
-import { Upload, CheckCircle, FileText, Eye, EyeOff, Loader2, TrendingUp } from "lucide-react";
+import { Upload, CheckCircle, FileText, Eye, EyeOff, Loader2, TrendingUp } from "@/lib/phosphorIcons";
 import { api } from "@/lib/api";
 import { SheetFrame } from "@/components/SheetFrame";
 import InvestmentFlow from "@/components/InvestmentFlow";

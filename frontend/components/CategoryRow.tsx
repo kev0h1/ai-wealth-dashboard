@@ -3,7 +3,7 @@
 import { Transaction } from "@/lib/api";
 import { useColours } from "@/components/ColourProvider";
 import { getCategoryColour } from "@/lib/categories";
-import { ChevronDown, ChevronUp } from "lucide-react";
+import { ChevronDown, ChevronUp } from "@/lib/phosphorIcons";
 import TransactionRow from "@/components/TransactionRow";
 
 interface CategoryData {

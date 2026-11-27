@@ -6,7 +6,7 @@
 // parent page; this component is purely controlled.
 
 import { useEffect, useRef } from "react";
-import { LayoutGrid, List, Search, X } from "lucide-react";
+import { LayoutGrid, List, Search, X } from "@/lib/phosphorIcons";
 import {
   FILTER_STATE_LABEL,
   FILTER_STATE_ORDER,

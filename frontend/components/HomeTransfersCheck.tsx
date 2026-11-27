@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { ArrowLeftRight, ArrowRight, CircleAlert } from "lucide-react";
+import { ArrowLeftRight, ArrowRight, CircleAlert } from "@/lib/phosphorIcons";
 import { loadMiscategorisedCount } from "@/lib/miscategorisedCount";
 import { TRANSACTIONS_CHANGED_EVENT } from "@/lib/cacheInvalidation";
 

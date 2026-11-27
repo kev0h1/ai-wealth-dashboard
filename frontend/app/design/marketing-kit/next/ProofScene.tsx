@@ -1,6 +1,6 @@
 "use client";
 
-import { Zap } from "lucide-react";
+import { Zap } from "@/lib/phosphorIcons";
 import SafeToSpendCard from "@/components/SafeToSpendCard";
 import UpcomingAccountsCard from "@/components/upcoming/UpcomingAccountsCard";
 import UpcomingRow from "@/components/upcoming/UpcomingRow";

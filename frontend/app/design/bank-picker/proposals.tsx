@@ -11,7 +11,7 @@
 // Targets are 44px or more. No red or amber, no gradient (that is Penny's).
 
 import { useRef, useState, type RefObject } from "react";
-import { ChevronLeft, Search, ShieldCheck, X } from "lucide-react";
+import { ChevronLeft, Search, ShieldCheck, X } from "@/lib/phosphorIcons";
 import { AGENT_DISCLOSURE, TRADING_NAME_DISCLOSURE } from "@/lib/regulatoryCopy";
 import { SheetFrame } from "@/components/SheetFrame";
 import { pickerDescription, type Bank } from "@/components/BankPickerSheet";

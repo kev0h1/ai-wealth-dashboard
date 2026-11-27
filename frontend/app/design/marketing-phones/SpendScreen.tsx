@@ -1,6 +1,6 @@
 "use client";
 
-import { BarChart3, WalletCards } from "lucide-react";
+import { BarChart3, WalletCards } from "@/lib/phosphorIcons";
 import { SpendPeriodBar } from "@/components/SpendHeader";
 import SpendJourneyNav, { type SpendJourneyDestination } from "@/components/SpendJourneyNav";
 import SpendPaceHero from "@/components/SpendPaceHero";

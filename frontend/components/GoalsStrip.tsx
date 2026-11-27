@@ -5,7 +5,7 @@
 // on the pillar pages and in Penny — this is deliberately just the score.
 
 import { useEffect, useState, useCallback } from "react";
-import { Target, ChevronRight } from "lucide-react";
+import { Target, ChevronRight } from "@/lib/phosphorIcons";
 import { api, GoalSummary } from "@/lib/api";
 import { useRouter } from "next/navigation";
 

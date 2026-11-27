@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Clock3 } from "lucide-react";
+import { Clock3 } from "@/lib/phosphorIcons";
 import type { Transaction } from "@/lib/api";
 import TransactionRow from "@/components/TransactionRow";
 

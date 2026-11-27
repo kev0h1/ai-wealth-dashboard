@@ -9,7 +9,7 @@
 
 import { useEffect, useLayoutEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft } from "@/lib/phosphorIcons";
 import CardTermsSheet from "@/components/CardTermsSheet";
 import { CARDS, CASES, lookupFor, type CardCase } from "./fixtures";
 

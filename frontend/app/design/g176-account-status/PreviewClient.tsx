@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
-import { ArrowLeft, ChevronDown, Moon, Sun } from "lucide-react";
+import { ArrowLeft, ChevronDown, Moon, Sun } from "@/lib/phosphorIcons";
 import UpcomingAccountsCard from "@/components/upcoming/UpcomingAccountsCard";
 import UpcomingAccountDetails from "@/components/upcoming/UpcomingAccountDetails";
 import UpcomingFlowSheet from "@/components/UpcomingFlowSheet";

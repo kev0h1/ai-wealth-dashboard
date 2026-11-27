@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronDown, CircleAlert } from "lucide-react";
+import { ChevronDown, CircleAlert } from "@/lib/phosphorIcons";
 import type { AccountEligibility } from "@/lib/api";
 import { availabilityLabel, formatAvailabilityAmount, type AccountAvailabilityReading } from "@/lib/accountAvailability";
 import MoneyText from "@/components/MoneyText";

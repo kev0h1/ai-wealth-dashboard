@@ -3,7 +3,7 @@ import { isCountedInLeftToSpend } from "@/lib/accountCounted";
 import { useState, useEffect, useRef, useCallback, useMemo, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
-import { Check, ChevronDown, CircleDashed } from "lucide-react";
+import { Check, ChevronDown, CircleDashed } from "@/lib/phosphorIcons";
 import { accountBrand, BankBadge } from "@/components/AccountMiniCard";
 import { AccountRadioPicker } from "@/components/AccountRadioPicker";
 import { isPlanSourceAccount } from "@/lib/upcomingPlans";

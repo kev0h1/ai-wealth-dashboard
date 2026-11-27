@@ -17,7 +17,7 @@
 // own file, consistent with the app's other Home card components
 // (SafeToSpendCard, UpcomingBillsStrip, HomeInsightSpotlight).
 
-import { ChevronDown } from "lucide-react";
+import { ChevronDown } from "@/lib/phosphorIcons";
 import { providerHealthNotice } from "@/lib/providerHealth";
 import { BankBadge, bankKey, bankLogoSrc, BANK_META, type BankMeta } from "@/components/AccountMiniCard";
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowRight, ChevronRight, Landmark, Search, X } from "lucide-react";
+import { ArrowRight, ChevronRight, Landmark, Search, X } from "@/lib/phosphorIcons";
 import type { RefObject } from "react";
 import type { Bank } from "@/components/BankPickerSheet";
 import { AGENT_DISCLOSURE, TRADING_NAME_DISCLOSURE } from "@/lib/regulatoryCopy";

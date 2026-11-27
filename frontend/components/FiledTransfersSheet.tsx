@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type MouseEvent } from "react";
-import { ChevronDown, ChevronLeft, ChevronRight, RotateCcw } from "lucide-react";
+import { ChevronDown, ChevronLeft, ChevronRight, RotateCcw } from "@/lib/phosphorIcons";
 import { useRouter } from "next/navigation";
 import MoneyText from "@/components/MoneyText";
 import FilingSourceIcon from "@/components/FilingSourceIcon";

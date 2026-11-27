@@ -4,8 +4,8 @@
 // page reads getCategoryColour/getCategoryIcon off live ColourProvider /
 // IconProvider context (per-user overrides); this preview has no such
 // context, so it hardcodes the same DESIGN.md category hues (frontmatter
-// `cat-*` tokens) against a small icon set from the app's existing
-// lucide-react family (Category Voice Rule: colour as a ~15% tint behind
+// `cat-*` tokens) against a small icon set from the app's shared Phosphor
+// registry (Category Voice Rule: colour as a ~15% tint behind
 // a full-strength icon, never a flooded surface).
 
 import {
@@ -16,10 +16,10 @@ import {
   ArrowLeftRight,
   Wallet,
   Zap,
-  type LucideIcon,
-} from "lucide-react";
+  type PhosphorIcon,
+} from "@/lib/phosphorIcons";
 
-export const CATEGORY_VISUALS: Record<string, { colour: string; icon: LucideIcon }> = {
+export const CATEGORY_VISUALS: Record<string, { colour: string; icon: PhosphorIcon }> = {
   Bills: { colour: "#fb7185", icon: Receipt },
   Transport: { colour: "#60a5fa", icon: Car },
   Health: { colour: "#2dd4bf", icon: HeartPulse },

@@ -17,7 +17,7 @@
 // list's resting state is quiet and detail is opt-in.
 
 import { useState } from "react";
-import { AlertTriangle, ChevronRight, ChevronDown, Info, Plus } from "lucide-react";
+import { AlertTriangle, ChevronRight, ChevronDown, Info, Plus } from "@/lib/phosphorIcons";
 import { FIXTURES, fmtC, fmtC2, type PlanningFixture, type PlanRow } from "./fixtures";
 import { categoryVisual } from "./categoryVisuals";
 

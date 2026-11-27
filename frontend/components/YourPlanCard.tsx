@@ -5,7 +5,7 @@
 // subscription and opens that existing flow.
 
 import { useEffect, useState } from "react";
-import { ChevronRight, CreditCard, Loader2 } from "lucide-react";
+import { ChevronRight, CreditCard, Loader2 } from "@/lib/phosphorIcons";
 import type { SubscriptionInfo } from "@/lib/api";
 import PennyUsageRow from "@/components/PennyUsageRow";
 import PlanPicker from "@/components/PlanPicker";

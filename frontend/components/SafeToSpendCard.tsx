@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import { ArrowRight } from "lucide-react";
+import { ArrowRight } from "@/lib/phosphorIcons";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { SafeToSpend } from "@/lib/api";

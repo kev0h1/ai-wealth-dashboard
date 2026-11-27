@@ -3,7 +3,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import { useSearchParams } from "next/navigation";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft } from "@/lib/phosphorIcons";
 import { PennySheetHeader, PennySheetPanel } from "@/components/PennySheet";
 import PennyComposer from "@/components/PennyComposer";
 import PennyStarterState from "@/components/PennyStarterState";

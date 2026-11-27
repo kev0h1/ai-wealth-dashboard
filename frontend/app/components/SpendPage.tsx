@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback, useMemo, useRef, useId } from "react";
 import dynamic from "next/dynamic";
 import { useSearchParams, useRouter } from "next/navigation";
-import { BarChart3, Check, WalletCards, Undo2 } from "lucide-react";
+import { BarChart3, Check, WalletCards, Undo2 } from "@/lib/phosphorIcons";
 import { api, Account, Transaction, SpendVerdict, type SavingsInsight, type MoneyShape } from "@/lib/api";
 import { invalidateMoneyShapeCache, loadMoneyShape, peekMoneyShape } from "@/lib/moneyShape";
 import { clearHomeCache } from "@/lib/homeCache";

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { AlertCircle, RefreshCw } from "lucide-react";
+import { AlertCircle, RefreshCw } from "@/lib/phosphorIcons";
 import { SpendJourneySummary } from "@/components/SpendHeader";
 import SpendPaceHero from "@/components/SpendPaceHero";
 import SpendJourneyNav, { type SpendJourneyDestination } from "@/components/SpendJourneyNav";

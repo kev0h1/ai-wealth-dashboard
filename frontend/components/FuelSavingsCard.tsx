@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { Fuel, ChevronDown, MapPin, Pin } from "lucide-react";
+import { Fuel, ChevronDown, MapPin, Pin } from "@/lib/phosphorIcons";
 import { api, FuelNearby } from "@/lib/api";
 import { useHomePinnedCards } from "@/lib/useHomePinnedCards";
 

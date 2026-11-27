@@ -88,7 +88,7 @@
 // same way on any nav-exempt route.
 import { useEffect, useLayoutEffect, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft } from "@/lib/phosphorIcons";
 import SafeToSpendCard from "@/components/SafeToSpendCard";
 import { MoveCard, CelebrationCard, CliffCard } from "@/components/HomeBrief";
 import { usePreferences } from "@/components/PreferencesContext";

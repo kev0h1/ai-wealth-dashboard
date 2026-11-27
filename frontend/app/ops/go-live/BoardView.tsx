@@ -59,7 +59,7 @@
 // be driven by a touchscreen.)
 
 import { Fragment, useEffect, useState } from "react";
-import { MessageSquare } from "lucide-react";
+import { MessageSquare } from "@/lib/phosphorIcons";
 import {
   DndContext,
   DragOverlay,

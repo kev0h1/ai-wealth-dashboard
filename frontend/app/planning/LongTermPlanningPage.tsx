@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import dynamic from "next/dynamic";
-import { ChevronRight, CreditCard, Plus, ShieldCheck, Target } from "lucide-react";
+import { ChevronRight, CreditCard, Plus, ShieldCheck, Target } from "@/lib/phosphorIcons";
 import { useRouter, useSearchParams } from "next/navigation";
 import { api, type Account, type Commitment, type DebtPlanSummary } from "@/lib/api";
 import { CARD_PLAN_COPY, isCardPlan } from "@/lib/cardRepaymentPlan";

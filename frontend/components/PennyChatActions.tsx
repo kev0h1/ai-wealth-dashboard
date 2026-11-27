@@ -1,6 +1,6 @@
 "use client";
 
-import { History, Plus } from "lucide-react";
+import { History, Plus } from "@/lib/phosphorIcons";
 
 /** G248 (variant A, Quiet toolbar, approved by Kevin 2026-10-09): the "New
  * chat" and "History" actions, one quiet labelled row under the Ask Penny

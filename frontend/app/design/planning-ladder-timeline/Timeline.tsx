@@ -1,7 +1,7 @@
 "use client";
 
 import { useId, useState } from "react";
-import { Check, ChevronDown, Lock, ShieldCheck, TriangleAlert } from "lucide-react";
+import { Check, ChevronDown, Lock, ShieldCheck, TriangleAlert } from "@/lib/phosphorIcons";
 import type { GrowLadderStep } from "@wealth/shared";
 import PlanningCheckpointTimeline from "@/components/PlanningCheckpointTimeline";
 import type { CheckpointFigures } from "@/lib/planningCheckpointFigures";

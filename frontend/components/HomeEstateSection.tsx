@@ -7,7 +7,7 @@
 // only route to /accounts. Pinned by `scripts/g221-home-cleanup.test.mjs`.
 
 import type { CSSProperties, ReactNode } from "react";
-import { ChevronRight } from "lucide-react";
+import { ChevronRight } from "@/lib/phosphorIcons";
 import type { Account, InvestmentAccount } from "@/lib/api";
 import AccountLedgerRow from "@/components/AccountLedgerRow";
 import { bankToRow, investmentToRow } from "@/lib/accountsEstate";

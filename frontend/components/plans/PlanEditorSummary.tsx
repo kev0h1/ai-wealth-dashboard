@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowDown, ArrowLeftRight, ChevronRight, CircleAlert, Info, WalletCards } from "lucide-react";
+import { ArrowDown, ArrowLeftRight, ChevronRight, CircleAlert, Info, WalletCards } from "@/lib/phosphorIcons";
 import type { ReactNode, RefObject } from "react";
 import MoneyText from "@/components/MoneyText";
 import { BankBadge, accountBrand } from "@/components/AccountMiniCard";

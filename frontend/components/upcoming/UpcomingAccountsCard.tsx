@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useId, useMemo, useState } from "react";
-import { ChevronDown, ChevronRight } from "lucide-react";
+import { ChevronDown, ChevronRight } from "@/lib/phosphorIcons";
 import { displayAccountName } from "@/lib/accountName";
 import { tidyAccountText } from "@/lib/accountDisplay";
 import { BANK_META, BankIcon, bankKey } from "@/components/AccountMiniCard";

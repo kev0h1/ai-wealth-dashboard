@@ -1,7 +1,7 @@
 "use client";
 
 import { useId, useRef, useState, type ReactNode } from "react";
-import { ChevronDown, ChevronRight, Info, Star, Trash2 } from "lucide-react";
+import { ChevronDown, ChevronRight, Info, Star, Trash2 } from "@/lib/phosphorIcons";
 import { BankIcon } from "@/components/AccountMiniCard";
 import { SheetFrame } from "@/components/SheetFrame";
 import type { Account } from "@/lib/api";

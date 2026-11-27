@@ -33,7 +33,7 @@
 // mistake.
 
 import { useState } from "react";
-import { ChevronDown, X } from "lucide-react";
+import { ChevronDown, X } from "@/lib/phosphorIcons";
 import type { api } from "@/lib/api";
 import {
   BOARD_COLUMNS,

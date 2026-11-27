@@ -4,7 +4,7 @@
 // HomeBrief.tsx so Penny's move-plan card reuses the exact same diagram.
 // No visual change on Home: the markup and classes are unchanged.
 import { displayAccountName } from "@/lib/accountName";
-import { ArrowRight, ChevronDown } from "lucide-react";
+import { ArrowRight, ChevronDown } from "@/lib/phosphorIcons";
 import { BankIcon, BANK_META, bankKey, bankLogoSrc, type BankIdentity } from "@/components/AccountMiniCard";
 import { AmountText } from "@/components/MoneyText";
 

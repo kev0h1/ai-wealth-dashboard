@@ -7,7 +7,7 @@
 
 import { useState } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
-import { Check, ChevronDown, Copy } from "lucide-react";
+import { Check, ChevronDown, Copy } from "@/lib/phosphorIcons";
 import { stripKevinMarkers, type GoLiveQuestion, type GoLiveStatus } from "@/lib/goLive";
 
 const STATUS_LABEL: Record<GoLiveStatus, string> = {

@@ -2,7 +2,7 @@
 
 import { useRef, useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { Receipt, Camera, Image as ImageIcon, TrendingUp, Store, Pin, ChevronDown, Trash2, ChevronRight } from "lucide-react";
+import { Receipt, Camera, Image as ImageIcon, TrendingUp, Store, Pin, ChevronDown, Trash2, ChevronRight } from "@/lib/phosphorIcons";
 import { api, Basket, BasketInsights } from "@/lib/api";
 import { useHomePinnedCards } from "@/lib/useHomePinnedCards";
 import ConfirmDialog from "@/components/ConfirmDialog";

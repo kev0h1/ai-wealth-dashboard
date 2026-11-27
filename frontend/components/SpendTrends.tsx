@@ -14,7 +14,7 @@ import {
   ChartPie, BarChart3, TrendingUp, TrendingDown, AlignStartVertical, MoreVertical, GripVertical, ChevronUp, ChevronDown,
   Pin, PinOff, Trash2, Plus, ChevronRight, Activity,
   Car, Fuel, Train, Bus, CarTaxiFront, PlugZap, Wrench, SquareParking,
-} from "lucide-react";
+} from "@/lib/phosphorIcons";
 import {
   DndContext, closestCenter, MouseSensor, TouchSensor, KeyboardSensor, useSensor, useSensors,
   type DragEndEvent,

@@ -2,7 +2,7 @@
 
 // Approved G419 B: two routes from Account details. Payment evidence belongs
 // in Payment, while connection, pin and removal remain in the host sheet.
-import { ChevronRight, CreditCard, Wallet } from "lucide-react";
+import { ChevronRight, CreditCard, Wallet } from "@/lib/phosphorIcons";
 import type { CardTermsCard } from "@/lib/api";
 import MoneyText from "@/components/MoneyText";
 import { BalancesHiddenContext } from "@/lib/balancesHidden";

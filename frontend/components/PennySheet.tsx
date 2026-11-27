@@ -122,7 +122,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 import { createPortal } from "react-dom";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { X, ChevronRight } from "lucide-react";
+import { X, ChevronRight } from "@/lib/phosphorIcons";
 import { useLockBodyScroll } from "@/lib/useLockBodyScroll";
 import { useSheetA11y } from "@/lib/useSheetA11y";
 import { useSwipeDismiss } from "@/lib/useSwipeDismiss";

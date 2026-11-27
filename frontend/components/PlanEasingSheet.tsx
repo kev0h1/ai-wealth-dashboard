@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useId, useRef, useState, type FormEvent } from "react";
-import { Minus, Plus } from "lucide-react";
+import { Minus, Plus } from "@/lib/phosphorIcons";
 import type { PlanEasePreview, api } from "@/lib/api";
 import { SheetFrame } from "@/components/SheetFrame";
 

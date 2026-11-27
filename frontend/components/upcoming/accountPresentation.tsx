@@ -1,5 +1,5 @@
 "use client";
-import { Info, TriangleAlert } from "lucide-react";
+import { Info, TriangleAlert } from "@/lib/phosphorIcons";
 import { MaskedAmount, useBalancesHidden } from "@/lib/balancesHidden";
 import { accountSummaryMoney } from "@/lib/upcomingAccountPresentation";
 import type { AccountStatus } from "@/lib/upcomingAccountStatus";

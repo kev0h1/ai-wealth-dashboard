@@ -15,7 +15,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, RefreshCw } from "lucide-react";
+import { ArrowLeft, RefreshCw } from "@/lib/phosphorIcons";
 import type { MoneyShape } from "@/lib/api";
 import { loadMoneyShape, peekMoneyShape } from "@/lib/moneyShape";
 import { goBack } from "@/lib/goBack";

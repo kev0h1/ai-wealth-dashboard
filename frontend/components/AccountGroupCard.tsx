@@ -7,7 +7,7 @@
 
 import { MINUS } from "@/lib/currency";
 import type { ReactNode } from "react";
-import { ChevronDown } from "lucide-react";
+import { ChevronDown } from "@/lib/phosphorIcons";
 
 export interface AccountGroupCardProps {
   label: string;

@@ -2,7 +2,7 @@
 
 import { isCountedInLeftToSpend } from "@/lib/accountCounted";
 import { useEffect, useState } from "react";
-import { Target, Wallet, Receipt } from "lucide-react";
+import { Target, Wallet, Receipt } from "@/lib/phosphorIcons";
 import { api, Account, Allocation } from "@/lib/api";
 import { SheetFrame } from "@/components/SheetFrame";
 import { EffectiveDateField, FillRulePicker, RhythmToggle, type AllocationRhythm, type FillRuleValue } from "@/components/AllocationFields";

@@ -8,7 +8,7 @@ import {
   AlertCircle,
   ChevronRight,
   UserRound,
-} from "lucide-react";
+} from "@/lib/phosphorIcons";
 import { useAuth } from "@/components/AuthProvider";
 import { usePreferences } from "@/components/PreferencesContext";
 import { api, NotificationPrefs, Account, IdentitiesResponse } from "@/lib/api";
@@ -250,9 +250,24 @@ export default function SettingsPage() {
   // to own here any more.
   const [connectionsState, setConnectionsState] = useState<ConnectionsState>({ status: "loading" });
 
+  function isSupportedAssistants(value: unknown): value is { id: string; name: string }[] {
+    return Array.isArray(value) && value.every((assistant) => {
+      if (!assistant || typeof assistant !== "object") return false;
+      const record = assistant as Record<string, unknown>;
+      return typeof record.id === "string" && record.id.trim().length > 0 &&
+        typeof record.name === "string" && record.name.trim().length > 0;
+    });
+  }
+
   function fetchConnections() {
     api.listOAuthConnections()
-      .then((r) => setConnectionsState({ status: "ready", connections: r.connections }))
+      .then((r) => setConnectionsState({
+        status: "ready",
+        connections: r.connections,
+        // An older or malformed response must not turn stored connection
+        // names into a purported list of assessed assistants.
+        supportedAssistants: isSupportedAssistants(r.supported_assistants) ? r.supported_assistants : null,
+      }))
       .catch(() => setConnectionsState({ status: "error" }));
   }
   // A17: the connector is off by default in production, so neither the

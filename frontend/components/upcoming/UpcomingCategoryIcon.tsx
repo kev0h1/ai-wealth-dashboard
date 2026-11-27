@@ -1,4 +1,4 @@
-import type { LucideIcon } from "lucide-react";
+import type { PhosphorIcon } from "@/lib/phosphorIcons";
 import { getCategoryColour } from "@/lib/categories";
 import { getCategoryIcon } from "@/lib/categoryIcons";
 
@@ -14,7 +14,7 @@ export function upcomingCategoryAppearance(
 }
 
 /** Category identity only. Risk and settling indicators belong to their row. */
-export default function UpcomingCategoryIcon({ Icon, colour }: { Icon: LucideIcon; colour: string }) {
+export default function UpcomingCategoryIcon({ Icon, colour }: { Icon: PhosphorIcon; colour: string }) {
   return (
     <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg" style={{ backgroundColor: `${colour}26` }} aria-hidden="true">
       <Icon size={15} style={{ color: colour }} />

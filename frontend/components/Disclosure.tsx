@@ -1,7 +1,7 @@
 "use client";
 
 import { forwardRef, type ComponentPropsWithoutRef } from "react";
-import { ChevronDown } from "lucide-react";
+import { ChevronDown } from "@/lib/phosphorIcons";
 
 type DisclosureSummaryProps = ComponentPropsWithoutRef<"summary">;
 

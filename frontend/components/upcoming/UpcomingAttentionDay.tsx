@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { ChevronDown } from "lucide-react";
+import { ChevronDown } from "@/lib/phosphorIcons";
 import UpcomingDayCard from "./UpcomingDayCard";
 import UpcomingRow, { type UpcomingRowModel } from "./UpcomingRow";
 import { getUpcomingStatus, upcomingMoney } from "@/lib/upcomingAttention";

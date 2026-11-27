@@ -9,7 +9,7 @@
 // Rendered across AccountsPage and HomePage.
 
 import { CONNECTION_ENDED_TAG, connectionEnded } from "@/lib/accountCounted";
-import { AlertTriangle, Info, Star } from "lucide-react";
+import { AlertTriangle, Info, Star } from "@/lib/phosphorIcons";
 import { BankIcon, accountBrand, type TermsPill } from "./AccountMiniCard";
 import { accountKindLabel, isBusinessAccount } from "@/lib/accountKind";
 import type { EstateRow } from "@/lib/accountsEstate";

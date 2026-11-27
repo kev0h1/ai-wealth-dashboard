@@ -2,7 +2,7 @@
 
 import { FormEvent, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { ArrowLeft, Check, ChevronRight, CircleAlert, LoaderCircle, Send } from "lucide-react";
+import { ArrowLeft, Check, ChevronRight, CircleAlert, LoaderCircle, Send } from "@/lib/phosphorIcons";
 import PennyMark from "@/components/PennyMark";
 import FixtureBottomNav from "../_components/FixtureBottomNav";
 

@@ -8,7 +8,7 @@
 // DESIGN.md "The Red Is Risk Rule"). UAT reads the same amber, "waiting
 // on you", never a failure either (see H31).
 
-import { Moon, Sun } from "lucide-react";
+import { Moon, Sun } from "@/lib/phosphorIcons";
 import Toggle from "@/components/Toggle";
 import { usePreferences } from "@/components/PreferencesContext";
 import { headerFigures, type GoLiveItem } from "@/lib/goLive";

@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useSearchParams } from "next/navigation";
-import { ArrowLeft, ArrowRight } from "lucide-react";
+import { ArrowLeft, ArrowRight } from "@/lib/phosphorIcons";
 import UpcomingFlowSheet from "@/components/UpcomingFlowSheet";
 import type { Bank } from "@/components/BankPickerSheet";
 import { fixtureBanks } from "../bank-picker/fixtures";

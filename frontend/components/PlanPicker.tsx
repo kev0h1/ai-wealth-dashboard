@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState, type KeyboardEvent } from "react";
 import Link from "next/link";
-import { Check, ChevronDown, Crown, FileText, Globe, Landmark, Smartphone, Zap } from "lucide-react";
+import { Check, ChevronDown, Crown, FileText, Globe, Landmark, Smartphone, Zap } from "@/lib/phosphorIcons";
 import { api } from "@/lib/api";
 import { invalidateOpenBankingAccess } from "@/lib/openBankingAccess";
 import { trialCancelLine, trialDisclosureLine, trialHeadline, trialTermsLine } from "@/lib/billingCopy";

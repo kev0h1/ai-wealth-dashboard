@@ -16,7 +16,7 @@
 
 import { useEffect, useLayoutEffect, useMemo, type CSSProperties } from "react";
 import { useSearchParams } from "next/navigation";
-import { ArrowLeft, ChevronRight } from "lucide-react";
+import { ArrowLeft, ChevronRight } from "@/lib/phosphorIcons";
 import SafeToSpendCard from "@/components/SafeToSpendCard";
 import FirstAccountCard from "@/components/FirstAccountCard";
 import HomeInsightSpotlight from "@/components/HomeInsightSpotlight";

@@ -15,7 +15,7 @@
 // page now, see DESIGN.md's 2026-09-05 note).
 
 import { useState } from "react";
-import { Settings2 } from "lucide-react";
+import { Settings2 } from "@/lib/phosphorIcons";
 import MoneyText from "@/components/MoneyText";
 import { JOB_COLOR, JobDot, SHAPE_LEGEND } from "@/app/spend/shape/MoneyShapeHero";
 import type { MoneyShape, MoneyShapeJob } from "@/lib/api";

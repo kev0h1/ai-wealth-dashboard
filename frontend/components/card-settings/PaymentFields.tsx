@@ -1,6 +1,6 @@
 "use client";
 import { useRef, type Dispatch, type SetStateAction } from "react";
-import { ChevronDown } from "lucide-react";
+import { ChevronDown } from "@/lib/phosphorIcons";
 import { useBalancesHidden } from "@/lib/balancesHidden";
 import { Choices, TextField } from "./Fields";
 import { ordinal, type PaymentDraft } from "./paymentDraft";

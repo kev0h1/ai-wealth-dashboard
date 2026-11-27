@@ -1,7 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { ChevronRight, Wallet } from "lucide-react";
+import { ChevronRight, Wallet } from "@/lib/phosphorIcons";
 import { BankBadge, accountBrand } from "@/components/AccountMiniCard";
 import MoneyText from "@/components/MoneyText";
 import { useBalancesHidden } from "@/lib/balancesHidden";

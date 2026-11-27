@@ -25,7 +25,7 @@
 // already one scroll away on this same screen.
 
 import { useEffect, useId, useRef, useState } from "react";
-import { ChevronDown, Lightbulb } from "lucide-react";
+import { ChevronDown, Lightbulb } from "@/lib/phosphorIcons";
 import MoneyText from "@/components/MoneyText";
 import { InsightCard } from "@/components/InsightCard";
 import type { SavingsInsight } from "@/lib/api";

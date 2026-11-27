@@ -2,7 +2,7 @@
 
 import { displayAccountName } from "@/lib/accountName";
 import { useState } from "react";
-import { RefreshCw, Pin, Percent, Wallet } from "lucide-react";
+import { RefreshCw, Pin, Percent, Wallet } from "@/lib/phosphorIcons";
 import { Account, providerLogoUrl } from "@/lib/api";
 
 /** Card-terms pill content (Accounts page credit-card rows). APR is

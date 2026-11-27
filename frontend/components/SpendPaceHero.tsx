@@ -1,7 +1,7 @@
 "use client";
 
 import { Fragment, useId, useState, type ReactNode } from "react";
-import { ChevronDown, CircleAlert, Info } from "lucide-react";
+import { ChevronDown, CircleAlert, Info } from "@/lib/phosphorIcons";
 import TransactionRow from "@/components/TransactionRow";
 import type { SpendVerdict, Transaction } from "@/lib/api";
 import { spendHeroModel, spendHeroMoney as spendHeroMoneyRaw } from "@/lib/spendHero";

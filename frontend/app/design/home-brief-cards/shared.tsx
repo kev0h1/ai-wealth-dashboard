@@ -6,7 +6,7 @@ import {
   CheckCircle2,
   Clock3,
   CreditCard,
-} from "lucide-react";
+} from "@/lib/phosphorIcons";
 import MoneyText from "@/components/MoneyText";
 import { getCategoryColour } from "@/lib/categories";
 import { getCategoryIcon } from "@/lib/categoryIcons";

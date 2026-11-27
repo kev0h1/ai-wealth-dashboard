@@ -15,7 +15,7 @@ import {
   EyeOff,
   MailOpen,
   ReceiptText,
-} from "lucide-react";
+} from "@/lib/phosphorIcons";
 import FixtureBottomNav from "../_components/FixtureBottomNav";
 import { FIXTURES, fmtC, fmtC2, type PlanningFixture } from "../planning/fixtures";
 

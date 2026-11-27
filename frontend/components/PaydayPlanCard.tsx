@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { ArrowDown, ChevronUp, WalletCards, X } from "lucide-react";
+import { ArrowDown, ChevronUp, WalletCards, X } from "@/lib/phosphorIcons";
 import type { CompanionItem, PaydayPlanDest } from "@/lib/api";
 import { api } from "@/lib/api";
 import { BankBadge, BANK_META, bankKey, bankLogoSrc } from "@/components/AccountMiniCard";

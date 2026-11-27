@@ -2,7 +2,7 @@
 
 // G391 correction: retain the current search and restore the original estate
 // controls, bounded groups, pinned band and per-row Available readings.
-import { ChevronDown, Search, X } from "lucide-react";
+import { ChevronDown, Search, X } from "@/lib/phosphorIcons";
 import { filterEstate, type Estate, type EstateLens, type EstateRow } from "@/lib/accountsEstate";
 import AccountLedgerRow, { type AccountLedgerRowProps } from "@/components/AccountLedgerRow";
 import AccountGroupCard from "@/components/AccountGroupCard";

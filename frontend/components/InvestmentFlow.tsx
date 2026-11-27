@@ -1,4 +1,4 @@
-import { ArrowRight, FileText, ReceiptText, RefreshCw, ShieldCheck } from "lucide-react";
+import { ArrowRight, FileText, ReceiptText, RefreshCw, ShieldCheck } from "@/lib/phosphorIcons";
 import { STATEMENT_FLOW_STEPS, STATEMENT_PRIVACY_LINE, STAY_CURRENT_COPY } from "@/lib/investmentFlow";
 import s from "./InvestmentFlow.module.css";
 

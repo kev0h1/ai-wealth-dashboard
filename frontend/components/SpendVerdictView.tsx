@@ -21,7 +21,7 @@
 
 import { unresolvedHeading, unresolvedWorthAsking } from "@/lib/spendUnresolved";
 import { useEffect, useState } from "react";
-import { ChevronDown, ChevronUp, ChevronRight, TrendingUp, ReceiptText, ShieldCheck, Target, RotateCcw, CircleHelp } from "lucide-react";
+import { ChevronDown, ChevronUp, ChevronRight, TrendingUp, ReceiptText, ShieldCheck, Target, RotateCcw, CircleHelp } from "@/lib/phosphorIcons";
 import { getCategoryColour } from "@/lib/categories";
 import { getCategoryIcon } from "@/lib/categoryIcons";
 import { useCategoryIcons } from "@/components/IconProvider";

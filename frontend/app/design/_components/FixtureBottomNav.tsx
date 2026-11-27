@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { CalendarClock, Home, PieChart, Target } from "lucide-react";
+import { CalendarClock, Home, PieChart, Target } from "@/lib/phosphorIcons";
 import PennyMark from "@/components/PennyMark";
 import { BRAND_GRADIENT } from "@/lib/brand";
 

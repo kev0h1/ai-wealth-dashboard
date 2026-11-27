@@ -29,7 +29,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ChevronDown, ChevronLeft, ChevronRight, Settings2, Search, Info } from "lucide-react";
+import { ChevronDown, ChevronLeft, ChevronRight, Settings2, Search, Info } from "@/lib/phosphorIcons";
 import { SheetFrame } from "@/components/SheetFrame";
 import TransactionRow from "@/components/TransactionRow";
 import MoneyText from "@/components/MoneyText";

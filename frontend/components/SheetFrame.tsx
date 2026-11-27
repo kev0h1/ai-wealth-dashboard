@@ -2,7 +2,7 @@
 
 import { ReactNode, Ref, useCallback, useEffect, useId, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
-import { ChevronLeft, X } from "lucide-react";
+import { ChevronLeft, X } from "@/lib/phosphorIcons";
 import { useSheetA11y } from "@/lib/useSheetA11y";
 import { useSheetOpen } from "@/lib/useSheetOpen";
 import { useSwipeDismiss } from "@/lib/useSwipeDismiss";

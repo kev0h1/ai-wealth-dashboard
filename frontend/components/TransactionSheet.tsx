@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Tag, Check, Users, User, CalendarArrowUp, CheckSquare, Square } from "lucide-react";
+import { Tag, Check, Users, User, CalendarArrowUp, CheckSquare, Square } from "@/lib/phosphorIcons";
 import { Transaction, api } from "@/lib/api";
 import { SheetFrame } from "@/components/SheetFrame";
 import { BankBadge, BANK_META, bankLogoSrc } from "@/components/AccountMiniCard";

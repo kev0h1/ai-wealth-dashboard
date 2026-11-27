@@ -19,7 +19,7 @@
 // bg-slate-100 invisible pill) as the reference he compared his pick
 // against — it is not used anywhere in production.
 
-import { X, SlidersHorizontal } from "lucide-react";
+import { X, SlidersHorizontal } from "@/lib/phosphorIcons";
 // The pure filter-chip LOGIC (formatPeriodChip, buildChipItems and its
 // types) lives in lib/transactionFilters.ts, not here — this file only
 // renders it. That split is what lets

@@ -12,7 +12,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { ArrowLeft, Search, X, ChevronLeft, ChevronRight } from "lucide-react";
+import { ArrowLeft, Search, X, ChevronLeft, ChevronRight } from "@/lib/phosphorIcons";
 import { api, Transaction, Account, type SavingsInsight } from "@/lib/api";
 import TransactionRow from "@/components/TransactionRow";
 import TeachingSheet from "@/components/TeachingSheet";

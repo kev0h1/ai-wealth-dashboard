@@ -17,6 +17,8 @@
     "check:c49-play-publish": "node scripts/c49-play-publish.test.mjs",
     "check:c45-demo-always-visible": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/c45-demo-always-visible.test.mjs",
     "check:c43-demo-signin": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/c43-demo-signin.test.mjs",
+    "check:c50-reviewer-demo-reveal": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/c50-reviewer-demo-reveal.test.mjs",
+    "check:f30-supported-assistants": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/f30-supported-assistants.test.mjs",
     "check:g464-build-label": "node scripts/g464-build-label.test.mjs",
     "check:g461-plan-payments": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g461-plan-payments.test.mjs",
     "check:g457-zero-headroom": "node --no-warnings --experimental-strip-types scripts/g457-zero-headroom.test.mjs",
@@ -275,7 +277,8 @@
     "check:g399-dismiss-refresh": "node --no-warnings scripts/g399-dismiss-refresh.test.mjs",
     "check:g421-cancel-refresh": "node --no-warnings scripts/g421-cancel-refresh.test.mjs",
     "check:g421-cover-rows": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g421-cover-rows.test.mjs",
-    "check:g489-approved-upcoming": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g489-approved-upcoming.test.mjs"
+    "check:g489-approved-upcoming": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g489-approved-upcoming.test.mjs",
+    "check:no-lucide-imports": "node scripts/check-no-lucide-imports.mjs"
   },
   "dependencies": {
     "@aparajita/capacitor-biometric-auth": "^10.0.0",
@@ -296,7 +299,6 @@
     "@sentry/nextjs": "10.69.0",
     "@sentry/react": "10.69.0",
     "@wealth/shared": "file:../shared",
-    "lucide-react": "^1.8.0",
     "next": "16.4.6",
     "react": "19.2.4",
     "react-dom": "19.2.4",

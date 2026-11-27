@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect } from "react";
 import { usePathname } from "next/navigation";
-import { Home, PieChart, Settings, CalendarClock, Target } from "lucide-react";
+import { Home, PieChart, Settings, CalendarClock, Target } from "@/lib/phosphorIcons";
 import PennyAppearanceIcon from "@/components/PennyAppearanceIcon";
 import { usePreferences } from "@/components/PreferencesContext";
 import { usePennySheet } from "@/components/PennySheetProvider";

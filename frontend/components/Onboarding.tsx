@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState, useEffect } from "react";
-import { ChevronRight, Check, Building2, ShieldCheck, Upload, Lock, XCircle } from "lucide-react";
+import { ChevronRight, Check, Building2, ShieldCheck, Upload, Lock, XCircle } from "@/lib/phosphorIcons";
 import { api, type SubscriptionInfo } from "@/lib/api";
 import PhosphorGlyph, { type PhosphorGlyphName } from "@/components/navigation/PhosphorGlyph";
 import PlanPicker from "@/components/PlanPicker";

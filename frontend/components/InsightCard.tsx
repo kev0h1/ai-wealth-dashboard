@@ -18,7 +18,7 @@ import { useRouter } from "next/navigation";
 import {
   Bookmark, BookmarkCheck, ChevronDown, ChevronRight, CheckCircle2,
   RotateCcw, ExternalLink, SlidersHorizontal, RefreshCw,
-} from "lucide-react";
+} from "@/lib/phosphorIcons";
 import { api, SavingsInsight, WorkflowDef, WorkflowStep } from "@/lib/api";
 import { insightCategoryIcon } from "@/lib/insightIcons";
 import { useCategoryIcons } from "@/components/IconProvider";

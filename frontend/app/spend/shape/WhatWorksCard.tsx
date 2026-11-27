@@ -19,7 +19,7 @@
 //                  beyond the headline has anything true to say.
 
 import Link from "next/link";
-import { Fingerprint, Sparkles } from "lucide-react";
+import { Fingerprint, Sparkles } from "@/lib/phosphorIcons";
 import MoneyText from "@/components/MoneyText";
 import type { MoneyShape } from "@/lib/api";
 

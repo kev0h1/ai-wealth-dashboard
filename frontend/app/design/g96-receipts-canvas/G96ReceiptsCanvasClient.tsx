@@ -2,7 +2,7 @@
 
 import {useEffect, useState, type ReactNode} from "react";
 import {useSearchParams} from "next/navigation";
-import {AlertCircle, ArrowLeft, Camera, ChevronDown, ReceiptText, ScanLine} from "lucide-react";
+import {AlertCircle, ArrowLeft, Camera, ChevronDown, ReceiptText, ScanLine} from "@/lib/phosphorIcons";
 
 type Variant = "a" | "b" | "c";
 type State = "ready" | "empty" | "loading" | "error";

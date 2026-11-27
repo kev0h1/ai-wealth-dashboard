@@ -8,7 +8,7 @@
 // holds the control's own state, so /design previews can render it.
 
 import { useEffect, useState } from "react";
-import { RefreshCw, ShieldCheck } from "lucide-react";
+import { RefreshCw, ShieldCheck } from "@/lib/phosphorIcons";
 import { bankDataTimeLine } from "@/lib/accountSheetNotes";
 import {
   refreshControlState, refreshNote, type AccountRefreshResult,

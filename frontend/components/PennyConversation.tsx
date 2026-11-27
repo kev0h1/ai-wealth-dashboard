@@ -115,7 +115,7 @@
 
 import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { X, ChevronRight } from "lucide-react";
+import { X, ChevronRight } from "@/lib/phosphorIcons";
 import PennyStarterState from "@/components/PennyStarterState";
 import { answerText, proposalMsgFromTurn } from "@/lib/pennyProposalRestore";
 import ScheduledGoalProposalCard, { isScheduledGoalProposal } from "@/components/plans/ScheduledGoalProposalCard";

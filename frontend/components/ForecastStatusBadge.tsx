@@ -1,4 +1,4 @@
-import { AlertCircle, AlertTriangle, Minus, ShieldCheck } from "lucide-react";
+import { AlertCircle, AlertTriangle, Minus, ShieldCheck } from "@/lib/phosphorIcons";
 import { FORECAST_QUALIFIER, FORECAST_SURFACE, type ForecastStatus } from "@/lib/cashForecastStatus";
 
 /** G287 E: colour is confined to the small icon and its plain-language label. */

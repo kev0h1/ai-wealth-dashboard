@@ -81,7 +81,7 @@
 import { useEffect } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { EyeOff } from "lucide-react";
+import { EyeOff } from "@/lib/phosphorIcons";
 import SetAsideList from "@/components/upcoming/SetAsideList";
 import DayGroups from "./DayGroups";
 import {

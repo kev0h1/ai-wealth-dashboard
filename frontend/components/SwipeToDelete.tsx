@@ -12,7 +12,7 @@
 //   animation  → translate on the inner div; 180 ms ease-out on release
 
 import { useState, useRef } from "react";
-import { Trash2 } from "lucide-react";
+import { Trash2 } from "@/lib/phosphorIcons";
 
 interface Props {
   onDelete: () => void;

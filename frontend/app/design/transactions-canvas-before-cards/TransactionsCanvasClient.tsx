@@ -2,7 +2,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { ChevronDown, ChevronRight, Filter, Search, SlidersHorizontal, Sparkles } from "lucide-react";
+import { ChevronDown, ChevronRight, Filter, Search, SlidersHorizontal, Sparkles } from "@/lib/phosphorIcons";
 import FixtureBottomNav from "../_components/FixtureBottomNav";
 
 type Variant = "a" | "b" | "c"; type State = "populated" | "long" | "loading" | "empty" | "error";

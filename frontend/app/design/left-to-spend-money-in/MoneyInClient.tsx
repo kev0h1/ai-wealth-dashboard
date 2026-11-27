@@ -7,7 +7,7 @@
 import Link from "next/link";
 import { useEffect, type ReactNode } from "react";
 import { useSearchParams } from "next/navigation";
-import { AlertCircle, AlertTriangle, ArrowRight, Check, ChevronRight, CircleDashed, ReceiptText, ShieldCheck } from "lucide-react";
+import { AlertCircle, AlertTriangle, ArrowRight, Check, ChevronRight, CircleDashed, ReceiptText, ShieldCheck } from "@/lib/phosphorIcons";
 import { SCENARIOS, derive, r2, type Account, type Derived, type Row, type Scenario, type ScenarioId } from "./fixtures";
 
 type Variant = "a" | "b" | "c";

@@ -7,7 +7,7 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { ChevronLeft, RefreshCw, Trash2, Search } from "lucide-react";
+import { ChevronLeft, RefreshCw, Trash2, Search } from "@/lib/phosphorIcons";
 import { BankBadge, accountBrand } from "@/components/AccountMiniCard";
 import TransactionRow from "@/components/TransactionRow";
 import SegmentedControl from "@/components/SegmentedControl";

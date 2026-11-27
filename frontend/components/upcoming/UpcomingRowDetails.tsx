@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, ChevronDown } from "lucide-react";
+import { Check, ChevronDown } from "@/lib/phosphorIcons";
 import type { UpcomingRowModel } from "./UpcomingRow";
 import { getUpcomingStatus } from "@/lib/upcomingAttention";
 import { DetailLedgerLine, detailFocus, detailInk, detailMuted, dateLabel, money, useMaskedMoney } from "./detailPrimitives";

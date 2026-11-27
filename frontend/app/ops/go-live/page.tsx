@@ -23,7 +23,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import ReactMarkdown from "react-markdown";
-import { ChevronDown } from "lucide-react";
+import { ChevronDown } from "@/lib/phosphorIcons";
 import { api, type GoLiveActionResponse, type GoLiveResponse } from "@/lib/api";
 import { LegalTable, splitMarkdownIntoSegments } from "@/components/LegalDocument";
 import {

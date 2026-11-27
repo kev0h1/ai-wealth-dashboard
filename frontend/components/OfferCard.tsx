@@ -10,7 +10,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { X } from "lucide-react";
+import { X } from "@/lib/phosphorIcons";
 import { api, type OfferCardData } from "@/lib/api";
 import { cachedEndpoint, ENDPOINT, peekEndpoint } from "@/lib/endpointCache";
 

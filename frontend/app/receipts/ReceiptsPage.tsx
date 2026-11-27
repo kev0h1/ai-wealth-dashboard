@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, ChevronDown, Trash2, Receipt, Camera, Image as ImageIcon } from "lucide-react";
+import { ArrowLeft, ChevronDown, Trash2, Receipt, Camera, Image as ImageIcon } from "@/lib/phosphorIcons";
 import { api, Basket } from "@/lib/api";
 import { goBack } from "@/lib/goBack";
 

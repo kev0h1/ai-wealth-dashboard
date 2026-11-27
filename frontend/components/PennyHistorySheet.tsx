@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { Trash2, X } from "lucide-react";
+import { Trash2, X } from "@/lib/phosphorIcons";
 import type { PennyConversationSummary } from "@/lib/api";
 import {
   HISTORY_EMPTY, HISTORY_RETENTION_NOTE, formatHistoryDate,

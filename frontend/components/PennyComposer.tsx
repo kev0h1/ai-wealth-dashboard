@@ -1,7 +1,7 @@
 "use client";
 
 import { useLayoutEffect, type KeyboardEvent, type RefObject } from "react";
-import { Loader2, Send } from "lucide-react";
+import { Loader2, Send } from "@/lib/phosphorIcons";
 import { BRAND_GRADIENT } from "@/lib/brand";
 
 /** G249: question length cap (backend can_i.py enforces the same 500) and the

@@ -1,0 +1,1951 @@
+{
+  "base": "8fc61ac9cb4427e980b9a09af5ab92737345627e",
+  "source": "9ac28f6bdea1b6edeb754219e51ef6899254a3aa",
+  "catalog": [
+    {
+      "area": "Home",
+      "icons": [
+        {
+          "name": "ChevronLeft",
+          "files": [
+            "frontend/app/cards/CardsPage.tsx",
+            "frontend/app/mirror/MirrorPage.tsx",
+            "frontend/app/month/MonthPage.tsx",
+            "frontend/app/transactions/TransactionsPage.tsx",
+            "frontend/components/TutorialOverlay.tsx"
+          ]
+        },
+        {
+          "name": "ChevronRight",
+          "files": [
+            "frontend/app/components/HomePage.tsx",
+            "frontend/app/transactions/TransactionsPage.tsx",
+            "frontend/components/ActionLabel.tsx",
+            "frontend/components/CategoryIconPicker.tsx",
+            "frontend/components/DatePicker/DateField.tsx",
+            "frontend/components/GroceryBasketCard.tsx",
+            "frontend/components/HomeBrief.tsx",
+            "frontend/components/HomeEstateSection.tsx",
+            "frontend/components/HubAim.tsx",
+            "frontend/components/MirrorRouteLink.tsx",
+            "frontend/components/Onboarding.tsx",
+            "frontend/components/PaySplitComparison.tsx",
+            "frontend/components/TutorialOverlay.tsx",
+            "frontend/components/bank-connect/BankConnectionParts.tsx",
+            "frontend/components/plans/PlanEditorSummary.tsx",
+            "frontend/components/plans/PlanRecordView.tsx"
+          ]
+        },
+        {
+          "name": "TrendingUp",
+          "files": [
+            "frontend/app/components/KPICards.tsx",
+            "frontend/components/CashFlowCard.tsx",
+            "frontend/components/GroceryBasketCard.tsx",
+            "frontend/components/HomeBrief.tsx",
+            "frontend/components/InvestmentMiniCard.tsx",
+            "frontend/components/InvestmentUpload.tsx",
+            "frontend/components/NetWorthCard.tsx",
+            "frontend/components/TutorialIcon.tsx"
+          ]
+        },
+        {
+          "name": "Wallet",
+          "files": [
+            "frontend/app/components/KPICards.tsx",
+            "frontend/components/CategoryKindChooser.tsx",
+            "frontend/components/TutorialIcon.tsx",
+            "frontend/components/plans/PlanRecordView.tsx"
+          ]
+        },
+        {
+          "name": "Clock",
+          "files": [
+            "frontend/app/components/KPICards.tsx"
+          ]
+        },
+        {
+          "name": "LineChart",
+          "files": [
+            "frontend/app/components/KPICards.tsx"
+          ]
+        },
+        {
+          "name": "PiggyBank",
+          "files": [
+            "frontend/app/components/KPICards.tsx",
+            "frontend/components/HomeBrief.tsx"
+          ]
+        },
+        {
+          "name": "ArrowDownLeft",
+          "files": [
+            "frontend/app/components/TransactionList.tsx"
+          ]
+        },
+        {
+          "name": "ArrowUpRight",
+          "files": [
+            "frontend/app/components/TransactionList.tsx"
+          ]
+        },
+        {
+          "name": "X",
+          "files": [
+            "frontend/app/components/TransactionList.tsx",
+            "frontend/app/month/story/StoryPlayer.tsx",
+            "frontend/app/transactions/TransactionsPage.tsx",
+            "frontend/components/HomeBrief.tsx",
+            "frontend/components/OfferCard.tsx",
+            "frontend/components/PaydayPlanCard.tsx",
+            "frontend/components/TransactionFilterChips.tsx",
+            "frontend/components/TutorialOffer.tsx",
+            "frontend/components/TutorialOverlay.tsx",
+            "frontend/components/bank-connect/BankConnectionParts.tsx"
+          ]
+        },
+        {
+          "name": "ArrowLeft",
+          "files": [
+            "frontend/app/mcp-activity/McpActivityPage.tsx",
+            "frontend/app/receipts/ReceiptsPage.tsx",
+            "frontend/app/tax/TaxCanvas.tsx",
+            "frontend/app/transactions/TransactionsPage.tsx",
+            "frontend/components/card-offers/CardOffersPage.tsx"
+          ]
+        },
+        {
+          "name": "Check",
+          "files": [
+            "frontend/app/mcp-activity/McpActivityPage.tsx",
+            "frontend/components/CustomSelect.tsx",
+            "frontend/components/HomeBrief.tsx",
+            "frontend/components/Onboarding.tsx",
+            "frontend/components/PlanPicker.tsx",
+            "frontend/components/card-offers/CardOffersPage.tsx"
+          ]
+        },
+        {
+          "name": "RefreshCw",
+          "files": [
+            "frontend/app/mirror/MirrorPage.tsx",
+            "frontend/components/InvestmentFlow.tsx"
+          ]
+        },
+        {
+          "name": "Bell",
+          "files": [
+            "frontend/app/month/MonthPage.tsx"
+          ]
+        },
+        {
+          "name": "Play",
+          "files": [
+            "frontend/app/month/MonthPage.tsx"
+          ]
+        },
+        {
+          "name": "ChevronDown",
+          "files": [
+            "frontend/app/receipts/ReceiptsPage.tsx",
+            "frontend/app/tax/TaxCanvas.tsx",
+            "frontend/components/CategoryRow.tsx",
+            "frontend/components/CoverPlanSourcesCard.tsx",
+            "frontend/components/CustomSelect.tsx",
+            "frontend/components/Disclosure.tsx",
+            "frontend/components/FuelSavingsCard.tsx",
+            "frontend/components/GroceryBasketCard.tsx",
+            "frontend/components/HomeBrief.tsx",
+            "frontend/components/MoveRoute.tsx",
+            "frontend/components/OverspendingMoments.tsx",
+            "frontend/components/PaySplitComparison.tsx",
+            "frontend/components/PlanPicker.tsx",
+            "frontend/components/ReconnectStrip.tsx",
+            "frontend/components/TipsLine.tsx",
+            "frontend/components/card-offers/OfferCards.tsx",
+            "frontend/components/card-settings/PaymentFields.tsx"
+          ]
+        },
+        {
+          "name": "Trash2",
+          "files": [
+            "frontend/app/receipts/ReceiptsPage.tsx",
+            "frontend/components/GroceryBasketCard.tsx",
+            "frontend/components/SwipeToDelete.tsx"
+          ]
+        },
+        {
+          "name": "Receipt",
+          "files": [
+            "frontend/app/receipts/ReceiptsPage.tsx",
+            "frontend/components/CategoryKindChooser.tsx",
+            "frontend/components/GroceryBasketCard.tsx",
+            "frontend/components/TutorialIcon.tsx"
+          ]
+        },
+        {
+          "name": "Camera",
+          "files": [
+            "frontend/app/receipts/ReceiptsPage.tsx",
+            "frontend/components/GroceryBasketCard.tsx"
+          ]
+        },
+        {
+          "name": "Image",
+          "files": [
+            "frontend/app/receipts/ReceiptsPage.tsx",
+            "frontend/components/GroceryBasketCard.tsx"
+          ]
+        },
+        {
+          "name": "AlertCircle",
+          "files": [
+            "frontend/app/tax/TaxCanvas.tsx",
+            "frontend/components/ForecastStatusBadge.tsx"
+          ]
+        },
+        {
+          "name": "CalendarDays",
+          "files": [
+            "frontend/app/tax/TaxCanvas.tsx",
+            "frontend/components/DatePicker/DateField.tsx",
+            "frontend/components/HomeBrief.tsx",
+            "frontend/components/TutorialIcon.tsx"
+          ]
+        },
+        {
+          "name": "CheckCircle2",
+          "files": [
+            "frontend/app/tax/TaxCanvas.tsx"
+          ]
+        },
+        {
+          "name": "Info",
+          "files": [
+            "frontend/app/tax/TaxCanvas.tsx",
+            "frontend/components/AdviceDisclaimer.tsx",
+            "frontend/components/TutorialIcon.tsx",
+            "frontend/components/plans/PlanEditorSummary.tsx"
+          ]
+        },
+        {
+          "name": "Search",
+          "files": [
+            "frontend/app/transactions/TransactionsPage.tsx",
+            "frontend/components/CategoryIconPicker.tsx",
+            "frontend/components/CoverPlanSourcesCard.tsx",
+            "frontend/components/bank-connect/BankConnectionParts.tsx"
+          ]
+        },
+        {
+          "name": "CalendarClock",
+          "files": [
+            "frontend/components/CashFlowCard.tsx",
+            "frontend/components/HomeBrief.tsx",
+            "frontend/components/Sidebar.tsx"
+          ]
+        },
+        {
+          "name": "TrendingDown",
+          "files": [
+            "frontend/components/CashFlowCard.tsx",
+            "frontend/components/HomeBrief.tsx",
+            "frontend/components/NetWorthCard.tsx"
+          ]
+        },
+        {
+          "name": "ArrowLeftRight",
+          "files": [
+            "frontend/components/CategoryKindChooser.tsx",
+            "frontend/components/HomeTransfersCheck.tsx",
+            "frontend/components/TutorialIcon.tsx",
+            "frontend/components/plans/PlanEditorSummary.tsx"
+          ]
+        },
+        {
+          "name": "CircleMinus",
+          "files": [
+            "frontend/components/CategoryKindChooser.tsx"
+          ]
+        },
+        {
+          "name": "ChevronUp",
+          "files": [
+            "frontend/components/CategoryRow.tsx",
+            "frontend/components/PaydayPlanCard.tsx"
+          ]
+        },
+        {
+          "name": "Zap",
+          "files": [
+            "frontend/components/ChallengesPanel.tsx",
+            "frontend/components/PlanPicker.tsx"
+          ]
+        },
+        {
+          "name": "Flame",
+          "files": [
+            "frontend/components/ChallengesPanel.tsx"
+          ]
+        },
+        {
+          "name": "Star",
+          "files": [
+            "frontend/components/ChallengesPanel.tsx"
+          ]
+        },
+        {
+          "name": "Plug",
+          "files": [
+            "frontend/components/ConnectedAssistantsCard.tsx"
+          ]
+        },
+        {
+          "name": "ArrowRight",
+          "files": [
+            "frontend/components/CoverPlanSourcesCard.tsx",
+            "frontend/components/HomeTransfersCheck.tsx",
+            "frontend/components/InvestmentFlow.tsx",
+            "frontend/components/MoveRoute.tsx",
+            "frontend/components/bank-connect/BankConnectionParts.tsx"
+          ]
+        },
+        {
+          "name": "ShieldCheck",
+          "files": [
+            "frontend/components/CoverPlanSourcesCard.tsx",
+            "frontend/components/ForecastStatusBadge.tsx",
+            "frontend/components/InvestmentFlow.tsx",
+            "frontend/components/MirrorFeedbackCard.tsx",
+            "frontend/components/Onboarding.tsx"
+          ]
+        },
+        {
+          "name": "Undo2",
+          "files": [
+            "frontend/components/ErrorState.tsx"
+          ]
+        },
+        {
+          "name": "AlertTriangle",
+          "files": [
+            "frontend/components/ForecastStatusBadge.tsx",
+            "frontend/components/HomeBrief.tsx"
+          ]
+        },
+        {
+          "name": "Minus",
+          "files": [
+            "frontend/components/ForecastStatusBadge.tsx",
+            "frontend/components/HomeBrief.tsx"
+          ]
+        },
+        {
+          "name": "Fuel",
+          "files": [
+            "frontend/components/FuelSavingsCard.tsx"
+          ]
+        },
+        {
+          "name": "MapPin",
+          "files": [
+            "frontend/components/FuelSavingsCard.tsx"
+          ]
+        },
+        {
+          "name": "Pin",
+          "files": [
+            "frontend/components/FuelSavingsCard.tsx",
+            "frontend/components/GroceryBasketCard.tsx"
+          ]
+        },
+        {
+          "name": "Store",
+          "files": [
+            "frontend/components/GroceryBasketCard.tsx"
+          ]
+        },
+        {
+          "name": "CircleDashed",
+          "files": [
+            "frontend/components/HomeBrief.tsx"
+          ]
+        },
+        {
+          "name": "CreditCard",
+          "files": [
+            "frontend/components/HomeBrief.tsx",
+            "frontend/components/card-offers/CardOffersPage.tsx"
+          ]
+        },
+        {
+          "name": "Clock3",
+          "files": [
+            "frontend/components/HomeBrief.tsx",
+            "frontend/components/PendingPaymentsGroup.tsx"
+          ]
+        },
+        {
+          "name": "Circle",
+          "files": [
+            "frontend/components/HomeBrief.tsx"
+          ]
+        },
+        {
+          "name": "CircleAlert",
+          "files": [
+            "frontend/components/HomeTransfersCheck.tsx",
+            "frontend/components/plans/PlanEditorSummary.tsx"
+          ]
+        },
+        {
+          "name": "Target",
+          "files": [
+            "frontend/components/HubAim.tsx",
+            "frontend/components/Sidebar.tsx",
+            "frontend/components/TutorialIcon.tsx"
+          ]
+        },
+        {
+          "name": "FileText",
+          "files": [
+            "frontend/components/InvestmentFlow.tsx",
+            "frontend/components/InvestmentUpload.tsx",
+            "frontend/components/PlanPicker.tsx",
+            "frontend/components/StatementUpload.tsx"
+          ]
+        },
+        {
+          "name": "ReceiptText",
+          "files": [
+            "frontend/components/InvestmentFlow.tsx"
+          ]
+        },
+        {
+          "name": "Upload",
+          "files": [
+            "frontend/components/InvestmentUpload.tsx",
+            "frontend/components/Onboarding.tsx",
+            "frontend/components/StatementUpload.tsx",
+            "frontend/components/TutorialIcon.tsx",
+            "frontend/components/card-offers/CardOffersPage.tsx",
+            "frontend/components/card-offers/OfferCards.tsx"
+          ]
+        },
+        {
+          "name": "CheckCircle",
+          "files": [
+            "frontend/components/InvestmentUpload.tsx",
+            "frontend/components/StatementUpload.tsx"
+          ]
+        },
+        {
+          "name": "Eye",
+          "files": [
+            "frontend/components/InvestmentUpload.tsx",
+            "frontend/components/NetWorthCard.tsx",
+            "frontend/components/StatementUpload.tsx"
+          ]
+        },
+        {
+          "name": "EyeOff",
+          "files": [
+            "frontend/components/InvestmentUpload.tsx",
+            "frontend/components/NetWorthCard.tsx",
+            "frontend/components/StatementUpload.tsx"
+          ]
+        },
+        {
+          "name": "Loader2",
+          "files": [
+            "frontend/components/InvestmentUpload.tsx",
+            "frontend/components/StatementUpload.tsx"
+          ]
+        },
+        {
+          "name": "RotateCcw",
+          "files": [
+            "frontend/components/MirrorFeedbackCard.tsx"
+          ]
+        },
+        {
+          "name": "Building2",
+          "files": [
+            "frontend/components/Onboarding.tsx"
+          ]
+        },
+        {
+          "name": "Lock",
+          "files": [
+            "frontend/components/Onboarding.tsx"
+          ]
+        },
+        {
+          "name": "XCircle",
+          "files": [
+            "frontend/components/Onboarding.tsx"
+          ]
+        },
+        {
+          "name": "Pause",
+          "files": [
+            "frontend/components/PausedBanksStrip.tsx"
+          ]
+        },
+        {
+          "name": "ArrowDown",
+          "files": [
+            "frontend/components/PaydayPlanCard.tsx",
+            "frontend/components/plans/PlanEditorSummary.tsx"
+          ]
+        },
+        {
+          "name": "WalletCards",
+          "files": [
+            "frontend/components/PaydayPlanCard.tsx",
+            "frontend/components/plans/PlanEditorSummary.tsx"
+          ]
+        },
+        {
+          "name": "Crown",
+          "files": [
+            "frontend/components/PlanPicker.tsx"
+          ]
+        },
+        {
+          "name": "Globe",
+          "files": [
+            "frontend/components/PlanPicker.tsx"
+          ]
+        },
+        {
+          "name": "Landmark",
+          "files": [
+            "frontend/components/PlanPicker.tsx",
+            "frontend/components/TutorialIcon.tsx",
+            "frontend/components/bank-connect/BankConnectionParts.tsx"
+          ]
+        },
+        {
+          "name": "Smartphone",
+          "files": [
+            "frontend/components/PlanPicker.tsx"
+          ]
+        },
+        {
+          "name": "Home",
+          "files": [
+            "frontend/components/Sidebar.tsx"
+          ]
+        },
+        {
+          "name": "PieChart",
+          "files": [
+            "frontend/components/Sidebar.tsx"
+          ]
+        },
+        {
+          "name": "Settings",
+          "files": [
+            "frontend/components/Sidebar.tsx"
+          ]
+        },
+        {
+          "name": "Lightbulb",
+          "files": [
+            "frontend/components/TipsLine.tsx",
+            "frontend/components/TutorialOverlay.tsx"
+          ]
+        },
+        {
+          "name": "SlidersHorizontal",
+          "files": [
+            "frontend/components/TransactionFilterChips.tsx"
+          ]
+        },
+        {
+          "name": "Plus",
+          "files": [
+            "frontend/components/TutorialIcon.tsx"
+          ]
+        },
+        {
+          "name": "ListChecks",
+          "files": [
+            "frontend/components/TutorialIcon.tsx"
+          ]
+        },
+        {
+          "name": "Tag",
+          "files": [
+            "frontend/components/TutorialIcon.tsx"
+          ]
+        },
+        {
+          "name": "LoaderCircle",
+          "files": [
+            "frontend/components/bank-connect/BankConnectionParts.tsx"
+          ]
+        },
+        {
+          "name": "LockKeyhole",
+          "files": [
+            "frontend/components/card-offers/CardOffersPage.tsx"
+          ]
+        }
+      ]
+    },
+    {
+      "area": "Spend",
+      "icons": [
+        {
+          "name": "BarChart3",
+          "files": [
+            "frontend/app/components/SpendPage.tsx",
+            "frontend/components/SpendTrends.tsx"
+          ]
+        },
+        {
+          "name": "Check",
+          "files": [
+            "frontend/app/components/SpendPage.tsx",
+            "frontend/app/spend/shape/MoneyShapeHero.tsx"
+          ]
+        },
+        {
+          "name": "WalletCards",
+          "files": [
+            "frontend/app/components/SpendPage.tsx"
+          ]
+        },
+        {
+          "name": "Undo2",
+          "files": [
+            "frontend/app/components/SpendPage.tsx"
+          ]
+        },
+        {
+          "name": "ChevronRight",
+          "files": [
+            "frontend/app/spend/shape/MoneyShapeHero.tsx",
+            "frontend/components/SpendHeader.tsx",
+            "frontend/components/SpendTrends.tsx",
+            "frontend/components/SpendVerdictView.tsx"
+          ]
+        },
+        {
+          "name": "ChevronLeft",
+          "files": [
+            "frontend/app/spend/shape/MoneyShapeHero.tsx",
+            "frontend/components/SpendHeader.tsx"
+          ]
+        },
+        {
+          "name": "ChevronDown",
+          "files": [
+            "frontend/app/spend/shape/MoneyShapeHero.tsx",
+            "frontend/components/SpendHeader.tsx",
+            "frontend/components/SpendPaceHero.tsx",
+            "frontend/components/SpendTrends.tsx",
+            "frontend/components/SpendVerdictView.tsx"
+          ]
+        },
+        {
+          "name": "ArrowLeft",
+          "files": [
+            "frontend/app/spend/shape/ShapePage.tsx"
+          ]
+        },
+        {
+          "name": "RefreshCw",
+          "files": [
+            "frontend/app/spend/shape/ShapePage.tsx"
+          ]
+        },
+        {
+          "name": "Fingerprint",
+          "files": [
+            "frontend/app/spend/shape/WhatWorksCard.tsx"
+          ]
+        },
+        {
+          "name": "Sparkles",
+          "files": [
+            "frontend/app/spend/shape/WhatWorksCard.tsx"
+          ]
+        },
+        {
+          "name": "Wallet",
+          "files": [
+            "frontend/components/CountTowardsSafeToSpendRow.tsx"
+          ]
+        },
+        {
+          "name": "ArrowRight",
+          "files": [
+            "frontend/components/SafeToSpendCard.tsx"
+          ]
+        },
+        {
+          "name": "Settings2",
+          "files": [
+            "frontend/components/SpendHeader.tsx",
+            "frontend/components/SpendShapeCard.tsx"
+          ]
+        },
+        {
+          "name": "Search",
+          "files": [
+            "frontend/components/SpendHeader.tsx"
+          ]
+        },
+        {
+          "name": "Info",
+          "files": [
+            "frontend/components/SpendHeader.tsx",
+            "frontend/components/SpendPaceHero.tsx"
+          ]
+        },
+        {
+          "name": "CircleAlert",
+          "files": [
+            "frontend/components/SpendPaceHero.tsx"
+          ]
+        },
+        {
+          "name": "ChartPie",
+          "files": [
+            "frontend/components/SpendTrends.tsx"
+          ]
+        },
+        {
+          "name": "TrendingUp",
+          "files": [
+            "frontend/components/SpendTrends.tsx",
+            "frontend/components/SpendVerdictView.tsx"
+          ]
+        },
+        {
+          "name": "TrendingDown",
+          "files": [
+            "frontend/components/SpendTrends.tsx"
+          ]
+        },
+        {
+          "name": "AlignStartVertical",
+          "files": [
+            "frontend/components/SpendTrends.tsx"
+          ]
+        },
+        {
+          "name": "MoreVertical",
+          "files": [
+            "frontend/components/SpendTrends.tsx"
+          ]
+        },
+        {
+          "name": "GripVertical",
+          "files": [
+            "frontend/components/SpendTrends.tsx"
+          ]
+        },
+        {
+          "name": "ChevronUp",
+          "files": [
+            "frontend/components/SpendTrends.tsx",
+            "frontend/components/SpendVerdictView.tsx"
+          ]
+        },
+        {
+          "name": "Pin",
+          "files": [
+            "frontend/components/SpendTrends.tsx"
+          ]
+        },
+        {
+          "name": "PinOff",
+          "files": [
+            "frontend/components/SpendTrends.tsx"
+          ]
+        },
+        {
+          "name": "Trash2",
+          "files": [
+            "frontend/components/SpendTrends.tsx"
+          ]
+        },
+        {
+          "name": "Plus",
+          "files": [
+            "frontend/components/SpendTrends.tsx"
+          ]
+        },
+        {
+          "name": "Activity",
+          "files": [
+            "frontend/components/SpendTrends.tsx"
+          ]
+        },
+        {
+          "name": "Car",
+          "files": [
+            "frontend/components/SpendTrends.tsx"
+          ]
+        },
+        {
+          "name": "Fuel",
+          "files": [
+            "frontend/components/SpendTrends.tsx"
+          ]
+        },
+        {
+          "name": "Train",
+          "files": [
+            "frontend/components/SpendTrends.tsx"
+          ]
+        },
+        {
+          "name": "Bus",
+          "files": [
+            "frontend/components/SpendTrends.tsx"
+          ]
+        },
+        {
+          "name": "CarTaxiFront",
+          "files": [
+            "frontend/components/SpendTrends.tsx"
+          ]
+        },
+        {
+          "name": "PlugZap",
+          "files": [
+            "frontend/components/SpendTrends.tsx"
+          ]
+        },
+        {
+          "name": "Wrench",
+          "files": [
+            "frontend/components/SpendTrends.tsx"
+          ]
+        },
+        {
+          "name": "SquareParking",
+          "files": [
+            "frontend/components/SpendTrends.tsx"
+          ]
+        },
+        {
+          "name": "ReceiptText",
+          "files": [
+            "frontend/components/SpendVerdictView.tsx"
+          ]
+        },
+        {
+          "name": "ShieldCheck",
+          "files": [
+            "frontend/components/SpendVerdictView.tsx"
+          ]
+        },
+        {
+          "name": "Target",
+          "files": [
+            "frontend/components/SpendVerdictView.tsx"
+          ]
+        },
+        {
+          "name": "RotateCcw",
+          "files": [
+            "frontend/components/SpendVerdictView.tsx"
+          ]
+        },
+        {
+          "name": "CircleHelp",
+          "files": [
+            "frontend/components/SpendVerdictView.tsx"
+          ]
+        }
+      ]
+    },
+    {
+      "area": "Upcoming",
+      "icons": [
+        {
+          "name": "ChevronRight",
+          "files": [
+            "frontend/components/UpcomingBillsStrip.tsx",
+            "frontend/components/upcoming/SetAsideList.tsx",
+            "frontend/components/upcoming/UnlinkedGoalPlans.tsx",
+            "frontend/components/upcoming/UpcomingAccountDetails.tsx",
+            "frontend/components/upcoming/UpcomingAccountsCard.tsx",
+            "frontend/components/upcoming/UpcomingPlansCard.tsx"
+          ]
+        },
+        {
+          "name": "Wallet",
+          "files": [
+            "frontend/components/upcoming/SetAsideList.tsx",
+            "frontend/components/upcoming/detailPrimitives.tsx"
+          ]
+        },
+        {
+          "name": "X",
+          "files": [
+            "frontend/components/upcoming/SwipeDismissRow.tsx"
+          ]
+        },
+        {
+          "name": "ArrowDownLeft",
+          "files": [
+            "frontend/components/upcoming/UpcomingAccountDetails.tsx"
+          ]
+        },
+        {
+          "name": "ArrowUpRight",
+          "files": [
+            "frontend/components/upcoming/UpcomingAccountDetails.tsx"
+          ]
+        },
+        {
+          "name": "ChevronDown",
+          "files": [
+            "frontend/components/upcoming/UpcomingAccountDetails.tsx",
+            "frontend/components/upcoming/UpcomingAccountsCard.tsx",
+            "frontend/components/upcoming/UpcomingAttentionDay.tsx",
+            "frontend/components/upcoming/UpcomingPlansCard.tsx",
+            "frontend/components/upcoming/UpcomingRow.tsx",
+            "frontend/components/upcoming/UpcomingRowDetails.tsx"
+          ]
+        },
+        {
+          "name": "PiggyBank",
+          "files": [
+            "frontend/components/upcoming/UpcomingAccountDetails.tsx"
+          ]
+        },
+        {
+          "name": "Pencil",
+          "files": [
+            "frontend/components/upcoming/UpcomingDetailFlow.tsx",
+            "frontend/components/upcoming/UpcomingDetailsSheet.tsx"
+          ]
+        },
+        {
+          "name": "ChevronLeft",
+          "files": [
+            "frontend/components/upcoming/UpcomingDetailsSheet.tsx"
+          ]
+        },
+        {
+          "name": "AlertCircle",
+          "files": [
+            "frontend/components/upcoming/UpcomingRow.tsx"
+          ]
+        },
+        {
+          "name": "AlertTriangle",
+          "files": [
+            "frontend/components/upcoming/UpcomingRow.tsx"
+          ]
+        },
+        {
+          "name": "Check",
+          "files": [
+            "frontend/components/upcoming/UpcomingRow.tsx",
+            "frontend/components/upcoming/UpcomingRowDetails.tsx"
+          ]
+        },
+        {
+          "name": "Clock",
+          "files": [
+            "frontend/components/upcoming/UpcomingRow.tsx"
+          ]
+        },
+        {
+          "name": "Info",
+          "files": [
+            "frontend/components/upcoming/accountPresentation.tsx"
+          ]
+        },
+        {
+          "name": "TriangleAlert",
+          "files": [
+            "frontend/components/upcoming/accountPresentation.tsx"
+          ]
+        },
+        {
+          "name": "CreditCard",
+          "files": [
+            "frontend/components/upcoming/detailPrimitives.tsx"
+          ]
+        },
+        {
+          "name": "Target",
+          "files": [
+            "frontend/components/upcoming/detailPrimitives.tsx"
+          ]
+        }
+      ]
+    },
+    {
+      "area": "Planning",
+      "icons": [
+        {
+          "name": "AlertTriangle",
+          "files": [
+            "frontend/app/planning/GrowPanel.tsx"
+          ]
+        },
+        {
+          "name": "ChevronDown",
+          "files": [
+            "frontend/app/planning/GrowPanel.tsx",
+            "frontend/components/PlanningCheckpointTimeline.tsx",
+            "frontend/components/SavingsGoalSheet.tsx",
+            "frontend/components/plans/GoalScheduleDetails.tsx"
+          ]
+        },
+        {
+          "name": "ChevronRight",
+          "files": [
+            "frontend/app/planning/GrowPanel.tsx",
+            "frontend/app/planning/LongTermPlanningPage.tsx",
+            "frontend/components/GoalsStrip.tsx",
+            "frontend/components/PlanningCheckpointTimeline.tsx"
+          ]
+        },
+        {
+          "name": "CircleCheck",
+          "files": [
+            "frontend/app/planning/GrowPanel.tsx"
+          ]
+        },
+        {
+          "name": "Gauge",
+          "files": [
+            "frontend/app/planning/GrowPanel.tsx"
+          ]
+        },
+        {
+          "name": "Lock",
+          "files": [
+            "frontend/app/planning/GrowPanel.tsx",
+            "frontend/components/PlanningCheckpointTimeline.tsx"
+          ]
+        },
+        {
+          "name": "Pencil",
+          "files": [
+            "frontend/app/planning/GrowPanel.tsx",
+            "frontend/components/SavingsGoalSheet.tsx"
+          ]
+        },
+        {
+          "name": "RefreshCw",
+          "files": [
+            "frontend/app/planning/GrowPanel.tsx"
+          ]
+        },
+        {
+          "name": "ShieldCheck",
+          "files": [
+            "frontend/app/planning/GrowPanel.tsx",
+            "frontend/app/planning/LongTermPlanningPage.tsx",
+            "frontend/components/PlanningCheckpointTimeline.tsx"
+          ]
+        },
+        {
+          "name": "Sparkles",
+          "files": [
+            "frontend/app/planning/GrowPanel.tsx"
+          ]
+        },
+        {
+          "name": "CreditCard",
+          "files": [
+            "frontend/app/planning/LongTermPlanningPage.tsx"
+          ]
+        },
+        {
+          "name": "Plus",
+          "files": [
+            "frontend/app/planning/LongTermPlanningPage.tsx",
+            "frontend/components/SavingsGoalSheet.tsx"
+          ]
+        },
+        {
+          "name": "Target",
+          "files": [
+            "frontend/app/planning/LongTermPlanningPage.tsx",
+            "frontend/components/GoalsStrip.tsx"
+          ]
+        },
+        {
+          "name": "EyeOff",
+          "files": [
+            "frontend/app/planning/PlanningPage.tsx"
+          ]
+        },
+        {
+          "name": "ChevronLeft",
+          "files": [
+            "frontend/app/planning/dismissed/SetAsideClient.tsx"
+          ]
+        },
+        {
+          "name": "Undo2",
+          "files": [
+            "frontend/app/planning/dismissed/SetAsideClient.tsx"
+          ]
+        },
+        {
+          "name": "Check",
+          "files": [
+            "frontend/components/PlanningCheckpointTimeline.tsx",
+            "frontend/components/plans/GoalScheduleDetails.tsx"
+          ]
+        },
+        {
+          "name": "TriangleAlert",
+          "files": [
+            "frontend/components/PlanningCheckpointTimeline.tsx"
+          ]
+        },
+        {
+          "name": "X",
+          "files": [
+            "frontend/components/SavingsGoalSheet.tsx"
+          ]
+        },
+        {
+          "name": "CheckCircle2",
+          "files": [
+            "frontend/components/SavingsGoalSheet.tsx"
+          ]
+        },
+        {
+          "name": "Circle",
+          "files": [
+            "frontend/components/SavingsGoalSheet.tsx"
+          ]
+        },
+        {
+          "name": "Shield",
+          "files": [
+            "frontend/components/SavingsGoalSheet.tsx"
+          ]
+        }
+      ]
+    },
+    {
+      "area": "Accounts",
+      "icons": [
+        {
+          "name": "Building2",
+          "files": [
+            "frontend/app/components/AccountList.tsx"
+          ]
+        },
+        {
+          "name": "CheckCircle2",
+          "files": [
+            "frontend/app/components/AccountList.tsx"
+          ]
+        },
+        {
+          "name": "ArrowLeft",
+          "files": [
+            "frontend/app/components/AccountsPage.tsx"
+          ]
+        },
+        {
+          "name": "Plus",
+          "files": [
+            "frontend/app/components/AccountsPage.tsx",
+            "frontend/components/AccountDetailParts.tsx",
+            "frontend/components/AccountsAddMenu.tsx",
+            "frontend/components/AccountsHeader.tsx"
+          ]
+        },
+        {
+          "name": "Landmark",
+          "files": [
+            "frontend/app/components/AccountsPage.tsx",
+            "frontend/components/AccountsAddMenu.tsx"
+          ]
+        },
+        {
+          "name": "RefreshCw",
+          "files": [
+            "frontend/app/components/AccountsPage.tsx",
+            "frontend/components/AccountMiniCard.tsx",
+            "frontend/components/AccountRefreshRow.tsx",
+            "frontend/components/AccountsHeader.tsx"
+          ]
+        },
+        {
+          "name": "Upload",
+          "files": [
+            "frontend/app/components/AccountsPage.tsx",
+            "frontend/components/AccountsAddMenu.tsx"
+          ]
+        },
+        {
+          "name": "Trash2",
+          "files": [
+            "frontend/app/components/AccountsPage.tsx",
+            "frontend/components/AccountDetailsContent.tsx"
+          ]
+        },
+        {
+          "name": "AlertTriangle",
+          "files": [
+            "frontend/app/components/AccountsPage.tsx",
+            "frontend/components/AccountLedgerRow.tsx"
+          ]
+        },
+        {
+          "name": "TrendingUp",
+          "files": [
+            "frontend/app/components/AccountsPage.tsx",
+            "frontend/components/AccountsAddMenu.tsx"
+          ]
+        },
+        {
+          "name": "Eye",
+          "files": [
+            "frontend/app/components/AccountsPage.tsx"
+          ]
+        },
+        {
+          "name": "EyeOff",
+          "files": [
+            "frontend/app/components/AccountsPage.tsx",
+            "frontend/components/AccountsHeader.tsx"
+          ]
+        },
+        {
+          "name": "ChevronDown",
+          "files": [
+            "frontend/app/components/AccountsPage.tsx",
+            "frontend/components/AccountAvailabilityDetail.tsx",
+            "frontend/components/AccountDetailsContent.tsx",
+            "frontend/components/AccountGroupCard.tsx",
+            "frontend/components/AccountsDirectory.tsx"
+          ]
+        },
+        {
+          "name": "ChevronUp",
+          "files": [
+            "frontend/app/components/AccountsPage.tsx"
+          ]
+        },
+        {
+          "name": "ChevronLeft",
+          "files": [
+            "frontend/app/components/AccountsPage.tsx"
+          ]
+        },
+        {
+          "name": "ChevronRight",
+          "files": [
+            "frontend/app/components/AccountsPage.tsx",
+            "frontend/components/AccountConnectionDetails.tsx",
+            "frontend/components/AccountDetailLayout.tsx",
+            "frontend/components/AccountDetailsContent.tsx",
+            "frontend/components/CardDetailsSections.tsx"
+          ]
+        },
+        {
+          "name": "Pencil",
+          "files": [
+            "frontend/app/components/AccountsPage.tsx"
+          ]
+        },
+        {
+          "name": "PiggyBank",
+          "files": [
+            "frontend/app/components/AccountsPage.tsx"
+          ]
+        },
+        {
+          "name": "Wallet",
+          "files": [
+            "frontend/app/components/AccountsPage.tsx",
+            "frontend/components/AccountCountRow.tsx",
+            "frontend/components/AccountMiniCard.tsx",
+            "frontend/components/CardDetailsSections.tsx"
+          ]
+        },
+        {
+          "name": "CreditCard",
+          "files": [
+            "frontend/app/components/AccountsPage.tsx",
+            "frontend/components/CardDetailsSections.tsx"
+          ]
+        },
+        {
+          "name": "X",
+          "files": [
+            "frontend/app/components/AccountsPage.tsx",
+            "frontend/components/AccountDetailParts.tsx",
+            "frontend/components/AccountsDirectory.tsx",
+            "frontend/components/CardTermsSheet.tsx"
+          ]
+        },
+        {
+          "name": "CircleDashed",
+          "files": [
+            "frontend/app/components/AccountsPage.tsx",
+            "frontend/components/AccountRadioPicker.tsx"
+          ]
+        },
+        {
+          "name": "Check",
+          "files": [
+            "frontend/app/components/AccountsPage.tsx"
+          ]
+        },
+        {
+          "name": "FileText",
+          "files": [
+            "frontend/app/components/AccountsPage.tsx"
+          ]
+        },
+        {
+          "name": "Star",
+          "files": [
+            "frontend/app/components/AccountsPage.tsx",
+            "frontend/components/AccountDetailsContent.tsx",
+            "frontend/components/AccountLedgerRow.tsx"
+          ]
+        },
+        {
+          "name": "Info",
+          "files": [
+            "frontend/app/components/AccountsPage.tsx",
+            "frontend/components/AccountDetailsContent.tsx",
+            "frontend/components/AccountLedgerRow.tsx"
+          ]
+        },
+        {
+          "name": "CircleAlert",
+          "files": [
+            "frontend/components/AccountAvailabilityDetail.tsx"
+          ]
+        },
+        {
+          "name": "ShieldCheck",
+          "files": [
+            "frontend/components/AccountConnectionDetails.tsx",
+            "frontend/components/AccountRefreshRow.tsx"
+          ]
+        },
+        {
+          "name": "Search",
+          "files": [
+            "frontend/components/AccountDetailParts.tsx",
+            "frontend/components/AccountRadioPicker.tsx",
+            "frontend/components/AccountsDirectory.tsx",
+            "frontend/components/AccountsEstateControls.tsx"
+          ]
+        },
+        {
+          "name": "Pin",
+          "files": [
+            "frontend/components/AccountMiniCard.tsx"
+          ]
+        },
+        {
+          "name": "Percent",
+          "files": [
+            "frontend/components/AccountMiniCard.tsx"
+          ]
+        }
+      ]
+    },
+    {
+      "area": "Penny",
+      "icons": [
+        {
+          "name": "Lightbulb",
+          "files": [
+            "frontend/app/components/InsightList.tsx"
+          ]
+        },
+        {
+          "name": "TrendingUp",
+          "files": [
+            "frontend/app/components/InsightList.tsx"
+          ]
+        },
+        {
+          "name": "ChevronRight",
+          "files": [
+            "frontend/app/penny/PennyPage.tsx",
+            "frontend/components/HomeInsightSpotlight.tsx",
+            "frontend/components/InsightCard.tsx",
+            "frontend/components/PennyConversation.tsx",
+            "frontend/components/PennySheet.tsx"
+          ]
+        },
+        {
+          "name": "ScanFace",
+          "files": [
+            "frontend/app/penny/PennyPage.tsx"
+          ]
+        },
+        {
+          "name": "ArrowRightLeft",
+          "files": [
+            "frontend/components/CompanionStack.tsx"
+          ]
+        },
+        {
+          "name": "CalendarClock",
+          "files": [
+            "frontend/components/CompanionStack.tsx"
+          ]
+        },
+        {
+          "name": "X",
+          "files": [
+            "frontend/components/CompanionStack.tsx",
+            "frontend/components/HomeInsightSpotlight.tsx",
+            "frontend/components/PennyConversation.tsx",
+            "frontend/components/PennyHistorySheet.tsx",
+            "frontend/components/PennySheet.tsx"
+          ]
+        },
+        {
+          "name": "RotateCcw",
+          "files": [
+            "frontend/components/HomeInsightSpotlight.tsx",
+            "frontend/components/InsightCard.tsx"
+          ]
+        },
+        {
+          "name": "Bookmark",
+          "files": [
+            "frontend/components/InsightCard.tsx"
+          ]
+        },
+        {
+          "name": "BookmarkCheck",
+          "files": [
+            "frontend/components/InsightCard.tsx"
+          ]
+        },
+        {
+          "name": "ChevronDown",
+          "files": [
+            "frontend/components/InsightCard.tsx",
+            "frontend/components/TransportInsights.tsx"
+          ]
+        },
+        {
+          "name": "CheckCircle2",
+          "files": [
+            "frontend/components/InsightCard.tsx"
+          ]
+        },
+        {
+          "name": "ExternalLink",
+          "files": [
+            "frontend/components/InsightCard.tsx"
+          ]
+        },
+        {
+          "name": "SlidersHorizontal",
+          "files": [
+            "frontend/components/InsightCard.tsx"
+          ]
+        },
+        {
+          "name": "RefreshCw",
+          "files": [
+            "frontend/components/InsightCard.tsx"
+          ]
+        },
+        {
+          "name": "History",
+          "files": [
+            "frontend/components/PennyChatActions.tsx"
+          ]
+        },
+        {
+          "name": "Plus",
+          "files": [
+            "frontend/components/PennyChatActions.tsx"
+          ]
+        },
+        {
+          "name": "Loader2",
+          "files": [
+            "frontend/components/PennyComposer.tsx"
+          ]
+        },
+        {
+          "name": "Send",
+          "files": [
+            "frontend/components/PennyComposer.tsx"
+          ]
+        },
+        {
+          "name": "Trash2",
+          "files": [
+            "frontend/components/PennyHistorySheet.tsx"
+          ]
+        },
+        {
+          "name": "Fuel",
+          "files": [
+            "frontend/components/TransportInsights.tsx"
+          ]
+        },
+        {
+          "name": "SquareParking",
+          "files": [
+            "frontend/components/TransportInsights.tsx"
+          ]
+        },
+        {
+          "name": "CarTaxiFront",
+          "files": [
+            "frontend/components/TransportInsights.tsx"
+          ]
+        },
+        {
+          "name": "Train",
+          "files": [
+            "frontend/components/TransportInsights.tsx"
+          ]
+        },
+        {
+          "name": "Bus",
+          "files": [
+            "frontend/components/TransportInsights.tsx"
+          ]
+        },
+        {
+          "name": "PlugZap",
+          "files": [
+            "frontend/components/TransportInsights.tsx"
+          ]
+        },
+        {
+          "name": "Wrench",
+          "files": [
+            "frontend/components/TransportInsights.tsx"
+          ]
+        },
+        {
+          "name": "Car",
+          "files": [
+            "frontend/components/TransportInsights.tsx"
+          ]
+        }
+      ]
+    },
+    {
+      "area": "Settings",
+      "icons": [
+        {
+          "name": "RotateCcw",
+          "files": [
+            "frontend/app/settings/SettingsPage.tsx"
+          ]
+        },
+        {
+          "name": "LogOut",
+          "files": [
+            "frontend/app/settings/SettingsPage.tsx"
+          ]
+        },
+        {
+          "name": "Loader2",
+          "files": [
+            "frontend/app/settings/SettingsPage.tsx",
+            "frontend/components/YourPlanCard.tsx"
+          ]
+        },
+        {
+          "name": "AlertCircle",
+          "files": [
+            "frontend/app/settings/SettingsPage.tsx"
+          ]
+        },
+        {
+          "name": "ChevronRight",
+          "files": [
+            "frontend/app/settings/SettingsPage.tsx",
+            "frontend/components/YourPlanCard.tsx",
+            "frontend/components/settings/SettingsDirectory.tsx"
+          ]
+        },
+        {
+          "name": "UserRound",
+          "files": [
+            "frontend/app/settings/SettingsPage.tsx"
+          ]
+        },
+        {
+          "name": "CreditCard",
+          "files": [
+            "frontend/components/YourPlanCard.tsx"
+          ]
+        },
+        {
+          "name": "Search",
+          "files": [
+            "frontend/components/settings/SettingsDirectory.tsx"
+          ]
+        },
+        {
+          "name": "X",
+          "files": [
+            "frontend/components/settings/SettingsDirectory.tsx"
+          ]
+        }
+      ]
+    },
+    {
+      "area": "Sheets",
+      "icons": [
+        {
+          "name": "X",
+          "files": [
+            "frontend/components/BankPickerSheet.tsx",
+            "frontend/components/CategorySheet.tsx",
+            "frontend/components/SheetFrame.tsx",
+            "frontend/components/card-offers/CardOfferImportSheet.tsx",
+            "frontend/components/card-settings/RatesSheet.tsx"
+          ]
+        },
+        {
+          "name": "Search",
+          "files": [
+            "frontend/components/BankPickerSheet.tsx",
+            "frontend/components/CategoryGroupsSheet.tsx",
+            "frontend/components/card-settings/PaymentSheet.tsx"
+          ]
+        },
+        {
+          "name": "ChevronRight",
+          "files": [
+            "frontend/components/BankPickerSheet.tsx",
+            "frontend/components/CategoryGroupsSheet.tsx",
+            "frontend/components/CategorySheet.tsx",
+            "frontend/components/DatePicker/DatePickerSheet.tsx",
+            "frontend/components/FiledTransfersSheet.tsx",
+            "frontend/components/MiscategorisedReviewSheet.tsx",
+            "frontend/components/TeachingSheet.tsx",
+            "frontend/components/card-settings/PaymentSheet.tsx"
+          ]
+        },
+        {
+          "name": "ChevronDown",
+          "files": [
+            "frontend/components/BankPickerSheet.tsx",
+            "frontend/components/CategorySheet.tsx",
+            "frontend/components/CommitmentSheet.tsx",
+            "frontend/components/DatePicker/DatePickerSheet.tsx",
+            "frontend/components/FiledTransfersSheet.tsx",
+            "frontend/components/MiscategorisedReviewSheet.tsx",
+            "frontend/components/card-settings/PaymentSheet.tsx"
+          ]
+        },
+        {
+          "name": "Loader2",
+          "files": [
+            "frontend/components/BankPickerSheet.tsx"
+          ]
+        },
+        {
+          "name": "ArrowLeftRight",
+          "files": [
+            "frontend/components/CategorisationRulesSheet.tsx"
+          ]
+        },
+        {
+          "name": "CreditCard",
+          "files": [
+            "frontend/components/CategorisationRulesSheet.tsx",
+            "frontend/components/MiscategorisedReviewSheet.tsx",
+            "frontend/components/card-offers/CardOfferImportSheet.tsx"
+          ]
+        },
+        {
+          "name": "ReceiptText",
+          "files": [
+            "frontend/components/CategorisationRulesSheet.tsx",
+            "frontend/components/CategorySheet.tsx",
+            "frontend/components/MiscategorisedReviewSheet.tsx",
+            "frontend/components/TeachingSheet.tsx"
+          ]
+        },
+        {
+          "name": "SlidersHorizontal",
+          "files": [
+            "frontend/components/CategorisationRulesSheet.tsx"
+          ]
+        },
+        {
+          "name": "ArrowLeft",
+          "files": [
+            "frontend/components/CategoryGroupsSheet.tsx"
+          ]
+        },
+        {
+          "name": "Check",
+          "files": [
+            "frontend/components/CategoryGroupsSheet.tsx",
+            "frontend/components/CommitmentSheet.tsx",
+            "frontend/components/TransactionSheet.tsx",
+            "frontend/components/card-offers/CardOfferImportSheet.tsx",
+            "frontend/components/card-settings/PaymentSheet.tsx"
+          ]
+        },
+        {
+          "name": "LockKeyhole",
+          "files": [
+            "frontend/components/CategoryGroupsSheet.tsx",
+            "frontend/components/card-offers/CardOfferImportSheet.tsx"
+          ]
+        },
+        {
+          "name": "Fuel",
+          "files": [
+            "frontend/components/CategorySheet.tsx"
+          ]
+        },
+        {
+          "name": "CircleDashed",
+          "files": [
+            "frontend/components/CommitmentSheet.tsx"
+          ]
+        },
+        {
+          "name": "ChevronLeft",
+          "files": [
+            "frontend/components/DatePicker/DatePickerSheet.tsx",
+            "frontend/components/FiledTransfersSheet.tsx",
+            "frontend/components/SheetFrame.tsx",
+            "frontend/components/TeachingSheet.tsx"
+          ]
+        },
+        {
+          "name": "RotateCcw",
+          "files": [
+            "frontend/components/FiledTransfersSheet.tsx"
+          ]
+        },
+        {
+          "name": "CircleHelp",
+          "files": [
+            "frontend/components/MiscategorisedReviewSheet.tsx"
+          ]
+        },
+        {
+          "name": "Landmark",
+          "files": [
+            "frontend/components/MiscategorisedReviewSheet.tsx",
+            "frontend/components/TeachingSheet.tsx"
+          ]
+        },
+        {
+          "name": "PiggyBank",
+          "files": [
+            "frontend/components/MiscategorisedReviewSheet.tsx"
+          ]
+        },
+        {
+          "name": "ShieldCheck",
+          "files": [
+            "frontend/components/MiscategorisedReviewSheet.tsx"
+          ]
+        },
+        {
+          "name": "Minus",
+          "files": [
+            "frontend/components/PlanEasingSheet.tsx"
+          ]
+        },
+        {
+          "name": "Plus",
+          "files": [
+            "frontend/components/PlanEasingSheet.tsx",
+            "frontend/components/card-settings/RatesSheet.tsx"
+          ]
+        },
+        {
+          "name": "Target",
+          "files": [
+            "frontend/components/SetAsideSheet.tsx",
+            "frontend/components/TeachingSheet.tsx"
+          ]
+        },
+        {
+          "name": "Wallet",
+          "files": [
+            "frontend/components/SetAsideSheet.tsx"
+          ]
+        },
+        {
+          "name": "Receipt",
+          "files": [
+            "frontend/components/SetAsideSheet.tsx"
+          ]
+        },
+        {
+          "name": "Undo2",
+          "files": [
+            "frontend/components/TeachingSheet.tsx"
+          ]
+        },
+        {
+          "name": "Home",
+          "files": [
+            "frontend/components/TeachingSheet.tsx"
+          ]
+        },
+        {
+          "name": "Tag",
+          "files": [
+            "frontend/components/TransactionSheet.tsx"
+          ]
+        },
+        {
+          "name": "Users",
+          "files": [
+            "frontend/components/TransactionSheet.tsx"
+          ]
+        },
+        {
+          "name": "User",
+          "files": [
+            "frontend/components/TransactionSheet.tsx"
+          ]
+        },
+        {
+          "name": "CalendarArrowUp",
+          "files": [
+            "frontend/components/TransactionSheet.tsx"
+          ]
+        },
+        {
+          "name": "CheckSquare",
+          "files": [
+            "frontend/components/TransactionSheet.tsx"
+          ]
+        },
+        {
+          "name": "Square",
+          "files": [
+            "frontend/components/TransactionSheet.tsx"
+          ]
+        },
+        {
+          "name": "FileText",
+          "files": [
+            "frontend/components/card-offers/CardOfferImportSheet.tsx"
+          ]
+        },
+        {
+          "name": "Upload",
+          "files": [
+            "frontend/components/card-offers/CardOfferImportSheet.tsx",
+            "frontend/components/card-settings/RatesSheet.tsx"
+          ]
+        }
+      ]
+    },
+    {
+      "area": "Ops",
+      "icons": [
+        {
+          "name": "MessageSquare",
+          "files": [
+            "frontend/app/ops/go-live/BoardView.tsx"
+          ]
+        },
+        {
+          "name": "LayoutGrid",
+          "files": [
+            "frontend/app/ops/go-live/FilterBar.tsx"
+          ]
+        },
+        {
+          "name": "List",
+          "files": [
+            "frontend/app/ops/go-live/FilterBar.tsx"
+          ]
+        },
+        {
+          "name": "Search",
+          "files": [
+            "frontend/app/ops/go-live/FilterBar.tsx"
+          ]
+        },
+        {
+          "name": "X",
+          "files": [
+            "frontend/app/ops/go-live/FilterBar.tsx",
+            "frontend/app/ops/go-live/ItemDetailSheet.tsx"
+          ]
+        },
+        {
+          "name": "Moon",
+          "files": [
+            "frontend/app/ops/go-live/HeaderHero.tsx"
+          ]
+        },
+        {
+          "name": "Sun",
+          "files": [
+            "frontend/app/ops/go-live/HeaderHero.tsx"
+          ]
+        },
+        {
+          "name": "ChevronDown",
+          "files": [
+            "frontend/app/ops/go-live/ItemDetailSheet.tsx",
+            "frontend/app/ops/go-live/ListView.tsx",
+            "frontend/app/ops/go-live/MobileRibbonBoard.tsx",
+            "frontend/app/ops/go-live/QuestionsSection.tsx",
+            "frontend/app/ops/go-live/page.tsx"
+          ]
+        },
+        {
+          "name": "MoreHorizontal",
+          "files": [
+            "frontend/app/ops/go-live/ItemMenu.tsx"
+          ]
+        },
+        {
+          "name": "Square",
+          "files": [
+            "frontend/app/ops/go-live/ListView.tsx"
+          ]
+        },
+        {
+          "name": "SquareCheck",
+          "files": [
+            "frontend/app/ops/go-live/ListView.tsx"
+          ]
+        },
+        {
+          "name": "Check",
+          "files": [
+            "frontend/app/ops/go-live/QuestionsSection.tsx"
+          ]
+        },
+        {
+          "name": "Copy",
+          "files": [
+            "frontend/app/ops/go-live/QuestionsSection.tsx"
+          ]
+        }
+      ]
+    }
+  ]
+}

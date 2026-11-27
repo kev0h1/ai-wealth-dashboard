@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import {
   Fuel, SquareParking, CarTaxiFront, Train, Bus,
   PlugZap, Wrench, Car, ChevronDown,
-} from "lucide-react";
+} from "@/lib/phosphorIcons";
 import { api, TransportSummary, TransportMode } from "@/lib/api";
 import Spinner from "@/components/Spinner";
 import FuelSavingsCard from "@/components/FuelSavingsCard";

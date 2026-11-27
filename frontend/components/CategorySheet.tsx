@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
-import { X, ChevronDown, ChevronRight, Fuel, ReceiptText } from "lucide-react";
+import { X, ChevronDown, ChevronRight, Fuel, ReceiptText } from "@/lib/phosphorIcons";
 import FuelSavingsCard from "@/components/FuelSavingsCard";
 import GroceryBasketCard from "@/components/GroceryBasketCard";
 import { Transaction, api, Checkpoint } from "@/lib/api";

@@ -1,7 +1,7 @@
 "use client";
 
 import { useId, useState } from "react";
-import { ChevronDown, CircleAlert, Info } from "lucide-react";
+import { ChevronDown, CircleAlert, Info } from "@/lib/phosphorIcons";
 import TransactionRow from "@/components/TransactionRow";
 import SpendPaceHero, { type SpendPaceHeroProps } from "@/components/SpendPaceHero";
 import { spendHeroModel, spendHeroMoney } from "@/lib/spendHero";

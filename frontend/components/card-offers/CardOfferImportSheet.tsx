@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { Check, CreditCard, FileText, LockKeyhole, Upload, X } from "lucide-react";
+import { Check, CreditCard, FileText, LockKeyhole, Upload, X } from "@/lib/phosphorIcons";
 import { api, type CardOfferCandidate, type CardOffersExtraction, type CardTerms, type CardTermsCard, type ExistingCardOffer, type CardOfferType } from "@/lib/api";
 import { makeOfferDrafts, validateCardOfferReview, type CardOfferDraft } from "@/lib/cardOfferReview";
 import { todayIso } from "@/lib/calendar";
