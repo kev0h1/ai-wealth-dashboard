@@ -931,6 +931,18 @@ backend/.venv/bin/python scripts/integrate.py --loop 600
 are printed as `[skipped-not-in-review]` and skipped (not an error); without
 `--only` every review item is considered, exactly as before.
 
+**Narrow worker-restart exception (H165).** The normal path restarts both
+`wealth-api` and `wealth-worker` for every `backend/` change. A coordinator
+may use `--skip-worker-restart "<audited reason>"` only with explicit
+`--once --only ID`, only when the pending backend diff contains at least one
+`backend/app/routers/*.py` runtime change and otherwise contains backend
+tests only. The reason is logged. This path validation does not prove a router
+is independent of the worker: audit the worker imports first and say what was
+audited in the reason. Any core, services, workers, dependency or other
+backend runtime path refuses the override. API restart, all gates, health
+checks and rollback remain mandatory; the approved skip also applies while
+restoring a failed API-router-only integrate.
+
 UAT never keeps code that is not on `origin/main` (H162). Nothing is pushed
 before every gate and the build have passed (H156), so once the new frontend
 build is swapped in, any later failure (health check, `git push origin main`,
