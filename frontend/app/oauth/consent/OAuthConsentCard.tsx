@@ -144,7 +144,11 @@ export default function OAuthConsentCard({
             </p>
           )}
 
-          <div className="mt-6 grid gap-3 sm:grid-cols-2">
+          <p className="mt-6 text-sm leading-5 text-slate-600 dark:text-slate-300">
+            Only continue if you started this connection from your assistant.
+          </p>
+
+          <div className="mt-4 grid gap-3 sm:grid-cols-2">
             <button
               type="button"
               onClick={() => onApprove(granted)}

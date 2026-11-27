@@ -56,6 +56,7 @@ assert.match(html, /Before you share/);
 assert.match(html, /has not been assessed by Sorted or Finexer/);
 assert.match(html, /cannot be recalled/);
 assert.match(html, /received through Finexer/);
+assert.match(html, /Only continue if you started this connection from your assistant\./);
 assert.doesNotMatch(html, /Fictional|Northstar|Preview only|Verified host/);
 assert.doesNotMatch(html, /violet|red-|from-indigo|bg-gradient/);
 assert.doesNotMatch(html, /—/);
