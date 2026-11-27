@@ -74,9 +74,18 @@ assert.equal(availability({ kind: "checking" }, {}, false).includes("Checking av
 const unknown = availability({ kind: "unavailable" }, {}, false);
 assert.match(unknown, /Availability unavailable/);
 assert.doesNotMatch(unknown, /£0|<details/, "unknown availability does not become a zero or evidence disclosure");
-const hidden = availability({ kind: "ready", value: -25, warning: "plans", working: working(-25) }, { after_payments: 40, after_payments_and_plans: -25, low_point_and_plans: -25 }, true);
+// Distinctive financial sentinels cannot collide with SVG drawing coordinates.
+// Keep the whole DOM in scope, including accessible names and data attributes.
+const privateReading = { kind: "ready", value: -9725.47, warning: "plans", working: working(6240.93, { plans: 15966.40 }) };
+const privatePosition = { after_payments: 6240.93, plans_reserved: 15966.40, after_payments_and_plans: -9725.47, low_point_and_plans: -9725.47 };
+const privateFigures = [/9,?725\.47/, /6,?240\.93/, /15,?966\.40/];
+const visiblePrivate = availability(privateReading, privatePosition);
+const hidden = availability(privateReading, privatePosition, true);
 assert.match(hidden, /−£••••/, "hidden evidence retains the negative sign");
-assert.doesNotMatch(hidden, /25|40/, "hidden DOM does not leak stored figures");
+for (const figure of privateFigures) {
+  assert.match(visiblePrivate, figure, "the visible control contains each financial sentinel");
+  assert.doesNotMatch(hidden, figure, "hidden DOM does not leak stored figures");
+}
 const hiddenBalance = layout({ balance: h("span", { className: "money" }, "−£••••") });
 assert.match(hiddenBalance, /−£••••/, "masked balance retains direction");
 
