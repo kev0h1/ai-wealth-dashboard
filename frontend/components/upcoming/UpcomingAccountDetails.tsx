@@ -8,7 +8,7 @@ import { accountPaymentGap, type UpcomingAccountEvent, type UpcomingAccountSumma
 import { fulfilmentRow, hasPlanSource, remaining, type Plan } from "@/lib/upcomingPlans";
 import { cardRepaymentShortCopy, type AccountStatus } from "@/lib/upcomingAccountStatus";
 import { accountActionReading, accountCoverLine } from "@/lib/upcomingAccountPresentation";
-import { UNCOVERED_OPTIONS } from "@/lib/coverNarrative";
+import { firstLastResortReview, lastResortReviewText, type LastResortReview, UNCOVERED_OPTIONS } from "@/lib/coverNarrative";
 import { money, useMaskedMoney } from "./detailPrimitives";
 import { useBalancesHidden, maskMoneyText } from "@/lib/balancesHidden";
 import { AccountMoney, AccountSignal } from "./accountPresentation";
@@ -69,7 +69,23 @@ function VerdictBlock({ title, children, signal, covered = false }: { title: Rea
   return <div data-verdict className={styles.verdict}>{signal && <span className={styles.verdictSignal}><AccountSignal signal={signal} /></span>}<div><p data-covered-by-move={covered || undefined} className={styles.verdictTitle}>{title}</p>{children && <div className={styles.note}>{children}</div>}</div></div>;
 }
 
-function Verdict({ account, plans, plansStatus }: Required<Pick<UpcomingAccountDetailsProps, "account" | "plans" | "plansStatus">>) {
+function LastResortPlanAction({ review, plan, onPlan }: { review: LastResortReview; plan: Plan; onPlan: (id: string) => void }) {
+  const hidden = useBalancesHidden();
+  const noun = review.kind === "goal" ? "goal" : "set-aside";
+  return <div data-last-resort className="mt-2">
+    <p><MoneyText text={maskMoneyText(lastResortReviewText(review), hidden)} /></p>
+    <button
+      type="button"
+      data-last-resort-plan={review.planId}
+      onClick={() => onPlan(review.planId)}
+      className="mt-1 inline-flex min-h-11 items-center gap-1 rounded-lg px-1 text-sm font-semibold text-indigo-600 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-indigo-400"
+    >
+      Review {plan.name} {noun}<ChevronRight size={16} aria-hidden="true" />
+    </button>
+  </div>;
+}
+
+function Verdict({ account, plans, plansStatus, onPlan }: Pick<UpcomingAccountDetailsProps, "account" | "onPlan"> & Required<Pick<UpcomingAccountDetailsProps, "plans" | "plansStatus">>) {
   const m = useMaskedMoney(), hidden = useBalancesHidden();
   const full = accountActionReading(account, plans, plansStatus);
   const reading = full.projection;
@@ -83,7 +99,9 @@ function Verdict({ account, plans, plansStatus }: Required<Pick<UpcomingAccountD
   if (gap !== null) {
     const named = account.shortFor?.cardRepayment ? <p data-card-repayment-short><MoneyText text={maskMoneyText(cardRepaymentShortCopy({ ...account, shortfall: gap }), hidden)} />{signal === "risk" ? ". A missed repayment can bring fees and interest. Goals and allocations are separate from this bill gap." : "."}</p> : null;
     if (moves.length) return named || uncountedLine ? <div className={styles.warningNote}>{named}{uncountedLine}</div> : null;
-    return <VerdictBlock signal="risk" title={plansStatus === "ready" ? "Payments need more money. No covering move is suggested." : "Payments need more money. Suggested moves are still to be checked."}>{named}{uncountedLine}{plansStatus === "ready" && <p data-uncovered-options>{UNCOVERED_OPTIONS}</p>}</VerdictBlock>;
+    const review = plansStatus === "ready" ? firstLastResortReview(account.position?.lastResort) : null;
+    const matchingPlan = review && plans.find(plan => plan.id === review.planId && plan.recordId === review.recordId && plan.kind === (review.kind === "goal" ? "goal" : "allocation"));
+    return <VerdictBlock signal="risk" title={plansStatus === "ready" ? "Payments need more money. No covering move is suggested." : "Payments need more money. Suggested moves are still to be checked."}>{named}{uncountedLine}{review && matchingPlan && onPlan ? <LastResortPlanAction review={review} plan={matchingPlan} onPlan={onPlan} /> : plansStatus === "ready" && <p data-uncovered-options>{UNCOVERED_OPTIONS}</p>}</VerdictBlock>;
   }
   if (account.status === "unknown") return <VerdictBlock signal="unknown" title="Balance needs checking">Payments are listed, but the account’s result cannot be confirmed without a balance.</VerdictBlock>;
   if (plansStatus !== "ready") return <VerdictBlock signal="unknown" title={plansStatus === "loading" ? "Loading goals and allocations" : "Goals and allocations need checking"}>{plansStatus === "loading" ? "Loading goals and allocations. This figure covers payments only." : "Goals and allocations could not be checked. This figure covers payments only."}</VerdictBlock>;
@@ -130,7 +148,7 @@ export default function UpcomingAccountDetails({ account, periodLabel, plans = [
       <div className={styles.afterMove}><p className={styles.metricLabel}>Balance after the suggested {moves.length === 1 ? "move" : "moves"}</p><strong data-after-move><AccountMoney pence={afterMove} /></strong></div>
     </section>}
     {coverLine && <CoverNote data-cover-line data-cover-savings={moves.some(move => move.savings) ? "true" : undefined} className="text-[13px]"><MoneyText text={maskMoneyText(coverLine, hidden)} /></CoverNote>}
-    <Verdict account={account} plans={plans} plansStatus={plansStatus} />
+    <Verdict account={account} plans={plans} plansStatus={plansStatus} onPlan={onPlan} />
     {plansStatus !== "ready" && <p className={styles.note} role="status">{plansStatus === "loading" ? "Checking goals and set-asides. The account’s full result is not known yet." : "Goals and set-asides could not be checked. Close this sheet and try again."}</p>}
     <details data-g417-working data-g416-working className={styles.working}><summary>How this adds up<ChevronDown size={16} aria-hidden="true" /></summary><dl className={styles.ledger}>
       <LedgerLine label="Cash now" pence={account.opening === null ? null : Math.round(account.opening * 100)} />
