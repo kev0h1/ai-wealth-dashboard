@@ -53,14 +53,14 @@ on every rendered SVG for review.
 | Eye Off, Circle Help, Circle Check | Eye Slash, Question, Check Circle |
 | Settings and Settings 2 | Gear and Sliders Horizontal |
 | Bar, line and pie chart | Chart Bar, Chart Line and Chart Pie |
-| Taxi, EV charge and parking | Taxi, Plug Charging and Car |
+| Taxi, EV charge and parking | Taxi, Plug Charging and Letter Circle P |
 
-`SquareParking` maps to Phosphor Car because the current Phosphor collection
-does not expose a matching regular parking glyph. `BookmarkCheck` uses the
-genuine Phosphor Bookmark Fill, retaining the pinned-state distinction rather
-than collapsing it into the unpinned outline. `CalendarArrowUp` maps to
-Calendar Check, preserving its successful scheduled-state meaning. These are
-the three visual-review exceptions.
+`SquareParking` uses the genuine Phosphor Letter Circle P, preserving parking
+identity rather than collapsing it into a car. `BookmarkCheck` uses the genuine
+Phosphor Bookmark Fill, retaining the pinned-state distinction rather than
+collapsing it into the unpinned outline. `CalendarArrowUp` maps to Calendar
+Dots for a future scheduled date, rather than Calendar Check's completed-state
+meaning. These are the three visual-review exceptions.
 
 ## Review evidence
 
@@ -80,3 +80,10 @@ The source audit is the layout guard: G484 changes SVG content only, with no
 intentional wrapper, margin, copy, figure or interaction changes. Review both
 themes for centring and baseline alignment; separately measure that existing
 divider clearance is unchanged.
+
+
+## Captured comparison set
+
+The delivered [nine-area icon comparison set](../../frontend/public/design-media/g484-icons/index.html) contains 36 before/after PNGs at a true 390px width, with 123 distinct glyphs used by product source. On UAT it is available at `/design-media/g484-icons/index.html`. These are explicitly glyph comparison sheets, not screenshots of authenticated product pages. The source catalogue records each original caller and the reviewed source revision.
+
+The compatibility check covers direct SVG title children, explicit ARIA overrides, native Phosphor weight selection, dimensions and distinct pinned bookmark meaning. A one-icon ESM bundle retains 1,730 bytes (954 gzip) and removes unused bookmark geometry. The no-Lucide guard rejects direct/type/dynamic imports and the documented static CommonJS aliases; it is a regression gate, not a runtime-obfuscation security boundary.
