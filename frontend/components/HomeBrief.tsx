@@ -35,6 +35,7 @@ import ActionLabel from "@/components/ActionLabel";
 import { actionHref } from "@/lib/actionRoutes";
 import CoverNote from "@/components/CoverNote";
 import { MoveAccountIcon, MoveRouteSummary, MoveSourcesDisclosure, moveMoney, resolveBankChip, type MoveLedgerLeg } from "@/components/MoveRoute";
+import { firstLastResortReview, lastResortReviewHref, lastResortReviewText } from "@/lib/coverNarrative";
 
 export { MoveAccountIcon };
 
@@ -1213,6 +1214,23 @@ function MovePlanActions({ item }: { item: CompanionItem }) {
   </div>;
 }
 
+function LastResortPlanAction({ item, maskAmounts, hasSourceLegs }: Pick<MoveCardProps, "item" | "maskAmounts"> & { hasSourceLegs: boolean }) {
+  const review = firstLastResortReview(item.last_resort);
+  if (!review || hasSourceLegs) return null;
+  const noun = review.kind === "goal" ? "goal" : "set-aside";
+  return <div data-last-resort className="mt-3 space-y-1.5">
+    <p className="text-[12px] leading-snug text-slate-600 dark:text-slate-300"><MoneyText text={maskAmounts(lastResortReviewText(review))} /></p>
+    <Link
+      href={lastResortReviewHref(review)}
+      data-last-resort-plan={review.planId}
+      aria-label={`Review ${review.name} ${noun}`}
+      className="inline-flex min-h-11 items-center gap-1 rounded-lg px-1 text-sm font-semibold text-indigo-600 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-indigo-400"
+    >
+      Review {review.name} {noun}<ChevronRight size={16} aria-hidden="true" />
+    </Link>
+  </div>;
+}
+
 export function MoveCard({ item, hideNetWorth: hideNetWorthProp, maskAmounts, hideAttribution, dismissible, onHomeDismiss, onRefresh, previewMode = false }: MoveCardProps) {
   // B56: Penny sits under the app-level BalancesHiddenContext, so the preference applies even when a caller passes no prop.
   const ctxHidden = useBalancesHidden();
@@ -1471,6 +1489,7 @@ export function MoveCard({ item, hideNetWorth: hideNetWorthProp, maskAmounts, hi
               </div>
             );
           })()}
+          <LastResortPlanAction item={item} maskAmounts={maskAmounts} hasSourceLegs={legs.length > 0} />
         </>
       ) : (
         <>

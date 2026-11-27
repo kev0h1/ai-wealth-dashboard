@@ -38,6 +38,8 @@ export type UpcomingAccountPosition = {
   /** G410: what a live suggested move would cover here, and what would still be short after it. Absent when no move is live. */
   coveredByMove?: { amount: number; shortfall?: number; from: { accountId: string; name: string; amount: number; label?: string; savings?: boolean }[] } | null;
   shortAfterCover?: number | null;
+  /** G496: a read-only review option when every cover source is exhausted. */
+  lastResort?: AccountEligibility["last_resort"];
   /** G410: set aside in this account for a suggested move out of it (already excluded from `spendFrom`). */
   earmarkedTotal?: number | null;
   earmarksOut?: { toAccountId: string; toName: string; amount: number }[] | null;
@@ -178,6 +180,7 @@ export function positionsFromToday(
         ? { amount: entry.covered_by_move.amount, shortfall: typeof entry.covered_by_move.shortfall === "number" ? entry.covered_by_move.shortfall : undefined, from: entry.covered_by_move.from.map((f) => ({ accountId: f.account_id, name: f.name, amount: f.amount, ...(f.display_label?.trim() ? { label: f.display_label.trim() } : {}), ...(f.source_kind === "savings" ? { savings: true } : {}) })) }
         : null,
       shortAfterCover: typeof entry.short_after_cover === "number" ? entry.short_after_cover : null,
+      ...(entry.last_resort ? { lastResort: entry.last_resort } : {}),
       earmarkedTotal: typeof entry.earmarked_total === "number" ? entry.earmarked_total : null,
       earmarksOut: entry.earmarks_out ? entry.earmarks_out.map((e) => ({ toAccountId: e.to_account_id, toName: e.to_name, amount: e.amount })) : null,
     };
