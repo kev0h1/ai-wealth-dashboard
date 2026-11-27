@@ -1,7 +1,8 @@
-// C45: native production builds always show the Demo sign-in link whatever
-// /auth/demo/enabled does; web and UAT keep the runtime check; a 404 from
-// /auth/demo/login says so calmly; a 401 keeps the generic message; and the
-// Play publishing is covered by c49-play-publish.test.mjs.
+// C45: native production's lower-level enabled resolution remains true
+// whatever /auth/demo/enabled does. C50 separately keeps the Demo sign-in UI
+// hidden until its deliberate reveal. A 404 from /auth/demo/login says so
+// calmly; a 401 keeps the generic message; and Play publishing is covered by
+// c49-play-publish.test.mjs.
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
@@ -13,16 +14,16 @@ const {
   DEMO_FAILED_MESSAGE, DEMO_UNAVAILABLE_MESSAGE,
 } = await import("../lib/demoLogin.ts");
 
-// Native production: shown with the fetch failing, hanging, or answering false,
-// and the fetch is never even consulted.
+// Native production: the lower-level eligibility resolution stays true with
+// fetch failing, hanging, or answering false, and the fetch is never consulted.
 for (const [label, fetchEnabled] of [
   ["rejects", () => Promise.reject(new Error("offline"))],
   ["hangs", () => new Promise(() => {})],
   ["false", () => Promise.resolve(false)],
 ]) {
-  assert.equal(await resolveDemoEnabled(true, "production", fetchEnabled), true, `native prod shows link when fetch ${label}`);
+  assert.equal(await resolveDemoEnabled(true, "production", fetchEnabled), true, `native prod resolves enabled when fetch ${label}`);
 }
-assert.equal(demoLinkAlwaysVisible(true, "production"), true);
+assert.equal(demoLinkAlwaysVisible(true, "production"), true, "native production's lower-level enabled resolution is forced");
 
 // Web and native UAT keep the runtime check.
 assert.equal(demoLinkAlwaysVisible(false, "production"), false, "web production is not forced");

@@ -31,9 +31,9 @@ route to any bank provider.
    `MONGO_DB=<prod name> .venv/bin/python scripts/seed_demo_account.py --confirm --db-name <prod name>`
    It prints the database name and counts only.
 5. In App Store Connect, App Review Information, tick "Sign-in required" and
-   enter `appreview@auriqltd.co.uk` and the password. In the notes say: "Tap
-   Demo sign-in under the Google and Apple buttons. The account holds
-   synthetic data only and cannot connect a bank."
+   enter `appreview@auriqltd.co.uk` and the password. In the notes give the
+   exact reveal path below. The account holds synthetic data only and cannot
+   connect a bank.
 6. Re-seed before each review submission so dates stay current. The seed is
    deterministic (no randomness), so any day of the pay period gives the same
    story: Left to spend about £400 to £520 and "Looks on track", with the Bills
@@ -48,11 +48,12 @@ documents for the demo email, but it does delete them.
 
 ## Paste-ready reviewer instructions (C47)
 
-Where the link is: on the sign-in screen, inside the white card, below the
-Google and Apple buttons, there is a small underlined link labelled
-"Demo sign-in". Tapping it opens a form with "Email" and "Password" fields
-and a "Sign in" button. On native production builds the link always shows
-(C45). The server is the gate, so it only works once the flag is on.
+Where the link is: activate the Sorted logo at the top of the sign-in screen
+five times. On web, reviewers may instead open `/login?demo=1`. The small
+underlined "Demo sign-in" link then appears inside the white card, below the
+Google and Apple buttons. Tapping it opens a form with "Email" and
+"Password" fields and a "Sign in" button. The server is the gate, so it only
+works once the flag is on.
 
 Replace the placeholders in the credentials fields only, never in this repo.
 
@@ -63,13 +64,13 @@ Replace the placeholders in the credentials fields only, never in this repo.
 - Password: `<demo password>`
 
 Notes field (limit 4,000 bytes per Apple's App Review Information reference;
-this block is 823 characters):
+this block is 851 UTF-8 bytes):
 
 ```text
 Sorted normally signs in with Google or Apple. For review, please use the demo sign-in instead. Do not use Google or Apple sign-in. If a notification permission screen appears first, tap Continue.
 
-1. On the sign-in screen, find the small underlined link "Demo sign-in". It sits below the Google and Apple buttons, in the same white card.
-2. Tap "Demo sign-in". Two fields open: Email and Password.
+1. On the sign-in screen, activate the Sorted logo at the top five times.
+2. A small underlined "Demo sign-in" link appears below the Google and Apple buttons, in the same white card. Tap it. Two fields open: Email and Password.
 3. Enter the email address and password from the Sign-in required fields above, then tap "Sign in".
 
 You will land on the Home screen straight away. No device linking, verification code, bank connection or payment is needed.
@@ -85,10 +86,10 @@ The account holds sample data only. Bank linking and payments are switched off f
 
 "Any other information required to access your app" (limit about 500
 characters; I could not confirm the exact figure from Google's public help,
-so check the counter in the form; this block is 431 characters):
+so check the counter in the form; this block is 483 UTF-8 bytes):
 
 ```text
-Do not use Google or Apple sign-in. On the sign-in screen, tap the underlined link "Demo sign-in", below the Google and Apple buttons. Enter the email address and password given here, then tap "Sign in". If a notification permission screen appears first, tap Continue. No device linking, verification code, bank connection or payment is needed. The account holds sample data only. Bank linking and payments are switched off for it.
+Do not use Google or Apple sign-in. On the sign-in screen, activate the Sorted logo at the top five times. Then tap the underlined "Demo sign-in" link below the Google and Apple buttons. Enter the email address and password given here, then tap "Sign in". If a notification permission screen appears first, tap Continue. No device linking, verification code, bank connection or payment is needed. The account holds sample data only. Bank linking and payments are switched off for it.
 ```
 
 ### Checklist before submitting

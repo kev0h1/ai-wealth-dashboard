@@ -16,6 +16,7 @@
     "check:c49-play-publish": "node scripts/c49-play-publish.test.mjs",
     "check:c45-demo-always-visible": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/c45-demo-always-visible.test.mjs",
     "check:c43-demo-signin": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/c43-demo-signin.test.mjs",
+    "check:c50-reviewer-demo-reveal": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/c50-reviewer-demo-reveal.test.mjs",
     "check:g464-build-label": "node scripts/g464-build-label.test.mjs",
     "check:g461-plan-payments": "node --no-warnings --experimental-loader ./scripts/_tsx-loader.mjs scripts/g461-plan-payments.test.mjs",
     "check:g457-zero-headroom": "node --no-warnings --experimental-strip-types scripts/g457-zero-headroom.test.mjs",

@@ -79,9 +79,12 @@ export function DemoSignInView(p: DemoSignInViewProps) {
 interface DemoSignInProps {
   // The host's post-login flow (the same one Google and Apple use).
   onSignedIn: () => Promise<"ok" | "rejected" | "unreachable">;
+  // C50: this only reveals the existing reviewer entry point. The server
+  // remains responsible for deciding whether the demo account can sign in.
+  revealed: boolean;
 }
 
-export default function DemoSignIn({ onSignedIn }: DemoSignInProps) {
+export default function DemoSignIn({ onSignedIn, revealed }: DemoSignInProps) {
   const [enabled, setEnabled] = useState(false);
   const [open, setOpen] = useState(false);
   const [email, setEmail] = useState("");
@@ -116,6 +119,8 @@ export default function DemoSignIn({ onSignedIn }: DemoSignInProps) {
       setBusy(false);
     }
   }
+
+  if (!revealed) return null;
 
   return (
     <DemoSignInView
