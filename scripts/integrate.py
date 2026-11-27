@@ -635,7 +635,11 @@ def _require_memory(required_mb: int, what: str) -> None:
 _FRONTEND_SWAPPED = False
 
 
-def _restart_services(changed: set[str], skip_frontend: bool = False) -> None:
+def _restart_services(
+    changed: set[str],
+    skip_frontend: bool = False,
+    skip_worker_restart_reason: Optional[str] = None,
+) -> None:
     global _FRONTEND_SWAPPED
     frontend_or_shared = any(p == "frontend" or p.startswith("frontend/") or p == "shared" or p.startswith("shared/") for p in changed)
     backend_changed = any(p == "backend" or p.startswith("backend/") for p in changed)
@@ -675,12 +679,57 @@ def _restart_services(changed: set[str], skip_frontend: bool = False) -> None:
         _systemctl_restart("wealth-frontend")
     if backend_changed:
         _systemctl_restart("wealth-api")
+        if skip_worker_restart_reason is not None:
+            print(f"worker restart skipped for this invocation: {skip_worker_restart_reason}")
+            return
         # wealth-worker imports services and core modules under backend/app
         # (retention, penny_tools, sync services, ...), not just
         # backend/app/workers/ itself, so any backend change can affect the
         # cron code it runs — restart it on every backend change, not just
         # a workers/ one, so cron never runs stale.
         _systemctl_restart("wealth-worker")
+
+
+def _normalise_skip_worker_restart_reason(reason: Optional[str]) -> str:
+    """Return one auditable reason, refusing an absent or blank override."""
+    normalised = " ".join((reason or "").split())
+    if not normalised:
+        raise IntegrateError("--skip-worker-restart requires a non-blank audited reason")
+    return normalised
+
+
+def _validate_worker_restart_skip(changed: set[str], reason: Optional[str]) -> Optional[str]:
+    """Validate the narrow worker exception before the merge can mutate main.
+
+    Router paths only establish eligibility. They never prove worker
+    independence, so the coordinator must audit imports and record that
+    audit in the supplied reason before using this exception.
+    """
+    if reason is None:
+        return None
+    reason = _normalise_skip_worker_restart_reason(reason)
+    backend_paths = sorted(path for path in changed if path == "backend" or path.startswith("backend/"))
+    router_paths = [
+        path for path in backend_paths
+        if path.startswith("backend/app/routers/") and path.endswith(".py")
+    ]
+    unsafe_paths = [
+        path for path in backend_paths
+        if not (path.startswith("backend/app/routers/") and path.endswith(".py"))
+        and not path.startswith("backend/tests/")
+    ]
+    if not router_paths:
+        raise IntegrateError(
+            "--skip-worker-restart is only allowed when at least one "
+            "backend/app/routers/*.py runtime file changes"
+        )
+    if unsafe_paths:
+        raise IntegrateError(
+            "--skip-worker-restart refuses backend paths outside API routers or tests: "
+            + ", ".join(unsafe_paths)
+        )
+    print(f"worker restart override approved for this invocation: {reason}")
+    return reason
 
 
 def _wait_for_http_ok(
@@ -1008,7 +1057,12 @@ def _rebase_onto_board_only_origin(pre_sha: str, merge_sha: str) -> tuple[str, s
     return origin_sha, new_merge
 
 
-def _rollback_and_restart(pre_sha: str, merge_sha: str, changed: set[str]) -> None:
+def _rollback_and_restart(
+    pre_sha: str,
+    merge_sha: str,
+    changed: set[str],
+    skip_worker_restart_reason: Optional[str] = None,
+) -> None:
     # H156: reset to the recorded pre-merge sha, not ORIG_HEAD (any git
     # operation in the window can move it), and carry across the board
     # commits that were made on top of the merge meanwhile instead of
@@ -1061,9 +1115,19 @@ def _rollback_and_restart(pre_sha: str, merge_sha: str, changed: set[str]) -> No
     try:
         _install_dependencies(changed)
         if skip_frontend:
-            _restart_services(changed, skip_frontend=True)
+            if skip_worker_restart_reason is None:
+                _restart_services(changed, skip_frontend=True)
+            else:
+                _restart_services(
+                    changed,
+                    skip_frontend=True,
+                    skip_worker_restart_reason=skip_worker_restart_reason,
+                )
         else:
-            _restart_services(changed)
+            if skip_worker_restart_reason is None:
+                _restart_services(changed)
+            else:
+                _restart_services(changed, skip_worker_restart_reason=skip_worker_restart_reason)
         _wait_and_check_health()
     except IntegrateError as exc:
         print(
@@ -1090,7 +1154,7 @@ def _warn_if_branch_name_unexpected(item_id: str, branch: str) -> None:
     )
 
 
-def _integrate_one(item: dict) -> tuple[str, str]:
+def _integrate_one(item: dict, skip_worker_restart_reason: Optional[str] = None) -> tuple[str, str]:
     """Returns (result, detail): result is 'merged', 'blocked', or 'skipped'."""
     item_id = item["id"]
     branch = item["branch"]
@@ -1110,6 +1174,16 @@ def _integrate_one(item: dict) -> tuple[str, str]:
     if pre_sha_rc != 0:
         return "skipped", f"{item_id}: could not read current HEAD, skipping"
     pre_sha = pre_sha_out.strip()
+    if skip_worker_restart_reason is not None:
+        # Validate before opening the integrate window or merging. This is
+        # the clean-merge runtime diff; a conflict aborts rather than
+        # producing a different deployment scope. The default path makes no
+        # extra diff call and keeps its historical restart behaviour.
+        pending_changed = _changed_paths(f"{pre_sha}...origin/{branch}")
+        skip_worker_restart_reason = _validate_worker_restart_skip(
+            pending_changed,
+            skip_worker_restart_reason,
+        )
 
     # H156: the window opens BEFORE the merge so there is no gap in which a
     # board write could push the merge. If opening it fails nothing has been
@@ -1163,7 +1237,10 @@ def _integrate_one(item: dict) -> tuple[str, str]:
                 _install_dependencies(changed)
                 _run_backend_tests()
                 _run_frontend_checks(changed)
-                _restart_services(changed)
+                if skip_worker_restart_reason is None:
+                    _restart_services(changed)
+                else:
+                    _restart_services(changed, skip_worker_restart_reason=skip_worker_restart_reason)
                 _wait_and_check_health()
                 pre_sha, merge_sha = _rebase_onto_board_only_origin(pre_sha, merge_sha)
                 rc, out = _sh(["git", "push", "origin", "main"], timeout=60)
@@ -1171,13 +1248,19 @@ def _integrate_one(item: dict) -> tuple[str, str]:
                     raise IntegrateError("git push origin main failed:\n" + out)
         except IntegrateError as exc:
             full_text = str(exc)
-            _rollback_and_restart(pre_sha, merge_sha, changed)
+            if skip_worker_restart_reason is None:
+                _rollback_and_restart(pre_sha, merge_sha, changed)
+            else:
+                _rollback_and_restart(pre_sha, merge_sha, changed, skip_worker_restart_reason)
             _close_window()
             _block(item_id, full_text)
             return "blocked", f"{item_id}: {_one_line_reason(full_text)}"
     except Exception:
         if merged:
-            _rollback_and_restart(pre_sha, merge_sha, changed)
+            if skip_worker_restart_reason is None:
+                _rollback_and_restart(pre_sha, merge_sha, changed)
+            else:
+                _rollback_and_restart(pre_sha, merge_sha, changed, skip_worker_restart_reason)
         else:
             _sh(["git", "merge", "--abort"])
         raise
@@ -1284,9 +1367,15 @@ def _filter_only(items: list[dict], only: list[str]) -> list[dict]:
     return [by_id[i] for i in sorted(set(wanted) & set(by_id), key=_id_sort_key)]
 
 
-def integrate_once(allow_branch: Optional[str] = None, only: Optional[list[str]] = None) -> int:
+def integrate_once(
+    allow_branch: Optional[str] = None,
+    only: Optional[list[str]] = None,
+    skip_worker_restart_reason: Optional[str] = None,
+) -> int:
     _BOARD_WRITE_FAILURES.clear()
     try:
+        if skip_worker_restart_reason is not None:
+            skip_worker_restart_reason = _normalise_skip_worker_restart_reason(skip_worker_restart_reason)
         with _locked():
             _check_preconditions(allow_branch)
 
@@ -1345,7 +1434,10 @@ def integrate_once(allow_branch: Optional[str] = None, only: Optional[list[str]]
             skipped: list[str] = []
             for item in items:
                 try:
-                    result, detail = _integrate_one(item)
+                    if skip_worker_restart_reason is None:
+                        result, detail = _integrate_one(item)
+                    else:
+                        result, detail = _integrate_one(item, skip_worker_restart_reason)
                 except Exception as exc:  # noqa: BLE001 - one item's bug must not kill the run
                     full_text = str(exc)
                     result = "blocked"
@@ -1398,14 +1490,41 @@ def main(argv: Optional[list[str]] = None) -> int:
         metavar="ID[,ID...]",
         help="Only integrate these review items (comma separated). Unknown or non-review ids are reported and skipped.",
     )
+    parser.add_argument(
+        "--skip-worker-restart",
+        metavar="REASON",
+        help="Skip wealth-worker only for a reviewed API-router-only item after a recorded import audit.",
+    )
     args = parser.parse_args(argv)
     only = [i for i in args.only.split(",") if i.strip()] if args.only is not None else None
+    if args.skip_worker_restart is not None:
+        if not args.once or args.loop is not None or not only:
+            parser.error("--skip-worker-restart requires explicit --once and --only ID selection")
+        try:
+            skip_worker_restart_reason = _normalise_skip_worker_restart_reason(args.skip_worker_restart)
+        except IntegrateError as exc:
+            parser.error(str(exc))
+    else:
+        skip_worker_restart_reason = None
 
     if args.loop:
         while True:
-            integrate_once(allow_branch=args.allow_branch, only=only)
+            if skip_worker_restart_reason is None:
+                integrate_once(allow_branch=args.allow_branch, only=only)
+            else:
+                integrate_once(
+                    allow_branch=args.allow_branch,
+                    only=only,
+                    skip_worker_restart_reason=skip_worker_restart_reason,
+                )
             time.sleep(args.loop)
-    return integrate_once(allow_branch=args.allow_branch, only=only)
+    if skip_worker_restart_reason is None:
+        return integrate_once(allow_branch=args.allow_branch, only=only)
+    return integrate_once(
+        allow_branch=args.allow_branch,
+        only=only,
+        skip_worker_restart_reason=skip_worker_restart_reason,
+    )
 
 
 if __name__ == "__main__":
