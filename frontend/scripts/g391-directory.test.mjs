@@ -18,7 +18,7 @@ const html = render();
 for (const label of ["All","Current","Savings","Credit","Investment","Owed"]) assert.ok(html.includes(`>${label}</button>`), `${label} type filter restored`);
 assert.ok(html.includes('aria-label="Current accounts"') && html.includes("£1,400"), "group subtotal uses bank balances, not Available or duplicated pins");
 assert.ok(html.includes('aria-label="Pinned accounts"') && html.includes('data-account-row-id="pinned:Main"') && html.includes('data-account-row-id="group:Current:Main"'), "pinned and group rows have distinct focus destinations");
-assert.ok(html.includes("Available:") && html.includes("£10") && html.includes("£0") && html.includes("lucide-triangle-alert"), "Available and its zero-floor warning return to rows");
+assert.ok(html.includes("Available:") && html.includes("£10") && html.includes("£0") && html.includes('data-phosphor-icon="warning"'), "Available and its zero-floor warning return to rows");
 assert.ok(html.includes('aria-label="Inactive accounts"') && html.includes('inert=""'), "inactive rows stay collapsed and out of keyboard navigation");
 assert.ok(!html.includes('data-account-row-id="results:offline"'), "offline accounts keep their separate section in All");
 assert.ok(render({query:"Offline cash"}).includes('data-account-row-id="results:offline"'), "search includes offline accounts");

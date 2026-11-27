@@ -39,8 +39,8 @@ for (const [Component, item] of cases) {
     assert.match(html, /h-11 w-11 touch-manipulation/, "44px native dismiss target");
     assert.match(html, /w-7 h-7 flex items-center justify-center rounded-full/, "V2 visual chip retained");
     if (Component === CelebrationCard) {
-      assert.equal((html.match(/class="lucide lucide-check /g) ?? []).length, 1, "one small success tick");
-      assert.doesNotMatch(html, /lucide-circle-check/, "no second success tile");
+      assert.equal((html.match(/data-phosphor-icon="check"/g) ?? []).length, 1, "one small success tick");
+      assert.doesNotMatch(html, /data-phosphor-icon="check-circle"/, "no second success tile");
       assert.match(html, /role="button" tabindex="0"/, "existing keyboard opening retained");
       if (item.body) assert.match(stripTags(html), /should go through/, "Covered is not paid");
       else assert.doesNotMatch(html, /mt-3 text-wrap/, "missing detail does not create empty body");

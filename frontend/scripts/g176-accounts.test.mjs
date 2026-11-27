@@ -188,7 +188,7 @@ for (const scenario of SCENARIOS) {
   assert.match(card, /By account/); assert.match(card, /<strong>Barclays<\/strong>/); assert.match(card, /aria-haspopup="dialog"/);
   assert.doesNotMatch(card, /Tap an account for its working/, "approved E leaves explanatory working in the existing sheet");
   if (scenario.id === "moves") { assert.match(card.replace(/<[^>]+>/g, ""), /Short/); assert.match(card, /data-status-signal="risk"/); assert.doesNotMatch(card, /short for transfers|may stay put/i); }
-  if (scenario.id === "covered") assert.doesNotMatch(card, /data-status-signal="(?:risk|move|plan)"|lucide-triangle-alert|lucide-info/);
+  if (scenario.id === "covered") assert.doesNotMatch(card, /data-status-signal="(?:risk|move|plan)"|data-phosphor-icon="warning"|data-phosphor-icon="info"/);
 }
 const empty = renderToStaticMarkup(React.createElement(UpcomingAccountsCard, { accounts: [], periodLabel: "This period", onOpen() {} }));
 assert.equal(empty, "");

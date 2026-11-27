@@ -78,7 +78,7 @@ const suggested = renderSheet({ ...account, position: {
 } });
 for (const [id, glyph] of [["suggested:current:destination", "arrow-up-right"], ["suggested:source:current", "arrow-down-left"]]) {
   const row = suggested.match(new RegExp(`<li data-suggested-move="${id}"[\\s\\S]*?</li>`))?.[0] ?? "";
-  assert.match(row, new RegExp(`lucide-${glyph}`), "suggested moves keep their directional arrows");
+  assert.match(row, new RegExp(`data-phosphor-icon="${glyph}"`), "suggested moves keep their directional arrows");
   assert.equal(tile(row), undefined, "suggested moves do not become payment category tiles");
 }
 const hidden = renderSheet(account, true);

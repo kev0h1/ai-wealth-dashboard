@@ -22,7 +22,7 @@ const read = (rel) => readFileSync(new URL(rel, import.meta.url), "utf8");
 // 1. Header.
 {
   const html = renderToStaticMarkup(h(AccountsHeader, { netWorth: { value: 47310, accountCount: 20 }, hidden: false, showChip: false, onShow: noop, onAdd: noop }));
-  assert.ok(!html.includes("Hide balance") && !html.includes("Show balance") && !html.includes("lucide-eye"), "no eye");
+  assert.ok(!html.includes("Hide balance") && !html.includes("Show balance") && !html.includes('data-phosphor-icon="eye-slash"') && !html.includes('data-phosphor-icon="eye"'), "no eye");
   assert.ok(html.includes("text-[30px]") && html.includes("£47,310"), "Net worth is the 30px Display figure");
   assert.ok(html.includes("across 20 accounts"), "caption");
   // re-pinned for G250 I Console, Kevin 2026-10-13: the one control is Add, in the card corner.

@@ -50,7 +50,7 @@ for (const dir of ["components", "app"]) {
 }
 assert.deepEqual(offenders, [], "text glyph beside a chevron icon:\n" + offenders.join("\n"));
 
-const chevrons = (html) => (html.match(/lucide-chevron-right/g) ?? []).length;
+const chevrons = (html) => (html.match(/data-phosphor-icon="caret-right"/g) ?? []).length;
 const noGlyph = (html) => assert.ok(!GLYPH.test(html.replace(/<[^>]*>/g, "")), "no text glyph in " + html);
 
 // ActionLabel: one icon, aria-hidden, label unchanged.

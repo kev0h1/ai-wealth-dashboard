@@ -36,7 +36,7 @@ const flow = (bills) => ({ upcoming_bills: bills, upcoming_income: [], internal_
   assert.equal(row.accountShort, true);
   const html = renderToStaticMarkup(React.createElement(UpcomingAccountDetails, { account, periodLabel: "x", plans: [], plansStatus: "ready" }));
   assert.match(html, /data-card-repayment-short/);
-  assert.match(html, /lucide-triangle-alert/, "a named repayment gap keeps the semantic payment-risk icon");
+  assert.match(html, /data-phosphor-icon="warning"/, "a named repayment gap keeps the semantic payment-risk icon");
   assert.doesNotMatch(html, /may stay put/);
   assert.match(html, /A missed repayment can bring fees and interest\. Goals and allocations are separate from this bill gap\./);
   assert.ok(!html.includes("—") && !html.includes("!"), "copy rules");

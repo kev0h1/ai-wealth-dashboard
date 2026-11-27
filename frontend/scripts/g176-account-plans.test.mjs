@@ -161,7 +161,7 @@ assert.equal(forecastFor("gap").coverage.size, 2, "Plan-source enrichment does n
   assert.equal(buttons.length, 1, "Only editable events become buttons");
   assert.match(buttons[0], new RegExp('data-flow-focus="event-' + gap.events[0].id + '"'));
   assert.match(buttons[0], /min-h-11/, "44px target");
-  assert.match(editable, /lucide-chevron-right/, "Chevron on the editable row");
+  assert.match(editable, /data-phosphor-icon="caret-right"/, "Chevron on the editable row");
   const staticOnly = renderToStaticMarkup(React.createElement(UpcomingAccountDetails, { account: gap, plans: [], plansStatus: "ready", periodLabel: "Through Thu 29 Oct" }));
   assert.doesNotMatch(staticOnly, /data-flow-focus="event-/, "No onEvent keeps events static");
   const everyEvent = renderToStaticMarkup(React.createElement(UpcomingAccountDetails, { account: gap, plans: [], plansStatus: "ready", periodLabel: "Through Thu 29 Oct", onEvent() {} }));
@@ -196,7 +196,7 @@ assert.equal(forecastFor("gap").coverage.size, 2, "Plan-source enrichment does n
   assert.match(filtered, new RegExp('data-flow-focus="event-' + two.events[0].id + '"'));
   assert.doesNotMatch(filtered, /event-payment-other/, "A non-listed event is not a button");
   const otherRow = filtered.slice(filtered.indexOf("Other row") - 400, filtered.indexOf("Other row") + 400);
-  assert.doesNotMatch(otherRow.slice(otherRow.lastIndexOf("<li")), /<button|lucide-chevron-right/, "A non-listed event has no button or chevron");
+  assert.doesNotMatch(otherRow.slice(otherRow.lastIndexOf("<li")), /<button|data-phosphor-icon="caret-right"/, "A non-listed event has no button or chevron");
   assert.match(flowSource, /canReturnTo\(isAccountView\)/);
   assert.match(flowSource, /aria-busy="true"/, "Account-origin absent state renders an empty busy body, not copy");
 }
