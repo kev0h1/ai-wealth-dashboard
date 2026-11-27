@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import importlib.util
 import sys
+import time as stdlib_time
 from pathlib import Path
 
 import pytest
@@ -333,8 +334,21 @@ def test_run_frontend_checks_raises_on_legal_content_failure(monkeypatch):
 # (F14, 2026-09-10: a single poll 5s after restart hit a non-200 because
 # another integrate pass was restarting services at the same moment, and a
 # perfectly good merge got reverted and blocked). These tests exercise the
-# retry helper directly, with real but tiny timeout/interval values so they
-# stay fast without needing to fake the clock.
+# retry helper directly with an isolated clock. Patching the module alias keeps
+# the process-wide stdlib clock available to background threads.
+
+
+class _FakeHealthClock:
+    def __init__(self) -> None:
+        self.now = 0.0
+        self.sleeps: list[float] = []
+
+    def monotonic(self) -> float:
+        return self.now
+
+    def sleep(self, seconds: float) -> None:
+        self.sleeps.append(seconds)
+        self.now += seconds
 
 
 def test_wait_for_http_ok_succeeds_immediately_when_healthy(monkeypatch):
@@ -353,24 +367,37 @@ def test_wait_for_http_ok_retries_then_succeeds(monkeypatch):
         attempts["n"] += 1
         return attempts["n"] >= 3  # fails twice, succeeds on the third poll
 
-    sleeps: list[float] = []
+    clock = _FakeHealthClock()
+    real_sleep = stdlib_time.sleep
     monkeypatch.setattr(integrate, "_http_ok", fake_http_ok)
-    monkeypatch.setattr(integrate.time, "sleep", lambda s: sleeps.append(s))
+    monkeypatch.setattr(integrate, "time", clock)
 
     ok, elapsed = integrate._wait_for_http_ok("http://example.invalid/health", timeout=1, interval=0.01)
 
     assert ok is True
     assert attempts["n"] == 3
-    assert sleeps == [0.01, 0.01]  # slept between the two failed attempts, not after success
+    assert clock.sleeps == [0.01, 0.01]  # slept between the two failed attempts, not after success
+    assert elapsed == pytest.approx(0.02)
+    assert stdlib_time.sleep is real_sleep
 
 
 def test_wait_for_http_ok_gives_up_after_timeout(monkeypatch):
-    monkeypatch.setattr(integrate, "_http_ok", lambda url: False)
-    monkeypatch.setattr(integrate.time, "sleep", lambda s: None)
+    attempts = {"n": 0}
+    clock = _FakeHealthClock()
+
+    def fake_http_ok(url):
+        attempts["n"] += 1
+        return False
+
+    monkeypatch.setattr(integrate, "_http_ok", fake_http_ok)
+    monkeypatch.setattr(integrate, "time", clock)
 
     ok, elapsed = integrate._wait_for_http_ok("http://example.invalid/health", timeout=0.05, interval=0.01)
 
     assert ok is False
+    assert attempts["n"] == 6
+    assert clock.sleeps == [0.01] * 5
+    assert elapsed == pytest.approx(0.05)
 
 
 def test_wait_and_check_health_raises_with_wait_duration_on_failure(monkeypatch):
