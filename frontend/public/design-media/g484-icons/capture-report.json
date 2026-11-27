@@ -1,0 +1,330 @@
+{
+  "pass": true,
+  "results": [
+    {
+      "area": "Home",
+      "mode": "light",
+      "version": "before",
+      "width": 390,
+      "overflow": false,
+      "icons": 77,
+      "bad": 0
+    },
+    {
+      "area": "Home",
+      "mode": "light",
+      "version": "after",
+      "width": 390,
+      "overflow": false,
+      "icons": 77,
+      "bad": 0
+    },
+    {
+      "area": "Home",
+      "mode": "dark",
+      "version": "before",
+      "width": 390,
+      "overflow": false,
+      "icons": 77,
+      "bad": 0
+    },
+    {
+      "area": "Home",
+      "mode": "dark",
+      "version": "after",
+      "width": 390,
+      "overflow": false,
+      "icons": 77,
+      "bad": 0
+    },
+    {
+      "area": "Spend",
+      "mode": "light",
+      "version": "before",
+      "width": 390,
+      "overflow": false,
+      "icons": 42,
+      "bad": 0
+    },
+    {
+      "area": "Spend",
+      "mode": "light",
+      "version": "after",
+      "width": 390,
+      "overflow": false,
+      "icons": 42,
+      "bad": 0
+    },
+    {
+      "area": "Spend",
+      "mode": "dark",
+      "version": "before",
+      "width": 390,
+      "overflow": false,
+      "icons": 42,
+      "bad": 0
+    },
+    {
+      "area": "Spend",
+      "mode": "dark",
+      "version": "after",
+      "width": 390,
+      "overflow": false,
+      "icons": 42,
+      "bad": 0
+    },
+    {
+      "area": "Upcoming",
+      "mode": "light",
+      "version": "before",
+      "width": 390,
+      "overflow": false,
+      "icons": 17,
+      "bad": 0
+    },
+    {
+      "area": "Upcoming",
+      "mode": "light",
+      "version": "after",
+      "width": 390,
+      "overflow": false,
+      "icons": 17,
+      "bad": 0
+    },
+    {
+      "area": "Upcoming",
+      "mode": "dark",
+      "version": "before",
+      "width": 390,
+      "overflow": false,
+      "icons": 17,
+      "bad": 0
+    },
+    {
+      "area": "Upcoming",
+      "mode": "dark",
+      "version": "after",
+      "width": 390,
+      "overflow": false,
+      "icons": 17,
+      "bad": 0
+    },
+    {
+      "area": "Planning",
+      "mode": "light",
+      "version": "before",
+      "width": 390,
+      "overflow": false,
+      "icons": 22,
+      "bad": 0
+    },
+    {
+      "area": "Planning",
+      "mode": "light",
+      "version": "after",
+      "width": 390,
+      "overflow": false,
+      "icons": 22,
+      "bad": 0
+    },
+    {
+      "area": "Planning",
+      "mode": "dark",
+      "version": "before",
+      "width": 390,
+      "overflow": false,
+      "icons": 22,
+      "bad": 0
+    },
+    {
+      "area": "Planning",
+      "mode": "dark",
+      "version": "after",
+      "width": 390,
+      "overflow": false,
+      "icons": 22,
+      "bad": 0
+    },
+    {
+      "area": "Accounts",
+      "mode": "light",
+      "version": "before",
+      "width": 390,
+      "overflow": false,
+      "icons": 31,
+      "bad": 0
+    },
+    {
+      "area": "Accounts",
+      "mode": "light",
+      "version": "after",
+      "width": 390,
+      "overflow": false,
+      "icons": 31,
+      "bad": 0
+    },
+    {
+      "area": "Accounts",
+      "mode": "dark",
+      "version": "before",
+      "width": 390,
+      "overflow": false,
+      "icons": 31,
+      "bad": 0
+    },
+    {
+      "area": "Accounts",
+      "mode": "dark",
+      "version": "after",
+      "width": 390,
+      "overflow": false,
+      "icons": 31,
+      "bad": 0
+    },
+    {
+      "area": "Penny",
+      "mode": "light",
+      "version": "before",
+      "width": 390,
+      "overflow": false,
+      "icons": 28,
+      "bad": 0
+    },
+    {
+      "area": "Penny",
+      "mode": "light",
+      "version": "after",
+      "width": 390,
+      "overflow": false,
+      "icons": 28,
+      "bad": 0
+    },
+    {
+      "area": "Penny",
+      "mode": "dark",
+      "version": "before",
+      "width": 390,
+      "overflow": false,
+      "icons": 28,
+      "bad": 0
+    },
+    {
+      "area": "Penny",
+      "mode": "dark",
+      "version": "after",
+      "width": 390,
+      "overflow": false,
+      "icons": 28,
+      "bad": 0
+    },
+    {
+      "area": "Settings",
+      "mode": "light",
+      "version": "before",
+      "width": 390,
+      "overflow": false,
+      "icons": 9,
+      "bad": 0
+    },
+    {
+      "area": "Settings",
+      "mode": "light",
+      "version": "after",
+      "width": 390,
+      "overflow": false,
+      "icons": 9,
+      "bad": 0
+    },
+    {
+      "area": "Settings",
+      "mode": "dark",
+      "version": "before",
+      "width": 390,
+      "overflow": false,
+      "icons": 9,
+      "bad": 0
+    },
+    {
+      "area": "Settings",
+      "mode": "dark",
+      "version": "after",
+      "width": 390,
+      "overflow": false,
+      "icons": 9,
+      "bad": 0
+    },
+    {
+      "area": "Sheets",
+      "mode": "light",
+      "version": "before",
+      "width": 390,
+      "overflow": false,
+      "icons": 35,
+      "bad": 0
+    },
+    {
+      "area": "Sheets",
+      "mode": "light",
+      "version": "after",
+      "width": 390,
+      "overflow": false,
+      "icons": 35,
+      "bad": 0
+    },
+    {
+      "area": "Sheets",
+      "mode": "dark",
+      "version": "before",
+      "width": 390,
+      "overflow": false,
+      "icons": 35,
+      "bad": 0
+    },
+    {
+      "area": "Sheets",
+      "mode": "dark",
+      "version": "after",
+      "width": 390,
+      "overflow": false,
+      "icons": 35,
+      "bad": 0
+    },
+    {
+      "area": "Ops",
+      "mode": "light",
+      "version": "before",
+      "width": 390,
+      "overflow": false,
+      "icons": 13,
+      "bad": 0
+    },
+    {
+      "area": "Ops",
+      "mode": "light",
+      "version": "after",
+      "width": 390,
+      "overflow": false,
+      "icons": 13,
+      "bad": 0
+    },
+    {
+      "area": "Ops",
+      "mode": "dark",
+      "version": "before",
+      "width": 390,
+      "overflow": false,
+      "icons": 13,
+      "bad": 0
+    },
+    {
+      "area": "Ops",
+      "mode": "dark",
+      "version": "after",
+      "width": 390,
+      "overflow": false,
+      "icons": 13,
+      "bad": 0
+    }
+  ],
+  "errors": []
+}
