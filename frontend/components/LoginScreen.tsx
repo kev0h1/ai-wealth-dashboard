@@ -10,6 +10,12 @@ import DemoSignIn from "@/components/DemoSignIn";
 
 export type { LoginPhase, ResumingLogin } from "@/lib/signInPhase";
 
+export const DEMO_REVEAL_ACTIVATIONS = 5;
+
+export function hasDemoRevealQuery(search: string): boolean {
+  return new URLSearchParams(search).get("demo") === "1";
+}
+
 interface LoginScreenProps {
   error?: string | null;
   // A135: AuthProvider's in-place session establishment. When given, a native
@@ -35,8 +41,14 @@ export default function LoginScreen({ error, onSignedIn, resuming, onCancelResum
   // doesn't exist during the export build), then flips true post-mount if
   // we're actually running inside the iOS native shell.
   const [showApple, setShowApple] = useState(false);
+  // C50: this intentionally lives only in the mounted sign-in screen. A
+  // navigation or refresh gets a fresh count; a web reviewer can also arrive
+  // directly at /login?demo=1. Native shells use the same five activations.
+  const [logoActivations, setLogoActivations] = useState(0);
+  const [webDemoQuery, setWebDemoQuery] = useState(false);
   useEffect(() => {
     setShowApple(isIOSNative());
+    if (!isNativePlatform()) setWebDemoQuery(hasDemoRevealQuery(window.location.search));
   }, []);
 
   // D5: the native sign-in flows resolve their own "invite_only" outcome
@@ -154,6 +166,7 @@ export default function LoginScreen({ error, onSignedIn, resuming, onCancelResum
   }
 
   const isInviteOnly = (error === "invite_only" || nativeInviteOnly) && !inviteOnlyDismissed;
+  const demoRevealed = webDemoQuery || logoActivations >= DEMO_REVEAL_ACTIVATIONS;
 
   if (isInviteOnly) {
     return (
@@ -231,7 +244,12 @@ export default function LoginScreen({ error, onSignedIn, resuming, onCancelResum
           {/* Canonical "settle" mark (dark navy tile, purple stacked bars) —
               generated from capacitor-spike/assets/icon.png and already
               deployed as the web favicon/app-icon set at /icons/icon-192.png. */}
-          <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl shadow-lg mb-5 overflow-hidden">
+          <button
+            type="button"
+            onClick={() => setLogoActivations((count) => Math.min(count + 1, DEMO_REVEAL_ACTIVATIONS))}
+            aria-label="Sorted logo"
+            className="inline-flex min-h-[44px] min-w-[44px] h-16 w-16 items-center justify-center rounded-2xl shadow-lg mb-5 overflow-hidden focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-slate-900"
+          >
             {/* Plain <img>, not next/image: the mobile Capacitor build is a
                 static export (output: 'export') without images.unoptimized
                 set, so next/image would emit a /_next/image?url=... optimizer
@@ -239,7 +257,7 @@ export default function LoginScreen({ error, onSignedIn, resuming, onCancelResum
                 doesn't need runtime optimization anyway. */}
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src="/icons/icon-192.png" alt="Sorted" width={64} height={64} className="w-full h-full object-cover" />
-          </div>
+          </button>
           <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100 tracking-tight">Sorted</h1>
           <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">See where your money stands.</p>
         </div>
@@ -266,7 +284,7 @@ export default function LoginScreen({ error, onSignedIn, resuming, onCancelResum
             <>
               {phase.kind === "failed" && <FailedNotice key={noticeSeq} reason={phase.reason} />}
               {signInButtons}
-              <DemoSignIn onSignedIn={demoEstablish} />
+              <DemoSignIn onSignedIn={demoEstablish} revealed={demoRevealed} />
             </>
           )}
         </div>

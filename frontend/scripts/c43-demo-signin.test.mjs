@@ -35,7 +35,7 @@ assert.match(open, />Sign in</);
 // The regulatory text and the Google and Apple buttons are untouched by this item.
 const login = readFileSync(new URL("../components/LoginScreen.tsx", import.meta.url), "utf8");
 assert.ok(login.includes("{TRADING_NAME_DISCLOSURE} {AGENT_DISCLOSURE}"), "regulatory text unchanged");
-assert.ok(login.indexOf("{signInButtons}\n              <DemoSignIn") > 0, "demo link sits directly below the sign-in buttons");
+assert.ok(login.indexOf("{signInButtons}\n              <DemoSignIn") > 0, "the hidden demo entry remains directly below the sign-in buttons once revealed");
 
 // Copy rules over every user-facing string this item added.
 const sources = ["../components/DemoSignIn.tsx", "../lib/demoLogin.ts"].map((f) => readFileSync(new URL(f, import.meta.url), "utf8"));
