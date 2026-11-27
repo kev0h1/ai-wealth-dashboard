@@ -124,6 +124,19 @@ export interface OAuthConnection {
   active_tokens: number;
 }
 
+// F30: this is a deliberately narrow projection of the server's current
+// validated MCP assistant allowlist. It is not inferred from connection
+// history, which may legitimately outlive a current assessment.
+export interface SupportedAssistant {
+  id: string;
+  name: string;
+}
+
+export interface OAuthConnectionsResponse {
+  connections: OAuthConnection[];
+  supported_assistants: SupportedAssistant[];
+}
+
 // F3/F4: one row of a user's own `/mcp` audit log (backend/app/routers/mcp.py
 // GET /mcp/audit), masked server-side down to tool/client/ts/ok. F15: the
 // "Connected assistants" card's own inline "View activity" expander is
@@ -3807,7 +3820,7 @@ export const api = {
   getOAuthRequest: (reqId: string) => get<OAuthRequestDetails>(`/oauth/request/${encodeURIComponent(reqId)}`),
   decideOAuthRequest: (reqId: string, approve: boolean, grantedScopes?: string[]) =>
     post<{ redirect: string }>("/oauth/decision", buildDecisionBody(reqId, approve, grantedScopes)),
-  listOAuthConnections: () => get<{ connections: OAuthConnection[] }>("/oauth/connections"),
+  listOAuthConnections: () => get<OAuthConnectionsResponse>("/oauth/connections"),
   revokeOAuthConnection: (clientId: string) =>
     fetch(`${API_BASE}/oauth/connections/${encodeURIComponent(clientId)}`, {
       method: "DELETE",
