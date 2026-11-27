@@ -1,20 +1,22 @@
 {
   "item": "C22",
-  "status": "local-design-review-passed",
-  "checkedAt": "2026-11-25T22:58:30.262727+00:00",
-  "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
+  "refreshItem": "G484",
+  "status": "local-icon-refresh-review-passed",
+  "checkedAt": "2026-11-27T08:16:24.526549+00:00",
+  "sourceFingerprint": "4c6099a89b9238c86463290adf2ccdb7447e1319b00d3d81c4940b2b00dce99f",
+  "reviewedIconSource": "9ac28f6bdea1b6edeb754219e51ef6899254a3aa",
   "skills": [
     "impeccable",
-    "frontend-design",
+    "better-icons",
     "web-design-guidelines"
   ],
-  "scope": "Camera-safe handset top areas and removal of the illustrated clock across both marketing directions, all four formats and both themes. Eight core stories and the optional 50/30/20 story retain their production renderers and fictional data. No production component or backend changes.",
+  "scope": "G484 updates the production icon family to native Phosphor and refreshes all handset exports from the combined production components. Frozen fictional figures, selected stories, phone proportions and camera-safe geometry are unchanged. No store publication or native app release.",
   "safeAreaChange": "The iPhone top inset is 48px and Pixel is 36px, extending the existing light or dark screen fill below the entire camera cutout. The Pixel camera ring is included in clearance measurements. No time, signal or battery status markup is rendered. The physical camera, chassis/display ratios, canonical app width, uniform scale and 18px bottom inset are preserved.",
-  "financialChecks": "Current account Available values £272/£150/£0, one global £110 buffer and pooled £312 reconcile. The unsaved future £120 Car service proposal uses add_planned and names Monzo current account. The separate completed 30 Sep to 29 Oct 2026 split reconciles £1,800 income, Fixed £900, Moved £300, Free £450 and Left £150; exact reference differences are £0, −£60 and −£90.",
+  "financialChecks": "Current account Available values \u00a3272/\u00a3150/\u00a30, one global \u00a3110 buffer and pooled \u00a3312 reconcile. The unsaved future \u00a3120 Car service proposal uses add_planned and names Monzo current account. The separate completed 30 Sep to 29 Oct 2026 split reconciles \u00a31,800 income, Fixed \u00a3900, Moved \u00a3300, Free \u00a3450 and Left \u00a3150; exact reference differences are \u00a30, \u2212\u00a360 and \u2212\u00a390.",
   "nativeMetrics": {
     "nativeCases": 144,
     "errors": [],
-    "sourceFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
+    "sourceFingerprint": "4c6099a89b9238c86463290adf2ccdb7447e1319b00d3d81c4940b2b00dce99f",
     "purposeCards": 16,
     "purposeActionTextRanges": 32,
     "minimumPurposeClearanceCssPx": 159.93749787086665,
@@ -85,118 +87,18 @@
       "split"
     ]
   },
-  "rootNativeVisuals": [
-    "a-iphone-63-light-01-amount.png",
-    "a-iphone-63-light-08-schedule.png",
-    "a-iphone-63-light-07-goal.png",
-    "a-android-light-01-amount.png",
-    "a-android-light-07-goal.png",
-    "a-android-light-08-schedule.png",
-    "a-iphone-65-light-08-schedule.png",
-    "a-iphone-63-dark-08-schedule.png",
-    "a-android-dark-08-schedule.png",
-    "b-iphone-63-dark-05-spend.png",
-    "b-iphone-63-dark-09-split.png"
-  ],
-  "independentReview": {
-    "status": "passed",
-    "agent": "c22_phone_independent_audit",
-    "nativeVisuals": [
-      "a-iphone-69-light-07-goal.png",
-      "a-iphone-69-light-08-schedule.png",
-      "a-iphone-65-light-07-goal.png",
-      "a-iphone-65-light-08-schedule.png",
-      "a-android-light-01-amount.png",
-      "a-android-light-04-cover.png",
-      "b-iphone-69-dark-07-goal.png",
-      "b-iphone-69-dark-08-schedule.png",
-      "b-iphone-65-dark-07-goal.png",
-      "b-iphone-65-dark-08-schedule.png",
-      "b-android-dark-07-goal.png",
-      "b-iphone-63-dark-08-schedule.png"
-    ],
-    "scope": "Independent source, native images, handset geometry, action visibility, G474 spacing, gallery, keyboard, saved-theme restoration and downloads audit.",
-    "galleryVisuals": [
-      "gallery-light-390-preview.png",
-      "gallery-dark-390-preview.png",
-      "gallery-light-1440-preview.png",
-      "gallery-dark-1440-preview.png"
-    ]
+  "verification": {
+    "pngs": 144,
+    "orderedZipPacks": 16,
+    "strictAssetAndSourceValidation": "passed",
+    "galleryAndDownloadChecks": "passed",
+    "independentNativePngSamples": 14,
+    "independentIconComparisonCaptures": 36,
+    "productionComponentBrowserCases": 95,
+    "additionalRuleBoundaryCases": 12,
+    "runtimePageErrors": 0,
+    "unexpectedFeatureApiRequests": 0
   },
-  "galleryReview": {
-    "status": "passed",
-    "cases": 38,
-    "capturesRead": 10,
-    "visualsRead": [
-      "gallery-light-320-top.png",
-      "gallery-light-390-preview.png",
-      "gallery-light-1440-preview.png",
-      "gallery-light-390-download-item.png",
-      "gallery-light-390-extra-item.png",
-      "gallery-dark-320-top.png",
-      "gallery-dark-390-preview.png",
-      "gallery-dark-1440-preview.png",
-      "gallery-dark-390-download-item.png",
-      "gallery-dark-390-extra-item.png"
-    ],
-    "downloadsHttp200": 160,
-    "pageErrors": [],
-    "keyboardStops": 9,
-    "savedThemeCases": 2,
-    "spacing": {
-      "cases": 38,
-      "widths": [
-        320,
-        390,
-        1440
-      ],
-      "themes": [
-        "dark",
-        "light"
-      ],
-      "identityRows": 12,
-      "identityGapPairsCssPx": [
-        [
-          12.0,
-          12.0
-        ]
-      ],
-      "maximumIdentityAsymmetryCssPx": 8.86832163828899e-05,
-      "closedDisclosures": 36,
-      "disclosureGapPairsCssPx": [
-        [
-          11.5,
-          11.5
-        ],
-        [
-          13.0,
-          13.0
-        ],
-        [
-          14.0,
-          14.0
-        ],
-        [
-          15.0,
-          16.0
-        ]
-      ],
-      "maximumDisclosureAsymmetryCssPx": 1.0000440437905844,
-      "clockAbsentCases": 38,
-      "minimumCameraClearanceCssPx": 13.00547219256545
-    },
-    "harnessCorrection": "The production preview blocks bare-string evaluation during the return to /design. The readiness and theme-restoration predicates now use functions, preserving the same assertions without changing application CSP. The complete confirmation run passed; rendering source and the 144 assets stayed unchanged."
-  },
-  "localChecks": {
-    "TypeScriptProductionBuild": "passed",
-    "scopedESLint": "passed",
-    "financialFixtureVerifier": "passed",
-    "assetProvenanceSizesRgbZipContents": "passed",
-    "designIndex": "passed",
-    "designStale": "passed"
-  },
-  "delivery": {
-    "status": "pending at this source snapshot",
-    "record": "Mandatory session checks, exact-pin coordinator integration and public UAT verification are recorded separately on C22."
-  }
+  "previousApprovedCameraReviewFingerprint": "800ad241d822ad40a45feb28b15a036d9daf4d1a0b834a778e0e0c722b1d34d7",
+  "reviewNotes": "The independent review corrected Parking to native Letter Circle P and the Future from cue to Calendar Dots. Full goal and one-off action cards remain above navigation, Spend uses the current hero and rail, and no clock or system status glyphs appear. Rounded divider-gap differences remain at most 1 CSS pixel; raw transformed measurements are retained above."
 }
