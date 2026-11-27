@@ -1372,6 +1372,7 @@ Board: the private page /ops/go-live on UAT reads and edits these files. Session
   - note (2026-11-26, claude): Kevin approved 2026-11-26. frontend/app/oauth/consent/OAuthConsentCard.tsx. One short line, existing styles, no design round; independent reviewer checks it against DESIGN.md. Copy rules: no em dashes, British English. Related: F26, F28.
   - note (2026-11-27, codex): Kevin requested parallel delivery on 2026-11-27. Impeccable Operate/clarify in existing consent card. One short initiation reminder, no additional component/divider or claim of user binding. Existing styles, consent/scopes and behaviour retained. Independent source/design audit and responsive/divider check before finish; icon migration reserves this file until copy change settles.
   - note (2026-11-27, claude): Independent immutable source PASS512e174b8bb898357c649c81482ba3139ed840e4. Focused F28 consent gate passed. Full backend8783passed/4skipped,89 ordered scenarios, TypeScript and safety guards passed; remaining frontend gates running. Actual production consent card browser checks include reminder/scopes/decision controls/keyboard and G474 geometry in both themes.
+- [ ] **F33. Add Meta's Muse to the MCP allowlist once a real UAT test registration confirms its redirect URI, with a full review record, and name it in the Privacy, Terms and Settings assistant lists (Kevin 2026-11-27)** [owner: claude]
 
 ## G. Design and copy follow-ups
 
